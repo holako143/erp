@@ -1019,6 +1019,12 @@ export type MessageTemplateCategory =
   | 'LOW_STOCK_ALERT'
   | 'CUSTOM_OPERATION';
 
+export type InvoiceAttachmentDispatchFormat =
+  | 'TEXT_ONLY'
+  | 'IMAGE_SNAPSHOT'
+  | 'PDF_DOCUMENT'
+  | 'ALL_COMBINED';
+
 export interface OutboundMessageRecord {
   id: string;
   tenantId: string;
@@ -1034,6 +1040,11 @@ export interface OutboundMessageRecord {
   smsUri: string;
   sentBy: string;
   sentAt: string;
+  dispatchFormat?: InvoiceAttachmentDispatchFormat;
+  pdfAttached?: boolean;
+  imageAttached?: boolean;
+  deliveryConfirmed?: boolean;
+  retryCount?: number;
 }
 
 export interface MessagingGatewayConfig {
@@ -1044,6 +1055,9 @@ export interface MessagingGatewayConfig {
   autoSendOnPOSCheckout: boolean;
   autoIncludeInvoiceItems: boolean;
   autoIncludeWarrantyTerms: boolean;
+  preferredInvoiceFormat: InvoiceAttachmentDispatchFormat;
+  guaranteedActualDispatch: boolean;
+  usbModemDirectPort: string;
   ownerReportPhone: string;
   customSignatureAr: string;
 }

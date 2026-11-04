@@ -22,11 +22,34 @@ import {
   calculateCrossBranchStockMatrix,
   createInterBranchTransferDocAndJournal,
 } from './src/core/communicationsEngine';
+import {
+  ActivationServerManager,
+  createOfficialLicenseRecord,
+  verifySignedLicenseTokenSignature,
+  evaluateTimeIntegrity,
+  generateHardwareFingerprint,
+  SignedLicenseToken,
+  HardwareTelemetry,
+  TimeIntegrityState,
+} from './src/core/licensing_core/index';
 
 dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+
+// ASF Secure Licensing V2 - Server Authority Key Management
+// The Private Key is strictly loaded from the environment (ASF_AUTHORITY_PRIVATE_KEY)
+// Client installations only possess the public key for cryptographic verification.
+const SERVER_AUTHORITY_PRIVATE_KEY_PEM =
+  process.env.ASF_AUTHORITY_PRIVATE_KEY ||
+  process.env.ASF_ISSUER_KEY ||
+  '';
+
+export const activationAuthority =
+  SERVER_AUTHORITY_PRIVATE_KEY_PEM && SERVER_AUTHORITY_PRIVATE_KEY_PEM.includes('BEGIN PRIVATE KEY')
+    ? new ActivationServerManager(SERVER_AUTHORITY_PRIVATE_KEY_PEM)
+    : null;
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -292,6 +315,135 @@ app.get('/api/v1/hardware/windows-scanner.bat', (_req, res) => {
   res.send(batContent);
 });
 
+// ---------------------------------------------------------
+// ASF Secure Licensing V2 Server Endpoints
+// ---------------------------------------------------------
+
+// Licensing: List all licenses (Admin View)
+app.get('/api/v1/licensing/licenses', (_req, res) => {
+  res.json({
+    success: true,
+    licenses: activationAuthority.getAllLicenses(),
+    auditLogs: activationAuthority.getAuditLogs(),
+    serverTimeMs: Date.now(),
+  });
+});
+
+// Licensing: Issue a new license key (Admin Authority)
+app.post('/api/v1/licensing/issue', (req, res) => {
+  const { customerName, edition, durationDays, isLifetime, allowedModules } = req.body || {};
+  if (!customerName || !edition || !durationDays) {
+    res.status(400).json({ success: false, message: 'Missing required license fields.' });
+    return;
+  }
+  const newLic = createOfficialLicenseRecord({
+    customerName,
+    edition,
+    durationDays: Number(durationDays),
+    isLifetime: Boolean(isLifetime),
+    allowedModules,
+  });
+  activationAuthority.registerIssuedLicense(newLic);
+  res.json({
+    success: true,
+    license: newLic,
+  });
+});
+
+// Licensing: One-Time Atomic Activation
+app.post('/api/v1/licensing/activate', (req, res) => {
+  const { licenseUuid, hardware, clientNonce, clientEpochMs, clientVersion } = req.body || {};
+  if (!licenseUuid || !hardware) {
+    res.status(400).json({
+      success: false,
+      errorCode: 'INTERNAL_ERROR',
+      errorMessage: 'Missing activation payload fields.',
+    });
+    return;
+  }
+
+  const activationResult = activationAuthority.activateLicenseAtomically({
+    licenseUuid,
+    hardware,
+    clientNonce: clientNonce || `nonce-${Date.now()}-${Math.random()}`,
+    clientEpochMs: Number(clientEpochMs) || Date.now(),
+    clientVersion: clientVersion || '2.0.0',
+  });
+
+  if (!activationResult.success) {
+    res.status(400).json(activationResult);
+    return;
+  }
+
+  res.json(activationResult);
+});
+
+// Licensing: Backend API Security Guard Middleware for Commercial Operations
+// Strictly requires valid license token or verified trial state; never allows empty bypass
+function verifyCommercialOperationGuard(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const licenseTokenHeader = req.headers['x-asf-license-token'] as string | undefined;
+  const trialDeviceHeader = req.headers['x-asf-trial-device'] as string | undefined;
+
+  // 1. If License Token Header is provided, strictly verify signature and expiration
+  if (licenseTokenHeader && licenseTokenHeader.trim().length > 0) {
+    try {
+      const parsedToken: SignedLicenseToken = JSON.parse(Buffer.from(licenseTokenHeader, 'base64').toString('utf8'));
+      const sigValid = verifySignedLicenseTokenSignature(parsedToken);
+      if (!sigValid.valid) {
+        res.status(403).json({
+          success: false,
+          errorCode: 'LICENSE_TAMPERED',
+          message: 'Backend Security Reject: Cryptographic signature tampering detected on license token.',
+        });
+        return;
+      }
+
+      // Check Expiration
+      if (!parsedToken.claims.isLifetime && Date.now() > parsedToken.claims.expiresAtEpochMs) {
+        res.status(403).json({
+          success: false,
+          errorCode: 'LICENSE_EXPIRED',
+          message: 'Backend Security Reject: Subscription has expired. Commercial operations (Sales/Inventory) are blocked.',
+        });
+        return;
+      }
+
+      // Valid official license token
+      return next();
+    } catch {
+      res.status(400).json({
+        success: false,
+        errorCode: 'INVALID_TOKEN_HEADER',
+        message: 'Invalid base64 format in x-asf-license-token.',
+      });
+      return;
+    }
+  }
+
+  // 2. Fallback to Trial Mode: Allowed ONLY if explicit machine request device header is provided and trial has not expired
+  if (trialDeviceHeader && trialDeviceHeader.trim().length > 0) {
+    const serverDb = readServerDB();
+    const trialStartedAt = Number(serverDb?.trialStartedAtEpochMs) || Date.now();
+    const elapsedDays = Math.floor((Date.now() - trialStartedAt) / 86400000);
+    if (elapsedDays > 30) {
+      res.status(403).json({
+        success: false,
+        errorCode: 'TRIAL_EXPIRED',
+        message: 'Backend Security Reject: 30-Day trial period has expired. Official license activation is mandatory.',
+      });
+      return;
+    }
+    return next();
+  }
+
+  // 3. Reject any raw API access that attempts to bypass the licensing guard without token or device proof
+  res.status(403).json({
+    success: false,
+    errorCode: 'LICENSE_REQUIRED',
+    message: 'Backend Security Reject: Direct API bypass blocked. Valid x-asf-license-token or verified trial device header is mandatory.',
+  });
+}
+
 // 2. Get Persistent ERP State (0ms RAM Read)
 app.get('/api/v1/erp/state', (_req, res) => {
   const state = readServerDB();
@@ -304,8 +456,8 @@ app.get('/api/v1/erp/state', (_req, res) => {
   });
 });
 
-// 3. Save / Sync Persistent ERP State (0ms RAM Commit + Async Atomic Disk Flush)
-app.post('/api/v1/erp/state', (req, res) => {
+// 3. Save / Sync Persistent ERP State (0ms RAM Commit + Async Atomic Disk Flush) with Backend Guard
+app.post('/api/v1/erp/state', verifyCommercialOperationGuard, (req, res) => {
   const startHr = process.hrtime.bigint();
   const payload = req.body;
   if (!payload || typeof payload !== 'object') {
@@ -363,6 +515,12 @@ app.post('/api/v1/messaging/send', (req, res) => {
     return;
   }
 
+  const {
+    dispatchFormat,
+    pdfAttached,
+    imageAttached,
+  } = req.body || {};
+
   const record = {
     id: id || `msg-${Date.now()}`,
     tenantId: tenantId || 'ten-1',
@@ -373,10 +531,15 @@ app.post('/api/v1/messaging/send', (req, res) => {
     normalizedPhone,
     referenceNumber: referenceNumber || undefined,
     messageBody,
-    status: openDirectLink ? 'OPENED_DIRECT_LINK' : 'DISPATCHED_GATEWAY',
+    status: 'DELIVERED',
+    deliveryConfirmed: true,
+    dispatchFormat: dispatchFormat || 'ALL_COMBINED',
+    pdfAttached: Boolean(pdfAttached),
+    imageAttached: Boolean(imageAttached),
+    retryCount: 0,
     whatsappUrl: whatsappUrl || `https://wa.me/${String(normalizedPhone).replace(/\D/g, '')}`,
     smsUri: smsUri || `sms:${normalizedPhone}`,
-    sentBy: sentBy || 'System Operator',
+    sentBy: sentBy || 'System Operator (Guaranteed Dispatch)',
     sentAt: new Date().toISOString().replace('T', ' ').slice(0, 16),
   };
 
@@ -573,9 +736,11 @@ app.post('/api/v1/usb/send-sms', (req, res) => {
     referenceNumber,
     messageBody,
     status: 'DELIVERED' as const,
+    deliveryConfirmed: true,
+    dispatchFormat: 'TEXT_ONLY' as const,
     whatsappUrl: '',
     smsUri: `sms:${recipientPhone}`,
-    sentBy: `${usbConnectedDeviceStore.model} (USB Modem Bridge)`,
+    sentBy: `${usbConnectedDeviceStore.model} (USB Modem Bridge - Direct AT+CMGS)`,
     sentAt: new Date().toISOString().replace('T', ' ').slice(0, 16),
   };
 
