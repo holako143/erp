@@ -1,0 +1,6 @@
+{
+  "name": "RLM ERP - Enterprise Multi-Tenant ERP Platform",
+  "description": "Comprehensive enterprise multi-tenant ERP platform with unique barcode tracking, inventory, purchasing, sales & POS, double-entry accounting, HR, manufacturing, projects, fleet, BI and AI insights.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
