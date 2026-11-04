@@ -906,9 +906,19 @@ export const POSView: React.FC = () => {
                       </button>
                     </div>
 
-                    {/* Item Total */}
-                    <div className="w-22 text-end font-bold font-mono tabular-nums text-slate-900 shrink-0" dir="ltr">
+                  {/* Item Total & Cross Branch Probe */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => openCrossBranchModal(item.sku)}
+                      className="p-1 hover:bg-indigo-50 text-indigo-600 rounded text-[10px] font-bold"
+                      title="فحص توفر هذا الصنف في الفروع الأخرى"
+                    >
+                      <Network className="w-3.5 h-3.5" />
+                    </button>
+                    <div className="w-20 text-end font-bold font-mono tabular-nums text-slate-900" dir="ltr">
                       {item.total.toFixed(2)} {currency}
+                    </div>
                     </div>
                   </div>
 

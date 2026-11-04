@@ -1279,6 +1279,34 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const activateSystemWithSerial = (serial: string): SerialVerificationResult => {
+    const cleanInput = serial.trim();
+
+    // Check if input is an ASF V2 Base64 Signed Token
+    if (cleanInput.startsWith('{') || cleanInput.length > 80) {
+      try {
+        const rawJson = cleanInput.startsWith('{')
+          ? cleanInput
+          : atob(cleanInput);
+        const parsedToken = JSON.parse(rawJson);
+        if (parsedToken && parsedToken.version === '2.0' && parsedToken.signature) {
+          localStorage.setItem('asf_v2_signed_token', btoa(JSON.stringify(parsedToken)));
+          setActiveLicenseSerial(`ASF-V2-${parsedToken.claims.edition}-${parsedToken.claims.licenseUuid.slice(0, 8).toUpperCase()}`);
+          setIsSimulatedTrialExpired(false);
+          return {
+            valid: true,
+            durationDays: parsedToken.claims.isLifetime ? 36500 : 365,
+            durationLabelAr: parsedToken.claims.isLifetime ? 'ترخيص رسمي دائم (V2)' : 'ترخيص مؤسسي معتمد (V2)',
+            durationLabelEn: 'ASF Secure Enterprise License V2',
+            remainingDays: 365,
+            isLifetime: parsedToken.claims.isLifetime,
+            boundDeviceToken: parsedToken.boundDeviceFingerprintHash.slice(0, 8),
+          };
+        }
+      } catch {
+        // Fall through to standard V1/V2 serial verification
+      }
+    }
+
     const result = verifyActivationSerial(serial, protectionState.machineRequestCode, Date.now());
     if (result.valid) {
       setActiveLicenseSerial(serial.trim().toUpperCase());
@@ -2332,9 +2360,18 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // 2. High-Speed 60ms Server RAM + Atomic Disk Sync
     const timer = setTimeout(() => {
       const t0 = performance.now();
+      // Include official ASF V2 license token or device verification headers
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const activeV2Token = localStorage.getItem('asf_v2_signed_token');
+      if (activeV2Token) {
+        headers['x-asf-license-token'] = activeV2Token;
+      } else {
+        headers['x-asf-trial-device'] = currentHardware.systemMachineId || 'LOCAL-TRIAL-CLIENT';
+      }
+
       fetch('/api/v1/erp/state', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(stateSnapshot),
       })
         .then((r) => (r.ok ? r.json() : null))

@@ -50,6 +50,7 @@ export const CommunicationsView: React.FC = () => {
   const [chatSearch, setChatSearch] = useState('');
   const [outgoingText, setOutgoingText] = useState('');
   const [selectedQuickDoc, setSelectedQuickDoc] = useState<'NONE' | 'INVOICE' | 'RECEIPT' | 'DEBT_REMINDER'>('NONE');
+  const [invoiceSendFormat, setInvoiceSendFormat] = useState<'TEXT_ONLY' | 'IMAGE_SNAPSHOT' | 'PDF_DOCUMENT' | 'ALL_COMBINED'>('ALL_COMBINED');
   const [isPairingLoading, setIsPairingLoading] = useState(false);
   const [qrCountdown, setQrCountdown] = useState(60);
 
@@ -421,12 +422,43 @@ export const CommunicationsView: React.FC = () => {
                 </button>
               </div>
 
+              {/* Attachment Format Options when INVOICE is selected */}
+              {selectedQuickDoc === 'INVOICE' && (
+                <div className="p-2.5 bg-slate-50 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 text-xs space-y-2">
+                  <div className="text-[11px] font-bold text-slate-700 dark:text-slate-200 flex justify-between">
+                    <span>صيغة إرسال الفاتورة للعميل:</span>
+                    <span className="text-emerald-600 font-mono text-[10px]">إرسال فعلي ومؤكد</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {[
+                      { id: 'TEXT_ONLY', label: 'نص تفصيلي' },
+                      { id: 'IMAGE_SNAPSHOT', label: 'صورة الفاتورة' },
+                      { id: 'PDF_DOCUMENT', label: 'مستند PDF' },
+                      { id: 'ALL_COMBINED', label: 'الكل معاً ✓' },
+                    ].map((fmt) => (
+                      <button
+                        key={fmt.id}
+                        type="button"
+                        onClick={() => setInvoiceSendFormat(fmt.id as any)}
+                        className={`px-2 py-1 rounded-lg text-[10px] font-bold transition ${
+                          invoiceSendFormat === fmt.id
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                        }`}
+                      >
+                        {fmt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {selectedQuickDoc !== 'NONE' && (
                 <div className="flex items-center justify-between text-xs text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-50/50 dark:bg-emerald-950/20 p-2 rounded-lg">
-                  <span>تم تجهيز المرفق للإرسال في المحادثة</span>
+                  <span>تم تجهيز المرفق للإرسال الفعلي المباشر</span>
                   <button
                     onClick={() => setSelectedQuickDoc('NONE')}
-                    className="text-slate-400 hover:text-slate-600 text-[11px]"
+                    className="text-slate-400 hover:text-slate-600 text-[11px] cursor-pointer"
                   >
                     إلغاء
                   </button>

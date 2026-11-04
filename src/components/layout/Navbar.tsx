@@ -457,20 +457,22 @@ export const Navbar: React.FC = () => {
             </span>
           </button>
 
-          {/* LAN Local Network Status Badge */}
+          {/* LAN Local Network Status Badge & Mobile Access Trigger */}
           {masterSystemConfig.uiElementsVisibility.showLanNetworkBanner && networkInfo && (
-            <div
+            <button
+              type="button"
               data-testid="navbar-lan-badge"
-              className={`hidden xl:flex items-center gap-1.5 px-2 h-8 rounded-md border text-[11px] font-mono ${
+              onClick={() => openQuickSendModal({ channel: 'WHATSAPP', category: 'CUSTOM_OPERATION', messageBody: `رابط الدخول للنظام عبر الشبكة الداخلية: ${networkInfo.primaryLanUrl}` })}
+              className={`hidden xl:flex items-center gap-1.5 px-2 h-8 rounded-md border text-[11px] font-mono transition cursor-pointer ${
                 isDark
-                  ? 'bg-slate-900 border-slate-800 text-sky-400'
-                  : 'bg-sky-50/70 border-sky-200 text-sky-800'
+                  ? 'bg-slate-900 border-slate-800 text-sky-400 hover:bg-slate-800'
+                  : 'bg-sky-50/70 border-sky-200 text-sky-800 hover:bg-sky-100'
               }`}
-              title={`LAN Network Access: ${networkInfo.primaryLanUrl}`}
+              title={`LAN Network Access: ${networkInfo.primaryLanUrl} (انقر لمشاركة الرابط)`}
             >
-              <Wifi className="w-3.5 h-3.5 text-sky-500 shrink-0" />
-              <span>LAN</span>
-            </div>
+              <Wifi className="w-3.5 h-3.5 text-sky-500 shrink-0 animate-pulse" />
+              <span>LAN: {networkInfo.primaryLanUrl.replace('http://', '')}</span>
+            </button>
           )}
 
           {/* Hidden Master Admin Quick Access Button (Only visible when logged in as sysadmin) */}

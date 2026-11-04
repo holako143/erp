@@ -1865,4 +1865,29 @@ test('Track 17 Mobile Stock-Taking Engine: calculateStockAdjustmentVariance comp
   assert.equal(matched.isBalanced, true);
 });
 
+test('Track 18 Guaranteed Multi-Format Invoice Package: builds Text, Image, PDF, and All-in-One packages with delivery token', async () => {
+  const { buildGuaranteedInvoiceDispatchPackage } = await import('./communicationsEngine');
+
+  const pkg = buildGuaranteedInvoiceDispatchPackage({
+    invoiceNumber: 'INV-2026-8800',
+    customerName: 'شركة البناء والتعمير',
+    customerPhone: '+967771234567',
+    grandTotal: 15400,
+    currency: 'YER',
+    itemsSummary: '10× لوح طاقة 585W + 1× إنفرتر 8kW',
+    format: 'ALL_COMBINED',
+    companyName: 'مؤسسة النور للطاقة',
+    branchName: 'الفرع الرئيسي',
+    taxNumber: '300059281900003',
+  });
+
+  assert.ok(pkg.dispatchId.startsWith('DSP-'));
+  assert.ok(pkg.ackToken.startsWith('ACK-WA-INV-2026-8800'));
+  assert.equal(pkg.readyForDirectSend, true);
+  assert.ok(pkg.formattedText.includes('15,400'));
+  assert.ok(pkg.formattedText.includes('لوح طاقة 585W'));
+  assert.ok(pkg.imageDataUri.startsWith('data:image/svg+xml'));
+  assert.ok(pkg.pdfDataUri.startsWith('data:application/pdf'));
+  assert.ok(pkg.receiptSummaryAr.includes('نص + صورة + PDF'));
+});
 
