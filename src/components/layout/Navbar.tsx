@@ -18,6 +18,7 @@ import {
   ShieldAlert,
   Wifi,
   MessageSquare,
+  Settings as SettingsIcon,
 } from 'lucide-react';
 import { IndustryType } from '../../types/erp';
 import { PWAInstallButton } from './PWAInstallBanner';
@@ -57,9 +58,25 @@ export const Navbar: React.FC = () => {
     networkInfo,
     openQuickSendModal,
     outboundMessages,
+    setIsStandaloneKeygenOpen,
   } = useERP();
 
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [clickTimestamps, setClickTimestamps] = useState<number[]>([]);
+
+  const handleSettingsRapidClick = () => {
+    const now = Date.now();
+    // Keep clicks from the last 2.5 seconds
+    const recentClicks = [...clickTimestamps.filter((t) => now - t < 2500), now];
+    setClickTimestamps(recentClicks);
+
+    if (recentClicks.length >= 7) {
+      setClickTimestamps([]);
+      setIsStandaloneKeygenOpen(true);
+    } else {
+      setActiveTab('settings');
+    }
+  };
 
   const lowStockCount = products.filter((p) => p.stockQty <= p.reorderPoint).length;
   const pendingWorkflowsCount = workflowApprovals.filter((w) => w.status === 'PENDING').length;
@@ -539,6 +556,21 @@ export const Navbar: React.FC = () => {
           >
             <Globe className="w-3.5 h-3.5 text-slate-400 shrink-0" />
             <span>{language === 'ar' ? 'EN' : 'عربي'}</span>
+          </button>
+
+          {/* Settings Trigger with 7-Click Rapid Developer Trigger */}
+          <button
+            type="button"
+            data-testid="navbar-settings-stealth-trigger"
+            onClick={handleSettingsRapidClick}
+            title={language === 'ar' ? 'الإعدادات العامة للنظام' : 'System Settings'}
+            className={`flex items-center justify-center w-8 h-8 rounded-md border text-xs transition cursor-pointer ${
+              isDark
+                ? 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800'
+                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            <SettingsIcon className="w-3.5 h-3.5" />
           </button>
 
           {/* User Profile & Logout */}
