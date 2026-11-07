@@ -1132,8 +1132,8 @@ export const SecurityCenterView: React.FC = () => {
               <KeyRound className="w-4 h-4" />
               <span>
                 {language === 'ar'
-                  ? 'فتح منصة إصدار التراخيص المستقلة (تتطلب PIN المطور: RLM-DEV-9999)'
-                  : 'Launch Standalone Licensing Server (Requires Developer PIN)'}
+                  ? 'فتح منصة إصدار التراخيص المستقلة (تتطلب رمز المطور المعتمد)'
+                  : 'Open Standalone Cryptographic Keygen (Requires Authorized Developer PIN)'}
               </span>
             </button>
           </div>

@@ -31,6 +31,8 @@ import { MasterAdminControlView } from './views/MasterAdminControlView';
 import { StandaloneActivationPortal } from './views/StandaloneActivationPortal';
 import { CommunicationsView } from './views/CommunicationsView';
 import { CrossBranchStockModal } from './components/common/CrossBranchStockModal';
+import { OnboardingWizardModal } from './components/common/OnboardingWizardModal';
+import { MobileLanPortalModal } from './components/common/MobileLanPortalModal';
 
 const MainLayout: React.FC = () => {
   const {
@@ -50,6 +52,8 @@ const MainLayout: React.FC = () => {
     networkInfo,
     language,
     syncLatencyMs,
+    isOnboardingOpen,
+    closeOnboarding,
   } = useERP();
 
   // Global Anti-Theft Source Code Protection Shield & Fast Keyboard Shortcuts
@@ -291,6 +295,8 @@ const MainLayout: React.FC = () => {
           <CommandPalette />
           <QuickSendModal />
           <CrossBranchStockModal />
+          <MobileLanPortalModal />
+          <OnboardingWizardModal isOpen={isOnboardingOpen} onClose={closeOnboarding} />
           <OfflineIndicator />
         </div>
       )}
