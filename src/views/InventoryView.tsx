@@ -291,9 +291,6 @@ export const InventoryView: React.FC = () => {
         </div>
       )}
 
-      {/* Dynamic Industry Chameleon Workstation & Specialized Supplies Provisioning */}
-      <IndustryChameleonPanel contextMode="INVENTORY" defaultExpanded={false} />
-
       {/* Title & Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -301,8 +298,8 @@ export const InventoryView: React.FC = () => {
             <Package className="w-5 h-5 text-emerald-700" />
             <span>
               {language === 'ar'
-                ? 'إدارة المستودعات والمخزون متعدد القطاعات (WMS)'
-                : 'Multi-Industry Inventory & WMS'}
+                ? 'إدارة المستودعات والمخزون والأصناف (WMS)'
+                : 'Inventory Management & WMS'}
             </span>
           </h1>
           <p className="text-xs text-slate-500 mt-1">

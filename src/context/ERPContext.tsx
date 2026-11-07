@@ -753,6 +753,9 @@ interface ERPContextType {
 
   // Data Reset, Backup & Restore
   resetToInitialDemo: () => void;
+  resetSystemToBlank: () => void;
+  isOnboardingCompleted: boolean;
+  completeOnboarding: () => void;
   importBackupJSON: (rawJson: string) => { success: boolean; messageAr: string; messageEn: string };
 }
 
@@ -5003,6 +5006,46 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     fetch('/api/v1/erp/reset', { method: 'POST' }).catch(() => {});
   };
 
+  const [isOnboardingCompleted, setIsOnboardingCompleted] = useState<boolean>(() => {
+    return localStorage.getItem('asf_onboarding_completed') === 'true';
+  });
+
+  const completeOnboarding = () => {
+    localStorage.setItem('asf_onboarding_completed', 'true');
+    setIsOnboardingCompleted(true);
+  };
+
+  const resetSystemToBlank = () => {
+    // Zero out all products, stock, customer records, vendor records, invoices, orders, employees
+    setProducts([]);
+    setBarcodes([]);
+    setTraceabilityEvents([]);
+    setSuppliers([]);
+    setCustomers([]);
+    setSalesInvoices([]);
+    setPurchaseOrders([]);
+    setEmployees([]);
+    setFixedAssets([]);
+    setProductionOrders([]);
+    setProjects([]);
+    setFleetVehicles([]);
+    setQualityInspections([]);
+    setCrmLeads([]);
+    setEcommerceOrders([]);
+    setWorkflowApprovals([]);
+    setPosCart([]);
+    setHoldBills([]);
+    setPostDatedChecks([]);
+    setKitchenTickets([]);
+
+    // Keep Chart of Accounts intact, but initialize balanced zero/clean journal
+    setChartAccounts(SEED_CHART_OF_ACCOUNTS);
+    setJournalEntries([]);
+
+    // Clear server state if available
+    fetch('/api/v1/erp/reset-blank', { method: 'POST' }).catch(() => {});
+  };
+
   const importBackupJSON = (rawJson: string) => {
     try {
       const parsed = JSON.parse(rawJson);
@@ -5609,6 +5652,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         advanceBranchTransfer,
 
         resetToInitialDemo,
+        resetSystemToBlank,
+        isOnboardingCompleted,
+        completeOnboarding,
         importBackupJSON,
       }}
     >

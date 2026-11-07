@@ -186,9 +186,6 @@ export const DashboardView: React.FC = () => {
         </div>
       </div>
 
-      {/* Dynamic Industry Chameleon Workstation & Specialized Supplies Catalog */}
-      <IndustryChameleonPanel contextMode="DASHBOARD" defaultExpanded={true} />
-
       {/* Swiss-Grid 4-Column Primary Financial Ledger Strip (Single Border Container with Hairline Dividers) */}
       <div
         className={`rounded-lg border grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x sm:divide-x-reverse ${

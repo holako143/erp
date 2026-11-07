@@ -489,6 +489,28 @@ app.post('/api/v1/erp/reset', (_req, res) => {
   }
 });
 
+// 4.1 Reset to Clean Blank Database (Zero items, zero invoices, chart of accounts preserved)
+app.post('/api/v1/erp/reset-blank', (_req, res) => {
+  try {
+    memoryStore = {
+      products: [],
+      salesInvoices: [],
+      purchaseOrders: [],
+      customers: [],
+      suppliers: [],
+      employees: [],
+      journalEntries: [],
+    };
+    dbRevision = 1;
+    if (fs.existsSync(DB_FILE)) {
+      fs.writeFileSync(DB_FILE, JSON.stringify(memoryStore, null, 2), 'utf-8');
+    }
+    res.json({ success: true, message: 'Server database initialized to clean blank state' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // 4b. Server-Side Omnichannel WhatsApp & SMS Gateway Dispatch Endpoint
 app.post('/api/v1/messaging/send', (req, res) => {
   const {

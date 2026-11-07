@@ -155,52 +155,27 @@ export const Navbar: React.FC = () => {
             </div>
           </div>
 
-          {/* Operational Sector Selector (or Locked Single-Activity Badge) */}
-          {masterSystemConfig.industryLockMode === 'SINGLE_LOCKED' ||
-          !masterSystemConfig.uiElementsVisibility.showIndustrySwitcher ? (
-            <div
-              data-testid="navbar-locked-industry-badge"
-              className={`flex items-center gap-1.5 h-8 px-2.5 rounded-md border text-xs font-bold max-w-[190px] truncate ${
-                isDark
-                  ? 'bg-amber-950/30 border-amber-500/30 text-amber-300'
-                  : 'bg-amber-50 border-amber-200 text-amber-900'
-              }`}
-              title={
-                language === 'ar'
-                  ? 'النظام مخصص ومقفل على هذا النشاط من قبل الإدارة العليا'
-                  : 'System is dedicated and locked to this single industry'
-              }
-            >
-              <Lock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-              <span className="truncate">
-                {language === 'ar'
-                  ? industryOptions.find((i) => i.id === activeIndustry)?.labelAr || activeIndustry
-                  : industryOptions.find((i) => i.id === activeIndustry)?.labelEn || activeIndustry}
-              </span>
-            </div>
-          ) : (
-            <div
-              className={`flex items-center h-8 px-2.5 rounded-md border text-xs transition max-w-[190px] ${
-                isDark
-                  ? 'bg-slate-900 border-slate-800 text-slate-200'
-                  : 'bg-slate-50 border-slate-200 text-slate-800 hover:border-slate-300'
-              }`}
-            >
-              <select
-                data-testid="navbar-industry-select"
-                value={activeIndustry}
-                onChange={(e) => setActiveIndustry(e.target.value as IndustryType)}
-                className="bg-transparent border-none outline-hidden cursor-pointer font-semibold truncate text-xs w-full"
-                title={language === 'ar' ? 'تغيير القطاع التشغيلي' : 'Switch Operational Sector'}
-              >
-                {industryOptions.map((ind) => (
-                  <option key={ind.id} value={ind.id} className="text-slate-900 bg-white">
-                    {language === 'ar' ? ind.labelAr : ind.labelEn}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+          {/* Operational Sector Dedicated Badge (Locked to Single Chosen Industry) */}
+          <div
+            data-testid="navbar-locked-industry-badge"
+            className={`flex items-center gap-1.5 h-8 px-2.5 rounded-md border text-xs font-bold max-w-[240px] truncate select-none ${
+              isDark
+                ? 'bg-slate-900 border-slate-800 text-emerald-400'
+                : 'bg-emerald-50/80 border-emerald-200 text-emerald-900'
+            }`}
+            title={
+              language === 'ar'
+                ? 'النشاط التجاري المخصص للنظام'
+                : 'Dedicated Business Activity'
+            }
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+            <span className="truncate">
+              {language === 'ar'
+                ? industryOptions.find((i) => i.id === activeIndustry)?.labelAr || activeIndustry
+                : industryOptions.find((i) => i.id === activeIndustry)?.labelEn || activeIndustry}
+            </span>
+          </div>
 
           {/* Tenant & Branch Breadcrumb Selectors */}
           <div
