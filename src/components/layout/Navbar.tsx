@@ -63,18 +63,24 @@ export const Navbar: React.FC = () => {
 
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [clickTimestamps, setClickTimestamps] = useState<number[]>([]);
+  const clickTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleSettingsRapidClick = () => {
     const now = Date.now();
-    // Keep clicks from the last 2.5 seconds
     const recentClicks = [...clickTimestamps.filter((t) => now - t < 2500), now];
     setClickTimestamps(recentClicks);
+
+    if (clickTimeoutRef.current) {
+      clearTimeout(clickTimeoutRef.current);
+    }
 
     if (recentClicks.length >= 7) {
       setClickTimestamps([]);
       setIsStandaloneKeygenOpen(true);
     } else {
-      setActiveTab('settings');
+      clickTimeoutRef.current = setTimeout(() => {
+        setActiveTab('settings');
+      }, 400);
     }
   };
 

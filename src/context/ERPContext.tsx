@@ -756,6 +756,9 @@ interface ERPContextType {
   resetSystemToBlank: () => void;
   isOnboardingCompleted: boolean;
   completeOnboarding: () => void;
+  isOnboardingOpen: boolean;
+  openOnboarding: () => void;
+  closeOnboarding: () => void;
   importBackupJSON: (rawJson: string) => { success: boolean; messageAr: string; messageEn: string };
 }
 
@@ -5009,10 +5012,17 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isOnboardingCompleted, setIsOnboardingCompleted] = useState<boolean>(() => {
     return localStorage.getItem('asf_onboarding_completed') === 'true';
   });
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(() => {
+    return localStorage.getItem('asf_onboarding_completed') !== 'true';
+  });
+
+  const openOnboarding = () => setIsOnboardingOpen(true);
+  const closeOnboarding = () => setIsOnboardingOpen(false);
 
   const completeOnboarding = () => {
     localStorage.setItem('asf_onboarding_completed', 'true');
     setIsOnboardingCompleted(true);
+    setIsOnboardingOpen(false);
   };
 
   const resetSystemToBlank = () => {
@@ -5655,6 +5665,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         resetSystemToBlank,
         isOnboardingCompleted,
         completeOnboarding,
+        isOnboardingOpen,
+        openOnboarding,
+        closeOnboarding,
         importBackupJSON,
       }}
     >
