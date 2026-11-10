@@ -30,7 +30,7 @@ export const MobileLanPortalModal: React.FC = () => {
     refreshNetworkInfo,
     products,
     updateProduct,
-    addJournalEntry,
+    addManualJournalEntry,
     currency,
     language,
     currentBranch,
@@ -105,9 +105,8 @@ export const MobileLanPortalModal: React.FC = () => {
 
     // Post double-entry adjustment journal if variance != 0
     if (varianceResult.journalLines.length > 0) {
-      addJournalEntry({
-        date: new Date().toISOString().slice(0, 10),
-        memo: `تسوية جردية ميدانية عبر الجوال والشبكة - الصنف ${selectedProduct.nameAr} (${varianceResult.varianceQty > 0 ? '+' : ''}${varianceResult.varianceQty})`,
+      addManualJournalEntry({
+        description: `تسوية جردية ميدانية عبر الجوال والشبكة - الصنف ${selectedProduct.nameAr} (${varianceResult.varianceQty > 0 ? '+' : ''}${varianceResult.varianceQty})`,
         lines: varianceResult.journalLines.map((l) => ({
           accountId: l.accountId,
           debit: l.debit,

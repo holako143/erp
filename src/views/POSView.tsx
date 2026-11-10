@@ -28,6 +28,7 @@ import {
   MessageSquare,
   Smartphone,
   Network,
+  Package,
 } from 'lucide-react';
 import {
   SalesInvoice,
@@ -487,6 +488,24 @@ export const POSView: React.FC = () => {
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
+                data-testid="btn-pos-goto-inventory"
+                onClick={() => setActiveTab('inventory')}
+                className="px-3 py-2 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <Package className="w-3.5 h-3.5 text-emerald-400" />
+                <span>المستودع والجرد الفعلي</span>
+              </button>
+              <button
+                type="button"
+                data-testid="btn-pos-goto-warranty"
+                onClick={() => setActiveTab('sales')}
+                className="px-3 py-2 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                <span>فحص الضمان والصيانة (S/N)</span>
+              </button>
+              <button
+                type="button"
                 data-testid="btn-open-solar-calculator"
                 onClick={() => setIsSolarCalcOpen(true)}
                 className="px-3.5 py-2 rounded-md bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
@@ -523,87 +542,6 @@ export const POSView: React.FC = () => {
                 </span>
               </button>
             ))}
-          </div>
-        </div>
-      )}
-
-      {/* INDUSTRY-SPECIFIC SMART TOOLBAR FOR RESTAURANT */}
-      {activeIndustry === 'restaurant' && (
-        <div className="bg-slate-900 text-white p-3.5 rounded-md border border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-bold text-amber-400 flex items-center gap-1.5">
-              <Utensils className="w-4 h-4" /> وضع المطاعم والضيافة:
-            </span>
-            {[
-              { id: 'DINE_IN', label: 'محلي (طاولات)' },
-              { id: 'TAKEAWAY', label: 'سفري (استلام)' },
-              { id: 'DELIVERY', label: 'توصيل طلبات' },
-            ].map((ot) => (
-              <button
-                key={ot.id}
-                type="button"
-                onClick={() => setOrderType(ot.id as any)}
-                className={`px-3 py-1.5 rounded-md font-bold transition cursor-pointer ${
-                  orderType === ot.id
-                    ? 'bg-amber-600 text-white'
-                    : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
-                }`}
-              >
-                {ot.label}
-              </button>
-            ))}
-          </div>
-
-          {orderType === 'DINE_IN' && (
-            <div className="flex items-center gap-1.5 overflow-x-auto">
-              <span className="text-slate-300 font-bold">رقم الطاولة:</span>
-              {tablesList.map((tbl) => (
-                <button
-                  key={tbl}
-                  type="button"
-                  onClick={() => setSelectedTable(tbl)}
-                  className={`px-2.5 py-1 rounded-md font-mono font-bold transition cursor-pointer ${
-                    selectedTable === tbl
-                      ? 'bg-teal-600 text-white'
-                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                  }`}
-                >
-                  {tbl}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* INDUSTRY-SPECIFIC SMART TOOLBAR FOR GROCERY */}
-      {activeIndustry === 'grocery' && (
-        <div className="bg-slate-900 text-white p-3.5 rounded-md border border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-2">
-            <Scale className="w-4 h-4 text-teal-400" />
-            <span className="font-bold">محاكي الميزان الإلكتروني للتموينات والسوبرماركت (بادئة GS1 21):</span>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-slate-300">الوزن بالكيلوجرام:</span>
-            {[0.25, 0.5, 0.75, 1.25, 2.0].map((w) => (
-              <button
-                key={w}
-                type="button"
-                onClick={() => setScaleWeightKg(w)}
-                className={`px-2.5 py-1 rounded-md font-mono font-bold cursor-pointer ${
-                  scaleWeightKg === w ? 'bg-teal-600 text-white' : 'bg-slate-800 text-slate-300'
-                }`}
-              >
-                {w} KG
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={handleSimulateScaleScan}
-              className="px-3.5 py-1.5 rounded-md bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold cursor-pointer"
-            >
-              قراءة وزن الميزان وإضافة للسلة
-            </button>
           </div>
         </div>
       )}
@@ -650,14 +588,14 @@ export const POSView: React.FC = () => {
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="ابحث بالاسم أو المواصفة..."
+                placeholder="ابحث بالاسم أو المواصفة (585W، 200Ah، OLED)..."
                 className="w-full text-xs p-2.5 ps-9 bg-white border border-slate-200 rounded-md outline-hidden focus:border-slate-900"
               />
               <Search className="w-4 h-4 text-slate-400 absolute start-2.5 top-2.5" />
             </div>
           </div>
 
-          {/* Category Tabs */}
+          {/* Category Tabs (Filtered to Electronics, Solar, Batteries & Smart Screens) */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
             <button
               type="button"
@@ -668,22 +606,24 @@ export const POSView: React.FC = () => {
                   : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
               }`}
             >
-              الكل (<span className="font-mono tabular-nums" dir="ltr">{products.length}</span>)
+              الكل (<span className="font-mono tabular-nums" dir="ltr">{filteredProducts.length}</span>)
             </button>
-            {categories.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => setSelectedCategory(c.id)}
-                className={`px-3 py-1.5 rounded-md font-bold whitespace-nowrap transition cursor-pointer ${
-                  selectedCategory === c.id
-                    ? 'bg-teal-700 text-white shadow-2xs'
-                    : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
-                }`}
-              >
-                {language === 'ar' ? c.nameAr : c.name}
-              </button>
-            ))}
+            {categories
+              .filter((c) => !c.industry || c.industry === 'electronics')
+              .map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setSelectedCategory(c.id)}
+                  className={`px-3 py-1.5 rounded-md font-bold whitespace-nowrap transition cursor-pointer ${
+                    selectedCategory === c.id
+                      ? 'bg-teal-700 text-white shadow-2xs'
+                      : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  {language === 'ar' ? c.nameAr : c.name}
+                </button>
+              ))}
           </div>
 
           {/* Product Touch Grid */}
@@ -1468,8 +1408,8 @@ export const POSView: React.FC = () => {
                   { mode: 'a4', tpl: 'a4_warranty_electronics', label: 'A4 شهادة ضمان رسمية' },
                   { mode: 'thermal', tpl: 'thermal_80mm_standard', label: 'حراري 80mm قياسي' },
                   { mode: 'a4', tpl: 'a4_corporate_classic', label: 'فاتورة A4 مؤسسية' },
-                  { mode: 'thermal', tpl: 'thermal_80mm_restaurant', label: 'حراري 80mm مطعم' },
-                  { mode: 'thermal', tpl: 'thermal_58mm_compact', label: 'حراري 58mm بقالة' },
+                  { mode: 'a4', tpl: 'a4_modern_blue', label: 'فاتورة A4 عصرية' },
+                  { mode: 'thermal', tpl: 'thermal_58mm_compact', label: 'حراري 58mm مضغوط' },
                 ].map((opt) => (
                   <button
                     key={opt.tpl}

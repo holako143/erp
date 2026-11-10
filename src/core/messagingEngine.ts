@@ -31,6 +31,9 @@ export const DEFAULT_MESSAGING_GATEWAY_CONFIG: MessagingGatewayConfig = {
   autoIncludeWarrantyTerms: true,
   ownerReportPhone: '+967 770 112 233',
   customSignatureAr: 'نظام RLM المؤسسي المتكامل — نشكركم لثقتكم وتعاملكم معنا',
+  preferredInvoiceFormat: 'ALL_COMBINED',
+  guaranteedActualDispatch: true,
+  usbModemDirectPort: 'COM3',
 };
 
 export const SEED_OUTBOUND_MESSAGES: OutboundMessageRecord[] = [

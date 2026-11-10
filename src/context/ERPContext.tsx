@@ -155,6 +155,9 @@ import {
   verifyActivationSerial,
   detectRealHardwareFingerprint,
   parseWindowsWmiHardwareInput,
+  EncryptedDatabaseSnapshot,
+  encryptDatabaseSnapshotJSON,
+  decryptDatabaseSnapshotJSON,
 } from '../core/securityEngine';
 import {
   SEED_PROMO_COUPONS,
@@ -164,6 +167,7 @@ import {
 } from '../core/promotionsEngine';
 import {
   DEFAULT_MASTER_SYSTEM_CONFIG,
+  applySectorModePreset,
   isModuleVisibleUnderMasterConfig,
   resolveEffectiveIndustryMode,
   formatCurrencyAmount,
@@ -196,12 +200,32 @@ export const ALL_ERP_MODULES = [
   'purchasing',
   'sales',
   'accounting',
-  'businessModules',
   'aiInsights',
   'saasPlatform',
   'security',
   'settings',
 ] as const;
+
+export const SECTOR_MODE_VISIBLE_MODULES = [
+  'pos',
+  'inventory',
+  'sales',
+  'accounting',
+] as const;
+
+/**
+ * Helper function that manages the visibility list of modules based on `masterSystemConfig.sectorModeEnabled`.
+ * When `sectorModeEnabled` is active, returns only `['pos', 'inventory', 'sales', 'accounting']`.
+ */
+export function getVisibleModulesList(
+  sectorModeEnabled: boolean | undefined,
+  fallbackModules: readonly string[] = ALL_ERP_MODULES
+): string[] {
+  if (sectorModeEnabled) {
+    return ['pos', 'inventory', 'sales', 'accounting'];
+  }
+  return [...fallbackModules];
+}
 
 export const INITIAL_USER_ACCOUNTS: UserAccount[] = [
   {
@@ -463,6 +487,8 @@ interface ERPContextType {
   // Master System Administration, Global Currencies, Coupons, Offers & LAN Info
   masterSystemConfig: MasterSystemConfig;
   updateMasterSystemConfig: (patch: Partial<MasterSystemConfig>) => void;
+  toggleSectorMode: (enable?: boolean) => void;
+  getVisibleModules: () => string[];
   toggleModuleVisibility: (moduleId: string) => void;
   toggleUIElementVisibility: (elementKey: keyof UIElementsVisibilityConfig) => void;
   formatCurrency: (amount: number) => string;
@@ -759,7 +785,16 @@ interface ERPContextType {
   isOnboardingOpen: boolean;
   openOnboarding: () => void;
   closeOnboarding: () => void;
-  importBackupJSON: (rawJson: string) => { success: boolean; messageAr: string; messageEn: string };
+  exportEncryptedDatabaseSnapshot: (passphrase?: string) => {
+    jsonString: string;
+    filename: string;
+    snapshot: EncryptedDatabaseSnapshot;
+  };
+  importBackupJSON: (rawJson: string, passphrase?: string) => {
+    success: boolean;
+    messageAr: string;
+    messageEn: string;
+  };
 }
 
 const ERPContext = createContext<ERPContextType | undefined>(undefined);
@@ -773,7 +808,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [currency, setCurrencyState] = useState<Currency>(
     DEFAULT_MASTER_SYSTEM_CONFIG.globalDefaultCurrency
   );
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [activeTab, setActiveTab] = useState<string>('pos');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [activeIndustryState, setActiveIndustryState] = useState<IndustryType>('electronics');
   const activeIndustry: IndustryType = resolveEffectiveIndustryMode(
@@ -1207,6 +1242,35 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       return next;
     });
+  };
+
+  const toggleSectorMode = (enable?: boolean) => {
+    setMasterSystemConfig((prev) => {
+      const targetEnabled =
+        typeof enable === 'boolean' ? enable : !prev.sectorModeEnabled;
+      const updated = applySectorModePreset(prev, targetEnabled);
+      return {
+        ...updated,
+        lastUpdatedBy: currentUser.name,
+        lastUpdatedAt: new Date().toISOString(),
+      };
+    });
+    setActiveIndustryState('electronics');
+    if (enable !== false && !['pos', 'inventory', 'sales', 'accounting'].includes(activeTab)) {
+      setActiveTab('pos');
+    }
+  };
+
+  const getVisibleModules = (): string[] => {
+    if (masterSystemConfig.sectorModeEnabled) {
+      return getVisibleModulesList(true);
+    }
+    const candidateModules = [
+      ...ALL_ERP_MODULES,
+      'communications',
+      'masterAdmin',
+    ];
+    return candidateModules.filter((modId) => hasModuleAccess(modId));
   };
 
   const toggleModuleVisibility = (moduleId: string) => {
@@ -2214,15 +2278,26 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (d.activeIndustry) setActiveIndustryState(d.activeIndustry);
     if (d.currency) setCurrencyState(d.currency);
     if (d.masterSystemConfig) {
-      setMasterSystemConfig((prev) => ({
-        ...prev,
-        ...d.masterSystemConfig,
-        visibleModules: { ...prev.visibleModules, ...(d.masterSystemConfig.visibleModules || {}) },
-        uiElementsVisibility: {
-          ...prev.uiElementsVisibility,
-          ...(d.masterSystemConfig.uiElementsVisibility || {}),
-        },
-      }));
+      setMasterSystemConfig((prev) => {
+        if (d.masterSystemConfig.sectorMode === undefined) {
+          return applySectorModePreset(
+            {
+              ...prev,
+              ...d.masterSystemConfig,
+            },
+            true
+          );
+        }
+        return {
+          ...prev,
+          ...d.masterSystemConfig,
+          visibleModules: { ...prev.visibleModules, ...(d.masterSystemConfig.visibleModules || {}) },
+          uiElementsVisibility: {
+            ...prev.uiElementsVisibility,
+            ...(d.masterSystemConfig.uiElementsVisibility || {}),
+          },
+        };
+      });
       if (d.masterSystemConfig.globalDefaultCurrency && !d.currency) {
         setCurrencyState(d.masterSystemConfig.globalDefaultCurrency);
       }
@@ -2372,7 +2447,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (activeV2Token) {
         headers['x-asf-license-token'] = activeV2Token;
       } else {
-        headers['x-asf-trial-device'] = currentHardware.systemMachineId || 'LOCAL-TRIAL-CLIENT';
+        headers['x-asf-trial-device'] = activeLicenseSerial || 'LOCAL-TRIAL-CLIENT';
       }
 
       fetch('/api/v1/erp/state', {
@@ -5056,9 +5131,91 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     fetch('/api/v1/erp/reset-blank', { method: 'POST' }).catch(() => {});
   };
 
-  const importBackupJSON = (rawJson: string) => {
+  const exportEncryptedDatabaseSnapshot = (passphrase?: string) => {
+    let fullSnapshot: Record<string, any> = {};
     try {
-      const parsed = JSON.parse(rawJson);
+      const raw = localStorage.getItem('rlm_erp_instant_v4_solar');
+      if (raw) fullSnapshot = JSON.parse(raw);
+    } catch {
+      // Fallback to active slices
+    }
+
+    const backupPayload = {
+      exportedAt: new Date().toISOString(),
+      tenant: currentTenant,
+      company,
+      activeIndustry,
+      invoiceTemplateSettings,
+      branches,
+      warehouses,
+      productsCount: products.length,
+      salesInvoicesCount: salesInvoices.length,
+      journalEntriesCount: journalEntries.length,
+      auditLogsCount: auditLogs.length,
+      data: {
+        ...fullSnapshot,
+        products,
+        barcodes,
+        traceabilityEvents,
+        suppliers,
+        customers,
+        salesInvoices,
+        salesReturns,
+        warrantyTickets,
+        salesPipelineDocs,
+        purchaseOrders,
+        journalEntries,
+        employees,
+        fixedAssets,
+        productionOrders,
+        projects,
+        fleetVehicles,
+        qualityInspections,
+        crmLeads,
+        ecommerceOrders,
+        workflowApprovals,
+      },
+    };
+
+    const encryptedSnapshot = encryptDatabaseSnapshotJSON(backupPayload, passphrase);
+    const jsonString = JSON.stringify(encryptedSnapshot, null, 2);
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    const filename = `RLM-ERP-Encrypted-Snapshot-${currentTenant.code}-${dateStamp}.enc.json`;
+
+    setAuditLogs((prev) => [
+      {
+        id: `aud-snap-${Date.now()}`,
+        tenantId: currentTenant.id,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        action: 'EXPORT_ENCRYPTED_DB_SNAPSHOT',
+        module: 'SETTINGS',
+        entityType: 'SystemBackup',
+        entityId: encryptedSnapshot.integritySignature,
+        details: `Exported encrypted database snapshot (${filename}) with signature [${encryptedSnapshot.integritySignature}].`,
+        timestamp: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
+
+    return {
+      jsonString,
+      filename,
+      snapshot: encryptedSnapshot,
+    };
+  };
+
+  const importBackupJSON = (rawJson: string, passphrase?: string) => {
+    try {
+      const decrypted = decryptDatabaseSnapshotJSON(rawJson, passphrase);
+      if (!decrypted.success || !decrypted.payload) {
+        return {
+          success: false,
+          messageAr: decrypted.errorAr || 'ملف النسخة الاحتياطية غير صالح أو مفتاح التشفير غير صحيح',
+          messageEn: decrypted.errorEn || 'Invalid backup JSON or incorrect passphrase',
+        };
+      }
+      const parsed = decrypted.payload;
       const dataObj = parsed.data || parsed;
       if (!dataObj || typeof dataObj !== 'object') {
         return {
@@ -5078,19 +5235,25 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           tenantId: currentTenant.id,
           userId: currentUser.id,
           userName: currentUser.name,
-          action: 'RESTORE_JSON_BACKUP',
+          action: decrypted.isEncrypted ? 'RESTORE_ENCRYPTED_DB_SNAPSHOT' : 'RESTORE_JSON_BACKUP',
           module: 'SETTINGS',
           entityType: 'SystemBackup',
-          entityId: 'JSON-RESTORE',
-          details: `Restored system state from JSON backup archive.`,
+          entityId: decrypted.isEncrypted ? 'ENCRYPTED-RESTORE' : 'JSON-RESTORE',
+          details: decrypted.isEncrypted
+            ? `Restored system state from encrypted disaster recovery snapshot.`
+            : `Restored system state from JSON backup archive.`,
           timestamp: new Date().toISOString(),
         },
         ...prev,
       ]);
       return {
         success: true,
-        messageAr: 'تم استيراد واستعادة النسخة الاحتياطية بنجاح!',
-        messageEn: 'Backup archive restored successfully!',
+        messageAr: decrypted.isEncrypted
+          ? 'تم فك التشفير واستعادة لقطة قاعدة البيانات بنجاح!'
+          : 'تم استيراد واستعادة النسخة الاحتياطية بنجاح!',
+        messageEn: decrypted.isEncrypted
+          ? 'Encrypted database snapshot decrypted and restored successfully!'
+          : 'Backup archive restored successfully!',
       };
     } catch {
       return {
@@ -5490,6 +5653,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         masterSystemConfig,
         updateMasterSystemConfig,
+        toggleSectorMode,
+        getVisibleModules,
         toggleModuleVisibility,
         toggleUIElementVisibility,
         formatCurrency,
@@ -5661,6 +5826,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         requestInterBranchTransfer,
         advanceBranchTransfer,
 
+        isLanPortalOpen,
+        openLanPortal,
+        closeLanPortal,
+
         resetToInitialDemo,
         resetSystemToBlank,
         isOnboardingCompleted,
@@ -5668,6 +5837,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         isOnboardingOpen,
         openOnboarding,
         closeOnboarding,
+        exportEncryptedDatabaseSnapshot,
         importBackupJSON,
       }}
     >

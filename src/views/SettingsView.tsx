@@ -28,6 +28,9 @@ import {
   Plus,
   PanelLeftClose,
   PanelLeftOpen,
+  Lock,
+  ShieldCheck,
+  KeyRound,
 } from 'lucide-react';
 
 export const SettingsView: React.FC = () => {
@@ -53,11 +56,14 @@ export const SettingsView: React.FC = () => {
     currency,
     isSidebarCollapsed,
     setIsSidebarCollapsed,
+    exportEncryptedDatabaseSnapshot,
     importBackupJSON,
     uiTheme,
     setUiTheme,
     uiDensity,
     setUiDensity,
+    masterSystemConfig,
+    toggleSectorMode,
   } = useERP();
 
   const [activeSettingsTab, setActiveSettingsTab] = useState<
@@ -71,6 +77,13 @@ export const SettingsView: React.FC = () => {
   const [confirmReset, setConfirmReset] = useState(false);
   const [restoreFeedback, setRestoreFeedback] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<'thermal' | 'a4'>('thermal');
+  const [snapshotPassphrase, setSnapshotPassphrase] = useState('RLM-DEFAULT-RECOVERY-KEY-2026');
+  const [lastExportedSnapshot, setLastExportedSnapshot] = useState<{
+    filename: string;
+    integritySignature: string;
+    keyFingerprint: string;
+    exportedAt: string;
+  } | null>(null);
 
   // New Branch & Warehouse state
   const [newBranchNameAr, setNewBranchNameAr] = useState('');
@@ -152,6 +165,27 @@ export const SettingsView: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
+  const handleExportEncryptedSnapshot = () => {
+    const { jsonString, filename, snapshot } = exportEncryptedDatabaseSnapshot(snapshotPassphrase);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    setLastExportedSnapshot({
+      filename,
+      integritySignature: snapshot.integritySignature,
+      keyFingerprint: snapshot.keyFingerprint,
+      exportedAt: snapshot.exportedAt,
+    });
+    setRestoreFeedback(
+      `تم تصدير وتنزيل لقطة قاعدة البيانات المشفرة (${filename}) بنجاح! التوقيع الرقمي: ${snapshot.integritySignature}`
+    );
+  };
+
   const industryCatalog: {
     id: IndustryType;
     titleAr: string;
@@ -179,86 +213,6 @@ export const SettingsView: React.FC = () => {
       defaultThermal: 'thermal_80mm_warranty',
       defaultA4: 'a4_warranty_electronics',
     },
-    {
-      id: 'restaurant',
-      titleAr: 'المطاعم والكافيهات والضيافة',
-      subtitleAr: 'Restaurants, Cafes & Cloud Kitchens',
-      icon: Utensils,
-      badgeAr: 'طاولات + شاشة مطبخ KDS',
-      accentColor: 'bg-amber-700',
-      features: [
-        'إدارة الطاولات والصالات (T-01 إلى T-08) وحالة الإشغال',
-        'تحديد نوع الطلب في الكاشير (محلي Dine-In / سفري Takeaway / توصيل Delivery)',
-        'شاشة مطبخ تفاعلية (KDS) وإرسال تذكرة تحضير فورية (KOT)',
-        'ملاحظات التحضير للأصناف (بدون بصل، زيادة جبن، درجة استواء) وحساب السعرات',
-      ],
-      defaultThermal: 'thermal_80mm_restaurant',
-      defaultA4: 'a4_modern_blue',
-    },
-    {
-      id: 'grocery',
-      titleAr: 'البقالات والسوبرماركت والتموينات',
-      subtitleAr: 'Supermarkets, Hypermarkets & Groceries',
-      icon: ShoppingBasket,
-      badgeAr: 'باركود الميزان + كاشير سريع',
-      accentColor: 'bg-emerald-700',
-      features: [
-        'دعم باركود الميزان الإلكتروني للأصناف الموزونة (بادئة 21 للأجبان والتمور والخضار)',
-        'تعدد وحدات القياس للصنف الواحد (حبة / شدة / كرتون) مع تحويل تلقائي',
-        'فئات النقدية السريعة (50 / 100 / 200 / 500) وحاسبة الباقي للعميل',
-        'قالب إيصال حراري مدمج 58mm و80mm عالي السرعة لنقاط البيع المزدحمة',
-      ],
-      defaultThermal: 'thermal_58mm_compact',
-      defaultA4: 'a4_corporate_classic',
-    },
-    {
-      id: 'pharmacy',
-      titleAr: 'الصيدليات والمستلزمات الطبية',
-      subtitleAr: 'Pharmacies, Clinics & Medical Supplies',
-      icon: Pill,
-      badgeAr: 'تتبع التشغيلة Batch + الصلاحية FEFO',
-      accentColor: 'bg-rose-800',
-      features: [
-        'تتبع أرقام التشغيلات الطبية (Batch / Lot Number) وتواريخ انتهاء الصلاحية',
-        'سياسة الصرف التلقائي للأقرب انتهاءً (FEFO - First Expired First Out)',
-        'تنبيهات الأصناف قريبة الانتهاء وطباعة الجرعات الإرشادية على الفاتورة',
-        'قالب فاتورة طبية A4 معتمد لشركات التأمين والتوريد الطبي',
-      ],
-      defaultThermal: 'thermal_80mm_standard',
-      defaultA4: 'a4_medical_pharmacy',
-    },
-    {
-      id: 'contracting',
-      titleAr: 'المقاولات والمشاريع الهندسية',
-      subtitleAr: 'Contracting, Construction & Engineering',
-      icon: HardHat,
-      badgeAr: 'مستخلصات مشاريع + مراكز تكلفة',
-      accentColor: 'bg-slate-800',
-      features: [
-        'ربط الفواتير والمشتريات بمراكز التكلفة والمشاريع الهندسية',
-        'إصدار فواتير ضريبية رسمية A4 للشركات مع الختم الرسمي والتوقيع',
-        'إدارة صرف المواد الخام والمعدات من المستودعات للمواقع',
-        'متابعة ميزانيات المشاريع ونسب الإنجاز المالي',
-      ],
-      defaultThermal: 'thermal_80mm_standard',
-      defaultA4: 'a4_corporate_classic',
-    },
-    {
-      id: 'general',
-      titleAr: 'التجارة والصناعة الشاملة (كافة القطاعات)',
-      subtitleAr: 'All-in-One Multi-Industry Enterprise ERP',
-      icon: Layers,
-      badgeAr: 'جميع المميزات مفعّلة معاً',
-      accentColor: 'bg-slate-900',
-      features: [
-        'تفعيل شامل لكافة أصناف وأدوات جميع القطاعات في شاشة واحدة',
-        'المرونة الكاملة في التبديل بين الفواتير الحرارية 80mm/58mm وفواتير A4 الرسمية',
-        'توليد باركود GS1 ورموز ZATCA QR ومحاسبة القيد المزدوج الآلية',
-        'مناسب للشركات القابضة والمجموعات التجارية متعددة الأنشطة',
-      ],
-      defaultThermal: 'thermal_80mm_standard',
-      defaultA4: 'a4_corporate_classic',
-    },
   ];
 
   const thermalTemplatesList: {
@@ -268,28 +222,22 @@ export const SettingsView: React.FC = () => {
     widthBadge: string;
   }[] = [
     {
+      id: 'thermal_80mm_warranty',
+      titleAr: 'قالب إلكترونيات وطاقة شمسية وضمان 80mm (IMEI / Serial + شروط الضمان)',
+      descAr: 'يطبع الرقم التسلسلي وفترة الضمان لكل لوح شمسي أو إنفرتر أو بطارية أو شاشة مع شروط الصيانة.',
+      widthBadge: '80mm S/N Warranty',
+    },
+    {
       id: 'thermal_80mm_standard',
       titleAr: 'قالب حراري قياسي 80mm (ZATCA QR + Barcode)',
       descAr: 'مناسب للمعارض التجارية والتجزئة العامة مع باركود ورمز استجابة ضريبي.',
       widthBadge: '80mm Standard',
     },
     {
-      id: 'thermal_80mm_restaurant',
-      titleAr: 'قالب مطاعم وكافيهات 80mm (رقم الطاولة + نوع الطلب + ملاحظات المطبخ)',
-      descAr: 'يبرز رقم الطاولة ونوع الطلب (محلي/سفري/توصيل) وملاحظات الشيف لكل وجبة.',
-      widthBadge: '80mm F&B + KOT',
-    },
-    {
       id: 'thermal_58mm_compact',
-      titleAr: 'قالب بقالة وسوبرماركت مضغوط 58mm (سريع وموفر للورق)',
-      descAr: 'مصمم لطابعات الكاشير السريعة 58mm مع دعم الأوزان العشرية.',
+      titleAr: 'قالب كاشير مضغوط 58mm (سريع وموفر للورق)',
+      descAr: 'مصمم لطابعات الكاشير السريعة 58mm لمبيعات الإكسسوارات والقطع السريعة.',
       widthBadge: '58mm Compact',
-    },
-    {
-      id: 'thermal_80mm_warranty',
-      titleAr: 'قالب إلكترونيات وضمان 80mm (IMEI / Serial + شروط الضمان)',
-      descAr: 'يطبع الرقم التسلسلي وفترة الضمان لكل جهاز مع بند شروط الصيانة.',
-      widthBadge: '80mm IMEI Warranty',
     },
   ];
 
@@ -300,8 +248,14 @@ export const SettingsView: React.FC = () => {
     badge: string;
   }[] = [
     {
+      id: 'a4_warranty_electronics',
+      titleAr: 'فاتورة ضريبية + شهادة ضمان إلكترونيات وطاقة شمسية (A4 Warranty Certificate)',
+      descAr: 'تدمج الفاتورة الضريبية مع شهادة ضمان رسمية تتضمن عمود IMEI/Serial وفترة الضمان والمواصفات الهندسية.',
+      badge: 'A4 + Warranty',
+    },
+    {
       id: 'a4_corporate_classic',
-      titleAr: 'فاتورة ضريبية رسمية للشركات (A4 Corporate Classic)',
+      titleAr: 'فاتورة ضريبية رسمية للشركات والمشاريع (A4 Corporate Classic)',
       descAr: 'تصميم رسمي لمبيعات الجملة والشركات B2B مع جدول ضريبي مفصل وختم وتوقيع.',
       badge: 'A4 B2B Official',
     },
@@ -310,18 +264,6 @@ export const SettingsView: React.FC = () => {
       titleAr: 'فاتورة ضريبية عصرية ملونة (A4 Modern Blue)',
       descAr: 'ترويسة احترافية متدرجة اللون مع إبراز الهوية البصرية للمنشأة.',
       badge: 'A4 Modern',
-    },
-    {
-      id: 'a4_warranty_electronics',
-      titleAr: 'فاتورة ضريبية + شهادة ضمان إلكترونيات (A4 Warranty Certificate)',
-      descAr: 'تدمج الفاتورة الضريبية مع شهادة ضمان رسمية تتضمن عمود IMEI/Serial وفترة الضمان.',
-      badge: 'A4 + Warranty',
-    },
-    {
-      id: 'a4_medical_pharmacy',
-      titleAr: 'فاتورة توريد طبي وصيدلاني (A4 Medical Batch & Expiry)',
-      descAr: 'تتضمن أعمدة رقم التشغيلة (LOT/Batch) وتاريخ الانتهاء (EXP) للمستشفيات والصيدليات.',
-      badge: 'A4 Medical FEFO',
     },
   ];
 
@@ -384,25 +326,62 @@ export const SettingsView: React.FC = () => {
           </p>
         </div>
 
-        {/* Quick Sidebar Mode Toggle inside Settings */}
-        <button
-          type="button"
-          onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-          className="flex items-center gap-2 px-3.5 py-2 rounded-md bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition cursor-pointer"
-        >
-          {isSidebarCollapsed ? (
-            <>
-              <PanelLeftOpen className="w-4 h-4 text-emerald-400" />
-              <span>تمديد القائمة الجانبية</span>
-            </>
-          ) : (
-            <>
-              <PanelLeftClose className="w-4 h-4 text-emerald-400" />
-              <span>طي القائمة الجانبية (أيقونات)</span>
-            </>
-          )}
-        </button>
+        {/* Quick Actions: Export Database Snapshot & Sidebar Mode Toggle */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            data-testid="export-db-snapshot-header-btn"
+            onClick={handleExportEncryptedSnapshot}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-xs transition cursor-pointer"
+          >
+            <Lock className="w-3.5 h-3.5" />
+            <span>Export Database Snapshot (تصدير لقطة مشفرة)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-md bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition cursor-pointer"
+          >
+            {isSidebarCollapsed ? (
+              <>
+                <PanelLeftOpen className="w-4 h-4 text-emerald-400" />
+                <span>تمديد القائمة الجانبية</span>
+              </>
+            ) : (
+              <>
+                <PanelLeftClose className="w-4 h-4 text-emerald-400" />
+                <span>طي القائمة الجانبية (أيقونات)</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
+
+      {lastExportedSnapshot && (
+        <div
+          data-testid="snapshot-export-banner"
+          className="bg-emerald-950/90 text-emerald-100 px-4 py-3 rounded-lg border border-emerald-700/80 flex flex-wrap items-center justify-between gap-3 text-xs"
+        >
+          <div className="flex items-center gap-2.5">
+            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+            <div>
+              <span className="font-bold">تم تنزيل لقطة الطوارئ المشفرة (Encrypted Disaster Recovery Snapshot): </span>
+              <span className="font-mono text-emerald-300" dir="ltr">
+                {lastExportedSnapshot.filename}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 font-mono text-[11px]" dir="ltr">
+            <span className="px-2 py-0.5 rounded bg-emerald-900/80 border border-emerald-700 text-emerald-200">
+              HMAC: {lastExportedSnapshot.integritySignature}
+            </span>
+            <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-300">
+              KEY-FP: {lastExportedSnapshot.keyFingerprint}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Institutional Appearance & Density Studio */}
       <div className="bg-white dark:bg-slate-900 p-4 rounded-lg border border-slate-200/90 dark:border-slate-800 grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
@@ -520,20 +499,30 @@ export const SettingsView: React.FC = () => {
           <div className="bg-slate-900 text-white p-5 rounded-lg border border-slate-800 flex flex-wrap items-center justify-between gap-4">
             <div>
               <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">
-                محرك التكيف المؤسسي حسب القطاع • Multi-Industry Engine
+                وضع القطاع المركز • Sector Mode (Electronics & Solar Energy)
               </span>
               <h3 className="text-base font-bold mt-0.5">
-                اختر مجال نشاط منشأتك لتكييف شاشة الكاشير (POS) والمخزون وقوالب الفواتير تلقائياً
+                تخصيص النظام للإلكترونيات والطاقة الشمسية والبطاريات والشاشات فقط
               </h3>
               <p className="text-xs text-slate-300 mt-1">
-                عند تغيير المجال، يتم تفعيل الأدوات المتخصصة (طاولات المطاعم وشاشة المطبخ، أو IMEI والضمان للإلكترونيات، أو باركود الميزان للبقالات) مع الحفاظ على جميع بياناتك.
+                يركز وضع القطاع (Sector Mode) القوائم الجانبية والتنقل الرئيسي حصرياً على الكاشير (POS) والمخزون والجرد (Inventory) والمبيعات والضمان (Sales) والمحاسبة المالية (Accounting)، مع إخفاء وحدات المشاريع والأسطول والتصنيع ووحدات الأعمال.
               </p>
             </div>
-            <div className="bg-slate-800/90 border border-slate-700 px-4 py-2.5 rounded-md text-right">
-              <div className="text-[10px] text-slate-400">المجال المفعّل حالياً</div>
-              <div className="text-sm font-bold text-emerald-400">
-                {industryCatalog.find((i) => i.id === activeIndustry)?.titleAr}
-              </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                data-testid="settings-toggle-sector-mode"
+                onClick={() => toggleSectorMode(!masterSystemConfig.sectorModeEnabled)}
+                className={`px-4 py-2 rounded-md text-xs font-bold transition cursor-pointer ${
+                  masterSystemConfig.sectorModeEnabled
+                    ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                    : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600'
+                }`}
+              >
+                {masterSystemConfig.sectorModeEnabled
+                  ? 'وضع القطاع المركز: مفعّل (POS + المخزون + المبيعات + المحاسبة)'
+                  : 'تفعيل وضع القطاع المركز (Sector Mode)'}
+              </button>
             </div>
           </div>
 
@@ -1067,49 +1056,103 @@ export const SettingsView: React.FC = () => {
           TAB 4: BACKUP & RESET
       ==================================================================== */}
       {activeSettingsTab === 'backup' && (
-        <div className="max-w-2xl bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
-          <h3 className="font-bold text-slate-900 text-sm">
-            النسخ الاحتياطي واستعادة البيانات التشغيلية (JSON Archive & Restore)
-          </h3>
-          <p className="text-xs text-slate-500 leading-relaxed">
-            يتم حفظ كافة الحركات المالية والمخزنية والقيود المحاسبية وقوالب الفواتير المختارة تلقائياً. يمكنك تصدير نسخة احتياطية كاملة بصيغة JSON، أو استيراد نسخة احتياطية محفوظة مسبقاً، أو استعادة حالة المصنع الافتراضية.
-          </p>
+        <div className="max-w-3xl bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-5">
+          <div className="flex items-start justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+            <div>
+              <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                <span>النسخ الاحتياطي المشفر واستعادة البيانات عند الطوارئ (Offline Disaster Recovery)</span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                يتيح لك النظام تصدير لقطة كاملة ومشفرة من قاعدة البيانات (Encrypted Database Snapshot) بصيغة JSON محمية بتوقيع رقمي HMAC للعمل كخطة تعافٍ فورية من الكوارث دون اتصال بالإنترنت.
+              </p>
+            </div>
+          </div>
 
           {restoreFeedback && (
-            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-bold flex items-center gap-2">
+            <div
+              data-testid="backup-restore-feedback"
+              className="p-3 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 rounded-xl text-xs font-bold flex items-center gap-2"
+            >
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
               <span>{restoreFeedback}</span>
             </div>
           )}
 
-          <div className="space-y-3 pt-2">
+          {/* Encrypted Database Snapshot Card */}
+          <div className="p-4 rounded-xl bg-slate-900 text-white border border-slate-800 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Lock className="w-4 h-4 text-emerald-400" />
+                <span className="text-xs font-bold">
+                  تصدير لقطة قاعدة البيانات المشفرة (Export Encrypted Database Snapshot)
+                </span>
+              </div>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                RLM-STREAM-256 + HMAC-FNV32
+              </span>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-[11px] text-slate-300 font-semibold flex items-center gap-1.5">
+                <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                <span>مفتاح التشفير وفك التشفير (Disaster Recovery Passphrase):</span>
+              </label>
+              <input
+                type="text"
+                data-testid="snapshot-passphrase-input"
+                value={snapshotPassphrase}
+                onChange={(e) => setSnapshotPassphrase(e.target.value)}
+                placeholder="أدخل مفتاح التشفير الخاص بالمنشأة..."
+                className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-xs font-mono text-emerald-300 focus:border-emerald-500 outline-hidden"
+                dir="ltr"
+              />
+            </div>
+
             <button
               type="button"
-              onClick={handleExportJSON}
-              className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer"
+              data-testid="export-encrypted-snapshot-btn"
+              onClick={handleExportEncryptedSnapshot}
+              className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-xs"
             >
-              <Download className="w-4 h-4 text-emerald-400" />
-              تصدير نسخة احتياطية كاملة (Export Full JSON Backup)
+              <Lock className="w-4 h-4" />
+              <span>Export Database Snapshot (تنزيل لقطة قاعدة البيانات المشفرة .enc.json)</span>
+            </button>
+          </div>
+
+          <div className="space-y-3 pt-1">
+            <button
+              type="button"
+              data-testid="export-plain-json-btn"
+              onClick={handleExportJSON}
+              className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer"
+            >
+              <Download className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+              تصدير نسخة احتياطية قياسية غير مشفرة (Export Plain JSON Backup)
             </button>
 
-            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-              <div className="text-xs font-bold text-slate-800">
-                استيراد واستعادة نسخة احتياطية (Restore from JSON File)
+            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-2">
+              <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                استيراد واستعادة لقطة مشفرة أو نسخة احتياطية (Restore Encrypted / Plain JSON)
               </div>
+              <p className="text-[11px] text-slate-500">
+                سيتم استخدام مفتاح التشفير أعلاه تلقائياً إذا كان الملف مشفراً بصيغة <span className="font-mono">.enc.json</span>
+              </p>
               <input
                 type="file"
+                data-testid="restore-backup-file-input"
                 accept=".json,application/json"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (!file) return;
                   const reader = new FileReader();
                   reader.onload = () => {
-                    const res = importBackupJSON(String(reader.result || ''));
+                    const res = importBackupJSON(String(reader.result || ''), snapshotPassphrase);
                     setRestoreFeedback(res.messageAr);
                   };
                   reader.readAsText(file);
                 }}
-                className="w-full text-xs text-slate-600 file:me-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-indigo-600 file:text-white hover:file:bg-indigo-700 cursor-pointer"
+                className="w-full text-xs text-slate-600 dark:text-slate-300 file:me-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-indigo-600 file:text-white hover:file:bg-indigo-700 cursor-pointer"
               />
             </div>
 

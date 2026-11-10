@@ -37,7 +37,6 @@ const MODULE_LABELS: Record<string, { ar: string; en: string }> = {
   purchasing: { ar: 'المشتريات والموردون', en: 'Purchasing & Suppliers' },
   sales: { ar: 'المبيعات والضمان والمرتجعات', en: 'Sales, Returns & RMA' },
   accounting: { ar: 'المحاسبة المالية ودفتر الأستاذ', en: 'Financial Accounting' },
-  businessModules: { ar: 'الأنظمة المؤسسية (HR/CRM/المشاريع)', en: 'Enterprise Modules' },
   aiInsights: { ar: 'المساعد الذكي والتحليلات', en: 'Smart Analytics' },
   saasPlatform: { ar: 'إدارة الفروع والباقات', en: 'Branches & Plans' },
   security: { ar: 'مركز الأمان والعضويات', en: 'Security & Memberships' },

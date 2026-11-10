@@ -220,20 +220,21 @@ app.get('/api/v1/whatsapp/session', (_req, res) => {
 app.post('/api/v1/whatsapp/pair', (_req, res) => {
   whatsappSession = {
     ...whatsappSession,
-    status: 'PAIRED_READY',
-    phoneConnected: '+967771234567',
-    connectedDeviceName: 'Direct In-App WhatsApp Web Active Session',
-    lastSyncTimestamp: new Date().toISOString(),
+    status: 'CONNECTED',
+    phoneNumber: '+967 771 234 567',
+    platform: 'Direct In-App WhatsApp Web Active Session',
+    pairedAt: new Date().toISOString(),
   };
   res.json({ success: true, session: whatsappSession });
 });
 
 app.post('/api/v1/whatsapp/disconnect', (_req, res) => {
+  const newQr = generatePairingQRToken();
   whatsappSession = {
     ...whatsappSession,
     status: 'DISCONNECTED',
-    phoneConnected: undefined,
-    qrToken: generatePairingQRToken(),
+    phoneNumber: '',
+    qrCodeData: newQr.token,
   };
   res.json({ success: true, session: whatsappSession });
 });
@@ -248,7 +249,7 @@ app.get('/api/v1/usb/device', (_req, res) => {
 
 app.post('/api/v1/usb/diagnostics', (_req, res) => {
   const diag = runUsbAutoDiagnostics(usbDevice);
-  usbDevice = { ...usbDevice, status: 'CONNECTED_READY', signalStrength: '92%' };
+  usbDevice = { ...usbDevice, connectionMode: 'ADB_DEBUGGING', signalStrengthPercent: 92 };
   res.json({ success: true, diagnostics: diag, device: usbDevice });
 });
 

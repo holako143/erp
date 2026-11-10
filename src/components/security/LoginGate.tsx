@@ -1,44 +1,25 @@
 import React, { useState } from 'react';
 import { useERP } from '../../context/ERPContext';
 import {
-  Layers,
   Lock,
   Eye,
   EyeOff,
   User as UserIcon,
   ShieldCheck,
   AlertTriangle,
-  Globe,
-  Copy,
-  Check,
   KeyRound,
-  Terminal,
 } from 'lucide-react';
 
 export const LoginGate: React.FC = () => {
   const {
     language,
-    setLanguage,
     login,
-    protectionState,
   } = useERP();
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [copiedKey, setCopiedKey] = useState(false);
-
-  // Machine Device Code for Developer Serial Generation
-  const deviceCode = protectionState.machineRequestCode || 'ASF-7892-4910-K891';
-
-  const handleCopyCode = () => {
-    if (navigator?.clipboard) {
-      navigator.clipboard.writeText(deviceCode);
-      setCopiedKey(true);
-      setTimeout(() => setCopiedKey(false), 2500);
-    }
-  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,74 +41,6 @@ export const LoginGate: React.FC = () => {
     >
       {/* Background Subtle Grid & Glow */}
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(79,70,229,0.12),transparent_45%),radial-gradient(circle_at_80%_80%,rgba(16,185,129,0.09),transparent_45%)]" />
-
-      {/* Top Security Bar */}
-      <header className="relative z-10 border-b border-slate-800/80 bg-slate-900/80 backdrop-blur-md px-4 sm:px-8 py-3.5 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center shadow-lg shadow-emerald-600/30">
-            <Layers className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-black text-sm tracking-wide text-white">ASF ENTERPRISE ERP</span>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                v4.0 SECURE
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-400">
-              {language === 'ar'
-                ? 'النظام المؤسسي الشامل للشركات ونقاط البيع المتقدمة'
-                : 'Enterprise ERP & Advanced Commercial Point of Sale'}
-            </p>
-          </div>
-        </div>
-
-        {/* Top Badges: Device Key & 7-Day Trial */}
-        <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Machine Device Key Pill */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 border border-indigo-500/40 text-xs">
-            <Terminal className="w-3.5 h-3.5 text-indigo-400" />
-            <span className="text-slate-400 font-medium">
-              {language === 'ar' ? 'كود الجهاز:' : 'Device Key:'}
-            </span>
-            <code className="font-mono font-bold text-indigo-300 text-xs tracking-wider">
-              {deviceCode}
-            </code>
-            <button
-              type="button"
-              onClick={handleCopyCode}
-              title={language === 'ar' ? 'نسخ كود الجهاز لإرساله للمطور' : 'Copy device code for developer'}
-              className="px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-sans text-[10px] font-bold transition cursor-pointer flex items-center gap-1 shadow-xs"
-            >
-              {copiedKey ? <Check className="w-3 h-3 text-emerald-300" /> : <Copy className="w-3 h-3" />}
-              <span>{copiedKey ? (language === 'ar' ? 'تم النسخ' : 'Copied') : (language === 'ar' ? 'نسخ' : 'Copy')}</span>
-            </button>
-          </div>
-
-          {/* Trial / License Status Pill */}
-          <div className="px-3 py-1.5 rounded-xl border border-amber-500/40 bg-amber-950/70 text-amber-300 text-xs font-bold flex items-center gap-1.5 shadow-xs">
-            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-            <span>
-              {protectionState.status === 'LICENSE_ACTIVE'
-                ? language === 'ar'
-                  ? `مرخص رسمياً (${protectionState.licenseDetails?.durationLabelAr})`
-                  : `Licensed (${protectionState.licenseDetails?.durationLabelEn})`
-                : language === 'ar'
-                ? 'نسخة تجريبية (7 أيام)'
-                : 'Trial Version (7 Days)'}
-            </span>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setLanguage(language === 'ar' ? 'en' : 'ar')}
-            className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
-          >
-            <Globe className="w-3.5 h-3.5 text-emerald-400" />
-            <span>{language === 'ar' ? 'English' : 'العربية'}</span>
-          </button>
-        </div>
-      </header>
 
       {/* Main Content: Clean Centered Login Card */}
       <main className="relative z-10 flex-1 flex items-center justify-center p-4 sm:p-8">

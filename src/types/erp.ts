@@ -939,9 +939,13 @@ export interface UIElementsVisibilityConfig {
   showTaxAndComplianceFields: boolean;
 }
 
+export type SectorModeType = 'SOLAR_ELECTRONICS_CORE' | 'FULL_SUITE';
+
 export interface MasterSystemConfig {
   industryLockMode: 'SINGLE_LOCKED' | 'MULTI_SELECTABLE';
   lockedIndustry: IndustryType;
+  sectorMode?: SectorModeType;
+  sectorModeEnabled?: boolean;
   globalCountryMode: 'GLOBAL' | 'YEMEN' | 'SAUDI' | 'INTERNATIONAL';
   globalDefaultCurrency: Currency;
   defaultTaxRatePercent: number;

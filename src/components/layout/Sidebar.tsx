@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useERP } from '../../context/ERPContext';
+import { useERP, getVisibleModulesList } from '../../context/ERPContext';
 import {
   LayoutDashboard,
   Barcode,
@@ -7,7 +7,6 @@ import {
   ShoppingCart,
   Receipt,
   Calculator,
-  Briefcase,
   Bot,
   CloudCog,
   Settings,
@@ -18,18 +17,67 @@ import {
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
-  Utensils,
-  Cpu,
-  ShoppingBasket,
-  Pill,
-  HardHat,
   Layers,
   ShieldCheck,
   MessageSquare,
 } from 'lucide-react';
-import { IndustryType } from '../../types/erp';
 
-export const Sidebar: React.FC = () => {
+export interface SidebarMenuItem {
+  id: string;
+  label: string;
+  subtitle?: string;
+  icon: React.ElementType;
+  count: number | null;
+}
+
+export const SECTOR_MODE_EXCLUDED_ITEMS = [
+  'projects',
+  'fleet',
+  'manufacturing',
+  'businessModules',
+  'Projects',
+  'Fleet',
+  'Manufacturing',
+  'Business Modules',
+] as const;
+
+export const SECTOR_MODE_ALLOWED_ITEMS = [
+  'pos',
+  'inventory',
+  'sales',
+  'accounting',
+  'POS',
+  'Inventory',
+  'Sales',
+  'Accounting',
+] as const;
+
+export function shouldDisplaySidebarMenuItem(
+  item: { id: string; label?: string },
+  sectorModeEnabled: boolean | undefined,
+  hasAccess: (moduleId: string) => boolean
+): boolean {
+  // ============================================================================
+  // SECTOR MODE BRANCH (Distraction-Free UI for Electronics & Solar Retailers)
+  // ============================================================================
+  if (sectorModeEnabled) {
+    const allowedModuleIds = getVisibleModulesList(true);
+    if (
+      (SECTOR_MODE_EXCLUDED_ITEMS as readonly string[]).includes(item.id) ||
+      (item.label && (SECTOR_MODE_EXCLUDED_ITEMS as readonly string[]).includes(item.label))
+    ) {
+      return false;
+    }
+    return allowedModuleIds.includes(item.id);
+  }
+
+  // ============================================================================
+  // STANDARD ENTERPRISE BRANCH (RBAC + Master System Visibility)
+  // ============================================================================
+  return hasAccess(item.id);
+}
+
+export function Sidebar() {
   const {
     activeTab,
     setActiveTab,
@@ -39,150 +87,151 @@ export const Sidebar: React.FC = () => {
     language,
     isSidebarCollapsed,
     setIsSidebarCollapsed,
-    activeIndustry,
     hasModuleAccess,
+    getVisibleModules,
     uiTheme,
+    masterSystemConfig,
   } = useERP();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  const isSectorModeActive = Boolean(masterSystemConfig.sectorModeEnabled);
 
   const lowStockCount = products.filter((p) => p.stockQty <= p.reorderPoint).length;
   const pendingPOCount = purchaseOrders.filter((po) => po.status === 'PENDING_APPROVAL').length;
 
-  const industryMeta: Record<IndustryType, { labelAr: string; labelEn: string; icon: React.ElementType }> = {
-    general: { labelAr: 'تجارة وصناعة شاملة', labelEn: 'General Enterprise', icon: Layers },
-    restaurant: { labelAr: 'المطاعم والضيافة', labelEn: 'Restaurants & F&B', icon: Utensils },
-    electronics: { labelAr: 'الإلكترونيات والطاقة الشمسية', labelEn: 'Electronics, Solar & Batteries', icon: Cpu },
-    grocery: { labelAr: 'التموينات والسوبرماركت', labelEn: 'Supermarket & Scale', icon: ShoppingBasket },
-    pharmacy: { labelAr: 'الصيدليات والطبي', labelEn: 'Pharmacy & Medical', icon: Pill },
-    contracting: { labelAr: 'المقاولات والمشاريع', labelEn: 'Contracting & Engineering', icon: HardHat },
-  };
-
-  const currentIndustryMeta = industryMeta[activeIndustry] || industryMeta.general;
-  const IndustryIcon = currentIndustryMeta.icon;
-
-  const navGroups = [
+  // Master menu definition array before dynamic filtering
+  const rawMenuItems: SidebarMenuItem[] = [
     {
-      groupId: 'operations',
-      titleAr: 'العمليات ونقاط البيع',
-      titleEn: 'CORE OPERATIONS',
-      items: [
-        {
-          id: 'dashboard',
-          label: t('dashboard'),
-          icon: LayoutDashboard,
-          count: null as number | null,
-        },
-        {
-          id: 'pos',
-          label: t('pos'),
-          icon: CreditCard,
-          count: null as number | null,
-        },
-        {
-          id: 'sales',
-          label: t('sales'),
-          icon: Receipt,
-          count: null as number | null,
-        },
-        {
-          id: 'communications',
-          label: language === 'ar' ? 'الواتساب والرسائل (USB)' : 'WhatsApp & SMS Hub',
-          icon: MessageSquare,
-          count: null as number | null,
-        },
-      ],
+      id: 'dashboard',
+      label: t('dashboard'),
+      icon: LayoutDashboard,
+      count: null,
     },
     {
-      groupId: 'supply',
-      titleAr: 'المخزون وسلسلة الإمداد',
-      titleEn: 'SUPPLY CHAIN & WMS',
-      items: [
-        {
-          id: 'inventory',
-          label: t('inventory'),
-          icon: Package,
-          count: lowStockCount > 0 ? lowStockCount : null,
-        },
-        {
-          id: 'barcodeEngine',
-          label: t('barcodeEngine'),
-          icon: Barcode,
-          count: null as number | null,
-        },
-        {
-          id: 'purchasing',
-          label: t('purchasing'),
-          icon: ShoppingCart,
-          count: pendingPOCount > 0 ? pendingPOCount : null,
-        },
-      ],
+      id: 'pos',
+      label: language === 'ar' ? 'نقطة البيع (POS)' : 'POS',
+      subtitle: language === 'ar' ? 'الكاشير والفوترة الفورية' : 'Fast Checkout & Billing',
+      icon: CreditCard,
+      count: null,
     },
     {
-      groupId: 'finance',
-      titleAr: 'المالية ووحدات الأعمال',
-      titleEn: 'FINANCE & ENTERPRISE',
-      items: [
-        {
-          id: 'accounting',
-          label: t('accounting'),
-          icon: Calculator,
-          count: null as number | null,
-        },
-        {
-          id: 'businessModules',
-          label: t('businessModules'),
-          icon: Briefcase,
-          count: null as number | null,
-        },
-        {
-          id: 'aiInsights',
-          label: t('aiInsights'),
-          icon: Bot,
-          count: null as number | null,
-        },
-      ],
+      id: 'inventory',
+      label: language === 'ar' ? 'المخزون والجرد' : 'Inventory',
+      subtitle: language === 'ar' ? 'الأصناف والسيريال والمستودع' : 'Stock, Serials & WMS',
+      icon: Package,
+      count: lowStockCount > 0 ? lowStockCount : null,
     },
     {
-      groupId: 'governance',
-      titleAr: 'الحوكمة والإدارة',
-      titleEn: 'GOVERNANCE & SYSTEM',
-      items: [
-        {
-          id: 'masterAdmin',
-          label: language === 'ar' ? 'الإدارة العليا للنظام (Master)' : 'Master System Admin',
-          icon: ShieldCheck,
-          count: null as number | null,
-        },
-        {
-          id: 'saasPlatform',
-          label: t('saasPlatform'),
-          icon: CloudCog,
-          count: null as number | null,
-        },
-        {
-          id: 'security',
-          label: language === 'ar' ? 'الحماية والعضويات والترخيص' : 'Security & Licensing',
-          icon: ShieldCheck,
-          count: null as number | null,
-        },
-        {
-          id: 'settings',
-          label: t('settings'),
-          icon: Settings,
-          count: null as number | null,
-        },
-      ],
+      id: 'sales',
+      label: language === 'ar' ? 'المبيعات والضمان' : 'Sales',
+      subtitle: language === 'ar' ? 'الفواتير وفحص الضمان RMA' : 'Invoices & Warranty RMA',
+      icon: Receipt,
+      count: null,
+    },
+    {
+      id: 'accounting',
+      label: language === 'ar' ? 'المحاسبة المالية' : 'Accounting',
+      subtitle: language === 'ar' ? 'دفتر الأستاذ والسندات' : 'General Ledger & Vouchers',
+      icon: Calculator,
+      count: null,
+    },
+    {
+      id: 'communications',
+      label: language === 'ar' ? 'الواتساب والرسائل (USB)' : 'WhatsApp & SMS Hub',
+      icon: MessageSquare,
+      count: null,
+    },
+    {
+      id: 'barcodeEngine',
+      label: t('barcodeEngine'),
+      icon: Barcode,
+      count: null,
+    },
+    {
+      id: 'purchasing',
+      label: t('purchasing'),
+      icon: ShoppingCart,
+      count: pendingPOCount > 0 ? pendingPOCount : null,
+    },
+    {
+      id: 'businessModules',
+      label: language === 'ar' ? t('businessModules') : 'Business Modules',
+      icon: Layers,
+      count: null,
+    },
+    {
+      id: 'projects',
+      label: language === 'ar' ? 'إدارة المشاريع' : 'Projects',
+      icon: Layers,
+      count: null,
+    },
+    {
+      id: 'fleet',
+      label: language === 'ar' ? 'الأسطول والنقل' : 'Fleet',
+      icon: Layers,
+      count: null,
+    },
+    {
+      id: 'manufacturing',
+      label: language === 'ar' ? 'التصنيع والإنتاج' : 'Manufacturing',
+      icon: Layers,
+      count: null,
+    },
+    {
+      id: 'aiInsights',
+      label: t('aiInsights'),
+      icon: Bot,
+      count: null,
+    },
+    {
+      id: 'masterAdmin',
+      label: language === 'ar' ? 'الإدارة العليا للنظام (Master)' : 'Master System Admin',
+      icon: ShieldCheck,
+      count: null,
+    },
+    {
+      id: 'saasPlatform',
+      label: t('saasPlatform'),
+      icon: CloudCog,
+      count: null,
+    },
+    {
+      id: 'security',
+      label: language === 'ar' ? 'الحماية والعضويات والترخيص' : 'Security & Licensing',
+      icon: ShieldCheck,
+      count: null,
+    },
+    {
+      id: 'settings',
+      label: t('settings'),
+      icon: Settings,
+      count: null,
     },
   ];
 
-  const filteredGroups = navGroups
-    .map((g) => ({
-      ...g,
-      items: g.items.filter((item) => hasModuleAccess(item.id)),
-    }))
-    .filter((g) => g.items.length > 0);
+  // Retrieve allowed module IDs from ERPContext helper based on masterSystemConfig.sectorModeEnabled
+  const allowedModuleIds = getVisibleModules();
 
-  const flatNavItems = filteredGroups.flatMap((g) => g.items);
+  // ============================================================================
+  // DYNAMIC MENU FILTERING SEPARATOR:
+  // Path A (masterSystemConfig.sectorModeEnabled === true):
+  //   Distraction-free mode for Electronics & Solar retailers — maps strictly
+  //   ['pos', 'inventory', 'sales', 'accounting'] into a unified card-based list
+  //   with zero legacy category separators.
+  // Path B (masterSystemConfig.sectorModeEnabled === false):
+  //   Expanded suite filtered by user permissions and Master Admin visibility.
+  // ============================================================================
+  const visibleMenuItems: SidebarMenuItem[] = masterSystemConfig.sectorModeEnabled
+    ? allowedModuleIds
+        .map((modId) => rawMenuItems.find((item) => item.id === modId))
+        .filter((item): item is SidebarMenuItem =>
+          Boolean(item && shouldDisplaySidebarMenuItem(item, true, hasModuleAccess))
+        )
+    : rawMenuItems.filter(
+        (item) =>
+          allowedModuleIds.includes(item.id) &&
+          shouldDisplaySidebarMenuItem(item, false, hasModuleAccess)
+      );
 
   const CollapseIcon =
     language === 'ar'
@@ -197,166 +246,126 @@ export const Sidebar: React.FC = () => {
 
   return (
     <>
-      {/* Desktop Sidebar (lg and up) - Institutional Swiss-Grid Navigation Rail */}
+      {/* Desktop Sidebar (lg and up) - Clean Card-Based Navigation Rail */}
       <aside
         data-testid="desktop-sidebar"
-        className={`hidden lg:flex flex-col shrink-0 min-h-[calc(100vh-49px)] select-none border-e transition-all duration-200 ${
-          isSidebarCollapsed ? 'w-16' : 'w-60'
+        className={`hidden lg:flex flex-col shrink-0 min-h-[calc(100vh-52px)] select-none border-e transition-all duration-200 ${
+          isSidebarCollapsed ? 'w-16' : 'w-64'
         } ${
           isLightSidebar
             ? 'bg-white text-zinc-700 border-zinc-200'
             : 'bg-[#0B1120] text-slate-300 border-slate-800/90'
         }`}
       >
-        {/* Active Operational Sector Header & Collapse Trigger */}
-        <div
-          className={`border-b flex items-center ${
-            isLightSidebar ? 'border-zinc-200' : 'border-slate-800/80'
-          } ${isSidebarCollapsed ? 'p-2.5 justify-center' : 'px-3.5 py-3 justify-between'}`}
-        >
-          {!isSidebarCollapsed && (
-            <button
-              type="button"
-              onClick={() => setActiveTab('settings')}
-              className="flex items-center gap-2.5 cursor-pointer group truncate text-start"
-              title={language === 'ar' ? 'تغيير القطاع التشغيلي من الإعدادات' : 'Switch Operational Sector'}
-            >
-              <div
-                className={`w-7 h-7 rounded-md border flex items-center justify-center shrink-0 ${
-                  isLightSidebar
-                    ? 'bg-zinc-100 border-zinc-300 text-zinc-800'
-                    : 'bg-slate-900 border-slate-700/80 text-slate-200'
-                }`}
-              >
-                <IndustryIcon className="w-3.5 h-3.5" />
-              </div>
-              <div className="truncate">
-                <div className="text-[10px] text-slate-400 font-medium leading-none">
-                  {language === 'ar' ? 'القطاع التشغيلي' : 'Operational Sector'}
-                </div>
-                <div
-                  className={`text-xs font-bold truncate mt-1 ${
-                    isLightSidebar ? 'text-zinc-900' : 'text-slate-100'
+        {/* Unified Card-Based Navigation List (Zero Legacy Category Separators) */}
+        <nav className={`flex-1 py-3.5 overflow-y-auto ${isSidebarCollapsed ? 'px-2' : 'px-3'}`}>
+          <div
+            className={
+              isSidebarCollapsed
+                ? 'space-y-2'
+                : `rounded-2xl border p-2.5 space-y-2 shadow-xs ${
+                    isLightSidebar
+                      ? 'bg-zinc-50/80 border-zinc-200/90'
+                      : 'bg-slate-900/60 border-slate-800/90'
+                  }`
+            }
+          >
+            {visibleMenuItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  data-testid={`nav-${item.id}`}
+                  onClick={() => setActiveTab(item.id)}
+                  title={isSidebarCollapsed ? item.label : undefined}
+                  className={`relative w-full flex items-center rounded-xl border text-xs transition-all cursor-pointer group ${
+                    isSidebarCollapsed
+                      ? 'justify-center py-2.5 px-0'
+                      : 'justify-between px-3 py-3'
+                  } ${
+                    isActive
+                      ? isLightSidebar
+                        ? 'bg-zinc-900 border-zinc-900 text-white shadow-sm font-semibold'
+                        : 'bg-slate-800/95 border-emerald-500/60 text-white shadow-sm font-semibold'
+                      : isLightSidebar
+                      ? 'bg-white border-zinc-200/80 text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50 font-medium'
+                      : 'bg-slate-950/70 border-slate-800/80 text-slate-300 hover:border-slate-700 hover:bg-slate-900 hover:text-white font-medium'
                   }`}
                 >
-                  {language === 'ar' ? currentIndustryMeta.labelAr : currentIndustryMeta.labelEn}
-                </div>
-              </div>
-            </button>
-          )}
+                  <div
+                    className={`flex items-center ${
+                      isSidebarCollapsed ? 'justify-center' : 'gap-3 truncate text-start'
+                    }`}
+                  >
+                    <div
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                        isActive
+                          ? isLightSidebar
+                            ? 'bg-white/15 text-white'
+                            : 'bg-emerald-500/20 text-emerald-400'
+                          : isLightSidebar
+                          ? 'bg-zinc-100 text-zinc-600 group-hover:text-zinc-900'
+                          : 'bg-slate-900 text-slate-400 group-hover:text-slate-200'
+                      }`}
+                    >
+                      <Icon className="w-4 h-4 shrink-0" />
+                    </div>
+                    {!isSidebarCollapsed && (
+                      <div className="truncate">
+                        <div className="truncate leading-snug">{item.label}</div>
+                        {item.subtitle && (
+                          <div
+                            className={`text-[10px] truncate mt-0.5 ${
+                              isActive
+                                ? isLightSidebar
+                                  ? 'text-zinc-300'
+                                  : 'text-emerald-300/80'
+                                : 'text-slate-500'
+                            }`}
+                          >
+                            {item.subtitle}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
 
+                  {/* Understated Tabular Counter Only for Actionable Alerts */}
+                  {!isSidebarCollapsed && item.count !== null && (
+                    <span
+                      className={`px-1.5 py-0.5 rounded-md font-mono text-[10px] font-bold tabular-nums ${
+                        isActive
+                          ? 'bg-emerald-500/20 text-emerald-300'
+                          : 'bg-amber-500/15 text-amber-400'
+                      }`}
+                    >
+                      {item.count}
+                    </span>
+                  )}
+
+                  {isSidebarCollapsed && item.count !== null && (
+                    <span className="absolute top-1.5 end-1.5 w-1.5 h-1.5 rounded-full bg-amber-500" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+
+        {/* Minimalist Footer Collapse Control */}
+        <div className="p-3">
           <button
             type="button"
             data-testid="toggle-sidebar"
             onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            title={
-              isSidebarCollapsed
-                ? language === 'ar'
-                  ? 'تمديد القائمة الجانبية'
-                  : 'Expand Sidebar'
-                : language === 'ar'
-                ? 'طي القائمة الجانبية'
-                : 'Collapse Sidebar'
-            }
-            className={`p-1.5 rounded-md border transition cursor-pointer shrink-0 ${
-              isLightSidebar
-                ? 'bg-zinc-50 hover:bg-zinc-100 text-zinc-600 border-zinc-200'
-                : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border-slate-800'
-            }`}
-          >
-            <CollapseIcon className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Grouped Navigation Sections */}
-        <nav className="flex-1 py-3 overflow-y-auto space-y-4">
-          {filteredGroups.map((group) => (
-            <div key={group.groupId} className={isSidebarCollapsed ? 'px-2' : 'px-2.5'}>
-              {!isSidebarCollapsed && (
-                <div
-                  className={`px-2.5 mb-1.5 text-[10px] font-bold tracking-wider uppercase ${
-                    isLightSidebar ? 'text-zinc-400' : 'text-slate-500'
-                  }`}
-                >
-                  {language === 'ar' ? group.titleAr : group.titleEn}
-                </div>
-              )}
-
-              <div className="space-y-0.5">
-                {group.items.map((item) => {
-                  const Icon = item.icon;
-                  const isActive = activeTab === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      data-testid={`nav-${item.id}`}
-                      onClick={() => setActiveTab(item.id)}
-                      title={isSidebarCollapsed ? item.label : undefined}
-                      className={`relative w-full flex items-center rounded-md text-xs transition-colors cursor-pointer group ${
-                        isSidebarCollapsed ? 'justify-center py-2.5 px-0' : 'justify-between px-2.5 py-2'
-                      } ${
-                        isActive
-                          ? isLightSidebar
-                            ? 'bg-zinc-900 text-white font-semibold'
-                            : 'bg-slate-800/90 text-white font-semibold border-s-2 border-emerald-400'
-                          : isLightSidebar
-                          ? 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 font-medium'
-                          : 'text-slate-400 hover:bg-slate-900 hover:text-slate-100 font-medium'
-                      }`}
-                    >
-                      <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 truncate'}`}>
-                        <Icon
-                          className={`${isSidebarCollapsed ? 'w-4 h-4' : 'w-4 h-4'} shrink-0 ${
-                            isActive
-                              ? isLightSidebar
-                                ? 'text-white'
-                                : 'text-emerald-400'
-                              : isLightSidebar
-                              ? 'text-zinc-500 group-hover:text-zinc-900'
-                              : 'text-slate-400 group-hover:text-slate-200'
-                          }`}
-                        />
-                        {!isSidebarCollapsed && <span className="truncate">{item.label}</span>}
-                      </div>
-
-                      {/* Understated Tabular Counter Only for Actionable Alerts */}
-                      {!isSidebarCollapsed && item.count !== null && (
-                        <span
-                          className={`font-mono text-[11px] font-semibold tabular-nums ${
-                            isActive ? 'text-emerald-300' : 'text-amber-500'
-                          }`}
-                        >
-                          {item.count}
-                        </span>
-                      )}
-
-                      {isSidebarCollapsed && item.count !== null && (
-                        <span className="absolute top-1.5 end-1.5 w-1.5 h-1.5 rounded-full bg-amber-500" />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </nav>
-
-        {/* Footer Collapse Control */}
-        <div
-          className={`p-2.5 border-t ${
-            isLightSidebar ? 'border-zinc-200' : 'border-slate-800/80'
-          }`}
-        >
-          <button
-            type="button"
-            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            className={`w-full px-2.5 py-2 rounded-md text-xs flex items-center transition cursor-pointer ${
+            className={`w-full px-3 py-2 rounded-xl border text-xs flex items-center transition cursor-pointer ${
               isSidebarCollapsed ? 'justify-center' : 'justify-between'
             } ${
               isLightSidebar
-                ? 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
-                : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+                ? 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
+                : 'bg-slate-900/60 border-slate-800/80 text-slate-400 hover:bg-slate-900 hover:text-slate-200'
             }`}
           >
             {!isSidebarCollapsed && (
@@ -369,14 +378,13 @@ export const Sidebar: React.FC = () => {
         </div>
       </aside>
 
-      {/* Mobile Bottom Navigation Bar (sm/md only) */}
+      {/* Mobile Bottom Navigation Bar (sm/md only) - Focused on POS, Inventory, Sales, Accounting */}
       <div className="lg:hidden fixed bottom-0 inset-x-0 bg-[#0B1120] border-t border-slate-800 z-40 px-2 py-1.5 flex items-center justify-around">
         {[
-          { id: 'dashboard', label: language === 'ar' ? 'الرئيسية' : 'Home', icon: LayoutDashboard },
-          { id: 'pos', label: 'POS', icon: CreditCard },
+          { id: 'pos', label: language === 'ar' ? 'نقطة البيع POS' : 'POS', icon: CreditCard },
+          { id: 'inventory', label: language === 'ar' ? 'المخزون' : 'Inventory', icon: Package },
           { id: 'sales', label: language === 'ar' ? 'المبيعات' : 'Sales', icon: Receipt },
-          { id: 'inventory', label: language === 'ar' ? 'المخزون' : 'Stock', icon: Package },
-          { id: 'settings', label: language === 'ar' ? 'الإعدادات' : 'Settings', icon: Settings },
+          { id: 'accounting', label: language === 'ar' ? 'المحاسبة' : 'Accounting', icon: Calculator },
         ].map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
@@ -385,7 +393,7 @@ export const Sidebar: React.FC = () => {
               key={item.id}
               type="button"
               onClick={() => setActiveTab(item.id)}
-              className={`flex flex-col items-center gap-0.5 py-1 px-2 rounded-md text-[10px] font-semibold transition cursor-pointer ${
+              className={`flex flex-col items-center gap-0.5 py-1 px-2.5 rounded-md text-[10px] font-semibold transition cursor-pointer ${
                 isActive ? 'text-emerald-400' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -394,14 +402,16 @@ export const Sidebar: React.FC = () => {
             </button>
           );
         })}
-        <button
-          type="button"
-          onClick={() => setIsMobileMenuOpen(true)}
-          className="flex flex-col items-center gap-0.5 py-1 px-2 rounded-md text-[10px] font-semibold text-slate-400 hover:text-slate-200 cursor-pointer"
-        >
-          <Menu className="w-4 h-4" />
-          <span>{language === 'ar' ? 'المزيد' : 'More'}</span>
-        </button>
+        {!isSectorModeActive && (
+          <button
+            type="button"
+            onClick={() => setIsMobileMenuOpen(true)}
+            className="flex flex-col items-center gap-0.5 py-1 px-2 rounded-md text-[10px] font-semibold text-slate-400 hover:text-slate-200 cursor-pointer"
+          >
+            <Menu className="w-4 h-4" />
+            <span>{language === 'ar' ? 'المزيد' : 'More'}</span>
+          </button>
+        )}
       </div>
 
       {/* Mobile Drawer Overlay */}
@@ -409,7 +419,7 @@ export const Sidebar: React.FC = () => {
         <div className="lg:hidden fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex justify-end">
           <div className="w-72 bg-[#0B1120] text-slate-200 h-full p-4 overflow-y-auto flex flex-col justify-between border-s border-slate-800">
             <div>
-              <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
+              <div className="flex items-center justify-between pb-3 mb-3">
                 <span className="font-bold text-sm text-white">RLM Enterprise ERP</span>
                 <button
                   type="button"
@@ -420,8 +430,8 @@ export const Sidebar: React.FC = () => {
                 </button>
               </div>
 
-              <div className="space-y-1">
-                {flatNavItems.map((item) => {
+              <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-2 space-y-1.5">
+                {visibleMenuItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = activeTab === item.id;
                   return (
@@ -432,8 +442,10 @@ export const Sidebar: React.FC = () => {
                         setActiveTab(item.id);
                         setIsMobileMenuOpen(false);
                       }}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-xs font-semibold transition cursor-pointer ${
-                        isActive ? 'bg-slate-800 text-white border-s-2 border-emerald-400' : 'hover:bg-slate-900 text-slate-300'
+                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border text-xs font-semibold transition cursor-pointer ${
+                        isActive
+                          ? 'bg-slate-800 border-emerald-500/50 text-white'
+                          : 'bg-slate-950/60 border-slate-800 hover:bg-slate-900 text-slate-300'
                       }`}
                     >
                       <div className="flex items-center gap-2.5">
@@ -446,7 +458,7 @@ export const Sidebar: React.FC = () => {
               </div>
             </div>
 
-            <div className="pt-4 border-t border-slate-800 text-center text-[11px] font-mono text-slate-500">
+            <div className="pt-4 text-center text-[11px] font-mono text-slate-500">
               RLM Financial Core v6.5
             </div>
           </div>
@@ -454,5 +466,5 @@ export const Sidebar: React.FC = () => {
       )}
     </>
   );
-};
+}
 

@@ -3,9 +3,6 @@ import { useERP } from '../context/ERPContext';
 import {
   Briefcase,
   Users,
-  Factory,
-  FolderGit2,
-  Truck,
   CheckCheck,
   Wrench,
   Target,
@@ -17,7 +14,6 @@ import {
   Plus,
   Calculator,
   Banknote,
-  Play,
   FileSpreadsheet,
 } from 'lucide-react';
 
@@ -29,16 +25,6 @@ export const BusinessModulesView: React.FC = () => {
     fixedAssets,
     addFixedAsset,
     runAssetDepreciationCycle,
-    boms,
-    productionOrders,
-    addProductionOrder,
-    advanceProductionOrder,
-    projects,
-    addProject,
-    advanceProjectProgress,
-    fleetVehicles,
-    addFleetVehicle,
-    cycleFleetVehicleStatus,
     qualityInspections,
     addQualityInspection,
     crmLeads,
@@ -53,7 +39,7 @@ export const BusinessModulesView: React.FC = () => {
   } = useERP();
 
   const [activeSubModule, setActiveSubModule] = useState<
-    'hr' | 'crm' | 'ecommerce' | 'workflows' | 'assets' | 'mfg' | 'projects' | 'fleet' | 'quality'
+    'hr' | 'crm' | 'ecommerce' | 'workflows' | 'assets' | 'quality'
   >('hr');
 
   const [statusBanner, setStatusBanner] = useState<string | null>(null);
@@ -89,25 +75,7 @@ export const BusinessModulesView: React.FC = () => {
   const [assetSalvage, setAssetSalvage] = useState(5000);
   const [assetLife, setAssetLife] = useState(5);
 
-  // 6. Manufacturing New Production Order State
-  const [showMOForm, setShowMOForm] = useState(false);
-  const [moProductName, setMoProductName] = useState(
-    boms[0]?.finishedProductName || 'وحدة تكييف صناعي مركزي 20 طن'
-  );
-  const [moTargetQty, setMoTargetQty] = useState(20);
-
-  // 7. Projects New Project State
-  const [showProjectForm, setShowProjectForm] = useState(false);
-  const [prjNameAr, setPrjNameAr] = useState('');
-  const [prjBudget, setPrjBudget] = useState(250000);
-
-  // 8. Fleet New Vehicle State
-  const [showFleetForm, setShowFleetForm] = useState(false);
-  const [vehPlate, setVehPlate] = useState('أ ب ج - 8821');
-  const [vehModel, setVehModel] = useState('شاحنة إيسوزو مبردة 5 طن 2025');
-  const [vehDriver, setVehDriver] = useState('سالم الدوسري');
-
-  // 9. Quality Inspection New Ticket State
+  // 6. Quality Inspection New Ticket State
   const [showQCForm, setShowQCForm] = useState(false);
   const [qcRefDoc, setQcRefDoc] = useState('PO-2026-4410');
   const [qcSampleSize, setQcSampleSize] = useState(50);
@@ -192,55 +160,6 @@ export const BusinessModulesView: React.FC = () => {
     );
   };
 
-  const handleAddMO = (e: React.FormEvent) => {
-    e.preventDefault();
-    addProductionOrder({
-      bomId: boms[0]?.id || 'bom-1',
-      finishedProductName: moProductName,
-      targetQuantity: Number(moTargetQty) || 10,
-      completedQuantity: 0,
-      startDate: new Date().toISOString().slice(0, 10),
-      dueDate: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
-      status: 'IN_PRODUCTION',
-    });
-    setShowMOForm(false);
-    showToast('تم فتح أمر تصنيع وإنتاج جديد وربطه بقائمة المواد BOM');
-  };
-
-  const handleAddProject = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!prjNameAr.trim()) return;
-    addProject({
-      code: `PRJ-2026-0${projects.length + 1}`,
-      name: prjNameAr.trim(),
-      nameAr: prjNameAr.trim(),
-      budget: Number(prjBudget) || 150000,
-      spentCost: 0,
-      startDate: new Date().toISOString().slice(0, 10),
-      endDate: new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10),
-      progressPercent: 10,
-      status: 'IN_PROGRESS',
-    });
-    setPrjNameAr('');
-    setShowProjectForm(false);
-    showToast('تم إنشاء المشروع الهندسي الجديد وفتح مركز التكلفة الخاص به');
-  };
-
-  const handleAddVehicle = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!vehPlate.trim()) return;
-    addFleetVehicle({
-      plateNumber: vehPlate.trim(),
-      model: vehModel.trim(),
-      driverName: vehDriver.trim(),
-      fuelCapacity: 140,
-      mileageKm: 12500,
-      status: 'AVAILABLE',
-    });
-    setShowFleetForm(false);
-    showToast('تمت إضافة المركبة الجديدة إلى أسطول النقل والإمداد اللوجستي');
-  };
-
   const handleAddQC = (e: React.FormEvent) => {
     e.preventDefault();
     addQualityInspection({
@@ -265,14 +184,14 @@ export const BusinessModulesView: React.FC = () => {
             <Briefcase className="w-6 h-6 text-amber-600" />
             <span>
               {language === 'ar'
-                ? 'وحدات الأعمال والعمليات المتخصصة (9 أنظمة تفاعلية)'
-                : 'Specialized Operations Modules (9 Interactive Suites)'}
+                ? 'وحدات العمليات المساندة'
+                : 'Supporting Operations Modules'}
             </span>
           </h1>
           <p className="text-xs text-slate-500 mt-1">
             {language === 'ar'
-              ? 'الموارد البشرية والرواتب، CRM، المتجر الإلكتروني، الاعتمادات، الأصول والإهلاك، التصنيع وBOM، المشاريع، الأسطول، وتوكيد الجودة'
-              : 'HR & Payroll, CRM Pipeline, E-Commerce, Workflows, Fixed Assets, Manufacturing BOM, Projects, Fleet, and QC'}
+              ? 'الموارد البشرية والرواتب، CRM، المتجر الإلكتروني، الاعتمادات، الأصول والإهلاك، وفحص الجودة للألواح والبطاريات'
+              : 'HR & Payroll, CRM Pipeline, E-Commerce, Workflows, Fixed Assets, and Solar/Electronics QC'}
           </p>
         </div>
       </div>
@@ -301,9 +220,6 @@ export const BusinessModulesView: React.FC = () => {
           { id: 'ecommerce', labelAr: 'المتجر الإلكتروني والطلبات', labelEn: 'E-Commerce Orders', icon: ShoppingBag },
           { id: 'workflows', labelAr: 'سير العمل والاعتمادات', labelEn: 'Workflow Approvals', icon: GitPullRequest },
           { id: 'assets', labelAr: 'الأصول الثابتة والإهلاك', labelEn: 'Assets & Deprec.', icon: Wrench },
-          { id: 'mfg', labelAr: 'التصنيع وقوائم المواد BOM', labelEn: 'Manufacturing BOM', icon: Factory },
-          { id: 'projects', labelAr: 'إدارة المشاريع والتكاليف', labelEn: 'Projects', icon: FolderGit2 },
-          { id: 'fleet', labelAr: 'الأسطول والنقل اللوجستي', labelEn: 'Fleet & Logistics', icon: Truck },
           { id: 'quality', labelAr: 'إدارة الجودة QC', labelEn: 'Quality Control', icon: CheckCheck },
         ].map((mod) => {
           const Icon = mod.icon;
@@ -912,324 +828,7 @@ export const BusinessModulesView: React.FC = () => {
         </div>
       )}
 
-      {/* 6. Manufacturing BOM */}
-      {activeSubModule === 'mfg' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-3">
-            <h3 className="font-bold text-sm text-slate-900 border-b border-slate-100 pb-2">
-              {language === 'ar' ? 'قوائم المواد والتركيبات التصنيعية (BOM Recipes)' : 'Bill of Materials (BOM)'}
-            </h3>
-            {boms.map((b) => (
-              <div key={b.id} className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2 text-xs">
-                <div className="flex justify-between items-center">
-                  <span className="font-bold text-slate-900 text-sm">{b.finishedProductName}</span>
-                  <span className="font-mono bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded text-[10px] font-bold">
-                    {b.bomCode}
-                  </span>
-                </div>
-                <div className="text-slate-600">
-                  {b.items.map((item, idx) => (
-                    <div key={idx} className="flex justify-between py-0.5 border-b border-slate-100 last:border-none">
-                      <span>• {item.productName} ({item.quantityRequired} unit)</span>
-                      <span className="font-mono">{item.unitCost} {currency}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="flex justify-between pt-1 border-t border-slate-200 font-bold text-slate-900">
-                  <span>{language === 'ar' ? 'تكلفة إنتاج الوحدة شاملة العمالة:' : 'Total Cost / Finished Unit:'}</span>
-                  <span className="text-emerald-700 font-mono">{b.totalCostPerUnit} {currency}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-3">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-              <h3 className="font-bold text-sm text-slate-900">
-                {language === 'ar' ? 'أوامر التصنيع وخطوط الإنتاج' : 'Active Production Orders'}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowMOForm(!showMOForm)}
-                className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>أمر تصنيع جديد</span>
-              </button>
-            </div>
-
-            {showMOForm && (
-              <form onSubmit={handleAddMO} className="p-3 bg-slate-100 rounded-xl space-y-2 text-xs">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">المنتج التام المستهدف</label>
-                  <input
-                    type="text"
-                    required
-                    value={moProductName}
-                    onChange={(e) => setMoProductName(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    value={moTargetQty}
-                    onChange={(e) => setMoTargetQty(Number(e.target.value))}
-                    placeholder="الكمية..."
-                    className="w-32 px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-mono"
-                  />
-                  <button
-                    type="submit"
-                    className="flex-1 py-1.5 bg-emerald-600 text-white font-bold rounded-lg cursor-pointer"
-                  >
-                    إطلاق خط الإنتاج
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {productionOrders.map((mo) => (
-              <div key={mo.id} className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2 text-xs">
-                <div className="flex justify-between items-center">
-                  <span className="font-bold text-slate-900">{mo.finishedProductName}</span>
-                  <span className="font-mono text-xs font-bold text-indigo-700">{mo.orderNumber}</span>
-                </div>
-                <div className="flex justify-between text-slate-600">
-                  <span>الكمية المستهدفة: {mo.targetQuantity} units</span>
-                  <span className="font-bold text-emerald-700">المنجز: {mo.completedQuantity} units</span>
-                </div>
-                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-                  <div
-                    className="bg-indigo-600 h-full rounded-full transition-all"
-                    style={{ width: `${Math.min(100, (mo.completedQuantity / mo.targetQuantity) * 100)}%` }}
-                  ></div>
-                </div>
-                <div className="flex items-center justify-between pt-1">
-                  <span className="text-[10px] text-slate-400">
-                    Start: {mo.startDate} • Due: {mo.dueDate}
-                  </span>
-                  {mo.completedQuantity < mo.targetQuantity ? (
-                    <button
-                      type="button"
-                      onClick={() => advanceProductionOrder(mo.id)}
-                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer"
-                    >
-                      <Play className="w-3 h-3" />
-                      <span>تسجيل دفعة إنتاج (+25%)</span>
-                    </button>
-                  ) : (
-                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold text-[10px]">
-                      مكتمل التصنيع ✅
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 7. Projects */}
-      {activeSubModule === 'projects' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-5 space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <h3 className="font-bold text-slate-900 text-sm">
-              {language === 'ar' ? 'متابعة المشاريع الهندسية والربحية والميزانيات' : 'Project Costing & Profitability'}
-            </h3>
-            <button
-              type="button"
-              onClick={() => setShowProjectForm(!showProjectForm)}
-              className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>مشروع جديد</span>
-            </button>
-          </div>
-
-          {showProjectForm && (
-            <form
-              onSubmit={handleAddProject}
-              className="p-4 bg-slate-50 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs items-end"
-            >
-              <div className="sm:col-span-2">
-                <label className="block font-bold text-slate-700 mb-1">اسم المشروع / العقد</label>
-                <input
-                  type="text"
-                  required
-                  value={prjNameAr}
-                  onChange={(e) => setPrjNameAr(e.target.value)}
-                  placeholder="تجهيز مستودعات تبريد مركزية..."
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg"
-                />
-              </div>
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">الميزانية المعتمدة ({currency})</label>
-                <input
-                  type="number"
-                  value={prjBudget}
-                  onChange={(e) => setPrjBudget(Number(e.target.value))}
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg font-mono"
-                />
-              </div>
-              <button
-                type="submit"
-                className="py-2 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg cursor-pointer"
-              >
-                فتح المشروع
-              </button>
-            </form>
-          )}
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {projects.map((prj) => (
-              <div key={prj.id} className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3 text-xs">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="font-bold text-slate-900 text-sm">
-                      {language === 'ar' ? prj.nameAr : prj.name}
-                    </div>
-                    <div className="text-[10px] text-slate-500 font-mono mt-0.5">{prj.code}</div>
-                  </div>
-                  <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                    {prj.status}
-                  </span>
-                </div>
-                <div className="space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">{language === 'ar' ? 'نسبة الإنجاز:' : 'Progress:'}</span>
-                    <span className="font-bold text-slate-800">{prj.progressPercent}%</span>
-                  </div>
-                  <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-                    <div
-                      className="bg-emerald-500 h-full rounded-full transition-all"
-                      style={{ width: `${prj.progressPercent}%` }}
-                    ></div>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between pt-2 border-t border-slate-200 font-mono">
-                  <div>
-                    <div>Budget: {prj.budget.toLocaleString()} {currency}</div>
-                    <div className="text-emerald-700 font-bold">Spent: {prj.spentCost.toLocaleString()} {currency}</div>
-                  </div>
-                  {prj.progressPercent < 100 && (
-                    <button
-                      type="button"
-                      onClick={() => advanceProjectProgress(prj.id)}
-                      className="px-3 py-1.5 bg-slate-900 hover:bg-indigo-600 text-white font-sans font-bold rounded-lg text-[11px] cursor-pointer"
-                    >
-                      اعتماد مستخلص (+10%)
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 8. Fleet Logistics */}
-      {activeSubModule === 'fleet' && (
-        <div className="space-y-4">
-          <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-200">
-            <h3 className="font-bold text-slate-900 text-sm">
-              {language === 'ar' ? 'إدارة أسطول المركبات والشاحنات اللوجستية' : 'Fleet & Logistics Management'}
-            </h3>
-            <button
-              type="button"
-              onClick={() => setShowFleetForm(!showFleetForm)}
-              className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>إضافة مركبة للأسطول</span>
-            </button>
-          </div>
-
-          {showFleetForm && (
-            <form
-              onSubmit={handleAddVehicle}
-              className="p-4 bg-white rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs items-end"
-            >
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">رقم اللوحة</label>
-                <input
-                  type="text"
-                  required
-                  value={vehPlate}
-                  onChange={(e) => setVehPlate(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg"
-                />
-              </div>
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">طراز المركبة / الشاحنة</label>
-                <input
-                  type="text"
-                  value={vehModel}
-                  onChange={(e) => setVehModel(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg"
-                />
-              </div>
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">السائق المسؤول</label>
-                <input
-                  type="text"
-                  value={vehDriver}
-                  onChange={(e) => setVehDriver(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg"
-                />
-              </div>
-              <button
-                type="submit"
-                className="py-2 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg cursor-pointer"
-              >
-                تسجيل المركبة
-              </button>
-            </form>
-          )}
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {fleetVehicles.map((v) => (
-              <div key={v.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-3 text-xs">
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-2">
-                    <Truck className="w-5 h-5 text-indigo-600" />
-                    <span className="font-bold text-slate-900 text-sm">{v.plateNumber}</span>
-                  </div>
-                  <span
-                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                      v.status === 'AVAILABLE'
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : v.status === 'ON_ROUTE'
-                        ? 'bg-blue-100 text-blue-800'
-                        : 'bg-amber-100 text-amber-800'
-                    }`}
-                  >
-                    {v.status}
-                  </span>
-                </div>
-                <div className="text-slate-600 space-y-1">
-                  <div>Model: <span className="font-semibold text-slate-800">{v.model}</span></div>
-                  <div>Driver: <span className="font-semibold text-slate-800">{v.driverName}</span></div>
-                  <div className="flex justify-between font-mono pt-1">
-                    <span>Mileage: {v.mileageKm.toLocaleString()} KM</span>
-                    <span>Fuel Tank: {v.fuelCapacity} L</span>
-                  </div>
-                </div>
-                <div className="pt-2 border-t border-slate-100 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => cycleFleetVehicleStatus(v.id)}
-                    className="px-3 py-1 bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 font-bold rounded-lg text-[11px] transition cursor-pointer"
-                  >
-                    تغيير حالة التشغيل / التوصيل
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 9. Quality Control */}
+      {/* 6. Quality Control */}
       {activeSubModule === 'quality' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-5 space-y-4 text-xs">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">

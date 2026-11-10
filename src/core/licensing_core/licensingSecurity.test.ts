@@ -13,7 +13,7 @@
  * 10. Non-existent license rejection
  */
 
-import { test, expect } from 'bun:test';
+import test from 'node:test';
 import assert from 'node:assert';
 import {
   ActivationServerManager,

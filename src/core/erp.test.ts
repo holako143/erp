@@ -1891,3 +1891,154 @@ test('Track 18 Guaranteed Multi-Format Invoice Package: builds Text, Image, PDF,
   assert.ok(pkg.receiptSummaryAr.includes('نص + صورة + PDF'));
 });
 
+test('Track 19 Encrypted Database Snapshot: encryptDatabaseSnapshotJSON and decryptDatabaseSnapshotJSON perform authenticated encryption and reject tampered or wrong-passphrase payloads', async () => {
+  const {
+    encryptDatabaseSnapshotJSON,
+    decryptDatabaseSnapshotJSON,
+  } = await import('./securityEngine');
+
+  const rawBackupPayload = {
+    version: '4.2.0',
+    exportedAt: '2026-11-10T08:00:00.000Z',
+    tenant: { code: 'TENANT-SOLAR-01', name: 'مؤسسة رواد الطاقة للإلكترونيات' },
+    productsCount: 1,
+    salesInvoicesCount: 1,
+    journalEntriesCount: 2,
+    auditLogsCount: 5,
+    data: {
+      products: [{ id: 'p-1', nameAr: 'لوح شمسي 585W', stockQty: 140 }],
+      salesInvoices: [{ id: 'inv-1', grandTotal: 25800 }],
+    },
+  };
+
+  // 1. Encrypt with custom passphrase
+  const encryptedEnvelope = encryptDatabaseSnapshotJSON(
+    rawBackupPayload,
+    'SECRET-RECOVERY-KEY-2026'
+  );
+
+  assert.equal(encryptedEnvelope.format, 'RLM_ENCRYPTED_DATABASE_SNAPSHOT_V1');
+  assert.equal(encryptedEnvelope.encryptionAlgorithm, 'RLM-STREAM-256+HMAC-FNV32');
+  assert.equal(encryptedEnvelope.metadata.productsCount, 1);
+  assert.ok(encryptedEnvelope.integritySignature.length >= 15);
+  assert.ok(encryptedEnvelope.keyFingerprint.length >= 8);
+  assert.ok(!encryptedEnvelope.ciphertext.includes('لوح شمسي'));
+
+  const serializedSnapshot = JSON.stringify(encryptedEnvelope, null, 2);
+
+  // 2. Decrypt with matching passphrase -> restores exact original JSON object
+  const decryptedOk = decryptDatabaseSnapshotJSON(serializedSnapshot, 'SECRET-RECOVERY-KEY-2026');
+  assert.equal(decryptedOk.success, true);
+  assert.equal(decryptedOk.isEncrypted, true);
+  assert.deepEqual(decryptedOk.payload, rawBackupPayload);
+
+  // 3. Reject wrong passphrase
+  const wrongKeyResult = decryptDatabaseSnapshotJSON(serializedSnapshot, 'WRONG-PASSPHRASE');
+  assert.equal(wrongKeyResult.success, false);
+  assert.equal(wrongKeyResult.isEncrypted, true);
+  assert.ok(wrongKeyResult.errorAr?.includes('مفتاح فك التشفير غير مطابق'));
+
+  // 4. Reject tampered ciphertext
+  const tamperedEnvelope = {
+    ...encryptedEnvelope,
+    ciphertext: encryptedEnvelope.ciphertext.slice(0, -4) + 'AAAA',
+  };
+  const tamperedResult = decryptDatabaseSnapshotJSON(
+    JSON.stringify(tamperedEnvelope),
+    'SECRET-RECOVERY-KEY-2026'
+  );
+  assert.equal(tamperedResult.success, false);
+  assert.equal(tamperedResult.isEncrypted, true);
+  assert.ok(tamperedResult.errorAr?.includes('التوقيع الرقمي'));
+});
+
+test('Track 20 Sector Mode Configuration filters out Projects, Fleet, Manufacturing, and Business Modules and ensures only POS, Inventory, Sales, and Accounting remain for Electronics & Solar', async () => {
+  const {
+    DEFAULT_MASTER_SYSTEM_CONFIG,
+    ELECTRONICS_SOLAR_CORE_MODULES,
+    EXCLUDED_SECTOR_MODULES,
+    applySectorModePreset,
+    isModuleVisibleUnderMasterConfig,
+    resolveEffectiveIndustryMode,
+  } = await import('./systemConfigEngine');
+
+  assert.deepEqual(
+    [...ELECTRONICS_SOLAR_CORE_MODULES],
+    ['pos', 'inventory', 'sales', 'accounting']
+  );
+  assert.deepEqual(
+    [...EXCLUDED_SECTOR_MODULES],
+    ['projects', 'fleet', 'manufacturing', 'businessModules']
+  );
+  assert.equal(DEFAULT_MASTER_SYSTEM_CONFIG.sectorMode, 'SOLAR_ELECTRONICS_CORE');
+  assert.equal(DEFAULT_MASTER_SYSTEM_CONFIG.sectorModeEnabled, true);
+  assert.equal(DEFAULT_MASTER_SYSTEM_CONFIG.uiElementsVisibility.showManufacturingAndProjects, false);
+
+  // Core 4 modules (POS, Inventory, Sales, Accounting) must be visible in Sector Mode
+  assert.equal(isModuleVisibleUnderMasterConfig('pos', DEFAULT_MASTER_SYSTEM_CONFIG), true);
+  assert.equal(isModuleVisibleUnderMasterConfig('inventory', DEFAULT_MASTER_SYSTEM_CONFIG), true);
+  assert.equal(isModuleVisibleUnderMasterConfig('sales', DEFAULT_MASTER_SYSTEM_CONFIG), true);
+  assert.equal(isModuleVisibleUnderMasterConfig('accounting', DEFAULT_MASTER_SYSTEM_CONFIG), true);
+
+  // Excluded modules ('projects', 'fleet', 'manufacturing', 'businessModules') and non-essential modules must be hidden
+  assert.equal(isModuleVisibleUnderMasterConfig('projects', DEFAULT_MASTER_SYSTEM_CONFIG), false);
+  assert.equal(isModuleVisibleUnderMasterConfig('fleet', DEFAULT_MASTER_SYSTEM_CONFIG), false);
+  assert.equal(isModuleVisibleUnderMasterConfig('manufacturing', DEFAULT_MASTER_SYSTEM_CONFIG), false);
+  assert.equal(isModuleVisibleUnderMasterConfig('businessModules', DEFAULT_MASTER_SYSTEM_CONFIG), false);
+  assert.equal(isModuleVisibleUnderMasterConfig('saasPlatform', DEFAULT_MASTER_SYSTEM_CONFIG), false);
+  assert.equal(isModuleVisibleUnderMasterConfig('aiInsights', DEFAULT_MASTER_SYSTEM_CONFIG), false);
+  assert.equal(isModuleVisibleUnderMasterConfig('barcodeEngine', DEFAULT_MASTER_SYSTEM_CONFIG), false);
+  assert.equal(isModuleVisibleUnderMasterConfig('purchasing', DEFAULT_MASTER_SYSTEM_CONFIG), false);
+
+  // Effective industry mode must resolve to 'electronics'
+  assert.equal(resolveEffectiveIndustryMode('restaurant', DEFAULT_MASTER_SYSTEM_CONFIG), 'electronics');
+
+  // Toggling Sector Mode off expands support modules while keeping projects/fleet/manufacturing/businessModules disabled
+  const expandedCfg = applySectorModePreset(DEFAULT_MASTER_SYSTEM_CONFIG, false);
+  assert.equal(expandedCfg.sectorMode, 'FULL_SUITE');
+  assert.equal(expandedCfg.sectorModeEnabled, false);
+  assert.equal(isModuleVisibleUnderMasterConfig('dashboard', expandedCfg), true);
+  assert.equal(isModuleVisibleUnderMasterConfig('projects', expandedCfg), false);
+  assert.equal(isModuleVisibleUnderMasterConfig('fleet', expandedCfg), false);
+  assert.equal(isModuleVisibleUnderMasterConfig('manufacturing', expandedCfg), false);
+  assert.equal(isModuleVisibleUnderMasterConfig('businessModules', expandedCfg), false);
+
+  // Toggling Sector Mode back on restores strict 4-module focus (POS, Inventory, Sales, Accounting)
+  const restoredSectorCfg = applySectorModePreset(expandedCfg, true);
+  assert.equal(restoredSectorCfg.sectorModeEnabled, true);
+  assert.equal(isModuleVisibleUnderMasterConfig('pos', restoredSectorCfg), true);
+  assert.equal(isModuleVisibleUnderMasterConfig('inventory', restoredSectorCfg), true);
+  assert.equal(isModuleVisibleUnderMasterConfig('sales', restoredSectorCfg), true);
+  assert.equal(isModuleVisibleUnderMasterConfig('accounting', restoredSectorCfg), true);
+  assert.equal(isModuleVisibleUnderMasterConfig('dashboard', restoredSectorCfg), false);
+
+  // Verify ERPContext helper getVisibleModulesList and Sidebar conditional rendering filter
+  const { getVisibleModulesList } = await import('../context/ERPContext');
+  assert.deepEqual(getVisibleModulesList(true), ['pos', 'inventory', 'sales', 'accounting']);
+  assert.ok(getVisibleModulesList(false).includes('dashboard'));
+
+  const { shouldDisplaySidebarMenuItem } = await import('../components/layout/Sidebar');
+  const sampleMenu = [
+    { id: 'dashboard', label: 'Executive Dashboard' },
+    { id: 'pos', label: 'POS' },
+    { id: 'inventory', label: 'Inventory' },
+    { id: 'sales', label: 'Sales' },
+    { id: 'accounting', label: 'Accounting' },
+    { id: 'projects', label: 'Projects' },
+    { id: 'fleet', label: 'Fleet' },
+    { id: 'manufacturing', label: 'Manufacturing' },
+    { id: 'businessModules', label: 'Business Modules' },
+  ];
+  const renderedWhenSectorModeTrue = sampleMenu.filter((item) =>
+    shouldDisplaySidebarMenuItem(item, true, () => true)
+  );
+  assert.deepEqual(
+    renderedWhenSectorModeTrue.map((i) => i.id),
+    ['pos', 'inventory', 'sales', 'accounting']
+  );
+  assert.deepEqual(
+    renderedWhenSectorModeTrue.map((i) => i.label),
+    ['POS', 'Inventory', 'Sales', 'Accounting']
+  );
+});
+

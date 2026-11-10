@@ -52,6 +52,8 @@ const MainLayout: React.FC = () => {
     networkInfo,
     language,
     syncLatencyMs,
+    protectionState,
+    openLanPortal,
     isOnboardingOpen,
     closeOnboarding,
   } = useERP();
@@ -162,9 +164,23 @@ const MainLayout: React.FC = () => {
       return <MasterAdminControlView />;
     }
 
+    // Always allow Settings, Security, Communications, and Sales when opened from topbar/footer or POS/Inventory action buttons
+    if (activeTab === 'settings') {
+      return <SettingsView />;
+    }
+    if (activeTab === 'security') {
+      return <SecurityCenterView />;
+    }
+    if (activeTab === 'communications') {
+      return <CommunicationsView />;
+    }
+    if (activeTab === 'sales') {
+      return <SalesView />;
+    }
+
     // Enforce RBAC & Master Admin module visibility
     if (!hasModuleAccess(activeTab)) {
-      return <DashboardView />;
+      return <POSView />;
     }
 
     switch (activeTab) {
@@ -195,7 +211,7 @@ const MainLayout: React.FC = () => {
       case 'communications':
         return <CommunicationsView />;
       default:
-        return <DashboardView />;
+        return <POSView />;
     }
   };
 
@@ -218,7 +234,7 @@ const MainLayout: React.FC = () => {
       {/* Mandatory 30-Day Trial, Single-Device Component Lock & Anti-Clock Rollback Gate */}
       <HardwareLockModal />
 
-      {/* Enterprise Login Gateway (Default: admin / admin) */}
+      {/* Enterprise Login Gateway (Default: admin / admin) — Navbar & navigation hidden when unauthenticated */}
       {!isAuthenticated ? (
         <LoginGate />
       ) : (
@@ -231,12 +247,12 @@ const MainLayout: React.FC = () => {
               : 'bg-[#f4f6f8] text-slate-900'
           }`}
         >
-          {/* Top Enterprise Bar */}
-          <Navbar />
+          {/* Top Enterprise Bar — rendered exclusively when authenticated */}
+          {isAuthenticated && <Navbar />}
 
           {/* Main Workspace with Sidebar & Dynamic View */}
           <div className="flex-1 flex w-full overflow-hidden">
-            <Sidebar />
+            {isAuthenticated && <Sidebar />}
             <main
               className={`flex-1 min-w-0 overflow-y-auto pb-16 ${
                 uiDensity === 'compact' ? 'p-2.5 sm:p-4' : 'p-4 sm:p-6'
@@ -255,16 +271,24 @@ const MainLayout: React.FC = () => {
               <div className="flex items-center gap-3">
                 <span className="text-amber-400 font-bold flex items-center gap-1">
                   <Keyboard className="w-3.5 h-3.5" />
-                  {language === 'ar' ? 'اختصارات سريعة:' : 'Shortcuts:'}
+                  {language === 'ar' ? 'اختصارات القطاع (إلكترونيات وطاقة شمسية):' : 'Sector Shortcuts:'}
                 </span>
-                {[
-                  { k: 'F1', l: language === 'ar' ? 'الرئيسية' : 'Home', tab: 'dashboard' },
-                  { k: 'F2', l: language === 'ar' ? 'نقطة البيع POS' : 'POS', tab: 'pos' },
-                  { k: 'F3', l: language === 'ar' ? 'المخزون' : 'Inventory', tab: 'inventory' },
-                  { k: 'F4', l: language === 'ar' ? 'المبيعات' : 'Sales', tab: 'sales' },
-                  { k: 'F6', l: language === 'ar' ? 'المشتريات' : 'Purchasing', tab: 'purchasing' },
-                  { k: 'F7', l: language === 'ar' ? 'المحاسبة' : 'Accounting', tab: 'accounting' },
-                ].map((item) => (
+                {(masterSystemConfig.sectorModeEnabled
+                  ? [
+                      { k: 'F2', l: language === 'ar' ? 'نقطة البيع POS' : 'POS', tab: 'pos' },
+                      { k: 'F3', l: language === 'ar' ? 'المخزون والجرد' : 'Inventory', tab: 'inventory' },
+                      { k: 'F4', l: language === 'ar' ? 'المبيعات والضمان' : 'Sales', tab: 'sales' },
+                      { k: 'F7', l: language === 'ar' ? 'المحاسبة المالية' : 'Accounting', tab: 'accounting' },
+                    ]
+                  : [
+                      { k: 'F1', l: language === 'ar' ? 'الرئيسية' : 'Home', tab: 'dashboard' },
+                      { k: 'F2', l: language === 'ar' ? 'نقطة البيع POS' : 'POS', tab: 'pos' },
+                      { k: 'F3', l: language === 'ar' ? 'المخزون' : 'Inventory', tab: 'inventory' },
+                      { k: 'F4', l: language === 'ar' ? 'المبيعات' : 'Sales', tab: 'sales' },
+                      { k: 'F6', l: language === 'ar' ? 'المشتريات' : 'Purchasing', tab: 'purchasing' },
+                      { k: 'F7', l: language === 'ar' ? 'المحاسبة' : 'Accounting', tab: 'accounting' },
+                    ]
+                ).map((item) => (
                   <button
                     key={item.k}
                     type="button"
@@ -280,11 +304,40 @@ const MainLayout: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-3 font-mono text-[10px]">
-                {networkInfo && (
-                  <span className="text-sky-400 flex items-center gap-1">
-                    <Wifi className="w-3 h-3" />
-                    LAN: {networkInfo.primaryLanUrl}
+                {/* Trial / License Status Badge in Bottom Bar */}
+                <button
+                  type="button"
+                  data-testid="footer-license-btn"
+                  onClick={() => setActiveTab('security')}
+                  className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 transition cursor-pointer"
+                  title={language === 'ar' ? 'حالة الترخيص وبصمة الجهاز' : 'Hardware License Status'}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      protectionState.status === 'LICENSE_ACTIVE' ? 'bg-emerald-400' : 'bg-amber-400'
+                    }`}
+                  />
+                  <span>
+                    {protectionState.status === 'LICENSE_ACTIVE'
+                      ? language === 'ar'
+                        ? 'نسخة مرخصة'
+                        : 'Licensed'
+                      : language === 'ar'
+                      ? `نسخة تجريبية · ${protectionState.trialRemainingDays} يوم`
+                      : `Trial · ${protectionState.trialRemainingDays}d`}
                   </span>
+                </button>
+
+                {networkInfo && (
+                  <button
+                    type="button"
+                    onClick={openLanPortal}
+                    className="text-sky-400 hover:text-sky-300 flex items-center gap-1 cursor-pointer transition"
+                    title={language === 'ar' ? 'انقر لفتح بوابة ربط الجوال والشبكة المحلية' : 'Click to open Mobile LAN Portal'}
+                  >
+                    <Wifi className="w-3 h-3" />
+                    <span>LAN: {networkInfo.primaryLanUrl.replace('http://', '')}</span>
+                  </button>
                 )}
                 <span className="text-emerald-400">RAM-DB SYNC: {syncLatencyMs}ms</span>
               </div>

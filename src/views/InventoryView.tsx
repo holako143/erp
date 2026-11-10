@@ -15,22 +15,26 @@ import {
   Server,
   Activity,
   CheckCheck,
+  ClipboardCheck,
+  ShoppingCart,
+  ShieldCheck,
 } from 'lucide-react';
 import { IndustryType, ElectronicsSubCategory } from '../types/erp';
 import { generateValidEAN13 } from '../core/barcodeEngine';
-import { parseBulkProductsCSV } from '../core/inventoryEngine';
+import { parseBulkProductsCSV, calculateStockAdjustmentVariance } from '../core/inventoryEngine';
 import { IndustryChameleonPanel } from '../components/common/IndustryChameleonPanel';
 
 const SAMPLE_BULK_CSV = `SKU,Barcode,NameAr,NameEn,CostPrice,SalePrice,StockQty,UOM,ReorderPoint,Sector
-GROC-881,2110045012508,جبن قشقوان هنغاري موزون (كجم),Hungarian Kashkaval Cheese (KG),38,56,45,KG,10,grocery
-ELEC-992,6281042009110,شاحن جداري فائق السرعة 100W GaN,Ultra Fast 100W GaN Charger,85,149,30,PCS,8,electronics
-REST-774,6281042009127,حبوب قهوة مختصة إثيوبي ييرغاشيف 1 كجم,Ethiopian Yirgacheffe Specialty Beans 1KG,62,98,25,KG,6,restaurant
-PHRM-663,6281042009134,جهاز قياس ضغط الدم الرقمي الذكي,Smart Digital Blood Pressure Monitor,115,195,18,PCS,5,pharmacy`;
+SOL-600W-TOPCON,6281042009103,لوح طاقة شمسية N-Type بايفيشال 600W,N-Type Bifacial Solar Panel 600W,390,510,80,PCS,15,electronics
+INV-DEYE-12KW,6281042009110,إنفرتر هجين ذكي Deye 12kW 3-Phase MPPT,Deye 12kW 3-Phase Hybrid Inverter,4200,5350,12,PCS,3,electronics
+BAT-LFP-51V-300,6281042009127,بطارية ليثيوم جدارية LiFePO4 51.2V 300Ah 15kWh,LiFePO4 Rack Battery 51.2V 300Ah 15kWh,4850,6200,15,PCS,4,electronics
+SCR-OLED-77-4K,6281042009134,شاشة ذكية 77 بوصة 4K OLED 120Hz WebOS,Smart 77-inch 4K OLED 120Hz TV,3100,4150,10,PCS,3,electronics`;
 
 export const InventoryView: React.FC = () => {
   const {
     products,
     addProduct,
+    updateProduct,
     importBulkProductsCSV,
     categories,
     currentWarehouse,
@@ -46,10 +50,18 @@ export const InventoryView: React.FC = () => {
     interBranchTransfers,
     advanceBranchTransfer,
     formatCurrency,
+    addToPOSCart,
+    setActiveTab,
+    addManualJournalEntry,
   } = useERP();
 
-  const [inventorySubTab, setInventorySubTab] = useState<'ITEMS' | 'BRANCH_TRANSFERS'>('ITEMS');
+  const [inventorySubTab, setInventorySubTab] = useState<'ITEMS' | 'STOCK_TAKING' | 'BRANCH_TRANSFERS'>('ITEMS');
   const [transferFeedback, setTransferFeedback] = useState<string | null>(null);
+
+  // Physical Stock-Taking State (الجرد الفعلي اللحظي)
+  const [stockCountsMap, setStockCountsMap] = useState<Record<string, number>>({});
+  const [stockAuditReason, setStockAuditReason] = useState<string>('جرد فعلي دوري لمستودع الطاقة الشمسية والبطاريات والشاشات');
+  const [stockTakeBanner, setStockTakeBanner] = useState<string | null>(null);
 
   const isSingleActivityLocked = masterSystemConfig.industryLockMode === 'SINGLE_LOCKED';
   const showCostPrice = masterSystemConfig.uiElementsVisibility.showCostPriceInInventory;
@@ -57,7 +69,7 @@ export const InventoryView: React.FC = () => {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [selectedIndustryFilter, setSelectedIndustryFilter] = useState<string>('all');
+  const [selectedSubCatFilter, setSelectedSubCatFilter] = useState<string>('ALL');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [bulkCsvText, setBulkCsvText] = useState<string>(SAMPLE_BULK_CSV);
@@ -65,13 +77,14 @@ export const InventoryView: React.FC = () => {
   const [importBanner, setImportBanner] = useState<string | null>(null);
   const [productModalError, setProductModalError] = useState<string | null>(null);
 
-  // Form State for new product
+  // Form State for new product (Dedicated to Electronics, Solar & Smart Screens)
   const [name, setName] = useState('');
   const [nameAr, setNameAr] = useState('');
   const [sku, setSku] = useState('');
   const [barcode, setBarcode] = useState(generateValidEAN13());
-  const [categoryId, setCategoryId] = useState(categories[0]?.id || '');
-  const [productIndustry, setProductIndustry] = useState<IndustryType>(activeIndustry);
+  const electronicsCategories = categories.filter((c) => !c.industry || c.industry === 'electronics');
+  const [categoryId, setCategoryId] = useState(electronicsCategories[0]?.id || categories[0]?.id || '');
+  const [productIndustry, setProductIndustry] = useState<IndustryType>('electronics');
   const [uom, setUom] = useState('PCS');
   const [costPrice, setCostPrice] = useState(100);
   const [salePrice, setSalePrice] = useState(150);
@@ -84,32 +97,69 @@ export const InventoryView: React.FC = () => {
   const [batteryCapacitySpec, setBatteryCapacitySpec] = useState<string>('');
   const [voltageSpec, setVoltageSpec] = useState<string>('48V DC');
   const [screenSizeSpec, setScreenSizeSpec] = useState<string>('');
-  const [expiryDate, setExpiryDate] = useState<string>('2027-09-30');
-  const [prepTimeMinutes, setPrepTimeMinutes] = useState<number>(12);
+  const [expiryDate] = useState<string>('2027-09-30');
+  const [prepTimeMinutes] = useState<number>(12);
 
   const liveBulkPreview = parseBulkProductsCSV(
     bulkCsvText,
     currentTenant.id,
     currentWarehouse.id,
-    categories[0]?.id || 'cat-1',
-    activeIndustry
+    electronicsCategories[0]?.id || 'cat-1',
+    'electronics'
   );
 
-  // Filtered Products
-  const filteredProducts = products.filter((p) => {
+  // Filtered Products strictly dedicated to Electronics, Solar Energy, Batteries, Inverters & Smart Screens
+  const electronicsProducts = products.filter(
+    (p) => !p.industry || p.industry === 'electronics'
+  );
+
+  const filteredProducts = electronicsProducts.filter((p) => {
     const matchesSearch =
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.nameAr.includes(searchQuery) ||
       p.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.barcode.includes(searchQuery);
     const matchesCategory = selectedCategory === 'all' || p.categoryId === selectedCategory;
-    const effectiveFilter = isSingleActivityLocked
-      ? masterSystemConfig.lockedIndustry
-      : selectedIndustryFilter;
-    const matchesIndustry =
-      effectiveFilter === 'all' || p.industry === effectiveFilter;
-    return matchesSearch && matchesCategory && matchesIndustry;
+    const matchesSubCat =
+      selectedSubCatFilter === 'ALL' ||
+      p.subCategory === selectedSubCatFilter ||
+      (selectedSubCatFilter === 'LITHIUM_BATTERY' &&
+        (p.subCategory === 'LITHIUM_BATTERY' || p.subCategory === 'GEL_BATTERY'));
+    return matchesSearch && matchesCategory && matchesSubCat;
   });
+
+  const handleCommitSingleStockTake = (product: typeof products[0]) => {
+    const countedQty = stockCountsMap[product.id] ?? product.stockQty;
+    const variance = calculateStockAdjustmentVariance(
+      product.id,
+      product.stockQty,
+      countedQty,
+      product.costPrice
+    );
+    updateProduct({
+      ...product,
+      stockQty: countedQty,
+    });
+    if (variance.journalLines.length > 0) {
+      addManualJournalEntry({
+        description: `${stockAuditReason} — الصنف: ${product.nameAr} (${product.sku}) | الفرق: ${variance.varianceQty > 0 ? '+' : ''}${variance.varianceQty}`,
+        lines: variance.journalLines.map((l) => ({
+          accountId: l.accountId,
+          debit: l.debit,
+          credit: l.credit,
+          memo: l.memo,
+        })),
+      });
+    }
+    setStockTakeBanner(
+      `✓ تم اعتماد الجرد الفعلي للصنف (${product.nameAr}): الرصيد الجديد ${countedQty} ${product.uom} (${
+        variance.varianceQty === 0
+          ? 'مطابق تماماً للدفاتر'
+          : `${variance.adjustmentType === 'SURPLUS' ? 'فائض +' : 'عجز '}${variance.varianceQty} بقيمة ${formatCurrency(variance.varianceValue)} وتم ترحيل قيد التسوية المحاسبي آلياً`
+      })`
+    );
+    setTimeout(() => setStockTakeBanner(null), 6000);
+  };
 
   const handleConfirmBulkImport = () => {
     const res = importBulkProductsCSV(bulkCsvText, postOpeningJournal);
@@ -298,16 +348,26 @@ export const InventoryView: React.FC = () => {
             <Package className="w-5 h-5 text-emerald-700" />
             <span>
               {language === 'ar'
-                ? 'إدارة المستودعات والمخزون والأصناف (WMS)'
-                : 'Inventory Management & WMS'}
+                ? 'مستودع الإلكترونيات والطاقة الشمسية والبطاريات والشاشات الذكية (WMS)'
+                : 'Solar, Electronics, Batteries & Smart Screens WMS'}
             </span>
           </h1>
           <p className="text-xs text-slate-500 mt-1">
-            يدعم الاستيراد الجماعي Excel/CSV، تتبع الأرقام التسلسلية والضمان، والتشغيلات وتواريخ الصلاحية FEFO، وأصناف الميزان الإلكتروني
+            مترابط بالكامل مع نقاط البيع POS، الجرد الفعلي اللحظي، تتبع الأرقام التسلسلية S/N وشهادات الضمان، وشبكة الفروع LAN
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            data-testid="inventory-goto-pos-btn"
+            onClick={() => setActiveTab('pos')}
+            className="bg-teal-700 hover:bg-teal-600 text-white text-xs font-bold px-3.5 py-2 rounded-md transition flex items-center gap-1.5 cursor-pointer"
+          >
+            <ShoppingCart className="w-3.5 h-3.5" />
+            <span>نقطة البيع والضمان POS</span>
+          </button>
+
           <button
             type="button"
             data-testid="inventory-whatsapp-alert-btn"
@@ -354,7 +414,7 @@ export const InventoryView: React.FC = () => {
               onClick={() => {
                 setProductModalError(null);
                 setBarcode(generateValidEAN13());
-                setProductIndustry(activeIndustry);
+                setProductIndustry('electronics');
                 setIsAddModalOpen(true);
               }}
               className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-md transition flex items-center gap-1.5 cursor-pointer"
@@ -367,7 +427,7 @@ export const InventoryView: React.FC = () => {
       </div>
 
       {/* Sub-tab Navigation */}
-      <div className="flex border-b border-slate-200 dark:border-slate-800 gap-2">
+      <div className="flex flex-wrap border-b border-slate-200 dark:border-slate-800 gap-2">
         <button
           type="button"
           data-testid="subtab-inventory-items"
@@ -379,7 +439,21 @@ export const InventoryView: React.FC = () => {
           }`}
         >
           <Package className="w-4 h-4 text-emerald-600" />
-          <span>سجل الأصناف والمستودع الرئيسي ({products.length})</span>
+          <span>سجل الأصناف والمستودع الرئيسي ({electronicsProducts.length})</span>
+        </button>
+
+        <button
+          type="button"
+          data-testid="subtab-stock-taking"
+          onClick={() => setInventorySubTab('STOCK_TAKING')}
+          className={`px-4 py-2.5 font-bold text-xs flex items-center gap-2 border-b-2 transition cursor-pointer ${
+            inventorySubTab === 'STOCK_TAKING'
+              ? 'border-teal-600 text-teal-800 dark:text-teal-400 bg-teal-50/50 dark:bg-teal-950/20'
+              : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <ClipboardCheck className="w-4 h-4 text-teal-600" />
+          <span>الجرد الفعلي اللحظي وتسوية الفروقات المحاسبية</span>
         </button>
 
         <button
@@ -404,220 +478,361 @@ export const InventoryView: React.FC = () => {
 
       {inventorySubTab === 'ITEMS' && (
         <>
-          {/* Filter Bar */}
-      <div className="bg-white dark:bg-slate-900 p-3.5 rounded-lg border border-slate-200/90 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
-        <div className="w-full sm:w-72 relative">
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="بحث بالاسم، الكود SKU، أو الباركود..."
-            className="w-full text-xs p-2 ps-8 bg-slate-50 border border-slate-200 rounded-md outline-hidden focus:border-emerald-600"
-          />
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute start-2.5 top-2.5" />
-        </div>
+          {/* Filter Bar Dedicated to Solar, Inverters, Batteries & Smart Screens */}
+          <div className="bg-white dark:bg-slate-900 p-3.5 rounded-lg border border-slate-200/90 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
+            <div className="w-full sm:w-72 relative">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="بحث بالاسم، الكود SKU، أو الباركود..."
+                className="w-full text-xs p-2 ps-8 bg-slate-50 border border-slate-200 rounded-md outline-hidden focus:border-emerald-600"
+              />
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute start-2.5 top-2.5" />
+            </div>
 
-        {/* Sector Filter Buttons */}
-        {!isSingleActivityLocked ? (
-          <div className="flex flex-wrap items-center gap-1 text-xs">
-            {[
-              { id: 'all', label: 'كل القطاعات' },
-              { id: 'electronics', label: 'الإلكترونيات والطاقة الشمسية والبطاريات' },
-              { id: 'general', label: 'عام / صناعي' },
-              { id: 'restaurant', label: 'المطاعم' },
-              { id: 'grocery', label: 'البقالة' },
-              { id: 'pharmacy', label: 'الصيدلية' },
-            ].map((sec) => (
-              <button
-                key={sec.id}
-                type="button"
-                onClick={() => setSelectedIndustryFilter(sec.id)}
-                className={`px-2.5 py-1.5 rounded-md font-semibold transition cursor-pointer ${
-                  selectedIndustryFilter === sec.id
-                    ? 'bg-slate-900 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
+            {/* Specialized Engineering Sub-Category Filter Buttons */}
+            <div className="flex flex-wrap items-center gap-1 text-xs">
+              {[
+                { id: 'ALL', label: 'كل أصناف الطاقة والإلكترونيات' },
+                { id: 'SOLAR_PANEL', label: 'ألواح شمسية' },
+                { id: 'HYBRID_INVERTER', label: 'إنفرترات هجينة' },
+                { id: 'LITHIUM_BATTERY', label: 'بطاريات ليثيوم وجل' },
+                { id: 'SMART_SCREEN', label: 'شاشات ذكية 4K/OLED' },
+                { id: 'COMPUTING_MOBILE', label: 'أجهزة وحواسيب' },
+                { id: 'SOLAR_ACCESSORY', label: 'قواطع وكابلات طاقة' },
+              ].map((sec) => (
+                <button
+                  key={sec.id}
+                  type="button"
+                  onClick={() => setSelectedSubCatFilter(sec.id)}
+                  className={`px-2.5 py-1.5 rounded-md font-semibold transition cursor-pointer ${
+                    selectedSubCatFilter === sec.id
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {sec.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Filter className="w-3.5 h-3.5 text-slate-500" />
+              <select
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                className="text-xs p-2 bg-slate-50 border border-slate-200 rounded-md outline-hidden font-medium text-slate-700"
               >
-                {sec.label}
-              </button>
-            ))}
+                <option value="all">جميع التصنيفات المعتمدة</option>
+                {electronicsCategories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {language === 'ar' ? c.nameAr : c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
-        ) : (
-          <div className="text-xs font-semibold text-teal-800 bg-teal-50 border border-teal-200 px-3 py-1.5 rounded-md">
-            النشاط المعتمد للمستودع: {industryLabelAr[masterSystemConfig.lockedIndustry]}
-          </div>
-        )}
 
-        <div className="flex items-center gap-2">
-          <Filter className="w-3.5 h-3.5 text-slate-500" />
-          <select
-            value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
-            className="text-xs p-2 bg-slate-50 border border-slate-200 rounded-md outline-hidden font-medium text-slate-700"
-          >
-            <option value="all">جميع التصنيفات</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {language === 'ar' ? c.nameAr : c.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* Products Table */}
-      <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs text-start">
-            <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
-              <tr>
-                <th className="py-3 px-4 text-start">الصنف والمواصفات الهندسية</th>
-                <th className="py-3 px-4 text-start">القطاع والضمان</th>
-                <th className="py-3 px-4 text-start">الباركود</th>
-                {showCostPrice && <th className="py-3 px-4 text-end">التكلفة (WAC)</th>}
-                <th className="py-3 px-4 text-end">سعر البيع</th>
-                <th className="py-3 px-4 text-center">الرصيد المتاح</th>
-                <th className="py-3 px-4 text-center">الحالة</th>
-                <th className="py-3 px-4 text-center">الربط والشبكة (LAN)</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredProducts.map((p) => {
-                const isReorder = p.stockQty <= p.reorderPoint;
-                return (
-                  <tr key={p.id} className="hover:bg-slate-50/70 transition">
-                    <td className="py-3 px-4">
-                      <div className="font-bold text-slate-900 text-sm">
-                        {language === 'ar' ? p.nameAr : p.name}
-                      </div>
-                      <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-2 mt-0.5">
-                        <span>
-                          SKU:{' '}
-                          <span className="font-mono tabular-nums text-slate-800 font-semibold" dir="ltr">
-                            {p.sku}
-                          </span>
-                        </span>
-                        <span>·</span>
-                        <span>
-                          الموقع:{' '}
-                          <span className="font-mono tabular-nums text-slate-700" dir="ltr">
-                            {p.binLocation || 'ZA-01'}
-                          </span>
-                        </span>
-                      </div>
-                      {(p.powerRatingWatts || p.batteryCapacitySpec || p.voltageSpec || p.screenSizeSpec) && (
-                        <div className="flex flex-wrap gap-1.5 mt-1.5">
-                          {p.powerRatingWatts && (
-                            <span
-                              className="text-[10px] font-mono tabular-nums bg-slate-100 text-slate-800 border border-slate-200 px-1.5 py-0.5 rounded-xs font-semibold"
-                              dir="ltr"
-                            >
-                              {p.powerRatingWatts >= 1000
-                                ? `${(p.powerRatingWatts / 1000).toFixed(1).replace('.0', '')} kW`
-                                : `${p.powerRatingWatts} W`}
-                            </span>
-                          )}
-                          {p.batteryCapacitySpec && (
-                            <span
-                              className="text-[10px] font-mono tabular-nums bg-emerald-50 text-emerald-900 border border-emerald-200 px-1.5 py-0.5 rounded-xs font-semibold"
-                              dir="ltr"
-                            >
-                              {p.batteryCapacitySpec}
-                            </span>
-                          )}
-                          {p.voltageSpec && (
-                            <span
-                              className="text-[10px] font-mono tabular-nums bg-slate-50 text-slate-700 border border-slate-200 px-1.5 py-0.5 rounded-xs"
-                              dir="ltr"
-                            >
-                              {p.voltageSpec}
-                            </span>
-                          )}
-                          {p.screenSizeSpec && (
-                            <span
-                              className="text-[10px] font-mono tabular-nums bg-sky-50 text-sky-900 border border-sky-200 px-1.5 py-0.5 rounded-xs font-semibold"
-                              dir="ltr"
-                            >
-                              {p.screenSizeSpec}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="inline-block bg-slate-100 text-slate-800 border border-slate-200 font-bold px-2 py-0.5 rounded-xs text-[10px]">
-                        {industryLabelAr[p.industry || 'general']}
-                      </span>
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {p.warrantyMonths && (
-                          <span className="text-[10px] bg-teal-50 text-teal-900 border border-teal-200 px-1.5 py-0.5 rounded-xs font-bold">
-                            ضمان <span className="font-mono tabular-nums" dir="ltr">{p.warrantyMonths}</span> شهر
-                          </span>
-                        )}
-                        {p.expiryDate && (
-                          <span className="text-[10px] bg-rose-50 text-rose-900 border border-rose-200 px-1.5 py-0.5 rounded-xs font-bold">
-                            صلاحية: <span className="font-mono tabular-nums" dir="ltr">{p.expiryDate}</span>
-                          </span>
-                        )}
-                        {p.prepTimeMinutes && (
-                          <span className="text-[10px] bg-amber-50 text-amber-900 border border-amber-200 px-1.5 py-0.5 rounded-xs font-bold">
-                            تحضير <span className="font-mono tabular-nums" dir="ltr">{p.prepTimeMinutes}</span> د
-                          </span>
-                        )}
-                        {p.isWeightedScale && (
-                          <span className="text-[10px] bg-emerald-50 text-emerald-900 border border-emerald-200 px-1.5 py-0.5 rounded-xs font-bold">
-                            صنف ميزان إلكتروني
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 font-mono tabular-nums font-bold text-slate-800" dir="ltr">
-                      {p.barcode}
-                    </td>
-                    {showCostPrice && (
-                      <td className="py-3 px-4 text-end font-semibold font-mono tabular-nums text-slate-700" dir="ltr">
-                        {p.costPrice.toLocaleString()} {currency}
-                      </td>
-                    )}
-                    <td className="py-3 px-4 text-end font-bold font-mono tabular-nums text-slate-900" dir="ltr">
-                      {p.salePrice.toLocaleString()} {currency}
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="font-bold font-mono tabular-nums text-sm text-slate-900" dir="ltr">
-                        {p.stockQty}
-                      </span>{' '}
-                      <span className="text-slate-500 font-medium">{p.uom}</span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span
-                        className={`inline-block px-2 py-0.5 rounded-xs text-[10px] font-bold border ${
-                          isReorder
-                            ? 'bg-amber-50 text-amber-900 border-amber-300'
-                            : 'bg-emerald-50 text-emerald-900 border-emerald-200'
-                        }`}
-                      >
-                        {isReorder ? 'إعادة طلب' : 'متوفر'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <button
-                        type="button"
-                        onClick={() => openCrossBranchModal(p.sku)}
-                        className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded text-[11px] font-bold inline-flex items-center gap-1 transition"
-                        title="فحص توفر الصنف في باقي الفروع والشبكة المحلية (LAN)"
-                      >
-                        <Network className="w-3 h-3 text-indigo-500" />
-                        <span>فحص الفروع (LAN)</span>
-                      </button>
-                    </td>
+          {/* Products Table */}
+          <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-start">
+                <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                  <tr>
+                    <th className="py-3 px-4 text-start">الصنف والمواصفات الهندسية</th>
+                    <th className="py-3 px-4 text-start">التصنيف والضمان المعتمد</th>
+                    <th className="py-3 px-4 text-start">الباركود</th>
+                    {showCostPrice && <th className="py-3 px-4 text-end">التكلفة (WAC)</th>}
+                    <th className="py-3 px-4 text-end">سعر البيع</th>
+                    <th className="py-3 px-4 text-center">الرصيد المتاح</th>
+                    <th className="py-3 px-4 text-center">الحالة</th>
+                    <th className="py-3 px-4 text-center">العمليات المترابطة (POS · الجرد · الفروع)</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredProducts.map((p) => {
+                    const isReorder = p.stockQty <= p.reorderPoint;
+                    return (
+                      <tr key={p.id} className="hover:bg-slate-50/70 transition">
+                        <td className="py-3 px-4">
+                          <div className="font-bold text-slate-900 text-sm">
+                            {language === 'ar' ? p.nameAr : p.name}
+                          </div>
+                          <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-2 mt-0.5">
+                            <span>
+                              SKU:{' '}
+                              <span className="font-mono tabular-nums text-slate-800 font-semibold" dir="ltr">
+                                {p.sku}
+                              </span>
+                            </span>
+                            <span>·</span>
+                            <span>
+                              الموقع:{' '}
+                              <span className="font-mono tabular-nums text-slate-700" dir="ltr">
+                                {p.binLocation || 'ZA-01'}
+                              </span>
+                            </span>
+                          </div>
+                          {(p.powerRatingWatts || p.batteryCapacitySpec || p.voltageSpec || p.screenSizeSpec) && (
+                            <div className="flex flex-wrap gap-1.5 mt-1.5">
+                              {p.powerRatingWatts && (
+                                <span
+                                  className="text-[10px] font-mono tabular-nums bg-slate-100 text-slate-800 border border-slate-200 px-1.5 py-0.5 rounded-xs font-semibold"
+                                  dir="ltr"
+                                >
+                                  {p.powerRatingWatts >= 1000
+                                    ? `${(p.powerRatingWatts / 1000).toFixed(1).replace('.0', '')} kW`
+                                    : `${p.powerRatingWatts} W`}
+                                </span>
+                              )}
+                              {p.batteryCapacitySpec && (
+                                <span
+                                  className="text-[10px] font-mono tabular-nums bg-emerald-50 text-emerald-900 border border-emerald-200 px-1.5 py-0.5 rounded-xs font-semibold"
+                                  dir="ltr"
+                                >
+                                  {p.batteryCapacitySpec}
+                                </span>
+                              )}
+                              {p.voltageSpec && (
+                                <span
+                                  className="text-[10px] font-mono tabular-nums bg-slate-50 text-slate-700 border border-slate-200 px-1.5 py-0.5 rounded-xs"
+                                  dir="ltr"
+                                >
+                                  {p.voltageSpec}
+                                </span>
+                              )}
+                              {p.screenSizeSpec && (
+                                <span
+                                  className="text-[10px] font-mono tabular-nums bg-sky-50 text-sky-900 border border-sky-200 px-1.5 py-0.5 rounded-xs font-semibold"
+                                  dir="ltr"
+                                >
+                                  {p.screenSizeSpec}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="inline-block bg-slate-100 text-slate-800 border border-slate-200 font-bold px-2 py-0.5 rounded-xs text-[10px]">
+                            إلكترونيات وطاقة شمسية وبطاريات
+                          </span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {p.warrantyMonths && (
+                              <span className="text-[10px] bg-teal-50 text-teal-900 border border-teal-200 px-1.5 py-0.5 rounded-xs font-bold">
+                                ضمان <span className="font-mono tabular-nums" dir="ltr">{p.warrantyMonths}</span> شهر
+                              </span>
+                            )}
+                            {p.hasSerials && (
+                              <span className="text-[10px] bg-indigo-50 text-indigo-900 border border-indigo-200 px-1.5 py-0.5 rounded-xs font-bold">
+                                تتبع رقم تسلسلي S/N
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 font-mono tabular-nums font-bold text-slate-800" dir="ltr">
+                          {p.barcode}
+                        </td>
+                        {showCostPrice && (
+                          <td className="py-3 px-4 text-end font-semibold font-mono tabular-nums text-slate-700" dir="ltr">
+                            {p.costPrice.toLocaleString()} {currency}
+                          </td>
+                        )}
+                        <td className="py-3 px-4 text-end font-bold font-mono tabular-nums text-slate-900" dir="ltr">
+                          {p.salePrice.toLocaleString()} {currency}
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <span className="font-bold font-mono tabular-nums text-sm text-slate-900" dir="ltr">
+                            {p.stockQty}
+                          </span>{' '}
+                          <span className="text-slate-500 font-medium">{p.uom}</span>
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <span
+                            className={`inline-block px-2 py-0.5 rounded-xs text-[10px] font-bold border ${
+                              isReorder
+                                ? 'bg-amber-50 text-amber-900 border-amber-300'
+                                : 'bg-emerald-50 text-emerald-900 border-emerald-200'
+                            }`}
+                          >
+                            {isReorder ? 'إعادة طلب' : 'متوفر'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <div className="flex flex-wrap items-center justify-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                addToPOSCart(p, 1);
+                                setActiveTab('pos');
+                              }}
+                              className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
+                              title="إضافة مباشرة لسلة نقطة البيع والانتقال للكاشير"
+                            >
+                              <ShoppingCart className="w-3 h-3 text-emerald-600" />
+                              <span>بيع POS</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setStockCountsMap((prev) => ({
+                                  ...prev,
+                                  [p.id]: prev[p.id] ?? p.stockQty,
+                                }));
+                                setInventorySubTab('STOCK_TAKING');
+                              }}
+                              className="px-2 py-1 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
+                              title="جرد وتسوية الرصيد الفعلي للصنف"
+                            >
+                              <ClipboardCheck className="w-3 h-3 text-teal-600" />
+                              <span>جرد</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openCrossBranchModal(p.sku)}
+                              className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
+                              title="فحص توفر الصنف في باقي الفروع والشبكة المحلية (LAN)"
+                            >
+                              <Network className="w-3 h-3 text-indigo-500" />
+                              <span>الفروع (LAN)</span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </>
+      )}
+
+      {/* Physical Stock-Taking & Automatic Double-Entry Reconciliation Tab */}
+      {inventorySubTab === 'STOCK_TAKING' && (
+        <div className="space-y-4">
+          {stockTakeBanner && (
+            <div
+              data-testid="stock-take-banner"
+              className="p-3.5 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-950 text-xs font-bold flex items-center justify-between"
+            >
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{stockTakeBanner}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStockTakeBanner(null)}
+                className="text-emerald-700 hover:text-emerald-950 font-bold"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          <div className="bg-slate-900 text-white p-4 rounded-lg border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="font-bold text-sm flex items-center gap-2">
+                <ClipboardCheck className="w-4 h-4 text-teal-400" />
+                <span>محرك الجرد الفعلي اللحظي وتسوية الفروقات لمستودع الطاقة الشمسية والإلكترونيات</span>
+              </h3>
+              <p className="text-xs text-slate-300 mt-1">
+                أدخل العدد الفعلي الموجود في الرفوف لكل لوح شمسي أو إنفرتر أو بطارية أو شاشة، وسيقوم النظام آلياً بحساب الفائض/العجز وترحيل قيد التسوية المحاسبي المتوازن في دفتر الأستاذ العام.
+              </p>
+            </div>
+            <div className="w-full sm:w-80">
+              <label className="block text-[11px] text-slate-300 mb-1">بيان محضر الجرد والتسوية:</label>
+              <input
+                type="text"
+                value={stockAuditReason}
+                onChange={(e) => setStockAuditReason(e.target.value)}
+                className="w-full px-3 py-1.5 rounded bg-slate-800 border border-slate-700 text-white text-xs outline-hidden focus:border-teal-400"
+              />
+            </div>
+          </div>
+
+          <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-start">
+                <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                  <tr>
+                    <th className="py-3 px-4 text-start">الصنف والموقع</th>
+                    <th className="py-3 px-4 text-center">الرصيد الدفتري بالنظام</th>
+                    <th className="py-3 px-4 text-center">العدد الفعلي (الجرد)</th>
+                    <th className="py-3 px-4 text-center">فرق الجرد (الكمية)</th>
+                    <th className="py-3 px-4 text-end">الأثر المالي بالتكلفة (WAC)</th>
+                    <th className="py-3 px-4 text-center">إجراء التسوية والترحيل</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredProducts.map((p) => {
+                    const counted = stockCountsMap[p.id] ?? p.stockQty;
+                    const variance = calculateStockAdjustmentVariance(
+                      p.id,
+                      p.stockQty,
+                      counted,
+                      p.costPrice
+                    );
+                    return (
+                      <tr key={p.id} className="hover:bg-slate-50/70 transition">
+                        <td className="py-3 px-4">
+                          <div className="font-bold text-slate-900">{p.nameAr}</div>
+                          <div className="text-[11px] text-slate-500 font-mono" dir="ltr">
+                            {p.sku} · Bin: {p.binLocation || 'ZA-01'}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 text-center font-mono font-bold text-slate-700" dir="ltr">
+                          {p.stockQty} {p.uom}
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <input
+                            type="number"
+                            min={0}
+                            data-testid={`stock-count-input-${p.sku}`}
+                            value={counted}
+                            onChange={(e) =>
+                              setStockCountsMap((prev) => ({
+                                ...prev,
+                                [p.id]: Math.max(0, Number(e.target.value)),
+                              }))
+                            }
+                            className="w-24 text-center font-mono font-bold p-1.5 bg-slate-50 border border-slate-300 rounded-md focus:border-teal-600 outline-hidden"
+                          />
+                        </td>
+                        <td className="py-3 px-4 text-center font-mono font-bold" dir="ltr">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[11px] ${
+                              variance.adjustmentType === 'SURPLUS'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : variance.adjustmentType === 'DEFICIT'
+                                ? 'bg-rose-100 text-rose-800'
+                                : 'bg-slate-100 text-slate-600'
+                            }`}
+                          >
+                            {variance.varianceQty > 0 ? `+${variance.varianceQty}` : variance.varianceQty}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-end font-mono font-bold text-slate-800" dir="ltr">
+                          {formatCurrency(variance.varianceValue)}
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <button
+                            type="button"
+                            data-testid={`commit-stock-take-btn-${p.sku}`}
+                            onClick={() => handleCommitSingleStockTake(p)}
+                            className="px-3 py-1.5 bg-teal-700 hover:bg-teal-600 text-white rounded-md font-bold text-xs transition cursor-pointer"
+                          >
+                            اعتماد الجرد وترحيل القيد
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       )}
 
       {inventorySubTab === 'BRANCH_TRANSFERS' && (
@@ -690,7 +905,7 @@ export const InventoryView: React.FC = () => {
                     </div>
                     <button
                       type="button"
-                      onClick={() => openCrossBranchModal(products[0]?.sku || 'ELEC-992')}
+                      onClick={() => openCrossBranchModal(electronicsProducts[0]?.sku || 'SOL-PNL-585W')}
                       className="w-full mt-1 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer"
                     >
                       <Network className="w-3.5 h-3.5" />
@@ -714,7 +929,7 @@ export const InventoryView: React.FC = () => {
               <button
                 type="button"
                 data-testid="btn-new-branch-probe"
-                onClick={() => openCrossBranchModal(products[0]?.sku || 'ELEC-992')}
+                onClick={() => openCrossBranchModal(electronicsProducts[0]?.sku || 'SOL-PNL-585W')}
                 className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs px-3 py-1.5 rounded-md transition flex items-center gap-1.5 cursor-pointer"
               >
                 <Network className="w-3.5 h-3.5" />
@@ -829,14 +1044,14 @@ export const InventoryView: React.FC = () => {
         </div>
       )}
 
-      {/* Add Product Modal */}
+      {/* Add Product Modal (Strictly Specialized for Electronics, Solar, Inverters, Batteries & Smart Screens) */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
           <div className="bg-white rounded-md shadow-xl border border-slate-300 w-full max-w-lg overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-              <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+              <h3 className="font-bold text-base text-slate-900 flex items-center justify-between gap-2">
                 <Package className="w-4 h-4 text-teal-700" />
-                <span>إضافة صنف جديد للمخزون</span>
+                <span>إضافة صنف طاقة شمسية / إلكترونيات / شاشات جديد</span>
               </h3>
               <button
                 type="button"
@@ -858,7 +1073,7 @@ export const InventoryView: React.FC = () => {
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">الاسم بالعربية *</label>
+                  <label className="block font-bold text-slate-700 mb-1">اسم الصنف بالعربية *</label>
                   <input
                     type="text"
                     data-testid="new-product-name-ar"
@@ -868,22 +1083,22 @@ export const InventoryView: React.FC = () => {
                       setNameAr(e.target.value);
                       if (!name) setName(e.target.value);
                     }}
+                    placeholder="مثال: لوح طاقة شمسية 585W N-Type"
                     className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">القطاع / المجال</label>
+                  <label className="block font-bold text-slate-700 mb-1">التصنيف المخزني</label>
                   <select
-                    value={productIndustry}
-                    onChange={(e) => setProductIndustry(e.target.value as IndustryType)}
+                    value={categoryId}
+                    onChange={(e) => setCategoryId(e.target.value)}
                     className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold"
                   >
-                    <option value="general">عام / صناعي</option>
-                    <option value="restaurant">المطاعم والكافيهات</option>
-                    <option value="electronics">الإلكترونيات والضمان</option>
-                    <option value="grocery">البقالات والسوبرماركت</option>
-                    <option value="pharmacy">الصيدليات والطبي</option>
-                    <option value="contracting">المقاولات والمشاريع</option>
+                    {electronicsCategories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.nameAr}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -894,7 +1109,7 @@ export const InventoryView: React.FC = () => {
                     required
                     value={sku}
                     onChange={(e) => setSku(e.target.value)}
-                    placeholder="ELEC-900"
+                    placeholder="SOL-PNL-600W"
                     className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-mono"
                   />
                 </div>
@@ -945,106 +1160,75 @@ export const InventoryView: React.FC = () => {
                     onChange={(e) => setUom(e.target.value)}
                     className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg"
                   >
-                    <option value="PCS">قطعة (PCS)</option>
-                    <option value="KG">كيلوجرام (KG)</option>
+                    <option value="PCS">قطعة / وحدة (PCS)</option>
                     <option value="BOX">صندوق / كرتون (BOX)</option>
-                    <option value="MEAL">وجبة (MEAL)</option>
+                    <option value="SET">منظومة متكاملة (SET)</option>
                   </select>
                 </div>
               </div>
 
-              {productIndustry === 'electronics' && (
-                <div className="p-3 bg-slate-50 rounded-md border border-slate-200 space-y-2.5">
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <div>
-                      <label className="block font-bold text-slate-800 mb-1">
-                        التصنيف الهندسي الفرعي
-                      </label>
-                      <select
-                        value={subCategory}
-                        onChange={(e) => setSubCategory(e.target.value as ElectronicsSubCategory)}
-                        className="w-full p-2 bg-white border border-slate-300 rounded-md font-bold"
-                      >
-                        <option value="SOLAR_PANEL">ألواح طاقة شمسية</option>
-                        <option value="HYBRID_INVERTER">إنفرتر هجين MPPT</option>
-                        <option value="LITHIUM_BATTERY">بطارية ليثيوم LiFePO4</option>
-                        <option value="GEL_BATTERY">بطارية جل أنبوبية</option>
-                        <option value="SMART_SCREEN">شاشة ذكية 4K / OLED</option>
-                        <option value="COMPUTING_MOBILE">أجهزة وحواسيب</option>
-                        <option value="SOLAR_ACCESSORY">قواطع وملحقات طاقة</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block font-bold text-slate-800 mb-1">
-                        فترة الضمان (بالأشهر)
-                      </label>
-                      <input
-                        type="number"
-                        value={warrantyMonths}
-                        onChange={(e) => setWarrantyMonths(Number(e.target.value))}
-                        className="w-full p-2 bg-white border border-slate-300 rounded-md font-mono"
-                      />
-                    </div>
+              <div className="p-3 bg-slate-50 rounded-md border border-slate-200 space-y-2.5">
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block font-bold text-slate-800 mb-1">
+                      التصنيف الهندسي الفرعي
+                    </label>
+                    <select
+                      value={subCategory}
+                      onChange={(e) => setSubCategory(e.target.value as ElectronicsSubCategory)}
+                      className="w-full p-2 bg-white border border-slate-300 rounded-md font-bold"
+                    >
+                      <option value="SOLAR_PANEL">ألواح طاقة شمسية</option>
+                      <option value="HYBRID_INVERTER">إنفرتر هجين MPPT</option>
+                      <option value="LITHIUM_BATTERY">بطارية ليثيوم LiFePO4</option>
+                      <option value="GEL_BATTERY">بطارية جل أنبوبية</option>
+                      <option value="SMART_SCREEN">شاشة ذكية 4K / OLED</option>
+                      <option value="COMPUTING_MOBILE">أجهزة وحواسيب</option>
+                      <option value="SOLAR_ACCESSORY">قواطع وملحقات طاقة</option>
+                    </select>
                   </div>
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <div>
-                      <label className="block font-bold text-slate-800 mb-1">
-                        القدرة بالواط (Watts)
-                      </label>
-                      <input
-                        type="number"
-                        value={powerRatingWatts}
-                        onChange={(e) => setPowerRatingWatts(Number(e.target.value))}
-                        placeholder="585"
-                        className="w-full p-2 bg-white border border-slate-300 rounded-md font-mono"
-                      />
-                    </div>
-                    <div>
-                      <label className="block font-bold text-slate-800 mb-1">
-                        مواصفة السعة / الجهد / الشاشة
-                      </label>
-                      <input
-                        type="text"
-                        value={batteryCapacitySpec || screenSizeSpec || voltageSpec}
-                        onChange={(e) => {
-                          setVoltageSpec(e.target.value);
-                          setBatteryCapacitySpec(e.target.value);
-                        }}
-                        placeholder="48V 200Ah / 65 4K QLED"
-                        className="w-full p-2 bg-white border border-slate-300 rounded-md font-mono"
-                      />
-                    </div>
+                  <div>
+                    <label className="block font-bold text-slate-800 mb-1">
+                      فترة الضمان (بالأشهر)
+                    </label>
+                    <input
+                      type="number"
+                      value={warrantyMonths}
+                      onChange={(e) => setWarrantyMonths(Number(e.target.value))}
+                      className="w-full p-2 bg-white border border-slate-300 rounded-md font-mono"
+                    />
                   </div>
                 </div>
-              )}
-
-              {(productIndustry === 'pharmacy' || productIndustry === 'grocery') && (
-                <div className="p-3 bg-rose-50 rounded-xl border border-rose-200">
-                  <label className="block font-bold text-rose-900 mb-1">
-                    تاريخ انتهاء الصلاحية (FEFO Expiry Date)
-                  </label>
-                  <input
-                    type="date"
-                    value={expiryDate}
-                    onChange={(e) => setExpiryDate(e.target.value)}
-                    className="w-full p-2 bg-white border border-rose-300 rounded-lg"
-                  />
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block font-bold text-slate-800 mb-1">
+                      القدرة بالواط (Watts)
+                    </label>
+                    <input
+                      type="number"
+                      value={powerRatingWatts}
+                      onChange={(e) => setPowerRatingWatts(Number(e.target.value))}
+                      placeholder="585"
+                      className="w-full p-2 bg-white border border-slate-300 rounded-md font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-800 mb-1">
+                      مواصفة السعة / الجهد / الشاشة
+                    </label>
+                    <input
+                      type="text"
+                      value={batteryCapacitySpec || screenSizeSpec || voltageSpec}
+                      onChange={(e) => {
+                        setVoltageSpec(e.target.value);
+                        setBatteryCapacitySpec(e.target.value);
+                      }}
+                      placeholder="48V 200Ah / 65 4K QLED"
+                      className="w-full p-2 bg-white border border-slate-300 rounded-md font-mono"
+                    />
+                  </div>
                 </div>
-              )}
-
-              {productIndustry === 'restaurant' && (
-                <div className="p-3 bg-orange-50 rounded-xl border border-orange-200">
-                  <label className="block font-bold text-orange-900 mb-1">
-                    وقت التحضير في المطبخ (بالدقائق)
-                  </label>
-                  <input
-                    type="number"
-                    value={prepTimeMinutes}
-                    onChange={(e) => setPrepTimeMinutes(Number(e.target.value))}
-                    className="w-full p-2 bg-white border border-orange-300 rounded-lg"
-                  />
-                </div>
-              )}
+              </div>
 
               <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">
                 <button

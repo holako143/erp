@@ -80,9 +80,20 @@ export const GLOBAL_CURRENCIES_META: Record<Currency, GlobalCurrencyMeta> = {
   },
 };
 
+export const ELECTRONICS_SOLAR_CORE_MODULES = ['pos', 'inventory', 'sales', 'accounting'] as const;
+
+export const EXCLUDED_SECTOR_MODULES = [
+  'projects',
+  'fleet',
+  'manufacturing',
+  'businessModules',
+] as const;
+
 export const DEFAULT_MASTER_SYSTEM_CONFIG: MasterSystemConfig = {
-  industryLockMode: 'MULTI_SELECTABLE',
+  industryLockMode: 'SINGLE_LOCKED',
   lockedIndustry: 'electronics',
+  sectorMode: 'SOLAR_ELECTRONICS_CORE',
+  sectorModeEnabled: true,
   globalCountryMode: 'GLOBAL',
   globalDefaultCurrency: 'SAR',
   defaultTaxRatePercent: 15,
@@ -90,22 +101,25 @@ export const DEFAULT_MASTER_SYSTEM_CONFIG: MasterSystemConfig = {
   cardPaymentLabelAr: 'بطاقة بنكية / دفع إلكتروني (POS Card)',
   cashPaymentLabelAr: 'نقدي فوري (Cash)',
   visibleModules: {
-    dashboard: true,
+    dashboard: false,
     pos: true,
-    barcodeEngine: true,
+    barcodeEngine: false,
     inventory: true,
-    purchasing: true,
+    purchasing: false,
     sales: true,
     accounting: true,
-    businessModules: true,
-    aiInsights: true,
-    saasPlatform: true,
-    security: true,
-    settings: true,
-    communications: true,
+    businessModules: false,
+    projects: false,
+    fleet: false,
+    manufacturing: false,
+    aiInsights: false,
+    saasPlatform: false,
+    security: false,
+    settings: false,
+    communications: false,
   },
   uiElementsVisibility: {
-    showIndustrySwitcher: true,
+    showIndustrySwitcher: false,
     showCurrencySwitcher: true,
     showCouponsAndPromotions: true,
     showProfitMarginsInPOS: true,
@@ -114,24 +128,107 @@ export const DEFAULT_MASTER_SYSTEM_CONFIG: MasterSystemConfig = {
     showLanNetworkBanner: true,
     showKeyboardShortcutsBar: true,
     showTaxAndFiscalBadges: true,
-    showAIInsightsWidget: true,
+    showAIInsightsWidget: false,
     showSolarSizingEngine: true,
     showWarrantyAndRMA: true,
     showSmartLabelOCR: true,
-    showScaleBarcodeTools: true,
+    showScaleBarcodeTools: false,
     showLandedCostCalculator: true,
     showMultiCurrencyEngine: true,
-    showManufacturingAndProjects: true,
-    showAIInsights: true,
+    showManufacturingAndProjects: false,
+    showAIInsights: false,
     showTaxAndComplianceFields: true,
   },
   keyboardShortcutsEnabled: true,
   lanSyncEnabled: true,
-  updatedAt: '2026-11-03T00:00:00.000Z',
+  updatedAt: '2026-11-10T00:00:00.000Z',
 };
 
 /**
- * Evaluates whether a module is visible and accessible given Master System Config
+ * Applies the 'Sector Mode' configuration for Electronics & Solar Energy.
+ * When enabled ('SOLAR_ELECTRONICS_CORE'), filters out 'projects', 'fleet', 'manufacturing',
+ * and 'businessModules', ensuring only POS, Inventory, Sales, and Accounting remain visible.
+ */
+export function applySectorModePreset(
+  config: MasterSystemConfig,
+  enableSectorMode: boolean
+): MasterSystemConfig {
+  if (enableSectorMode) {
+    return {
+      ...config,
+      industryLockMode: 'SINGLE_LOCKED',
+      lockedIndustry: 'electronics',
+      sectorMode: 'SOLAR_ELECTRONICS_CORE',
+      sectorModeEnabled: true,
+      visibleModules: {
+        ...config.visibleModules,
+        dashboard: false,
+        pos: true,
+        barcodeEngine: false,
+        inventory: true,
+        purchasing: false,
+        sales: true,
+        accounting: true,
+        businessModules: false,
+        projects: false,
+        fleet: false,
+        manufacturing: false,
+        aiInsights: false,
+        saasPlatform: false,
+        security: false,
+        settings: false,
+        communications: false,
+      },
+      uiElementsVisibility: {
+        ...config.uiElementsVisibility,
+        showIndustrySwitcher: false,
+        showManufacturingAndProjects: false,
+        showScaleBarcodeTools: false,
+        showAIInsightsWidget: false,
+        showAIInsights: false,
+        showSolarSizingEngine: true,
+        showWarrantyAndRMA: true,
+        showSmartLabelOCR: true,
+      },
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  return {
+    ...config,
+    sectorMode: 'FULL_SUITE',
+    sectorModeEnabled: false,
+    visibleModules: {
+      ...config.visibleModules,
+      dashboard: true,
+      pos: true,
+      barcodeEngine: true,
+      inventory: true,
+      purchasing: true,
+      sales: true,
+      accounting: true,
+      businessModules: false,
+      projects: false,
+      fleet: false,
+      manufacturing: false,
+      aiInsights: false,
+      saasPlatform: false,
+      security: true,
+      settings: true,
+      communications: true,
+    },
+    uiElementsVisibility: {
+      ...config.uiElementsVisibility,
+      showManufacturingAndProjects: false,
+    },
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Evaluates whether a module is visible and accessible given Master System Config.
+ * In Sector Mode ('SOLAR_ELECTRONICS_CORE'), filters out 'projects', 'fleet', 'manufacturing', and 'businessModules',
+ * ensuring only POS, Inventory, Sales, and Accounting links remain in main navigation.
  * Hidden Master Admin always retains access to 'masterAdmin' and all modules when needed.
  */
 export function isModuleVisibleUnderMasterConfig(
@@ -142,7 +239,33 @@ export function isModuleVisibleUnderMasterConfig(
   if (moduleId === 'masterAdmin') {
     return Boolean(isHiddenMasterAdmin);
   }
-  if (!config || !config.visibleModules) {
+  if (!config) {
+    return true;
+  }
+  // Always filter out 'projects', 'fleet', 'manufacturing', and 'businessModules' when Sector Mode or Electronics lock is active
+  if ((EXCLUDED_SECTOR_MODULES as readonly string[]).includes(moduleId)) {
+    if (
+      config.sectorModeEnabled ||
+      config.sectorMode === 'SOLAR_ELECTRONICS_CORE' ||
+      config.lockedIndustry === 'electronics' ||
+      config.uiElementsVisibility?.showManufacturingAndProjects === false
+    ) {
+      return false;
+    }
+  }
+  if (
+    config.sectorModeEnabled ||
+    config.sectorMode === 'SOLAR_ELECTRONICS_CORE'
+  ) {
+    if (!(ELECTRONICS_SOLAR_CORE_MODULES as readonly string[]).includes(moduleId)) {
+      return false;
+    }
+    if (config.visibleModules && typeof config.visibleModules[moduleId] === 'boolean') {
+      return config.visibleModules[moduleId];
+    }
+    return true;
+  }
+  if (!config.visibleModules) {
     return true;
   }
   const flag = config.visibleModules[moduleId];
@@ -156,6 +279,9 @@ export function resolveEffectiveIndustryMode(
   currentIndustry: IndustryType,
   config: MasterSystemConfig
 ): IndustryType {
+  if (config?.sectorModeEnabled || config?.sectorMode === 'SOLAR_ELECTRONICS_CORE') {
+    return 'electronics';
+  }
   if (config?.industryLockMode === 'SINGLE_LOCKED' && config.lockedIndustry) {
     return config.lockedIndustry;
   }

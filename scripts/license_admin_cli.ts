@@ -68,7 +68,9 @@ async function main() {
         isLifetime: durationDays >= 36500,
       });
 
-      authority.registerIssuedLicense(license);
+      if (authority) {
+        authority.registerIssuedLicense(license);
+      }
 
       console.log('\n================== تفاصيل الترخيص المصدر ==================');
       console.log(`معرف الترخيص الفريد (UUID): ${license.licenseUuid}`);
@@ -79,6 +81,10 @@ async function main() {
       console.log(`سياسة الأجهزة: جهاز واحد فقط (Strict Single-Device Hardware Binding)`);
       console.log('===========================================================\n');
     } else if (choice === '2') {
+      if (!authority) {
+        console.log('\n[تنبيه] لم يتم تهيئة مفتاح الهيئة الخاص (ASF_AUTHORITY_PRIVATE_KEY) في متغيرات البيئة.');
+        continue;
+      }
       const licenseUuid = await prompt('أدخل معرف الترخيص (UUID): ');
       const mb = (await prompt('اللوحة الأم (Motherboard Serial): ')) || 'MB-DELL-OPTIPLEX-5090';
       const cpu = (await prompt('المعالج (CPU Model): ')) || 'Intel Core i5-11500';

@@ -323,8 +323,8 @@ app.get('/api/v1/hardware/windows-scanner.bat', (_req, res) => {
 app.get('/api/v1/licensing/licenses', (_req, res) => {
   res.json({
     success: true,
-    licenses: activationAuthority.getAllLicenses(),
-    auditLogs: activationAuthority.getAuditLogs(),
+    licenses: activationAuthority ? activationAuthority.getAllLicenses() : [],
+    auditLogs: activationAuthority ? activationAuthority.getAuditLogs() : [],
     serverTimeMs: Date.now(),
   });
 });
@@ -343,7 +343,9 @@ app.post('/api/v1/licensing/issue', (req, res) => {
     isLifetime: Boolean(isLifetime),
     allowedModules,
   });
-  activationAuthority.registerIssuedLicense(newLic);
+  if (activationAuthority) {
+    activationAuthority.registerIssuedLicense(newLic);
+  }
   res.json({
     success: true,
     license: newLic,
@@ -358,6 +360,15 @@ app.post('/api/v1/licensing/activate', (req, res) => {
       success: false,
       errorCode: 'INTERNAL_ERROR',
       errorMessage: 'Missing activation payload fields.',
+    });
+    return;
+  }
+
+  if (!activationAuthority) {
+    res.status(503).json({
+      success: false,
+      errorCode: 'AUTHORITY_NOT_CONFIGURED',
+      errorMessage: 'Activation authority private key is not configured on this server.',
     });
     return;
   }

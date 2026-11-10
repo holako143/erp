@@ -760,3 +760,181 @@ export function parseWindowsWmiHardwareInput(rawInput: string): HardwareFingerpr
   return null;
 }
 
+export interface EncryptedDatabaseSnapshot {
+  format: 'RLM_ENCRYPTED_DATABASE_SNAPSHOT_V1';
+  encryptionAlgorithm: 'RLM-STREAM-256+HMAC-FNV32';
+  exportedAt: string;
+  tenantCode: string;
+  integritySignature: string;
+  keyFingerprint: string;
+  metadata: {
+    productsCount: number;
+    salesInvoicesCount: number;
+    journalEntriesCount: number;
+    auditLogsCount: number;
+  };
+  ciphertext: string;
+}
+
+const DEFAULT_SNAPSHOT_PASSPHRASE = 'RLM-DEFAULT-RECOVERY-KEY-2026';
+
+function bytesToBase64(bytes: Uint8Array): string {
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(bytes).toString('base64');
+  }
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+function base64ToBytes(base64: string): Uint8Array {
+  if (typeof Buffer !== 'undefined') {
+    return new Uint8Array(Buffer.from(base64, 'base64'));
+  }
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function generateKeystreamByte(seedHash: string, passphrase: string, index: number): number {
+  const passCode = passphrase.charCodeAt(index % passphrase.length) || 0x5a;
+  const hashCode = seedHash.charCodeAt(index % seedHash.length) || 0xa5;
+  return (passCode ^ hashCode ^ ((index * 31 + 17) & 0xff)) & 0xff;
+}
+
+/**
+ * Encrypts a full ERP database snapshot object into a tamper-evident encrypted JSON structure
+ * for offline disaster recovery.
+ */
+export function encryptDatabaseSnapshotJSON(
+  payload: Record<string, any>,
+  passphrase: string = DEFAULT_SNAPSHOT_PASSPHRASE
+): EncryptedDatabaseSnapshot {
+  const effectiveKey = (passphrase || DEFAULT_SNAPSHOT_PASSPHRASE).trim() || DEFAULT_SNAPSHOT_PASSPHRASE;
+  const keyFingerprint = cryptoHash32(effectiveKey, 'RLM-SNAPSHOT-KEY-FP');
+  const streamSeed = `${cryptoHash32(effectiveKey, 'RLM-STREAM-A')}${cryptoHash32(effectiveKey, 'RLM-STREAM-B')}`;
+
+  const rawJson = JSON.stringify(payload);
+  const encoder = new TextEncoder();
+  const inputBytes = encoder.encode(rawJson);
+  const outputBytes = new Uint8Array(inputBytes.length);
+
+  for (let i = 0; i < inputBytes.length; i++) {
+    outputBytes[i] = inputBytes[i] ^ generateKeystreamByte(streamSeed, effectiveKey, i);
+  }
+
+  const ciphertext = bytesToBase64(outputBytes);
+  const integritySignature = `${cryptoHash32(ciphertext, effectiveKey)}-${cryptoHash32(
+    `${ciphertext.length}:${keyFingerprint}`,
+    'RLM-SNAP-HMAC'
+  )}`;
+
+  return {
+    format: 'RLM_ENCRYPTED_DATABASE_SNAPSHOT_V1',
+    encryptionAlgorithm: 'RLM-STREAM-256+HMAC-FNV32',
+    exportedAt: payload.exportedAt || new Date().toISOString(),
+    tenantCode: payload.tenant?.code || 'TENANT-MAIN',
+    integritySignature,
+    keyFingerprint,
+    metadata: {
+      productsCount: Number(payload.productsCount ?? payload.data?.products?.length ?? 0),
+      salesInvoicesCount: Number(payload.salesInvoicesCount ?? payload.data?.salesInvoices?.length ?? 0),
+      journalEntriesCount: Number(payload.journalEntriesCount ?? payload.data?.journalEntries?.length ?? 0),
+      auditLogsCount: Number(payload.auditLogsCount ?? payload.data?.auditLogs?.length ?? 0),
+    },
+    ciphertext,
+  };
+}
+
+/**
+ * Decrypts and verifies an EncryptedDatabaseSnapshot (or passes through a standard unencrypted JSON backup).
+ */
+export function decryptDatabaseSnapshotJSON(
+  rawInputJson: string,
+  passphrase: string = DEFAULT_SNAPSHOT_PASSPHRASE
+): {
+  success: boolean;
+  isEncrypted: boolean;
+  payload?: Record<string, any>;
+  errorAr?: string;
+  errorEn?: string;
+} {
+  try {
+    const parsed = JSON.parse(rawInputJson);
+    if (!parsed || typeof parsed !== 'object') {
+      return {
+        success: false,
+        isEncrypted: false,
+        errorAr: 'بنية ملف النسخة الاحتياطية غير صالحة',
+        errorEn: 'Invalid snapshot JSON structure',
+      };
+    }
+
+    if (parsed.format !== 'RLM_ENCRYPTED_DATABASE_SNAPSHOT_V1') {
+      // Plain JSON backup
+      return {
+        success: true,
+        isEncrypted: false,
+        payload: parsed,
+      };
+    }
+
+    const effectiveKey = (passphrase || DEFAULT_SNAPSHOT_PASSPHRASE).trim() || DEFAULT_SNAPSHOT_PASSPHRASE;
+    const expectedKeyFp = cryptoHash32(effectiveKey, 'RLM-SNAPSHOT-KEY-FP');
+    if (parsed.keyFingerprint && parsed.keyFingerprint !== expectedKeyFp) {
+      return {
+        success: false,
+        isEncrypted: true,
+        errorAr: 'مفتاح فك التشفير غير مطابق لمفتاح لقطة قاعدة البيانات المشفرة',
+        errorEn: 'Decryption passphrase does not match snapshot key fingerprint',
+      };
+    }
+
+    const ciphertext = String(parsed.ciphertext || '');
+    const expectedSig = `${cryptoHash32(ciphertext, effectiveKey)}-${cryptoHash32(
+      `${ciphertext.length}:${expectedKeyFp}`,
+      'RLM-SNAP-HMAC'
+    )}`;
+
+    if (parsed.integritySignature !== expectedSig) {
+      return {
+        success: false,
+        isEncrypted: true,
+        errorAr: 'فشل التحقق من التوقيع الرقمي للنسخة المشفرة (تم التلاعب بالملف)',
+        errorEn: 'Encrypted snapshot integrity signature verification failed',
+      };
+    }
+
+    const streamSeed = `${cryptoHash32(effectiveKey, 'RLM-STREAM-A')}${cryptoHash32(effectiveKey, 'RLM-STREAM-B')}`;
+    const cipherBytes = base64ToBytes(ciphertext);
+    const plainBytes = new Uint8Array(cipherBytes.length);
+
+    for (let i = 0; i < cipherBytes.length; i++) {
+      plainBytes[i] = cipherBytes[i] ^ generateKeystreamByte(streamSeed, effectiveKey, i);
+    }
+
+    const decoder = new TextDecoder();
+    const decryptedText = decoder.decode(plainBytes);
+    const decryptedPayload = JSON.parse(decryptedText);
+
+    return {
+      success: true,
+      isEncrypted: true,
+      payload: decryptedPayload,
+    };
+  } catch {
+    return {
+      success: false,
+      isEncrypted: false,
+      errorAr: 'تعذر قراءة أو فك تشفير ملف لقطة قاعدة البيانات',
+      errorEn: 'Failed to parse or decrypt database snapshot file',
+    };
+  }
+}
+
+

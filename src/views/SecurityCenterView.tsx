@@ -92,7 +92,6 @@ export const SecurityCenterView: React.FC = () => {
     purchasing: { ar: 'المشتريات والموردين', en: 'Purchasing & Suppliers' },
     sales: { ar: 'المبيعات والفواتير الضريبية', en: 'Sales & Tax Invoices' },
     accounting: { ar: 'المحاسبة المالية والقيد المزدوج', en: 'Financial Accounting' },
-    businessModules: { ar: 'وحدات الأعمال (HR/أصول/تصنيع)', en: 'Enterprise Suites' },
     aiInsights: { ar: 'المساعد الذكي Gemini AI', en: 'Gemini AI Copilot' },
     saasPlatform: { ar: 'إدارة المنصة والاشتراكات SaaS', en: 'SaaS Multi-Tenant Admin' },
     security: { ar: 'مركز الحماية والعضويات والترخيص', en: 'Security & Licensing Center' },

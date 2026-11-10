@@ -25,9 +25,6 @@ export const TRANSLATIONS = {
     // Business Sub-tabs
     hrModule: 'الموارد البشرية والرواتب',
     assetsModule: 'الأصول الثابتة والصيانة',
-    manufacturingModule: 'التصنيع وقوائم المواد BOM',
-    projectsModule: 'إدارة المشاريع والتكاليف',
-    fleetModule: 'إدارة الأسطول والشحن',
     qualityModule: 'إدارة وتوكيد الجودة',
 
     // Top Bar & Controls
@@ -134,9 +131,6 @@ export const TRANSLATIONS = {
     // Business Sub-tabs
     hrModule: 'HR & Payroll',
     assetsModule: 'Fixed Assets & Maintenance',
-    manufacturingModule: 'Manufacturing & BOM',
-    projectsModule: 'Project Management & Costs',
-    fleetModule: 'Fleet & Shipping Logistics',
     qualityModule: 'Quality Assurance & QC',
 
     // Top Bar & Controls

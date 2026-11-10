@@ -35,6 +35,7 @@ export const IndustryChameleonPanel: React.FC<IndustryChameleonPanelProps> = ({
     addToPOSCart,
     formatCurrency,
     openQuickSendModal,
+    setActiveTab,
   } = useERP();
 
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
@@ -77,14 +78,9 @@ export const IndustryChameleonPanel: React.FC<IndustryChameleonPanelProps> = ({
     }
   };
 
-  const allIndustries: IndustryType[] = [
-    'electronics',
-    'restaurant',
-    'grocery',
-    'pharmacy',
-    'contracting',
-    'general',
-  ];
+  const allIndustries: IndustryType[] = isSingleLocked
+    ? ['electronics']
+    : ['electronics', 'restaurant', 'grocery', 'pharmacy', 'contracting', 'general'];
 
   return (
     <div
@@ -106,8 +102,8 @@ export const IndustryChameleonPanel: React.FC<IndustryChameleonPanelProps> = ({
               قالب الطباعة: {currentIndustryBlueprint.standardTemplate} | الوحدة: {currentIndustryBlueprint.defaultUom}
             </span>
             {isSingleLocked && (
-              <span className="px-2.5 py-0.5 rounded-md bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[11px] font-bold">
-                مخصص لنشاط واحد (مقفل إدارياً)
+              <span className="px-2.5 py-0.5 rounded-md bg-teal-500/20 border border-teal-500/40 text-teal-300 text-[11px] font-bold">
+                مخصص حصرياً للإلكترونيات والطاقة الشمسية والشاشات
               </span>
             )}
           </div>
@@ -139,7 +135,7 @@ export const IndustryChameleonPanel: React.FC<IndustryChameleonPanelProps> = ({
           >
             <PackagePlus className="w-4 h-4" />
             <span>
-              تجهيز وإضافة مستلزمات النشاط للمستودع ({currentIndustryBlueprint.supplies.length} مستلزمات)
+              تجهيز وإضافة مستلزمات الطاقة والإلكترونيات للمستودع ({currentIndustryBlueprint.supplies.length} مستلزمات)
             </span>
           </button>
 
@@ -170,31 +166,62 @@ export const IndustryChameleonPanel: React.FC<IndustryChameleonPanelProps> = ({
         </div>
       </div>
 
-      {/* Industry Quick Switcher Bar */}
-      <div className="mt-4 pt-3 border-t border-slate-800/80 flex flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold text-slate-400 ml-1">
-          تغيير النشاط وتكييف النظام بالكامل:
-        </span>
-        {allIndustries.map((indKey) => {
-          const bp = INDUSTRY_BLUEPRINTS[indKey];
-          const isSelected = activeIndustry === indKey;
-          return (
+      {/* Interconnected Quick Action Bar (when locked to Electronics & Solar) or Industry Switcher */}
+      {isSingleLocked ? (
+        <div className="mt-4 pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs font-semibold text-teal-300">
+            الترابط السريع بين أقسام الإلكترونيات والطاقة الشمسية والشاشات:
+          </span>
+          <div className="flex flex-wrap items-center gap-2">
             <button
-              key={indKey}
               type="button"
-              onClick={() => setActiveIndustry(indKey)}
-              data-testid={`switch-industry-pill-${indKey}`}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
-                isSelected
-                  ? `${bp.accentBadgeClass} ring-1 ring-white/20 shadow-sm`
-                  : 'bg-slate-900/70 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'
-              }`}
+              onClick={() => setActiveTab('pos')}
+              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-teal-600/30 hover:bg-teal-600/50 border border-teal-500/40 text-teal-200 transition cursor-pointer"
             >
-              {bp.nameAr}
+              نقطة البيع وشهادة الضمان (POS)
             </button>
-          );
-        })}
-      </div>
+            <button
+              type="button"
+              onClick={() => setActiveTab('inventory')}
+              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-900/80 hover:bg-slate-800 border border-slate-700 text-slate-200 transition cursor-pointer"
+            >
+              المستودع والجرد الفعلي اللحظي (WMS)
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('sales')}
+              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-900/80 hover:bg-slate-800 border border-slate-700 text-amber-300 transition cursor-pointer"
+            >
+              فحص الضمان والصيانة (S/N & RMA)
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-4 pt-3 border-t border-slate-800/80 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold text-slate-400 ml-1">
+            تغيير النشاط وتكييف النظام بالكامل:
+          </span>
+          {allIndustries.map((indKey) => {
+            const bp = INDUSTRY_BLUEPRINTS[indKey];
+            const isSelected = activeIndustry === indKey;
+            return (
+              <button
+                key={indKey}
+                type="button"
+                onClick={() => setActiveIndustry(indKey)}
+                data-testid={`switch-industry-pill-${indKey}`}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                  isSelected
+                    ? `${bp.accentBadgeClass} ring-1 ring-white/20 shadow-sm`
+                    : 'bg-slate-900/70 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                {bp.nameAr}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Provision Feedback Toast */}
       {provisionToast && (

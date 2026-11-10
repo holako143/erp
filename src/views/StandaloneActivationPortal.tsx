@@ -80,8 +80,7 @@ export const StandaloneActivationPortal: React.FC = () => {
       setGeneratedSerial(res.serial);
     } else {
       setGenError(
-        res.errorAr ||
-          res.errorEn ||
+        res.error ||
           (isAr
             ? 'فشل توليد السيريال، تأكد من صحة كود الجهاز المُدخل'
             : 'Failed to generate serial key for given request code')
@@ -102,13 +101,12 @@ export const StandaloneActivationPortal: React.FC = () => {
     if (actRes.valid) {
       setDirectApplyFeedback(
         isAr
-          ? `✓ تم تفعيل هذا الجهاز بنجاح! الصلاحية: ${actRes.licenseDetails?.durationLabelAr}`
-          : `✓ Successfully activated this machine! Valid: ${actRes.licenseDetails?.durationLabelEn}`
+          ? `✓ تم تفعيل هذا الجهاز بنجاح! الصلاحية: ${actRes.durationLabelAr}`
+          : `✓ Successfully activated this machine! Valid: ${actRes.durationLabelEn}`
       );
     } else {
       setDirectApplyFeedback(
-        actRes.errorAr ||
-          actRes.errorEn ||
+        actRes.reason ||
           (isAr ? 'تعذر تطبيق السيريال على هذا الجهاز' : 'Failed to apply serial to this device')
       );
     }

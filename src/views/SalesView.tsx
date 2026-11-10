@@ -431,12 +431,11 @@ export const SalesView: React.FC = () => {
                 <div className="flex flex-wrap items-center gap-1.5 text-xs">
                   <FileText className="w-4 h-4 text-slate-600 me-1" />
                   {[
+                    { mode: 'a4', tpl: 'a4_warranty_electronics', label: 'A4 شهادة ضمان وسيريال' },
                     { mode: 'a4', tpl: 'a4_corporate_classic', label: 'A4 شركات رسمية' },
                     { mode: 'a4', tpl: 'a4_modern_blue', label: 'A4 أزرق عصري' },
-                    { mode: 'a4', tpl: 'a4_warranty_electronics', label: 'A4 شهادة ضمان' },
-                    { mode: 'a4', tpl: 'a4_medical_pharmacy', label: 'A4 طبي وصيدلاني' },
-                    { mode: 'thermal', tpl: 'thermal_80mm_standard', label: 'حراري 80mm' },
-                    { mode: 'thermal', tpl: 'thermal_80mm_restaurant', label: 'حراري مطعم' },
+                    { mode: 'thermal', tpl: 'thermal_80mm_warranty', label: 'حراري 80mm بالضمان والسيريال' },
+                    { mode: 'thermal', tpl: 'thermal_80mm_standard', label: 'حراري 80mm قياسي' },
                     { mode: 'thermal', tpl: 'thermal_58mm_compact', label: 'حراري 58mm' },
                   ].map((opt) => (
                     <button

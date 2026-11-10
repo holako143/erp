@@ -100,13 +100,15 @@ export const CommandPalette: React.FC = () => {
           {/* Quick Module Navigation */}
           <div>
             <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2 mb-1.5">
-              {language === 'ar' ? 'الوصول السريع للوحدات' : 'Quick Navigation'}
+              {language === 'ar'
+                ? 'الوصول السريع للوحدات الأساسية (إلكترونيات وطاقة شمسية)'
+                : 'Core Sector Quick Navigation'}
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
               {[
                 { id: 'pos', name: language === 'ar' ? 'نقطة البيع POS' : 'POS Register', icon: Receipt },
-                { id: 'barcodeEngine', name: language === 'ar' ? 'محرك الباركود' : 'Barcode Engine', icon: Barcode },
-                { id: 'inventory', name: language === 'ar' ? 'المخزون WMS' : 'Inventory WMS', icon: Package },
+                { id: 'inventory', name: language === 'ar' ? 'المخزون والجرد WMS' : 'Inventory WMS', icon: Package },
+                { id: 'sales', name: language === 'ar' ? 'المبيعات والضمان' : 'Sales & RMA', icon: Receipt },
                 { id: 'accounting', name: language === 'ar' ? 'المحاسبة والقيود' : 'Accounting & Ledger', icon: Calculator },
               ].map((item) => (
                 <button
