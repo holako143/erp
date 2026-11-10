@@ -239,27 +239,39 @@ export const MobileLanPortalModal: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
               {/* Left Column: QR Code Renderer */}
               <div className="md:col-span-5 flex flex-col items-center justify-center p-6 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 text-center space-y-3">
-                <div className="p-4 bg-white rounded-2xl shadow-lg border border-slate-200 inline-block">
+                <div className="p-3 bg-white rounded-2xl shadow-xl border border-slate-300/80 inline-block">
                   <svg
-                    viewBox={`0 0 ${qrMatrix.length} ${qrMatrix.length}`}
-                    className="w-52 h-52 block"
+                    viewBox={`-4 -4 ${qrMatrix.length + 8} ${qrMatrix.length + 8}`}
+                    className="w-56 h-56 block rounded-lg"
                     style={{ shapeRendering: 'crispEdges' }}
                   >
+                    {/* Quiet zone background required by QR standard for camera recognition */}
+                    <rect
+                      x="-4"
+                      y="-4"
+                      width={qrMatrix.length + 8}
+                      height={qrMatrix.length + 8}
+                      fill="#ffffff"
+                    />
                     {qrMatrix.map((row, r) =>
                       row.map((val, c) =>
                         val ? (
-                          <rect key={`${r}-${c}`} x={c} y={r} width="1" height="1" fill="#0f172a" />
+                          <rect key={`${r}-${c}`} x={c} y={r} width="1" height="1" fill="#000000" />
                         ) : null
                       )
                     )}
                   </svg>
                 </div>
                 <div>
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold border border-emerald-200 dark:border-emerald-800 mb-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>كود QR قياسي متوافق مع كافة كاميرات الجوال</span>
+                  </div>
                   <h4 className="text-sm font-black text-slate-900 dark:text-slate-100">
-                    امسح الكود بكاميرا الجوال
+                    وجّه كاميرا الجوال لمسح الكود فوراً
                   </h4>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    افتح كاميرا أي هاتف متصل بنفس شبكة الـ Wi-Fi للدخول المباشر
+                    يعمل تلقائياً مع كاميرا الآيفون والأندرويد للفتح في المتصفح دون الحاجة لتطبيق
                   </p>
                 </div>
               </div>

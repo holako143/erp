@@ -19,13 +19,17 @@ export type ThermalTemplateType =
   | 'thermal_80mm_standard'
   | 'thermal_80mm_restaurant'
   | 'thermal_58mm_compact'
-  | 'thermal_80mm_warranty';
+  | 'thermal_80mm_warranty'
+  | 'thermal_80mm_modern'
+  | 'thermal_80mm_minimal';
 
 export type StandardInvoiceTemplateType =
   | 'a4_corporate_classic'
   | 'a4_modern_blue'
   | 'a4_warranty_electronics'
-  | 'a4_medical_pharmacy';
+  | 'a4_medical_pharmacy'
+  | 'a4_contracting_specs'
+  | 'a4_minimalist_clean';
 
 export interface InvoiceTemplateSettings {
   thermalTemplate: ThermalTemplateType;
@@ -405,6 +409,7 @@ export interface SalesInvoice {
   invoiceNumber: string;
   customerId: string;
   customerName: string;
+  customerPhone?: string;
   branchId: string;
   date: string;
   items: InvoiceItem[];
@@ -422,6 +427,8 @@ export interface SalesInvoice {
   tableNumber?: string;
   couponCode?: string;
   couponDiscountAmount?: number;
+  discountType?: 'PERCENT' | 'AMOUNT';
+  discountValue?: number;
 }
 
 export interface POSShift {

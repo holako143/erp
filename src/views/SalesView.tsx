@@ -15,6 +15,7 @@ import {
   MessageSquare,
   Smartphone,
   Network,
+  Percent,
 } from 'lucide-react';
 import {
   SalesInvoice,
@@ -116,7 +117,8 @@ export const SalesView: React.FC = () => {
   const [invoiceQty, setInvoiceQty] = useState(1);
   const [serialNumberInput, setSerialNumberInput] = useState('IMEI-3599102948110');
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'CREDIT'>('CARD');
-  const [invoiceCouponCode, setInvoiceCouponCode] = useState<string>('');
+  const [discountType, setDiscountType] = useState<'PERCENT' | 'AMOUNT'>('PERCENT');
+  const [discountValue, setDiscountValue] = useState<number | ''>('');
 
   // New Customer State
   const [custNameAr, setCustNameAr] = useState('');
@@ -161,11 +163,19 @@ export const SalesView: React.FC = () => {
     if (!customer || !product) return;
 
     const sub = product.salePrice * invoiceQty;
-    const couponCheck = invoiceCouponCode.trim()
-      ? validateCouponForAmount(invoiceCouponCode.trim(), sub)
-      : null;
-    const discountAmount = couponCheck?.valid ? couponCheck.discountAmount : 0;
-    const appliedCouponCode = couponCheck?.valid ? couponCheck.coupon?.code : undefined;
+    let discountAmount = 0;
+    let appliedDiscountLabel: string | undefined;
+
+    if (typeof discountValue === 'number' && discountValue > 0) {
+      if (discountType === 'PERCENT') {
+        const pct = Math.min(100, Math.max(0, discountValue));
+        discountAmount = Math.round(((sub * pct) / 100) * 100) / 100;
+        appliedDiscountLabel = `خصم ${discountValue}%`;
+      } else {
+        discountAmount = Math.min(sub, discountValue);
+        appliedDiscountLabel = `خصم نقدي (${discountAmount.toFixed(2)} ${currency})`;
+      }
+    }
 
     const netTaxable = Math.max(0, sub - discountAmount);
     const configuredTaxPct = masterSystemConfig.defaultTaxRatePercent ?? 15;
@@ -179,7 +189,9 @@ export const SalesView: React.FC = () => {
       date: new Date().toISOString().slice(0, 10),
       subtotal: sub,
       discountAmount,
-      couponCode: appliedCouponCode,
+      couponCode: appliedDiscountLabel,
+      discountType: discountAmount > 0 ? discountType : undefined,
+      discountValue: discountAmount > 0 && typeof discountValue === 'number' ? discountValue : undefined,
       taxAmount: tax,
       grandTotal: total,
       paidAmount: paymentMethod === 'CREDIT' ? 0 : total,
@@ -206,7 +218,7 @@ export const SalesView: React.FC = () => {
     });
 
     setSelectedInvoice(created);
-    setInvoiceCouponCode('');
+    setDiscountValue('');
     setIsNewInvoiceOpen(false);
   };
 
@@ -1081,10 +1093,15 @@ export const SalesView: React.FC = () => {
       {isNewInvoiceOpen && (() => {
         const selProd = products.find((p) => p.id === selectedProductId) || products[0];
         const rawSub = (selProd?.salePrice || 0) * invoiceQty;
-        const couponPreview = invoiceCouponCode.trim()
-          ? validateCouponForAmount(invoiceCouponCode.trim(), rawSub)
-          : null;
-        const previewDisc = couponPreview?.valid ? couponPreview.discountAmount : 0;
+        let previewDisc = 0;
+        if (typeof discountValue === 'number' && discountValue > 0) {
+          if (discountType === 'PERCENT') {
+            const pct = Math.min(100, Math.max(0, discountValue));
+            previewDisc = Math.round(((rawSub * pct) / 100) * 100) / 100;
+          } else {
+            previewDisc = Math.min(rawSub, discountValue);
+          }
+        }
         const previewTaxRate = masterSystemConfig.defaultTaxRatePercent ?? 15;
         const previewTax = Number((Math.max(0, rawSub - previewDisc) * (previewTaxRate / 100)).toFixed(2));
         const previewNet = Number((Math.max(0, rawSub - previewDisc) + previewTax).toFixed(2));
@@ -1155,44 +1172,95 @@ export const SalesView: React.FC = () => {
                     </select>
                   </div>
                 </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">
-                    كود كوبون الخصم الترويجي (اختياري)
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      data-testid="sales-invoice-coupon-input"
-                      value={invoiceCouponCode}
-                      onChange={(e) => setInvoiceCouponCode(e.target.value.toUpperCase())}
-                      placeholder="مثال: SOLAR10 أو VIP250"
-                      className="flex-1 p-2 rounded-md border border-slate-300 font-mono uppercase"
-                    />
-                    <select
-                      value={invoiceCouponCode}
-                      onChange={(e) => setInvoiceCouponCode(e.target.value)}
-                      className="p-2 rounded-md border border-slate-300 bg-slate-50 font-mono text-[11px]"
-                    >
-                      <option value="">اختر كوبون</option>
-                      {promoCoupons
-                        .filter((c) => c.isActive)
-                        .map((c) => (
-                          <option key={c.id} value={c.code}>
-                            {c.code} ({c.discountType === 'PERCENTAGE' ? `${c.discountValue}%` : `${c.discountValue} ${currency}`})
-                          </option>
-                        ))}
-                    </select>
+
+                {/* Discount Section: Percent (%) vs Fixed Amount */}
+                <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+                    <span className="flex items-center gap-1">
+                      <Percent className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>تطبيق خصم:</span>
+                    </span>
+                    <div className="flex items-center bg-white rounded-md p-0.5 border border-slate-200 text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDiscountType('PERCENT');
+                          if (discountType === 'AMOUNT' && typeof discountValue === 'number' && discountValue > 100) {
+                            setDiscountValue(10);
+                          }
+                        }}
+                        className={`px-2 py-0.5 rounded font-bold transition cursor-pointer ${
+                          discountType === 'PERCENT'
+                            ? 'bg-emerald-600 text-white'
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        نسبة مئوية (%)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDiscountType('AMOUNT')}
+                        className={`px-2 py-0.5 rounded font-bold transition cursor-pointer ${
+                          discountType === 'AMOUNT'
+                            ? 'bg-emerald-600 text-white'
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        مبلغ مقطوع ({currency})
+                      </button>
+                    </div>
                   </div>
-                  {couponPreview && (
-                    <div
-                      className={`mt-1 text-[11px] font-semibold ${
-                        couponPreview.valid ? 'text-emerald-700' : 'text-rose-600'
-                      }`}
-                    >
-                      {couponPreview.messageAr}
+
+                  <div className="flex items-center gap-1.5">
+                    <div className="relative flex-1">
+                      <input
+                        type="number"
+                        min="0"
+                        max={discountType === 'PERCENT' ? 100 : rawSub}
+                        step={discountType === 'PERCENT' ? '1' : '1'}
+                        value={discountValue}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : parseFloat(e.target.value);
+                          if (val === '') {
+                            setDiscountValue('');
+                          } else if (!isNaN(val)) {
+                            setDiscountValue(Math.max(0, val));
+                          }
+                        }}
+                        placeholder={
+                          discountType === 'PERCENT'
+                            ? 'حدد النسبة المئوية (مثلاً: 10 أو 15 أو 25)...'
+                            : `حدد مبلغ الخصم بـ ${currency} (مثلاً: 50 أو 100)...`
+                        }
+                        className="w-full pr-3 pl-8 py-1.5 rounded-md border border-slate-300 font-mono text-xs"
+                      />
+                      <span className="absolute left-2.5 top-1.5 font-bold text-xs text-slate-400">
+                        {discountType === 'PERCENT' ? '%' : currency}
+                      </span>
+                    </div>
+
+                    {typeof discountValue === 'number' && discountValue > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setDiscountValue('')}
+                        className="px-2.5 py-1.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 text-xs font-bold cursor-pointer"
+                      >
+                        إلغاء
+                      </button>
+                    )}
+                  </div>
+
+                  {previewDisc > 0 && (
+                    <div className="text-[11px] font-bold text-emerald-700">
+                      قيمة الخصم المحسوبة: -{previewDisc.toLocaleString()} {currency} (
+                      {discountType === 'PERCENT'
+                        ? `${discountValue}%`
+                        : `${discountValue} ${currency}`}
+                      )
                     </div>
                   )}
                 </div>
+
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">
                     الرقم التسلسلي (IMEI / Serial) للضمان (اختياري)
@@ -1211,7 +1279,13 @@ export const SalesView: React.FC = () => {
                   </div>
                   {previewDisc > 0 && (
                     <div className="flex justify-between text-emerald-700 font-bold">
-                      <span className="font-sans">خصم الكوبون ({invoiceCouponCode}):</span>
+                      <span className="font-sans">
+                        الخصم المطبق (
+                        {discountType === 'PERCENT'
+                          ? `نسبة ${discountValue}%`
+                          : `مبلغ ${discountValue} ${currency}`}
+                        ):
+                      </span>
                       <span>-{previewDisc.toLocaleString()} {currency}</span>
                     </div>
                   )}

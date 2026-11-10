@@ -647,75 +647,54 @@ export function buildGuaranteedInvoiceDispatchPackage(params: {
   };
 }
 
+import QRCode from 'qrcode';
+
 /**
- * Generates a standard QR code bit matrix with 3 finder patterns, timing tracks, and alignment box for any string (LAN URLs, Tokens, Barcodes).
+ * Generates a standard ISO/IEC 18004 QR code bit matrix with 3 finder patterns,
+ * valid timing tracks, Reed-Solomon ECC, and readable format info recognizable by any camera/phone.
  */
 export function generateGeneralQRCodeMatrix(text: string, size = 25): boolean[][] {
-  const matrix: boolean[][] = Array.from({ length: size }, () =>
-    Array.from({ length: size }, () => false)
-  );
-
-  // Position detection finder patterns (7x7) at Top-Left, Top-Right, Bottom-Left
-  const drawFinder = (startX: number, startY: number) => {
-    for (let r = 0; r < 7; r++) {
-      for (let c = 0; c < 7; c++) {
-        if (
-          r === 0 ||
-          r === 6 ||
-          c === 0 ||
-          c === 6 ||
-          (r >= 2 && r <= 4 && c >= 2 && c <= 4)
-        ) {
-          matrix[startY + r][startX + c] = true;
+  try {
+    const qrData = QRCode.create(text || 'http://localhost:3000', {
+      errorCorrectionLevel: 'M',
+    });
+    const moduleCount = qrData.modules.size;
+    const matrix: boolean[][] = [];
+    for (let r = 0; r < moduleCount; r++) {
+      const row: boolean[] = [];
+      for (let c = 0; c < moduleCount; c++) {
+        row.push(Boolean(qrData.modules.get(r, c)));
+      }
+      matrix.push(row);
+    }
+    return matrix;
+  } catch (err) {
+    // Robust fallback if encoding fails
+    const fallbackSize = Math.max(21, size);
+    const matrix: boolean[][] = Array.from({ length: fallbackSize }, () =>
+      Array.from({ length: fallbackSize }, () => false)
+    );
+    const drawFinder = (startX: number, startY: number) => {
+      for (let r = 0; r < 7; r++) {
+        for (let c = 0; c < 7; c++) {
+          if (
+            r === 0 ||
+            r === 6 ||
+            c === 0 ||
+            c === 6 ||
+            (r >= 2 && r <= 4 && c >= 2 && c <= 4)
+          ) {
+            matrix[startY + r][startX + c] = true;
+          }
         }
       }
-    }
-  };
-
-  drawFinder(0, 0);
-  drawFinder(size - 7, 0);
-  drawFinder(0, size - 7);
-
-  // Timing patterns
-  for (let i = 8; i < size - 8; i++) {
-    matrix[6][i] = i % 2 === 0;
-    matrix[i][6] = i % 2 === 0;
+    };
+    drawFinder(0, 0);
+    drawFinder(fallbackSize - 7, 0);
+    drawFinder(0, fallbackSize - 7);
+    return matrix;
   }
-
-  // Alignment pattern (5x5) if size >= 25
-  if (size >= 25) {
-    const alignX = size - 7;
-    const alignY = size - 7;
-    for (let r = -2; r <= 2; r++) {
-      for (let c = -2; c <= 2; c++) {
-        if (Math.abs(r) === 2 || Math.abs(c) === 2 || (r === 0 && c === 0)) {
-          matrix[alignY + r][alignX + c] = true;
-        }
-      }
-    }
-  }
-
-  // Data modules seeded by text characters
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-
-  for (let r = 0; r < size; r++) {
-    for (let c = 0; c < size; c++) {
-      const inFinder =
-        (r < 8 && c < 8) ||
-        (r < 8 && c >= size - 8) ||
-        (r >= size - 8 && c < 8);
-      const inAlignment = size >= 25 && r >= size - 9 && c >= size - 9;
-      if (!inFinder && !inAlignment && r !== 6 && c !== 6) {
-        matrix[r][c] = ((hash ^ (r * 37 + c * 19 + text.length)) & 1) === 1;
-      }
-    }
-  }
-
-  return matrix;
 }
+
 
 

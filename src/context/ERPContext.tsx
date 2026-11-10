@@ -514,11 +514,15 @@ interface ERPContextType {
   branches: Branch[];
   currentBranch: Branch;
   setCurrentBranch: (branch: Branch) => void;
-  addBranch: (b: Omit<Branch, 'id' | 'tenantId' | 'companyId'>) => void;
+  addBranch: (b: Omit<Branch, 'id' | 'tenantId' | 'companyId'>) => Branch;
+  updateBranch: (branchId: string, patch: Partial<Branch>) => { success: boolean; messageAr?: string };
+  deleteBranch: (branchId: string) => { success: boolean; messageAr: string };
   warehouses: Warehouse[];
   currentWarehouse: Warehouse;
   setCurrentWarehouse: (wh: Warehouse) => void;
-  addWarehouse: (wh: Omit<Warehouse, 'id' | 'tenantId'>) => void;
+  addWarehouse: (wh: Omit<Warehouse, 'id' | 'tenantId'>) => Warehouse;
+  updateWarehouse: (whId: string, patch: Partial<Warehouse>) => { success: boolean; messageAr?: string };
+  deleteWarehouse: (whId: string) => { success: boolean; messageAr: string };
   currentUser: User;
   setCurrentUserRole: (role: UserRole) => void;
   auditLogs: AuditLog[];
@@ -627,12 +631,20 @@ interface ERPContextType {
       tableNumber?: string;
       notes?: string;
       couponCode?: string;
+      manualDiscountType?: 'PERCENT' | 'AMOUNT';
+      manualDiscountValue?: number;
+      manualDiscountAmount?: number;
+      customerName?: string;
+      customerPhone?: string;
+      splitCashAmount?: number;
+      cardReference?: string;
     }
   ) => SalesInvoice;
   holdBills: POSHoldBill[];
   holdCurrentPOSBill: (name?: string, tableNumber?: string) => void;
   resumePOSBill: (billId: string) => void;
-  closePOSShift: (actualCount: number) => void;
+  closePOSShift: (actualCount: number, openNewShiftWithFloat?: number) => void;
+  openNewPOSShift: (startingCash?: number) => void;
   kitchenTickets: KitchenOrderTicket[];
   sendCartToKitchen: (tableNumber: string, orderType: 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY') => KitchenOrderTicket | null;
   advanceKitchenTicket: (id: string) => void;
@@ -2209,7 +2221,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCompany((prev) => ({ ...prev, ...patch }));
   };
 
-  const addBranch = (b: Omit<Branch, 'id' | 'tenantId' | 'companyId'>) => {
+  const addBranch = (b: Omit<Branch, 'id' | 'tenantId' | 'companyId'>): Branch => {
     const newBranch: Branch = {
       ...b,
       id: `br-${Date.now()}`,
@@ -2217,15 +2229,205 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       companyId: company.id,
     };
     setBranches((prev) => [...prev, newBranch]);
+    setAuditLogs((prev) => [
+      {
+        id: `aud-br-add-${Date.now()}`,
+        tenantId: currentTenant.id,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        action: 'CREATE_BRANCH',
+        module: 'SETTINGS',
+        entityType: 'Branch',
+        entityId: newBranch.id,
+        details: `Created new branch "${newBranch.nameAr}" (${newBranch.code}) in ${newBranch.city}.`,
+        timestamp: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
+    return newBranch;
   };
 
-  const addWarehouse = (wh: Omit<Warehouse, 'id' | 'tenantId'>) => {
+  const updateBranch = (branchId: string, patch: Partial<Branch>): { success: boolean; messageAr?: string } => {
+    let updated = false;
+    setBranches((prev) =>
+      prev.map((b) => {
+        if (b.id === branchId) {
+          updated = true;
+          const merged = { ...b, ...patch };
+          if (currentBranch.id === branchId) {
+            setCurrentBranch(merged);
+          }
+          return merged;
+        }
+        return b;
+      })
+    );
+    if (updated) {
+      setAuditLogs((prev) => [
+        {
+          id: `aud-br-upd-${Date.now()}`,
+          tenantId: currentTenant.id,
+          userId: currentUser.id,
+          userName: currentUser.name,
+          action: 'UPDATE_BRANCH',
+          module: 'SETTINGS',
+          entityType: 'Branch',
+          entityId: branchId,
+          details: `Updated branch settings for ${branchId}.`,
+          timestamp: new Date().toISOString(),
+        },
+        ...prev,
+      ]);
+      return { success: true, messageAr: 'تم تحديث بيانات الفرع بنجاح.' };
+    }
+    return { success: false, messageAr: 'لم يتم العثور على الفرع المطلوب.' };
+  };
+
+  const deleteBranch = (branchId: string): { success: boolean; messageAr: string } => {
+    if (branches.length <= 1) {
+      return {
+        success: false,
+        messageAr: 'لا يمكن حذف الفرع الوحيد المتبقي في النظام! يجب توفر فرع تشغيلي واحد على الأقل.',
+      };
+    }
+    if (currentBranch.id === branchId) {
+      return {
+        success: false,
+        messageAr: 'لا يمكن حذف الفرع الحالي النشط الذي تعمل عليه الآن. يرجى التبديل لفرع آخر أولاً.',
+      };
+    }
+    // Check if branch has linked invoices
+    const hasInvoices = salesInvoices.some((inv) => inv.branchId === branchId);
+    if (hasInvoices) {
+      // Soft-disable rather than hard delete to preserve accounting integrity
+      setBranches((prev) =>
+        prev.map((b) => (b.id === branchId ? { ...b, isActive: false } : b))
+      );
+      return {
+        success: false,
+        messageAr: 'تنبيه أمان الدفاتر: الفرع مرتبط بفواتير وقيود مرحّلة سابقة. تم إيقاف نشاطه (تعطيل) وحمايته من الحذف الفيزيائي لمنع تلف البيانات المحاسبية.',
+      };
+    }
+
+    setBranches((prev) => prev.filter((b) => b.id !== branchId));
+    setAuditLogs((prev) => [
+      {
+        id: `aud-br-del-${Date.now()}`,
+        tenantId: currentTenant.id,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        action: 'DELETE_BRANCH',
+        module: 'SETTINGS',
+        entityType: 'Branch',
+        entityId: branchId,
+        details: `Safely removed unreferenced branch ${branchId}.`,
+        timestamp: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
+    return { success: true, messageAr: 'تم حذف الفرع الخالي من الحركات بنجاح.' };
+  };
+
+  const addWarehouse = (wh: Omit<Warehouse, 'id' | 'tenantId'>): Warehouse => {
     const newWh: Warehouse = {
       ...wh,
       id: `wh-${Date.now()}`,
       tenantId: currentTenant.id,
     };
     setWarehouses((prev) => [...prev, newWh]);
+    setAuditLogs((prev) => [
+      {
+        id: `aud-wh-add-${Date.now()}`,
+        tenantId: currentTenant.id,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        action: 'CREATE_WAREHOUSE',
+        module: 'SETTINGS',
+        entityType: 'Warehouse',
+        entityId: newWh.id,
+        details: `Created warehouse "${newWh.nameAr}" (${newWh.code}) assigned to branch ${newWh.branchId}.`,
+        timestamp: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
+    return newWh;
+  };
+
+  const updateWarehouse = (whId: string, patch: Partial<Warehouse>): { success: boolean; messageAr?: string } => {
+    let updated = false;
+    setWarehouses((prev) =>
+      prev.map((w) => {
+        if (w.id === whId) {
+          updated = true;
+          const merged = { ...w, ...patch };
+          if (currentWarehouse.id === whId) {
+            setCurrentWarehouse(merged);
+          }
+          return merged;
+        }
+        return w;
+      })
+    );
+    if (updated) {
+      setAuditLogs((prev) => [
+        {
+          id: `aud-wh-upd-${Date.now()}`,
+          tenantId: currentTenant.id,
+          userId: currentUser.id,
+          userName: currentUser.name,
+          action: 'UPDATE_WAREHOUSE',
+          module: 'SETTINGS',
+          entityType: 'Warehouse',
+          entityId: whId,
+          details: `Updated warehouse settings for ${whId}.`,
+          timestamp: new Date().toISOString(),
+        },
+        ...prev,
+      ]);
+      return { success: true, messageAr: 'تم تحديث بيانات المستودع بنجاح.' };
+    }
+    return { success: false, messageAr: 'لم يتم العثور على المستودع المطلوب.' };
+  };
+
+  const deleteWarehouse = (whId: string): { success: boolean; messageAr: string } => {
+    if (warehouses.length <= 1) {
+      return {
+        success: false,
+        messageAr: 'لا يمكن حذف المستودع الوحيد المتبقي! يجب توفر مستودع تخزين واحد على الأقل.',
+      };
+    }
+    if (currentWarehouse.id === whId) {
+      return {
+        success: false,
+        messageAr: 'لا يمكن حذف المستودع الافتراضي النشط حالياً. يرجى تحديد مستودع آخر كمستودع نشط أولاً.',
+      };
+    }
+    // Check if products have stock located in this warehouse
+    const hasStock = products.some((p) => p.warehouseId === whId && p.stockQty > 0);
+    if (hasStock) {
+      return {
+        success: false,
+        messageAr: 'يمنع الحذف: المستودع يحتوي على بضائع ومخزون فعلي قائم! يرجى نقل البضائع أو تصفير الرصيد أولاً.',
+      };
+    }
+
+    setWarehouses((prev) => prev.filter((w) => w.id !== whId));
+    setAuditLogs((prev) => [
+      {
+        id: `aud-wh-del-${Date.now()}`,
+        tenantId: currentTenant.id,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        action: 'DELETE_WAREHOUSE',
+        module: 'SETTINGS',
+        entityType: 'Warehouse',
+        entityId: whId,
+        details: `Safely removed empty warehouse ${whId}.`,
+        timestamp: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
+    return { success: true, messageAr: 'تم حذف المستودع بنجاح.' };
   };
 
   // Helper to hydrate all persisted state slices consistently
@@ -3933,6 +4135,13 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       tableNumber?: string;
       notes?: string;
       couponCode?: string;
+      manualDiscountType?: 'PERCENT' | 'AMOUNT';
+      manualDiscountValue?: number;
+      manualDiscountAmount?: number;
+      customerName?: string;
+      customerPhone?: string;
+      splitCashAmount?: number;
+      cardReference?: string;
     }
   ): SalesInvoice => {
     if (posCart.length === 0) throw new Error('Cart is empty');
@@ -3940,9 +4149,17 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const subtotal = posCart.reduce((acc, curr) => acc + curr.quantity * curr.unitPrice, 0);
     const lineDiscounts = posCart.reduce((acc, curr) => acc + curr.discount, 0);
 
-    let couponDiscount = 0;
-    let appliedCouponCode: string | undefined;
-    if (extraMeta?.couponCode) {
+    let finalDiscountFromCart = 0;
+    let appliedDiscountLabel: string | undefined;
+
+    if (typeof extraMeta?.manualDiscountAmount === 'number' && extraMeta.manualDiscountAmount > 0) {
+      finalDiscountFromCart = Math.min(subtotal, extraMeta.manualDiscountAmount);
+      if (extraMeta.manualDiscountType === 'PERCENT' && extraMeta.manualDiscountValue) {
+        appliedDiscountLabel = `خصم ${extraMeta.manualDiscountValue}%`;
+      } else {
+        appliedDiscountLabel = `خصم نقدي (${finalDiscountFromCart.toFixed(2)} ${currency})`;
+      }
+    } else if (extraMeta?.couponCode) {
       const cpnEval = validateAndCalculateCouponDiscount({
         code: extraMeta.couponCode,
         coupons: promoCoupons,
@@ -3950,8 +4167,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         activeIndustry,
       });
       if (cpnEval.valid && cpnEval.discountAmount > 0 && cpnEval.coupon) {
-        couponDiscount = cpnEval.discountAmount;
-        appliedCouponCode = cpnEval.coupon.code;
+        finalDiscountFromCart = cpnEval.discountAmount;
+        appliedDiscountLabel = cpnEval.coupon.code;
         setPromoCoupons((prev) =>
           prev.map((c) =>
             c.id === cpnEval.coupon!.id ? { ...c, usedCount: c.usedCount + 1 } : c
@@ -3960,7 +4177,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
 
-    const discountAmount = Math.round((lineDiscounts + couponDiscount) * 100) / 100;
+    const discountAmount = Math.round((lineDiscounts + finalDiscountFromCart) * 100) / 100;
     const netTaxable = Math.max(0, subtotal - discountAmount);
     const avgTaxRate = posCart[0]?.taxRate ?? 0.15;
     const taxAmount = Math.round(netTaxable * avgTaxRate * 100) / 100;
@@ -3968,20 +4185,52 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const invNumber = `INV-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const targetCustomer = customers.find((c) => c.id === customerId) || customers[2] || customers[0];
+    const resolvedCustomerName =
+      extraMeta?.customerName?.trim() ||
+      (language === 'ar' ? targetCustomer.nameAr : targetCustomer.name);
+    const resolvedCustomerPhone =
+      extraMeta?.customerPhone?.trim() || targetCustomer.phone;
+
+    // Ensure every electronics/warranty item has a serial number & warranty months recorded
+    const finalizedItems = posCart.map((item) => {
+      const matchedProd = products.find((p) => p.id === item.productId);
+      const needsWarrantyMeta =
+        activeIndustry === 'electronics' ||
+        matchedProd?.hasSerials ||
+        Boolean(item.serialNumber) ||
+        Boolean(item.warrantyMonths);
+      return {
+        ...item,
+        serialNumber:
+          item.serialNumber?.trim() ||
+          (needsWarrantyMeta
+            ? generateUniqueSerialNumber('IMEI', currentTenant.code)
+            : undefined),
+        warrantyMonths:
+          item.warrantyMonths !== undefined
+            ? item.warrantyMonths
+            : needsWarrantyMeta
+            ? matchedProd?.warrantyMonths || 24
+            : undefined,
+      };
+    });
 
     const invoice: SalesInvoice = {
       id: `inv-${Date.now()}`,
       tenantId: currentTenant.id,
       invoiceNumber: invNumber,
       customerId: targetCustomer.id,
-      customerName: language === 'ar' ? targetCustomer.nameAr : targetCustomer.name,
+      customerName: resolvedCustomerName,
+      customerPhone: resolvedCustomerPhone,
       branchId: currentBranch.id,
       date: new Date().toISOString().split('T')[0],
-      items: [...posCart],
+      items: finalizedItems,
       subtotal,
       discountAmount,
-      couponCode: appliedCouponCode,
-      couponDiscountAmount: couponDiscount > 0 ? couponDiscount : undefined,
+      couponCode: appliedDiscountLabel,
+      couponDiscountAmount: finalDiscountFromCart > 0 ? finalDiscountFromCart : undefined,
+      discountType: extraMeta?.manualDiscountType,
+      discountValue: extraMeta?.manualDiscountValue,
       taxAmount,
       grandTotal,
       paidAmount: grandTotal,
@@ -3990,8 +4239,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       qrData: `GLOBAL-TAX-QR-${invNumber}-TOTAL-${grandTotal}-TAX-${taxAmount}`,
       notes:
         extraMeta?.notes ||
-        (appliedCouponCode
-          ? `Completed via POS Register (Coupon: ${appliedCouponCode})`
+        (appliedDiscountLabel
+          ? `Completed via POS Register (${appliedDiscountLabel})`
           : 'Completed via POS Register'),
       industryMode: activeIndustry,
       orderType: extraMeta?.orderType || 'STANDARD',
@@ -4036,12 +4285,21 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setJournalEntries((prev) => [journalEntry, ...prev]);
     }
 
+    const cashPortion =
+      paymentMethod === 'CASH'
+        ? grandTotal
+        : paymentMethod === 'SPLIT'
+        ? Math.min(grandTotal, Math.max(0, Number(extraMeta?.splitCashAmount) || 0))
+        : 0;
+    const cardPortion = Math.max(0, Math.round((grandTotal - cashPortion) * 100) / 100);
+
     setCurrentShift((prev) => ({
       ...prev,
-      cashSales: paymentMethod === 'CASH' ? prev.cashSales + grandTotal : prev.cashSales,
-      cardSales: paymentMethod === 'CARD' ? prev.cardSales + grandTotal : prev.cardSales,
-      totalSales: prev.totalSales + grandTotal,
-      expectedCash: paymentMethod === 'CASH' ? prev.expectedCash + grandTotal : prev.expectedCash,
+      status: 'OPEN',
+      cashSales: Math.round((prev.cashSales + cashPortion) * 100) / 100,
+      cardSales: Math.round((prev.cardSales + cardPortion) * 100) / 100,
+      totalSales: Math.round((prev.totalSales + grandTotal) * 100) / 100,
+      expectedCash: Math.round((prev.expectedCash + cashPortion) * 100) / 100,
     }));
 
     setSalesInvoices((prev) => [invoice, ...prev]);
@@ -4066,14 +4324,72 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return invoice;
   };
 
-  const closePOSShift = (actualCount: number) => {
-    setCurrentShift((prev) => ({
+  const openNewPOSShift = (startingCash = 1500) => {
+    const cleanFloat = Math.max(0, Number(startingCash) || 0);
+    const newShift: POSShift = {
+      id: `shf-${Date.now()}`,
+      tenantId: currentTenant.id,
+      cashierId: currentUser.id,
+      cashierName: (language === 'ar' ? currentUser.nameAr : currentUser.name) || currentUser.name,
+      branchId: currentBranch.id,
+      startTime: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      startingCash: cleanFloat,
+      cashSales: 0,
+      cardSales: 0,
+      totalSales: 0,
+      expectedCash: cleanFloat,
+      status: 'OPEN',
+    };
+    setCurrentShift(newShift);
+    setAuditLogs((prev) => [
+      {
+        id: `aud-shf-open-${Date.now()}`,
+        tenantId: currentTenant.id,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        action: 'POS_SHIFT_OPEN',
+        module: 'POS',
+        entityType: 'POSShift',
+        entityId: newShift.id,
+        details: `Opened new POS shift (${newShift.id}) with starting cash float ${cleanFloat.toFixed(2)} ${currency}.`,
+        timestamp: new Date().toISOString(),
+      },
       ...prev,
-      endTime: new Date().toISOString(),
-      actualClosingCash: actualCount,
-      discrepancy: actualCount - prev.expectedCash,
-      status: 'CLOSED',
-    }));
+    ]);
+  };
+
+  const closePOSShift = (actualCount: number, openNewShiftWithFloat?: number) => {
+    const cleanActual = Math.max(0, Number(actualCount) || 0);
+    const variance = Math.round((cleanActual - currentShift.expectedCash) * 100) / 100;
+    const closedShiftSnapshot = { ...currentShift };
+
+    setAuditLogs((prev) => [
+      {
+        id: `aud-shf-close-${Date.now()}`,
+        tenantId: currentTenant.id,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        action: 'POS_SHIFT_CLOSE',
+        module: 'POS',
+        entityType: 'POSShift',
+        entityId: closedShiftSnapshot.id,
+        details: `Closed POS shift (${closedShiftSnapshot.id}). Expected Cash: ${closedShiftSnapshot.expectedCash.toFixed(2)} ${currency}, Actual Count: ${cleanActual.toFixed(2)} ${currency}, Variance: ${variance.toFixed(2)} ${currency}.`,
+        timestamp: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
+
+    if (openNewShiftWithFloat !== undefined) {
+      openNewPOSShift(openNewShiftWithFloat);
+    } else {
+      setCurrentShift((prev) => ({
+        ...prev,
+        endTime: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        actualClosingCash: cleanActual,
+        discrepancy: variance,
+        status: 'CLOSED',
+      }));
+    }
   };
 
   // Accounting Manual Journal
@@ -5680,10 +5996,14 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         currentBranch,
         setCurrentBranch,
         addBranch,
+        updateBranch,
+        deleteBranch,
         warehouses,
         currentWarehouse,
         setCurrentWarehouse,
         addWarehouse,
+        updateWarehouse,
+        deleteWarehouse,
         currentUser,
         setCurrentUserRole,
         auditLogs,
@@ -5734,6 +6054,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         holdCurrentPOSBill,
         resumePOSBill,
         closePOSShift,
+        openNewPOSShift,
         kitchenTickets,
         sendCartToKitchen,
         advanceKitchenTicket,

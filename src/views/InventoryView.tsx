@@ -321,7 +321,7 @@ export const InventoryView: React.FC = () => {
   };
 
   return (
-    <div className="p-4 sm:p-6 space-y-5">
+    <div className="space-y-3.5">
       {importBanner && (
         <div
           data-testid="bulk-import-banner"

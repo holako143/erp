@@ -239,7 +239,7 @@ const MainLayout: React.FC = () => {
         <LoginGate />
       ) : (
         <div
-          className={`min-h-screen flex flex-col selection:bg-slate-900 selection:text-white ${
+          className={`h-screen max-h-screen overflow-hidden flex flex-col selection:bg-slate-900 selection:text-white ${
             uiTheme === 'obsidian_dark'
               ? 'bg-slate-950 text-slate-100'
               : uiTheme === 'swiss_light'
@@ -251,11 +251,15 @@ const MainLayout: React.FC = () => {
           {isAuthenticated && <Navbar />}
 
           {/* Main Workspace with Sidebar & Dynamic View */}
-          <div className="flex-1 flex w-full overflow-hidden">
+          <div className="flex-1 min-h-0 flex w-full overflow-hidden">
             {isAuthenticated && <Sidebar />}
             <main
-              className={`flex-1 min-w-0 overflow-y-auto pb-16 ${
-                uiDensity === 'compact' ? 'p-2.5 sm:p-4' : 'p-4 sm:p-6'
+              className={`flex-1 min-w-0 min-h-0 ${
+                activeTab === 'pos'
+                  ? 'overflow-hidden p-2.5 sm:p-3 flex flex-col'
+                  : uiDensity === 'compact'
+                  ? 'overflow-y-auto p-2.5 sm:p-3.5'
+                  : 'overflow-y-auto p-3 sm:p-4'
               }`}
             >
               {renderActiveView()}
@@ -266,7 +270,7 @@ const MainLayout: React.FC = () => {
           {masterSystemConfig.uiElementsVisibility.showKeyboardShortcutsBar && (
             <div
               data-testid="keyboard-shortcuts-bar"
-              className="hidden lg:flex items-center justify-between px-4 py-1.5 bg-[#0B1120] border-t border-slate-800 text-[11px] text-slate-400 select-none z-30"
+              className="hidden lg:flex shrink-0 items-center justify-between px-4 py-1 bg-[#0B1120] border-t border-slate-800 text-[11px] text-slate-400 select-none z-30"
             >
               <div className="flex items-center gap-3">
                 <span className="text-amber-400 font-bold flex items-center gap-1">

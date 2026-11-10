@@ -249,8 +249,8 @@ export function Sidebar() {
       {/* Desktop Sidebar (lg and up) - Clean Card-Based Navigation Rail */}
       <aside
         data-testid="desktop-sidebar"
-        className={`hidden lg:flex flex-col shrink-0 min-h-[calc(100vh-52px)] select-none border-e transition-all duration-200 ${
-          isSidebarCollapsed ? 'w-16' : 'w-64'
+        className={`hidden lg:flex flex-col shrink-0 h-full overflow-hidden select-none border-e transition-all duration-200 ${
+          isSidebarCollapsed ? 'w-16' : 'w-60'
         } ${
           isLightSidebar
             ? 'bg-white text-zinc-700 border-zinc-200'
@@ -258,7 +258,7 @@ export function Sidebar() {
         }`}
       >
         {/* Unified Card-Based Navigation List (Zero Legacy Category Separators) */}
-        <nav className={`flex-1 py-3.5 overflow-y-auto ${isSidebarCollapsed ? 'px-2' : 'px-3'}`}>
+        <nav className={`flex-1 min-h-0 py-3 overflow-y-auto ${isSidebarCollapsed ? 'px-2' : 'px-2.5'}`}>
           <div
             className={
               isSidebarCollapsed
