@@ -18,7 +18,9 @@ import {
   ClipboardCheck,
   ShoppingCart,
   ShieldCheck,
+  Camera,
 } from 'lucide-react';
+import { CameraBarcodeScannerModal, ScannedBatchItem } from '../components/common/CameraBarcodeScannerModal';
 import { IndustryType, ElectronicsSubCategory } from '../types/erp';
 import { generateValidEAN13 } from '../core/barcodeEngine';
 import { parseBulkProductsCSV, calculateStockAdjustmentVariance } from '../core/inventoryEngine';
@@ -62,6 +64,55 @@ export const InventoryView: React.FC = () => {
   const [stockCountsMap, setStockCountsMap] = useState<Record<string, number>>({});
   const [stockAuditReason, setStockAuditReason] = useState<string>('جرد فعلي دوري لمستودع الطاقة الشمسية والبطاريات والشاشات');
   const [stockTakeBanner, setStockTakeBanner] = useState<string | null>(null);
+
+  // Live Camera Barcode Scanner State & Handlers
+  const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
+  const [cameraScannerContext, setCameraScannerContext] = useState<'ITEMS' | 'STOCK_TAKE'>('ITEMS');
+
+  const handleCameraBarcodeScan = (scannedCode: string, matchedProduct?: any, qty = 1) => {
+    if (cameraScannerContext === 'STOCK_TAKE') {
+      if (matchedProduct) {
+        setStockCountsMap((prev) => ({
+          ...prev,
+          [matchedProduct.id]: (prev[matchedProduct.id] ?? matchedProduct.stockQty) + qty,
+        }));
+        setStockTakeBanner(
+          `تم مسح الباركود [${scannedCode}] للصنف (${matchedProduct.nameAr}) وتحديث الرصيد الفعلي للجرد بمقدار +${qty}.`
+        );
+      } else {
+        setStockTakeBanner(`الباركود [${scannedCode}] غير مسجل في قاعدة الأصناف.`);
+      }
+    } else {
+      if (matchedProduct) {
+        setSearchQuery(matchedProduct.sku || matchedProduct.nameAr);
+      } else {
+        setSearchQuery(scannedCode);
+      }
+    }
+  };
+
+  const handleCameraBatchScanComplete = (batchItems: ScannedBatchItem[]) => {
+    if (cameraScannerContext === 'STOCK_TAKE') {
+      let count = 0;
+      setStockCountsMap((prev) => {
+        const next = { ...prev };
+        batchItems.forEach((item) => {
+          if (item.product) {
+            next[item.product.id] = (next[item.product.id] ?? item.product.stockQty) + item.quantity;
+            count += item.quantity;
+          }
+        });
+        return next;
+      });
+      if (count > 0) {
+        setStockTakeBanner(`تم تطبيق جرد ${count} قطع بنجاح من المسح المتعدد بالكاميرا على محضر الجرد.`);
+      }
+    } else {
+      if (batchItems.length > 0 && batchItems[0].product) {
+        setSearchQuery(batchItems[0].product.sku);
+      }
+    }
+  };
 
   const isSingleActivityLocked = masterSystemConfig.industryLockMode === 'SINGLE_LOCKED';
   const showCostPrice = masterSystemConfig.uiElementsVisibility.showCostPriceInInventory;
@@ -480,15 +531,30 @@ export const InventoryView: React.FC = () => {
         <>
           {/* Filter Bar Dedicated to Solar, Inverters, Batteries & Smart Screens */}
           <div className="bg-white dark:bg-slate-900 p-3.5 rounded-lg border border-slate-200/90 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
-            <div className="w-full sm:w-72 relative">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="بحث بالاسم، الكود SKU، أو الباركود..."
-                className="w-full text-xs p-2 ps-8 bg-slate-50 border border-slate-200 rounded-md outline-hidden focus:border-emerald-600"
-              />
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute start-2.5 top-2.5" />
+            <div className="w-full sm:w-80 flex items-center gap-1.5">
+              <div className="flex-1 relative">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="بحث بالاسم، الكود SKU، أو الباركود..."
+                  className="w-full text-xs p-2 ps-8 bg-slate-50 border border-slate-200 rounded-md outline-hidden focus:border-emerald-600"
+                />
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute start-2.5 top-2.5" />
+              </div>
+              <button
+                type="button"
+                data-testid="inventory-camera-scan-btn"
+                onClick={() => {
+                  setCameraScannerContext('ITEMS');
+                  setIsCameraScannerOpen(true);
+                }}
+                title="مسح الباركود والكود بالكاميرا للبحث عن الصنف أو تدقيقه"
+                className="shrink-0 px-2.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-xs font-bold flex items-center gap-1 transition shadow-2xs cursor-pointer group"
+              >
+                <Camera className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                <span className="hidden sm:inline">كاميرا</span>
+              </button>
             </div>
 
             {/* Specialized Engineering Sub-Category Filter Buttons */}
@@ -740,14 +806,29 @@ export const InventoryView: React.FC = () => {
                 أدخل العدد الفعلي الموجود في الرفوف لكل لوح شمسي أو إنفرتر أو بطارية أو شاشة، وسيقوم النظام آلياً بحساب الفائض/العجز وترحيل قيد التسوية المحاسبي المتوازن في دفتر الأستاذ العام.
               </p>
             </div>
-            <div className="w-full sm:w-80">
-              <label className="block text-[11px] text-slate-300 mb-1">بيان محضر الجرد والتسوية:</label>
-              <input
-                type="text"
-                value={stockAuditReason}
-                onChange={(e) => setStockAuditReason(e.target.value)}
-                className="w-full px-3 py-1.5 rounded bg-slate-800 border border-slate-700 text-white text-xs outline-hidden focus:border-teal-400"
-              />
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+              <button
+                type="button"
+                data-testid="stock-take-camera-scan-btn"
+                onClick={() => {
+                  setCameraScannerContext('STOCK_TAKE');
+                  setIsCameraScannerOpen(true);
+                }}
+                className="px-3.5 py-2 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold rounded-lg text-xs flex items-center justify-center gap-2 transition shadow-xs cursor-pointer shrink-0"
+                title="مسح باركودات الأصناف بالكاميرا وتحديث رصيد الجرد الفعلي فورياً"
+              >
+                <Camera className="w-4 h-4 text-slate-950" />
+                <span>مسح بالكاميرا للجرد الفعلي</span>
+              </button>
+              <div className="w-full sm:w-72">
+                <label className="block text-[11px] text-slate-300 mb-1">بيان محضر الجرد والتسوية:</label>
+                <input
+                  type="text"
+                  value={stockAuditReason}
+                  onChange={(e) => setStockAuditReason(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded bg-slate-800 border border-slate-700 text-white text-xs outline-hidden focus:border-teal-400"
+                />
+              </div>
             </div>
           </div>
 
@@ -1403,6 +1484,22 @@ export const InventoryView: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Live Camera Barcode & QR Scanner Modal */}
+      {isCameraScannerOpen && (
+        <CameraBarcodeScannerModal
+          isOpen={isCameraScannerOpen}
+          onClose={() => setIsCameraScannerOpen(false)}
+          onScan={handleCameraBarcodeScan}
+          onBatchScanComplete={handleCameraBatchScanComplete}
+          contextMode={cameraScannerContext === 'STOCK_TAKE' ? 'STOCK_TAKE' : 'INVENTORY'}
+          title={
+            cameraScannerContext === 'STOCK_TAKE'
+              ? 'مسح الباركود بالكاميرا - الجرد الفعلي للمستودع'
+              : 'مسح الباركود والكود بالكاميرا - إدارة المخزون'
+          }
+        />
       )}
     </div>
   );

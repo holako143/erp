@@ -177,25 +177,25 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
         {/* Top Decorative Thermal Tear Edge */}
         <div className={`border-b-2 ${isMinimal ? 'border-solid border-slate-200' : 'border-dashed border-slate-300'} pb-3 mb-3 text-center`}>
           <div
-            className={`inline-block px-2.5 py-0.5 rounded ${
+            className={`inline-block px-2.5 py-0.5 rounded text-[10px] font-bold mb-1 font-sans ${
               isModern
-                ? 'bg-gradient-to-r from-indigo-700 to-blue-700 text-white'
+                ? 'bg-slate-900 text-white'
                 : isMinimal
-                ? 'bg-slate-100 text-slate-700 font-medium border border-slate-300'
+                ? 'bg-slate-100 text-slate-800 border border-slate-300'
                 : 'bg-slate-900 text-white'
-            } font-black text-[10px] mb-1 font-sans`}
+            }`}
           >
             {isRestaurant
-              ? '🍔 إيصال مطعم وكاشير + تذكرة مطبخ'
+              ? 'إيصال طلبات وضيافة + أمر تجهيز'
               : isWarranty
-              ? '🛡️ فاتورة ضريبية وشهادة ضمان معتمدة'
+              ? 'فاتورة مبيعات وشهادة ضمان معتمدة'
               : isModern
-              ? '⚡ فاتورة كاشير عصرية حديثة 80mm'
+              ? 'فاتورة كاشير معتمدة 80mm'
               : isMinimal
-              ? '✨ إيصال مبيعات مينيمل هادئ 80mm'
+              ? 'إيصال مبيعات مبسط 80mm'
               : is58mm
-              ? '🛒 إيصال كاشير سريع 58mm'
-              : '🧾 فاتورة ضريبية مبسطة 80mm'}
+              ? 'إيصال نقاط البيع 58mm'
+              : 'فاتورة ضريبية مبسطة 80mm'}
           </div>
           <h4 className={`font-black text-slate-900 font-sans ${is58mm ? 'text-xs' : 'text-sm'} mt-1`}>
             {companyName}
@@ -400,17 +400,11 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
       {/* Header Banner */}
       <div
         className={`rounded-xl p-5 mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
-          isModernBlue
-            ? 'bg-gradient-to-r from-indigo-900 via-blue-900 to-slate-900 text-white'
-            : isElectronicsA4
-            ? 'bg-gradient-to-r from-slate-900 via-slate-900 to-emerald-950 text-white'
-            : isMedicalA4
-            ? 'bg-gradient-to-r from-emerald-900 to-teal-950 text-white'
-            : isContracting
-            ? 'bg-gradient-to-r from-amber-950 via-slate-900 to-stone-900 text-white'
-            : isMinimalistClean
+          isMinimalistClean
             ? 'bg-white border-b-2 border-slate-900 text-slate-900 rounded-none px-1 shadow-none'
-            : 'bg-slate-50 border-2 border-slate-200 text-slate-900'
+            : isDarkBanner
+            ? 'bg-slate-900 border border-slate-800 text-white'
+            : 'bg-slate-50 border border-slate-200 text-slate-900'
         }`}
       >
         <div>

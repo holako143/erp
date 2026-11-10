@@ -20,6 +20,7 @@ import {
   Layers,
   ShieldCheck,
   MessageSquare,
+  TrendingUp,
 } from 'lucide-react';
 
 export interface SidebarMenuItem {
@@ -46,10 +47,12 @@ export const SECTOR_MODE_ALLOWED_ITEMS = [
   'inventory',
   'sales',
   'accounting',
+  'reportsAndAI',
   'POS',
   'Inventory',
   'Sales',
   'Accounting',
+  'ReportsAndAI',
 ] as const;
 
 export function shouldDisplaySidebarMenuItem(
@@ -133,6 +136,13 @@ export function Sidebar() {
       label: language === 'ar' ? 'المحاسبة المالية' : 'Accounting',
       subtitle: language === 'ar' ? 'دفتر الأستاذ والسندات' : 'General Ledger & Vouchers',
       icon: Calculator,
+      count: null,
+    },
+    {
+      id: 'reportsAndAI',
+      label: language === 'ar' ? 'التقارير والتحليل والذكاء الاصطناعي' : 'Reports, Analytics & AI',
+      subtitle: language === 'ar' ? 'تحليل المبيعات، الأرباح، المديونيات والذكاء المحلي' : 'Sales, Profits, Receivables & Local AI',
+      icon: TrendingUp,
       count: null,
     },
     {

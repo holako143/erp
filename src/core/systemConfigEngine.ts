@@ -80,7 +80,7 @@ export const GLOBAL_CURRENCIES_META: Record<Currency, GlobalCurrencyMeta> = {
   },
 };
 
-export const ELECTRONICS_SOLAR_CORE_MODULES = ['pos', 'inventory', 'sales', 'accounting'] as const;
+export const ELECTRONICS_SOLAR_CORE_MODULES = ['pos', 'inventory', 'sales', 'accounting', 'reportsAndAI'] as const;
 
 export const EXCLUDED_SECTOR_MODULES = [
   'projects',

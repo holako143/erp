@@ -30,7 +30,9 @@ import {
   Network,
   Package,
   Percent,
+  Camera,
 } from 'lucide-react';
+import { CameraBarcodeScannerModal, ScannedBatchItem } from '../components/common/CameraBarcodeScannerModal';
 import {
   SalesInvoice,
   ThermalTemplateType,
@@ -128,6 +130,9 @@ export const POSView: React.FC = () => {
 
   // Grocery Scale Simulator State
   const [scaleWeightKg, setScaleWeightKg] = useState<number>(0.75);
+
+  // Live Camera Barcode Scanner State
+  const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
 
   // Checkout & Payment Settlement State
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
@@ -292,6 +297,79 @@ export const POSView: React.FC = () => {
       'success',
       `تم توليد وقراءة باركود الميزان [${generatedGs1Code}] وإضافة (${scaleProduct.nameAr}) بوزن ${scaleWeightKg} كجم`
     );
+  };
+
+  // Live Camera Barcode Handler (Single Mode)
+  const handleCameraBarcodeScan = (scannedCode: string, matchedProduct?: any, qty = 1) => {
+    if (matchedProduct) {
+      addToPOSCart(matchedProduct, qty);
+      showBanner(
+        'success',
+        `تم مسح وإضافة الصنف عبر الكاميرا: ${matchedProduct.nameAr || matchedProduct.name}`
+      );
+      return;
+    }
+
+    // Check scale barcode
+    const scaleProduct =
+      products.find((p) => p.isWeightedScale || p.sku.includes('GS1')) ||
+      products[0];
+    const scaleParsed = parseWeightedScaleBarcode(scannedCode);
+    if (scaleParsed.isValid) {
+      if (scaleParsed.mode === 'WEIGHT_GRAMS') {
+        addToPOSCart(
+          scaleProduct,
+          scaleParsed.weightKg,
+          `باركود ميزان إلكتروني (GS1-${scaleParsed.prefix}): ${scaleParsed.weightKg} كجم`
+        );
+        showBanner(
+          'success',
+          `تم قراءة باركود الوزن عبر الكاميرا: ${scaleProduct.nameAr} — ${scaleParsed.weightKg} كجم`
+        );
+        return;
+      } else if (scaleParsed.mode === 'PRICE_HALALAS' && scaleParsed.embeddedPrice) {
+        const calculatedQty =
+          scaleProduct.salePrice > 0
+            ? Number((scaleParsed.embeddedPrice / scaleProduct.salePrice).toFixed(3))
+            : 1;
+        addToPOSCart(
+          scaleProduct,
+          calculatedQty,
+          `باركود ميزان تسعير (GS1-20): ${scaleParsed.embeddedPrice} ${currency}`
+        );
+        showBanner(
+          'success',
+          `تم قراءة باركود السعر عبر الكاميرا: ${scaleProduct.nameAr} — ${scaleParsed.embeddedPrice} ${currency}`
+        );
+        return;
+      }
+    }
+
+    showBanner(
+      'error',
+      language === 'ar'
+        ? `الباركود [${scannedCode}] غير مسجل في قاعدة الأصناف`
+        : `Barcode [${scannedCode}] not found in catalog`
+    );
+  };
+
+  // Live Camera Batch Barcode Handler (Continuous Mode)
+  const handleCameraBatchScanComplete = (batchItems: ScannedBatchItem[]) => {
+    let count = 0;
+    batchItems.forEach((item) => {
+      if (item.product) {
+        addToPOSCart(item.product, item.quantity);
+        count += item.quantity;
+      }
+    });
+    if (count > 0) {
+      showBanner(
+        'success',
+        language === 'ar'
+          ? `تمت إضافة ${count} قطع بنجاح من المسح المتعدد بالكاميرا`
+          : `Added ${count} items from camera batch scan`
+      );
+    }
   };
 
   // Send order to Kitchen Display Screen (KOT)
@@ -641,16 +719,28 @@ export const POSView: React.FC = () => {
         <div className="lg:col-span-7 bg-white rounded-xl border border-slate-200/90 shadow-2xs p-3 flex flex-col min-h-0 overflow-hidden">
           {/* Quick Barcode Scan & Search Bar */}
           <div className="shrink-0 grid grid-cols-1 sm:grid-cols-12 gap-2 mb-2">
-            <form onSubmit={handleBarcodeSubmit} className="sm:col-span-6 relative">
-              <input
-                type="text"
-                value={barcodeInput}
-                onChange={(e) => setBarcodeInput(e.target.value)}
-                placeholder="امسح الباركود أو الكود SKU..."
-                className="w-full text-xs py-2 px-3 ps-8 bg-slate-50 border border-slate-200 rounded-lg font-mono outline-hidden focus:bg-white focus:border-slate-900 transition"
-              />
-              <Barcode className="w-4 h-4 text-slate-600 absolute start-2.5 top-2" />
-            </form>
+            <div className="sm:col-span-6 flex items-center gap-1.5">
+              <form onSubmit={handleBarcodeSubmit} className="flex-1 relative">
+                <input
+                  type="text"
+                  value={barcodeInput}
+                  onChange={(e) => setBarcodeInput(e.target.value)}
+                  placeholder="امسح الباركود أو الكود SKU..."
+                  className="w-full text-xs py-2 px-3 ps-8 bg-slate-50 border border-slate-200 rounded-lg font-mono outline-hidden focus:bg-white focus:border-slate-900 transition"
+                />
+                <Barcode className="w-4 h-4 text-slate-600 absolute start-2.5 top-2" />
+              </form>
+              <button
+                type="button"
+                data-testid="pos-camera-barcode-btn"
+                onClick={() => setIsCameraScannerOpen(true)}
+                title="مسح الباركود والكود بالكاميرا (مفرد أو متعدد مستمر)"
+                className="shrink-0 px-2.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition shadow-2xs cursor-pointer group"
+              >
+                <Camera className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                <span className="hidden sm:inline">كاميرا</span>
+              </button>
+            </div>
 
             <div className="sm:col-span-6 relative">
               <input
@@ -2279,6 +2369,18 @@ export const POSView: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Live Camera Barcode & QR Scanner Modal */}
+      {isCameraScannerOpen && (
+        <CameraBarcodeScannerModal
+          isOpen={isCameraScannerOpen}
+          onClose={() => setIsCameraScannerOpen(false)}
+          onScan={handleCameraBarcodeScan}
+          onBatchScanComplete={handleCameraBatchScanComplete}
+          contextMode="POS"
+          title="مسح الباركود والكود بالكاميرا - نقطة البيع"
+        />
       )}
     </div>
   );

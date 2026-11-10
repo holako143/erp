@@ -11,7 +11,9 @@ import {
   DollarSign,
   Package,
   Calculator,
+  Camera,
 } from 'lucide-react';
+import { CameraBarcodeScannerModal } from '../components/common/CameraBarcodeScannerModal';
 import { allocateLandedCost } from '../core/inventoryEngine';
 
 export const PurchasingView: React.FC = () => {
@@ -45,6 +47,17 @@ export const PurchasingView: React.FC = () => {
   const [selectedProductId, setSelectedProductId] = useState<string>(products[0]?.id || '');
   const [orderQty, setOrderQty] = useState(50);
   const [unitCost, setUnitCost] = useState(products[0]?.costPrice || 100);
+  const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
+
+  const handleCameraBarcodeScan = (scannedCode: string, matchedProduct?: any, qty = 1) => {
+    if (matchedProduct) {
+      setSelectedProductId(matchedProduct.id);
+      setUnitCost(matchedProduct.costPrice);
+      setPurchasingBanner(`تم تحديد الصنف المطلوب توريده بالكاميرا: ${matchedProduct.nameAr || matchedProduct.name}`);
+    } else {
+      setPurchasingBanner(`الباركود [${scannedCode}] غير مسجل بقاعدة الأصناف.`);
+    }
+  };
 
   // Landed Cost Calculator State
   const [freightAmount, setFreightAmount] = useState(1500);
@@ -580,21 +593,33 @@ export const PurchasingView: React.FC = () => {
                 <label className="block font-bold text-slate-700 mb-1">
                   {language === 'ar' ? 'الصنف المطلوب توريده' : 'Product to Procure'}
                 </label>
-                <select
-                  value={selectedProductId}
-                  onChange={(e) => {
-                    setSelectedProductId(e.target.value);
-                    const p = products.find((x) => x.id === e.target.value);
-                    if (p) setUnitCost(p.costPrice);
-                  }}
-                  className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-hidden font-medium"
-                >
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {language === 'ar' ? p.nameAr : p.name} (Cost: {p.costPrice} {currency})
-                    </option>
-                  ))}
-                </select>
+                <div className="flex items-center gap-1.5">
+                  <select
+                    value={selectedProductId}
+                    onChange={(e) => {
+                      setSelectedProductId(e.target.value);
+                      const p = products.find((x) => x.id === e.target.value);
+                      if (p) setUnitCost(p.costPrice);
+                    }}
+                    className="flex-1 p-2 bg-slate-50 border border-slate-200 rounded-lg outline-hidden font-medium"
+                  >
+                    {products.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {language === 'ar' ? p.nameAr : p.name} (Cost: {p.costPrice} {currency})
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    data-testid="po-camera-scan-btn"
+                    onClick={() => setIsCameraScannerOpen(true)}
+                    title="مسح باركود الصنف بالكاميرا لتحديده في أمر الشراء"
+                    className="shrink-0 px-2.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                  >
+                    <Camera className="w-4 h-4" />
+                    <span>كاميرا</span>
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -658,6 +683,17 @@ export const PurchasingView: React.FC = () => {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Live Camera Barcode & QR Scanner Modal */}
+      {isCameraScannerOpen && (
+        <CameraBarcodeScannerModal
+          isOpen={isCameraScannerOpen}
+          onClose={() => setIsCameraScannerOpen(false)}
+          onScan={handleCameraBarcodeScan}
+          contextMode="PURCHASING"
+          title="مسح الباركود والكود بالكاميرا - المشتريات والتوريد"
+        />
       )}
     </div>
   );

@@ -1964,7 +1964,7 @@ test('Track 20 Sector Mode Configuration filters out Projects, Fleet, Manufactur
 
   assert.deepEqual(
     [...ELECTRONICS_SOLAR_CORE_MODULES],
-    ['pos', 'inventory', 'sales', 'accounting']
+    ['pos', 'inventory', 'sales', 'accounting', 'reportsAndAI']
   );
   assert.deepEqual(
     [...EXCLUDED_SECTOR_MODULES],
@@ -2014,7 +2014,7 @@ test('Track 20 Sector Mode Configuration filters out Projects, Fleet, Manufactur
 
   // Verify ERPContext helper getVisibleModulesList and Sidebar conditional rendering filter
   const { getVisibleModulesList } = await import('../context/ERPContext');
-  assert.deepEqual(getVisibleModulesList(true), ['pos', 'inventory', 'sales', 'accounting']);
+  assert.deepEqual(getVisibleModulesList(true), ['pos', 'inventory', 'sales', 'accounting', 'reportsAndAI']);
   assert.ok(getVisibleModulesList(false).includes('dashboard'));
 
   const { shouldDisplaySidebarMenuItem } = await import('../components/layout/Sidebar');
@@ -2024,6 +2024,7 @@ test('Track 20 Sector Mode Configuration filters out Projects, Fleet, Manufactur
     { id: 'inventory', label: 'Inventory' },
     { id: 'sales', label: 'Sales' },
     { id: 'accounting', label: 'Accounting' },
+    { id: 'reportsAndAI', label: 'Reports & AI' },
     { id: 'projects', label: 'Projects' },
     { id: 'fleet', label: 'Fleet' },
     { id: 'manufacturing', label: 'Manufacturing' },
@@ -2034,11 +2035,11 @@ test('Track 20 Sector Mode Configuration filters out Projects, Fleet, Manufactur
   );
   assert.deepEqual(
     renderedWhenSectorModeTrue.map((i) => i.id),
-    ['pos', 'inventory', 'sales', 'accounting']
+    ['pos', 'inventory', 'sales', 'accounting', 'reportsAndAI']
   );
   assert.deepEqual(
     renderedWhenSectorModeTrue.map((i) => i.label),
-    ['POS', 'Inventory', 'Sales', 'Accounting']
+    ['POS', 'Inventory', 'Sales', 'Accounting', 'Reports & AI']
   );
 });
 

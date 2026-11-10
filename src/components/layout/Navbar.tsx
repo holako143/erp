@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { useERP } from '../../context/ERPContext';
 import {
   Globe,
@@ -15,6 +15,8 @@ import {
   ShieldCheck,
   ChevronDown,
 } from 'lucide-react';
+import { SystemNotificationCenterModal } from '../common/SystemNotificationCenterModal';
+import { generateSystemNotifications } from '../../core/notificationsEngine';
 
 export const Navbar: React.FC = () => {
   const {
@@ -32,6 +34,11 @@ export const Navbar: React.FC = () => {
     logout,
     products,
     warrantyTickets,
+    customers,
+    salesInvoices,
+    holdBills,
+    currentShift,
+    interBranchTransfers,
     uiTheme,
     masterSystemConfig,
     openQuickSendModal,
@@ -68,11 +75,33 @@ export const Navbar: React.FC = () => {
     }
   };
 
-  const lowStockCount = products.filter((p) => p.stockQty <= p.reorderPoint).length;
-  const openWarrantyCount = warrantyTickets.filter(
-    (w) => w.status !== 'DELIVERED' && w.status !== 'REJECTED'
-  ).length;
-  const totalAlertsCount = lowStockCount + openWarrantyCount;
+  const systemNotifications = useMemo(() => {
+    return generateSystemNotifications({
+      products,
+      customers: customers || [],
+      salesInvoices: salesInvoices || [],
+      warrantyTickets: warrantyTickets || [],
+      holdBills: holdBills || [],
+      currentShift: currentShift || ({ expectedCash: 0 } as any),
+      currency,
+      lastBackupTimestamp: localStorage.getItem('rlm_last_backup_timestamp'),
+      pendingTransfersCount:
+        interBranchTransfers?.filter(
+          (t) => t.status === 'PENDING_APPROVAL' || t.status === 'IN_TRANSIT'
+        ).length || 0,
+    });
+  }, [
+    products,
+    customers,
+    salesInvoices,
+    warrantyTickets,
+    holdBills,
+    currentShift,
+    currency,
+    interBranchTransfers,
+  ]);
+
+  const totalAlertsCount = systemNotifications.length;
 
   const isDark = uiTheme === 'obsidian_dark';
 
@@ -161,13 +190,13 @@ export const Navbar: React.FC = () => {
                 ? 'فتح بوابة ربط الجوال عبر الشبكة المحلية'
                 : 'Open Mobile LAN Portal'
             }
-            className={`hidden md:inline-flex items-center gap-1.5 px-2.5 h-8 rounded-lg border text-xs font-bold transition cursor-pointer ${
+            className={`hidden md:inline-flex items-center gap-1.5 px-2.5 h-8 rounded-lg border text-xs font-medium transition cursor-pointer ${
               isDark
-                ? 'bg-slate-900 border-slate-800 text-sky-400 hover:bg-slate-800'
-                : 'bg-sky-50 hover:bg-sky-100/80 border-sky-200 text-sky-800'
+                ? 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white'
+                : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700 hover:text-slate-900 shadow-2xs'
             }`}
           >
-            <Smartphone className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+            <Smartphone className="w-3.5 h-3.5 text-slate-500 shrink-0" />
             <span className="hidden lg:inline">
               {language === 'ar' ? 'ربط الجوال' : 'Mobile Link'}
             </span>
@@ -183,14 +212,18 @@ export const Navbar: React.FC = () => {
                 ? 'إرسال فوري عبر واتساب أو رسالة نصية SMS'
                 : 'Send via WhatsApp or SMS'
             }
-            className="inline-flex items-center gap-1.5 px-2.5 h-8 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-2xs transition cursor-pointer"
+            className={`inline-flex items-center gap-1.5 px-2.5 h-8 rounded-lg border text-xs font-medium transition cursor-pointer ${
+              isDark
+                ? 'bg-slate-800/90 hover:bg-slate-700/90 border-slate-700 text-slate-100'
+                : 'bg-slate-900 hover:bg-slate-800 border-slate-900 text-white shadow-2xs'
+            }`}
           >
-            <MessageSquare className="w-3.5 h-3.5" />
+            <MessageSquare className="w-3.5 h-3.5 text-slate-300 shrink-0" />
             <span className="hidden sm:inline">
               {language === 'ar' ? 'واتساب / SMS' : 'WhatsApp / SMS'}
             </span>
             {outboundMessages.length > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full bg-emerald-950/50 text-emerald-100 font-mono text-[10px]">
+              <span className="px-1.5 py-0.2 rounded font-mono text-[10px] bg-slate-700 text-white">
                 {outboundMessages.length}
               </span>
             )}
@@ -202,10 +235,10 @@ export const Navbar: React.FC = () => {
               type="button"
               data-testid="navbar-notifications-btn"
               onClick={() => {
-                setIsNotificationsOpen(!isNotificationsOpen);
+                setIsNotificationsOpen(true);
                 setIsProfileMenuOpen(false);
               }}
-              title={language === 'ar' ? 'التنبيهات التشغيلية' : 'Operational Alerts'}
+              title={language === 'ar' ? 'التنبيهات التشغيلية الشاملة' : 'System Notifications Center'}
               className={`relative flex items-center justify-center w-8 h-8 rounded-lg border transition cursor-pointer ${
                 isDark
                   ? 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
@@ -214,61 +247,17 @@ export const Navbar: React.FC = () => {
             >
               <Bell className="w-4 h-4" />
               {totalAlertsCount > 0 && (
-                <span className="absolute -top-1 -end-1 px-1 min-w-4 h-4 rounded-full bg-rose-600 text-white text-[9px] font-mono font-bold flex items-center justify-center">
+                <span className="absolute -top-1 -end-1 px-1 min-w-4 h-4 rounded-full bg-rose-600 text-white text-[9px] font-mono font-bold flex items-center justify-center animate-pulse">
                   {totalAlertsCount}
                 </span>
               )}
             </button>
 
             {isNotificationsOpen && (
-              <div className="absolute top-10 end-0 w-80 bg-white text-slate-900 rounded-xl border border-slate-200 shadow-xl p-3 space-y-2 z-50 text-xs">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                  <span className="font-bold text-slate-900">
-                    {language === 'ar' ? 'التنبيهات التشغيلية' : 'Operational Alerts'}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setIsNotificationsOpen(false)}
-                    className="text-slate-400 hover:text-slate-700 font-bold cursor-pointer"
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                <div className="w-full p-2.5 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between text-start">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                    <div>
-                      <div className="font-semibold text-slate-900">
-                        {language === 'ar' ? 'أصناف بلغت حد إعادة الطلب' : 'Low Stock Alerts'}
-                      </div>
-                      <div className="text-[10px] text-slate-500">
-                        {language === 'ar' ? 'تنبيهات الحد الأدنى للأصناف' : 'Reorder threshold alerts'}
-                      </div>
-                    </div>
-                  </div>
-                  <span className="font-mono font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md">
-                    {lowStockCount}
-                  </span>
-                </div>
-
-                <div className="w-full p-2.5 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between text-start">
-                  <div className="flex items-center gap-2">
-                    <Wrench className="w-4 h-4 text-indigo-600 shrink-0" />
-                    <div>
-                      <div className="font-semibold text-slate-900">
-                        {language === 'ar' ? 'تذاكر الصيانة النشطة (RMA)' : 'Active RMA Tickets'}
-                      </div>
-                      <div className="text-[10px] text-slate-500">
-                        {language === 'ar' ? 'متابعة حالة السيريال والضمان' : 'Serial & warranty status'}
-                      </div>
-                    </div>
-                  </div>
-                  <span className="font-mono font-bold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-md">
-                    {openWarrantyCount}
-                  </span>
-                </div>
-              </div>
+              <SystemNotificationCenterModal
+                isOpen={isNotificationsOpen}
+                onClose={() => setIsNotificationsOpen(false)}
+              />
             )}
           </div>
 

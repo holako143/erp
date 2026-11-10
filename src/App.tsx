@@ -24,6 +24,7 @@ import { POSView } from './views/POSView';
 import { AccountingView } from './views/AccountingView';
 import { BusinessModulesView } from './views/BusinessModulesView';
 import { AIInsightsView } from './views/AIInsightsView';
+import { ReportsAnalyticsAndAIView } from './views/ReportsAnalyticsAndAIView';
 import { SaaSAdminView } from './views/SaaSAdminView';
 import { SettingsView } from './views/SettingsView';
 import { SecurityCenterView } from './views/SecurityCenterView';
@@ -120,6 +121,11 @@ const MainLayout: React.FC = () => {
           setActiveTab('accounting');
           return;
         }
+        if (e.key === 'F8' && hasModuleAccess('reportsAndAI')) {
+          e.preventDefault();
+          setActiveTab('reportsAndAI');
+          return;
+        }
       }
 
       if (!antiTheftShieldEnabled) return;
@@ -177,6 +183,9 @@ const MainLayout: React.FC = () => {
     if (activeTab === 'sales') {
       return <SalesView />;
     }
+    if (activeTab === 'reportsAndAI') {
+      return <ReportsAnalyticsAndAIView />;
+    }
 
     // Enforce RBAC & Master Admin module visibility
     if (!hasModuleAccess(activeTab)) {
@@ -198,10 +207,12 @@ const MainLayout: React.FC = () => {
         return <POSView />;
       case 'accounting':
         return <AccountingView />;
+      case 'reportsAndAI':
+        return <ReportsAnalyticsAndAIView />;
       case 'businessModules':
         return <BusinessModulesView />;
       case 'aiInsights':
-        return <AIInsightsView />;
+        return <ReportsAnalyticsAndAIView />;
       case 'saasPlatform':
         return <SaaSAdminView />;
       case 'security':
@@ -283,6 +294,7 @@ const MainLayout: React.FC = () => {
                       { k: 'F3', l: language === 'ar' ? 'المخزون والجرد' : 'Inventory', tab: 'inventory' },
                       { k: 'F4', l: language === 'ar' ? 'المبيعات والضمان' : 'Sales', tab: 'sales' },
                       { k: 'F7', l: language === 'ar' ? 'المحاسبة المالية' : 'Accounting', tab: 'accounting' },
+                      { k: 'F8', l: language === 'ar' ? 'التقارير والذكاء' : 'Reports & AI', tab: 'reportsAndAI' },
                     ]
                   : [
                       { k: 'F1', l: language === 'ar' ? 'الرئيسية' : 'Home', tab: 'dashboard' },
@@ -291,6 +303,7 @@ const MainLayout: React.FC = () => {
                       { k: 'F4', l: language === 'ar' ? 'المبيعات' : 'Sales', tab: 'sales' },
                       { k: 'F6', l: language === 'ar' ? 'المشتريات' : 'Purchasing', tab: 'purchasing' },
                       { k: 'F7', l: language === 'ar' ? 'المحاسبة' : 'Accounting', tab: 'accounting' },
+                      { k: 'F8', l: language === 'ar' ? 'التقارير والذكاء' : 'Reports & AI', tab: 'reportsAndAI' },
                     ]
                 ).map((item) => (
                   <button

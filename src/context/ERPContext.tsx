@@ -200,6 +200,7 @@ export const ALL_ERP_MODULES = [
   'purchasing',
   'sales',
   'accounting',
+  'reportsAndAI',
   'aiInsights',
   'saasPlatform',
   'security',
@@ -211,18 +212,19 @@ export const SECTOR_MODE_VISIBLE_MODULES = [
   'inventory',
   'sales',
   'accounting',
+  'reportsAndAI',
 ] as const;
 
 /**
  * Helper function that manages the visibility list of modules based on `masterSystemConfig.sectorModeEnabled`.
- * When `sectorModeEnabled` is active, returns only `['pos', 'inventory', 'sales', 'accounting']`.
+ * When `sectorModeEnabled` is active, returns only `['pos', 'inventory', 'sales', 'accounting', 'reportsAndAI']`.
  */
 export function getVisibleModulesList(
   sectorModeEnabled: boolean | undefined,
   fallbackModules: readonly string[] = ALL_ERP_MODULES
 ): string[] {
   if (sectorModeEnabled) {
-    return ['pos', 'inventory', 'sales', 'accounting'];
+    return ['pos', 'inventory', 'sales', 'accounting', 'reportsAndAI'];
   }
   return [...fallbackModules];
 }
@@ -1268,7 +1270,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     });
     setActiveIndustryState('electronics');
-    if (enable !== false && !['pos', 'inventory', 'sales', 'accounting'].includes(activeTab)) {
+    if (enable !== false && !['pos', 'inventory', 'sales', 'accounting', 'reportsAndAI'].includes(activeTab)) {
       setActiveTab('pos');
     }
   };
