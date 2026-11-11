@@ -5,6 +5,7 @@
  * 3. Cross-Branch LAN & WAN Stock Availability Matrix & Inter-Branch Transfers
  */
 
+import QRCode from 'qrcode';
 import {
   Branch,
   BranchNodeInfo,
@@ -15,6 +16,7 @@ import {
   UsbConnectedDevice,
   UsbDiagnosticsReport,
   Warehouse,
+  WhatsAppAccountInstance,
   WhatsAppChat,
   WhatsAppChatMessage,
   WhatsAppSessionInfo,
@@ -22,89 +24,95 @@ import {
 import { normalizeInternationalPhone } from './messagingEngine';
 
 // ============================================================================
-// 1. WhatsApp Web Pairing & In-App Chat Station
+// 1. WhatsApp Web Multi-Account Pairing & In-App Chat Station
 // ============================================================================
 
 export function createInitialWhatsAppSession(): WhatsAppSessionInfo {
+  const qr = generatePairingQRToken('wa-acc-sales');
   return {
     status: 'CONNECTED',
     phoneNumber: '+967 771 445 880',
     pushName: 'مؤسسة النور للتجارة والطاقة (المبيعات الموحدة)',
-    batteryLevel: 91,
-    qrCodeData: 'WAPP-RLM-AUTH-967771445880-202611-V4',
-    qrExpiresInSec: 20,
+    batteryLevel: 94,
+    qrCodeData: qr.token,
+    qrExpiresInSec: 60,
     pairedAt: '2026-11-03 10:15',
-    platform: 'WhatsApp Web Multi-Device Gateway v2.24.18 (RLM Dedicated)',
+    platform: 'WhatsApp Web Multi-Device Gateway v2.3000.1018 (RLM In-App)',
+    pairingUrl: qr.pairingUrl,
+    pairingCode8Digit: qr.pairingCode8Digit,
+    qrFullMatrixData: qr.fullUrlMatrixData,
   };
 }
 
-export function generatePairingQRToken(): {
+export function generate8DigitWhatsAppPairingCode(phoneSeed?: string): string {
+  const cleanDigits = (phoneSeed || '').replace(/\D/g, '');
+  const suffix =
+    cleanDigits.length >= 4
+      ? cleanDigits.slice(-4)
+      : Math.floor(1000 + Math.random() * 9000).toString();
+  const prefixChars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let prefix = '';
+  for (let i = 0; i < 4; i++) {
+    prefix += prefixChars.charAt(Math.floor(Math.random() * prefixChars.length));
+  }
+  return `${prefix}-${suffix}`;
+}
+
+/**
+ * Generates a REAL, camera-scannable ISO/IEC 18004 QR code bit matrix
+ * for linking a WhatsApp account directly inside the ERP.
+ * - `matrixData`: 21x21 Version 1 ISO/IEC 18004 QR code encoding `token` (WAPP-PAIR-XXXXXX)
+ * - `fullUrlMatrixData`: Full-resolution ISO/IEC 18004 QR code encoding the direct pairing URL
+ */
+export function generatePairingQRToken(
+  accountId = 'wa-acc-sales',
+  baseUrl = 'http://localhost:3000'
+): {
   token: string;
   expiresInSec: number;
   matrixData: boolean[][];
+  pairingUrl: string;
+  pairingCode8Digit: string;
+  fullUrlMatrixData: boolean[][];
 } {
-  const token = `WAPP-PAIR-${Date.now().toString(36).toUpperCase()}-${Math.floor(
-    1000 + Math.random() * 9000
-  )}`;
+  const numCode = Math.floor(100000 + Math.random() * 900000).toString();
+  // Uppercase Alphanumeric string (16 chars) fits ISO/IEC 18004 Version 1 (21x21 modules)
+  const token = `WAPP-PAIR-${numCode}`;
+  const pairingUrl = `${baseUrl.replace(/\/$/, '')}/api/v1/whatsapp/pair-scan?accountId=${encodeURIComponent(
+    accountId
+  )}&token=${encodeURIComponent(token)}`;
+  const pairingCode8Digit = `RLM8-${numCode.slice(0, 4)}`;
 
-  // Generate a deterministic 21x21 QR code bit matrix pattern for visual rendering
-  const size = 21;
-  const matrix: boolean[][] = Array.from({ length: size }, () =>
-    Array.from({ length: size }, () => false)
-  );
-
-  // Position detection patterns (top-left, top-right, bottom-left)
-  const drawFinder = (startX: number, startY: number) => {
-    for (let r = 0; r < 7; r++) {
-      for (let c = 0; c < 7; c++) {
-        if (
-          r === 0 ||
-          r === 6 ||
-          c === 0 ||
-          c === 6 ||
-          (r >= 2 && r <= 4 && c >= 2 && c <= 4)
-        ) {
-          matrix[startY + r][startX + c] = true;
-        }
+  let matrix: boolean[][] = [];
+  try {
+    const qrV1 = QRCode.create(token, {
+      version: 1,
+      errorCorrectionLevel: 'L',
+    });
+    const moduleCount = qrV1.modules.size; // Strictly 21x21 for Version 1
+    for (let r = 0; r < moduleCount; r++) {
+      const row: boolean[] = [];
+      for (let c = 0; c < moduleCount; c++) {
+        row.push(Boolean(qrV1.modules.get(r, c)));
       }
+      matrix.push(row);
     }
-  };
-
-  drawFinder(0, 0);
-  drawFinder(size - 7, 0);
-  drawFinder(0, size - 7);
-
-  // Timing patterns
-  for (let i = 8; i < size - 8; i++) {
-    matrix[6][i] = i % 2 === 0;
-    matrix[i][6] = i % 2 === 0;
+  } catch {
+    matrix = generateGeneralQRCodeMatrix(token, 21);
   }
 
-  // Pseudo-random pseudo-data based on token string hash
-  let hash = 0;
-  for (let i = 0; i < token.length; i++) {
-    hash = (hash << 5) - hash + token.charCodeAt(i);
-    hash |= 0;
-  }
-
-  for (let r = 0; r < size; r++) {
-    for (let c = 0; c < size; c++) {
-      const inFinder =
-        (r < 8 && c < 8) ||
-        (r < 8 && c >= size - 8) ||
-        (r >= size - 8 && c < 8);
-      if (!inFinder && r !== 6 && c !== 6) {
-        matrix[r][c] = ((hash ^ (r * 31 + c * 17)) & 1) === 1;
-      }
-    }
-  }
+  const fullUrlMatrixData = generateGeneralQRCodeMatrix(pairingUrl, 29);
 
   return {
     token,
-    expiresInSec: 25,
+    expiresInSec: 60,
     matrixData: matrix,
+    pairingUrl,
+    pairingCode8Digit,
+    fullUrlMatrixData,
   };
 }
+
 
 export const SEED_WHATSAPP_CHATS: WhatsAppChat[] = [
   {
@@ -204,6 +212,318 @@ export const SEED_WHATSAPP_CHATS: WhatsAppChat[] = [
     ],
   },
 ];
+
+export const SEED_WHATSAPP_ACCOUNTS: WhatsAppAccountInstance[] = [
+  {
+    id: 'wa-acc-sales',
+    accountLabel: 'حساب المبيعات والفواتير الرئيسي',
+    departmentAr: 'المبيعات ونقاط البيع POS',
+    colorAccent: 'emerald',
+    autoReplyEnabled: true,
+    messagesDispatchedCount: 148,
+    lastActiveAt: 'بانتظار مسح باركود واتساب الرسمي',
+    session: {
+      status: 'PAIRING_QR',
+      phoneNumber: '+967 771 445 880',
+      pushName: 'مؤسسة النور للتجارة والطاقة (المبيعات الموحدة)',
+      batteryLevel: 94,
+      qrCodeData: 'WAPP-PAIR-884920',
+      qrExpiresInSec: 20,
+      platform: 'WhatsApp Web Multi-Device v2.3000 (حساب المبيعات #1)',
+      pairingUrl: 'http://localhost:3000/api/v1/whatsapp/pair-scan?accountId=wa-acc-sales&token=WAPP-PAIR-884920',
+      pairingCode8Digit: 'RLM8-8849',
+    },
+    chats: SEED_WHATSAPP_CHATS,
+  },
+  {
+    id: 'wa-acc-finance',
+    accountLabel: 'حساب المحاسبة وتحصيل المديونيات',
+    departmentAr: 'الإدارة المالية والائتمان',
+    colorAccent: 'blue',
+    autoReplyEnabled: true,
+    messagesDispatchedCount: 84,
+    lastActiveAt: 'منذ دقيقتين',
+    session: {
+      status: 'CONNECTED',
+      phoneNumber: '+967 777 890 112',
+      pushName: 'إدارة الحسابات والتحصيل - مؤسسة النور',
+      batteryLevel: 89,
+      qrCodeData: 'WAPP-PAIR-551209',
+      qrExpiresInSec: 60,
+      pairedAt: '2026-11-04 08:40',
+      platform: 'WhatsApp Business Multi-Device v2.3000 (حساب المالية #2)',
+      pairingUrl: 'http://localhost:3000/api/v1/whatsapp/pair-scan?accountId=wa-acc-finance&token=WAPP-PAIR-551209',
+      pairingCode8Digit: 'FIN9-5512',
+    },
+    chats: [
+      {
+        id: 'chat-fin-1',
+        contactName: 'مؤسسة الأفق لتجارة الإلكترونيات والطاقة',
+        contactPhone: '+966 50 882 1940',
+        normalizedPhone: '+966508821940',
+        lastMessage: 'تم تحويل دفعة 8,000 ر.س عبر البنك الأهلي، مرفق الإيصال.',
+        lastMessageTime: '11:05 AM',
+        unreadCount: 1,
+        isBusiness: true,
+        customerId: 'cust-2',
+        pinned: true,
+        messages: [
+          {
+            id: 'msg-fin-1',
+            chatId: 'chat-fin-1',
+            sender: 'ME',
+            text: 'إشعار كشف حساب ومطالبة سداد: الرصيد القائم 18,450.00 ر.س.',
+            timestamp: '09:15 AM',
+            status: 'READ',
+            attachmentType: 'DEBT_REMINDER',
+            referenceNumber: 'SOA-2026-11',
+          },
+          {
+            id: 'msg-fin-2',
+            chatId: 'chat-fin-1',
+            sender: 'THEM',
+            text: 'تم تحويل دفعة 8,000 ر.س عبر البنك الأهلي، مرفق الإيصال.',
+            timestamp: '11:05 AM',
+            status: 'READ',
+          },
+        ],
+      },
+      {
+        id: 'chat-fin-2',
+        contactName: 'شركة البناء الحديث للمقاولات العامة',
+        contactPhone: '+967 771 445 880',
+        normalizedPhone: '+967771445880',
+        lastMessage: 'سند قبض رقم RV-2026-104 بمبلغ 15,000 معتمد ومقيد في حسابكم.',
+        lastMessageTime: 'أمس 05:10 PM',
+        unreadCount: 0,
+        isBusiness: true,
+        customerId: 'cust-1',
+        pinned: false,
+        messages: [
+          {
+            id: 'msg-fin-3',
+            chatId: 'chat-fin-2',
+            sender: 'ME',
+            text: 'سند قبض رقم RV-2026-104 بمبلغ 15,000 معتمد ومقيد في حسابكم.',
+            timestamp: 'أمس 05:10 PM',
+            status: 'READ',
+            attachmentType: 'RECEIPT',
+            referenceNumber: 'RV-2026-104',
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'wa-acc-rma',
+    accountLabel: 'حساب الصيانة والضمان والدعم الفني',
+    departmentAr: 'مركز الصيانة والضمان RMA',
+    colorAccent: 'violet',
+    autoReplyEnabled: true,
+    messagesDispatchedCount: 53,
+    lastActiveAt: 'منذ 5 دقائق',
+    session: {
+      status: 'CONNECTED',
+      phoneNumber: '+967 733 550 990',
+      pushName: 'مركز الصيانة الهندسية والضمان - النور',
+      batteryLevel: 97,
+      qrCodeData: 'WAPP-PAIR-339104',
+      qrExpiresInSec: 60,
+      pairedAt: '2026-11-05 09:00',
+      platform: 'WhatsApp Support Gateway v2.3000 (حساب الصيانة #3)',
+      pairingUrl: 'http://localhost:3000/api/v1/whatsapp/pair-scan?accountId=wa-acc-rma&token=WAPP-PAIR-339104',
+      pairingCode8Digit: 'RMA7-3391',
+    },
+    chats: [
+      {
+        id: 'chat-rma-1',
+        contactName: 'م. سالم العولقي (صيانة وضمان)',
+        contactPhone: '+967 771 223 344',
+        normalizedPhone: '+967771223344',
+        lastMessage: 'ممتاز جداً، سأمر عليكم بعد العصر لاستلام الانفرتر إن شاء الله.',
+        lastMessageTime: '11:20 AM',
+        unreadCount: 0,
+        isBusiness: false,
+        customerId: 'cust-3',
+        pinned: true,
+        messages: [
+          {
+            id: 'msg-rma-1',
+            chatId: 'chat-rma-1',
+            sender: 'ME',
+            text: 'تم الانتهاء من فحص الانفرتر Deye 8KW واستبدال كرت MPPT2 تحت الضمان مجاناً. تذكرة رقم RMA-2026-77 جاهزة للتسليم.',
+            timestamp: '10:50 AM',
+            status: 'READ',
+            attachmentType: 'WARRANTY',
+            referenceNumber: 'RMA-2026-77',
+          },
+          {
+            id: 'msg-rma-2',
+            chatId: 'chat-rma-1',
+            sender: 'THEM',
+            text: 'ممتاز جداً، سأمر عليكم بعد العصر لاستلام الانفرتر إن شاء الله.',
+            timestamp: '11:20 AM',
+            status: 'READ',
+          },
+        ],
+      },
+    ],
+  },
+];
+
+export function createNewWhatsAppAccountInstance(params: {
+  label: string;
+  departmentAr: string;
+  phoneNumber?: string;
+  colorAccent?: WhatsAppAccountInstance['colorAccent'];
+  startConnected?: boolean;
+  baseUrl?: string;
+}): WhatsAppAccountInstance {
+  const id = `wa-acc-${Date.now().toString(36)}-${Math.floor(100 + Math.random() * 900)}`;
+  const qr = generatePairingQRToken(id, params.baseUrl || 'http://localhost:3000');
+  const isConnected = Boolean(params.startConnected);
+  const formattedPhone = params.phoneNumber?.trim() || '+967 770 000 000';
+
+  return {
+    id,
+    accountLabel: params.label.trim() || 'حساب واتساب إضافي',
+    departmentAr: params.departmentAr.trim() || 'قسم المبيعات وخدمة العملاء',
+    colorAccent: params.colorAccent || 'amber',
+    autoReplyEnabled: true,
+    messagesDispatchedCount: 0,
+    lastActiveAt: 'الآن',
+    session: {
+      status: isConnected ? 'CONNECTED' : 'PAIRING_QR',
+      phoneNumber: isConnected ? formattedPhone : 'بانتظار مسح الباركود أو كود الربط...',
+      pushName: `${params.label.trim()} (${params.departmentAr.trim()})`,
+      batteryLevel: 100,
+      qrCodeData: qr.token,
+      qrExpiresInSec: qr.expiresInSec,
+      pairedAt: isConnected ? new Date().toISOString().slice(0, 16).replace('T', ' ') : undefined,
+      platform: 'WhatsApp Web Multi-Device Gateway v2.3000 (RLM In-App)',
+      pairingUrl: qr.pairingUrl,
+      pairingCode8Digit: qr.pairingCode8Digit,
+      qrFullMatrixData: qr.fullUrlMatrixData,
+    },
+    chats: [
+      {
+        id: `chat-init-${id}`,
+        contactName: 'شركة البناء الحديث للمقاولات العامة',
+        contactPhone: '+967 771 445 880',
+        normalizedPhone: '+967771445880',
+        lastMessage: `تم تفعيل قناة التواصل (${params.label.trim()}) داخل النظام بنجاح.`,
+        lastMessageTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        unreadCount: 0,
+        isBusiness: true,
+        customerId: 'cust-1',
+        pinned: true,
+        messages: [
+          {
+            id: `msg-init-${id}`,
+            chatId: `chat-init-${id}`,
+            sender: 'SYSTEM',
+            text: `تم إنشاء وتخصيص (${params.label.trim()} - ${params.departmentAr.trim()}) للعمل المباشر داخل النظام بدون الحاجة لفتح نوافذ خارجية.`,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            status: 'READ',
+          },
+        ],
+      },
+    ],
+  };
+}
+
+let whatsappMessageSeqCounter = 1;
+
+export function generateUniqueWhatsAppMessageId(prefix = 'wmsg'): string {
+  whatsappMessageSeqCounter += 1;
+  return `${prefix}-${Date.now()}-${whatsappMessageSeqCounter}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+/**
+ * Appends an outbound or inbound message directly into a WhatsApp account's in-app chat list,
+ * creating the customer's chat thread automatically if it doesn't exist yet.
+ */
+export function appendMessageToWhatsAppChats(
+  chats: WhatsAppChat[],
+  params: {
+    messageId?: string;
+    recipientName: string;
+    recipientPhone: string;
+    customerId?: string;
+    messageText: string;
+    attachmentType?: WhatsAppChatMessage['attachmentType'];
+    referenceNumber?: string;
+    attachmentUrl?: string;
+    sender?: 'ME' | 'THEM' | 'SYSTEM';
+    timestamp?: string;
+  }
+): {
+  updatedChats: WhatsAppChat[];
+  targetChatId: string;
+  createdMessage: WhatsAppChatMessage;
+} {
+  const norm = normalizeInternationalPhone(params.recipientPhone || '');
+  const cleanDigits = norm.digitsOnly || (params.recipientPhone || '').replace(/\D/g, '');
+  const nowTime =
+    params.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  const existingChat = chats.find(
+    (c) =>
+      (params.customerId && c.customerId === params.customerId) ||
+      (cleanDigits.length >= 7 &&
+        c.normalizedPhone.replace(/\D/g, '').endsWith(cleanDigits.slice(-7)))
+  );
+
+  const targetChatId = existingChat
+    ? existingChat.id
+    : `chat-${Date.now().toString(36)}-${++whatsappMessageSeqCounter}`;
+  const createdMessage: WhatsAppChatMessage = {
+    id: params.messageId || generateUniqueWhatsAppMessageId('wmsg'),
+    chatId: targetChatId,
+    sender: params.sender || 'ME',
+    text: params.messageText,
+    timestamp: nowTime,
+    status: 'READ',
+    attachmentType: params.attachmentType || 'NONE',
+    referenceNumber: params.referenceNumber,
+    attachmentUrl: params.attachmentUrl,
+  };
+
+  if (existingChat) {
+    const updatedChat: WhatsAppChat = {
+      ...existingChat,
+      contactName: params.recipientName || existingChat.contactName,
+      lastMessage: params.messageText.slice(0, 110),
+      lastMessageTime: nowTime,
+      messages: [...existingChat.messages, createdMessage],
+    };
+    const others = chats.filter((c) => c.id !== existingChat.id);
+    return {
+      updatedChats: [updatedChat, ...others],
+      targetChatId,
+      createdMessage,
+    };
+  } else {
+    const newChat: WhatsAppChat = {
+      id: targetChatId,
+      contactName: params.recipientName || params.recipientPhone || 'عميل جديد',
+      contactPhone: params.recipientPhone || '+967 770 000 000',
+      normalizedPhone: norm.e164Phone || `+${cleanDigits}`,
+      lastMessage: params.messageText.slice(0, 110),
+      lastMessageTime: nowTime,
+      unreadCount: 0,
+      isBusiness: true,
+      customerId: params.customerId,
+      pinned: false,
+      messages: [createdMessage],
+    };
+    return {
+      updatedChats: [newChat, ...chats],
+      targetChatId,
+      createdMessage,
+    };
+  }
+}
 
 // ============================================================================
 // 2. Android USB Mobile Phone Bridge (SMS over USB / ADB)
@@ -569,7 +889,7 @@ export function createSimulatedInboundWhatsAppMessage(
 ): WhatsAppChatMessage {
   const now = new Date();
   return {
-    id: `msg-in-${Date.now()}`,
+    id: generateUniqueWhatsAppMessageId('msg-in'),
     chatId,
     sender: 'THEM',
     text: replyText,
@@ -646,8 +966,6 @@ export function buildGuaranteedInvoiceDispatchPackage(params: {
     ackToken,
   };
 }
-
-import QRCode from 'qrcode';
 
 /**
  * Generates a standard ISO/IEC 18004 QR code bit matrix with 3 finder patterns,

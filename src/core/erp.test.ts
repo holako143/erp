@@ -1592,25 +1592,56 @@ test('Track 11 & 12 Communications: WhatsApp Web QR pairing, in-app chats, USB P
   const {
     createInitialWhatsAppSession,
     generatePairingQRToken,
+    generate8DigitWhatsAppPairingCode,
     SEED_WHATSAPP_CHATS,
+    SEED_WHATSAPP_ACCOUNTS,
+    createNewWhatsAppAccountInstance,
+    appendMessageToWhatsAppChats,
     createDefaultUsbConnectedDevice,
     runUsbAutoDiagnostics,
     calculateSmsParts,
   } = await import('./communicationsEngine');
 
-  // 1. WhatsApp Web Pairing & QR
+  // 1. WhatsApp Web Pairing & Real ISO/IEC 18004 QR
   const session = createInitialWhatsAppSession();
   assert.equal(session.status, 'CONNECTED');
   assert.ok(session.phoneNumber.includes('+967'));
   assert.ok(session.batteryLevel > 80);
 
-  const qr = generatePairingQRToken();
+  const qr = generatePairingQRToken('wa-acc-sales', 'http://localhost:3000');
   assert.ok(qr.token.startsWith('WAPP-PAIR-'));
   assert.equal(qr.matrixData.length, 21);
   assert.equal(qr.matrixData[0].length, 21);
   assert.equal(qr.matrixData[0][0], true); // Top-left finder marker is black/true
+  assert.ok(qr.pairingUrl.includes('/api/v1/whatsapp/pair-scan'));
+  assert.ok(qr.fullUrlMatrixData.length >= 25);
 
-  // 2. In-App Chat List
+  const code8 = generate8DigitWhatsAppPairingCode('+967771445880');
+  assert.equal(code8.length, 9); // XXXX-5880
+  assert.ok(code8.endsWith('-5880'));
+
+  // 2. Multi-Account WhatsApp Registry & 0ms In-App Chat Appending
+  assert.ok(SEED_WHATSAPP_ACCOUNTS.length >= 3);
+  const newAcc = createNewWhatsAppAccountInstance({
+    label: 'واتساب فرع عدن',
+    departmentAr: 'المبيعات والتوريد',
+    phoneNumber: '+967 774 112 233',
+    startConnected: false,
+  });
+  assert.equal(newAcc.session.status, 'PAIRING_QR');
+  assert.ok(newAcc.chats.length >= 1);
+
+  const appended = appendMessageToWhatsAppChats(SEED_WHATSAPP_CHATS, {
+    recipientName: 'عميل الطاقة الشمسية الجديد',
+    recipientPhone: '+967 779 888 777',
+    messageText: 'فاتورة مبيعات رقم INV-2026-9901',
+    attachmentType: 'INVOICE',
+    referenceNumber: 'INV-2026-9901',
+  });
+  assert.equal(appended.updatedChats.length, SEED_WHATSAPP_CHATS.length + 1);
+  assert.equal(appended.updatedChats[0].contactName, 'عميل الطاقة الشمسية الجديد');
+
+  // 3. In-App Chat List
   assert.ok(SEED_WHATSAPP_CHATS.length >= 3);
   const custChat = SEED_WHATSAPP_CHATS[0];
   assert.equal(custChat.id, 'chat-cust-1');
@@ -2042,4 +2073,85 @@ test('Track 20 Sector Mode Configuration filters out Projects, Fleet, Manufactur
     ['POS', 'Inventory', 'Sales', 'Accounting', 'Reports & AI']
   );
 });
+
+test('Track 21 WhatsApp Message ID Monotonic Uniqueness: 200 rapid burst messages in the same millisecond never produce duplicate wmsg-* keys', async () => {
+  const {
+    generateUniqueWhatsAppMessageId,
+    appendMessageToWhatsAppChats,
+    SEED_WHATSAPP_CHATS,
+  } = await import('./communicationsEngine');
+
+  const ids = new Set<string>();
+  for (let i = 0; i < 200; i++) {
+    const id = generateUniqueWhatsAppMessageId('wmsg');
+    assert.ok(id.startsWith('wmsg-'));
+    assert.equal(ids.has(id), false, `Duplicate message ID generated: ${id}`);
+    ids.add(id);
+  }
+  assert.equal(ids.size, 200);
+
+  let chats = SEED_WHATSAPP_CHATS;
+  for (let i = 0; i < 20; i++) {
+    const res = appendMessageToWhatsAppChats(chats, {
+      recipientName: 'شركة البناء الحديث للمقاولات العامة',
+      recipientPhone: '+967 771 445 880',
+      messageText: `رسالة اختبار رقم ${i}`,
+    });
+    chats = res.updatedChats;
+  }
+
+  const targetChat = chats.find((c) => c.id === 'chat-cust-1');
+  assert.ok(targetChat);
+  const msgIdSet = new Set(targetChat!.messages.map((m) => m.id));
+  assert.equal(msgIdSet.size, targetChat!.messages.length);
+});
+
+test('Track 22 WhatsApp AI Bot Engine: classifies intents and generates real-time ERP responses for Invoices, Financial Reports, Debts, Inventory Pricing, and RMA', async () => {
+  const {
+    classifyWhatsAppBotIntent,
+    generateSmartErpBotResponse,
+  } = await import('./whatsappAiBotEngine');
+  const {
+    SEED_PRODUCTS,
+    SEED_CUSTOMERS,
+    SEED_SALES_INVOICES,
+  } = await import('../data/seedData');
+
+  assert.equal(classifyWhatsAppBotIntent('أرسل لي فاتورة المبيعات INV-2026-001'), 'INVOICE_LOOKUP');
+  assert.equal(classifyWhatsAppBotIntent('كم تقرير الأرباح والمبيعات اليوم؟'), 'FINANCIAL_REPORT');
+  assert.equal(classifyWhatsAppBotIntent('أريد كشف حساب ومديونية العميل'), 'DEBT_STATEMENT');
+  assert.equal(classifyWhatsAppBotIntent('كم سعر لوح الطاقة الشمسية والانفرتر؟'), 'INVENTORY_PRICING');
+  assert.equal(classifyWhatsAppBotIntent('ما حالة تذكرة الضمان والصيانة RMA؟'), 'WARRANTY_RMA');
+
+  const erpSnapshot = {
+    companyName: 'شركة النور للتجارة والطاقة',
+    currencySymbol: 'ر.س',
+    products: SEED_PRODUCTS,
+    customers: SEED_CUSTOMERS,
+    salesInvoices: SEED_SALES_INVOICES,
+    warrantyTickets: [],
+  };
+
+  const invReply = generateSmartErpBotResponse({
+    incomingText: 'أرسل الفاتورة INV-2026-001',
+    contactName: 'شركة البناء الحديث للمقاولات العامة',
+    contactPhone: '+967 771 445 880',
+    erpSnapshot,
+  });
+  assert.equal(invReply.intent, 'INVOICE_LOOKUP');
+  assert.equal(invReply.attachmentType, 'INVOICE');
+  assert.ok(invReply.replyText.includes('INV-2026-001'));
+
+  const repReply = generateSmartErpBotResponse({
+    incomingText: 'تقرير الأرباح والمبيعات',
+    contactName: 'المدير العام',
+    contactPhone: '+967 775 279 974',
+    erpSnapshot,
+  });
+  assert.equal(repReply.intent, 'FINANCIAL_REPORT');
+  assert.ok(repReply.replyText.includes('إجمالي المبيعات والفواتير'));
+  assert.ok(repReply.replyText.includes('صافي الربح التشغيلي المحقق'));
+});
+
+
 

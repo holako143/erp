@@ -37,6 +37,10 @@ export const QuickSendModal: React.FC = () => {
     messagingGatewayConfig,
     updateMessagingGatewayConfig,
     sendWhatsAppOrSmsMessage,
+    whatsappAccounts,
+    activeWhatsAppAccountId,
+    switchWhatsAppAccount,
+    setActiveTab: setGlobalErpTab,
     customers,
     salesInvoices,
     products,
@@ -444,26 +448,17 @@ export const QuickSendModal: React.FC = () => {
                   </div>
                   {feedbackBanner.type === 'success' && (
                     <div className="flex items-center gap-2 shrink-0">
-                      {feedbackBanner.whatsappUrl && (
-                        <a
-                          href={feedbackBanner.whatsappUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                          <span>فتح في واتساب الآن</span>
-                        </a>
-                      )}
-                      {feedbackBanner.smsUri && (
-                        <a
-                          href={feedbackBanner.smsUri}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold transition"
-                        >
-                          <Smartphone className="w-3.5 h-3.5" />
-                          <span>تطبيق الرسائل SMS</span>
-                        </a>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          closeQuickSendModal();
+                          setGlobalErpTab('communications');
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition cursor-pointer"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>عرض المحادثة داخل محطة واتساب بالنظام</span>
+                      </button>
                     </div>
                   )}
                 </div>
@@ -471,39 +466,61 @@ export const QuickSendModal: React.FC = () => {
 
               {/* Top Row: Channel Selection & Template Type */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Channel Selector */}
-                <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4">
-                  <label className="block text-xs font-bold text-slate-400 mb-2">
-                    1. اختر قناة الإرسال للرقم المستهدف
-                  </label>
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <button
-                      type="button"
-                      onClick={() => setChannel('WHATSAPP')}
-                      data-testid="msg-channel-whatsapp"
-                      className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-bold transition ${
-                        channel === 'WHATSAPP'
-                          ? 'bg-emerald-600/20 border-emerald-500 text-emerald-300 shadow-sm'
-                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      <MessageSquare className="w-4 h-4 text-emerald-400" />
-                      <span>إرسال عبر واتساب (WhatsApp)</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setChannel('SMS')}
-                      data-testid="msg-channel-sms"
-                      className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-bold transition ${
-                        channel === 'SMS'
-                          ? 'bg-cyan-600/20 border-cyan-500 text-cyan-300 shadow-sm'
-                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      <Smartphone className="w-4 h-4 text-cyan-400" />
-                      <span>رسالة نصية للرقم (SMS)</span>
-                    </button>
+                {/* Channel & Multi-Account Selector */}
+                <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 mb-2">
+                      1. اختر قناة الإرسال للرقم المستهدف (داخلي 100%)
+                    </label>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => setChannel('WHATSAPP')}
+                        data-testid="msg-channel-whatsapp"
+                        className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                          channel === 'WHATSAPP'
+                            ? 'bg-emerald-600/20 border-emerald-500 text-emerald-300 shadow-sm'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <MessageSquare className="w-4 h-4 text-emerald-400" />
+                        <span>واتساب مدمج بالنظام</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setChannel('SMS')}
+                        data-testid="msg-channel-sms"
+                        className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                          channel === 'SMS'
+                            ? 'bg-cyan-600/20 border-cyan-500 text-cyan-300 shadow-sm'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <Smartphone className="w-4 h-4 text-cyan-400" />
+                        <span>رسالة نصية للرقم (SMS)</span>
+                      </button>
+                    </div>
                   </div>
+
+                  {channel === 'WHATSAPP' && (
+                    <div>
+                      <label className="block text-[11px] font-bold text-emerald-400 mb-1">
+                        حساب الواتساب المرسل منه داخل النظام:
+                      </label>
+                      <select
+                        value={activeWhatsAppAccountId}
+                        onChange={(e) => switchWhatsAppAccount(e.target.value)}
+                        className="w-full bg-slate-900 border border-emerald-500/40 rounded-lg px-2.5 py-1.5 text-xs text-white font-bold focus:outline-none"
+                      >
+                        {whatsappAccounts.map((acc) => (
+                          <option key={acc.id} value={acc.id}>
+                            {acc.accountLabel} ({acc.session.phoneNumber}) —{' '}
+                            {acc.session.status === 'CONNECTED' ? 'متصل ✓' : 'بانتظار المسح'}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
 
                 {/* Category / Operation Preset Selector */}
@@ -720,32 +737,37 @@ export const QuickSendModal: React.FC = () => {
               {/* Action Buttons Bar */}
               <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-800">
                 <div className="flex flex-wrap items-center gap-2">
-                  {/* Direct WhatsApp Web/App Link */}
+                  {/* Direct In-App WhatsApp Chat Dispatch & Open */}
                   {protocolLinks.valid && (
-                    <a
-                      href={protocolLinks.whatsappWebUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={() => handleDispatchMessage(true)}
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await handleDispatchMessage(false);
+                        closeQuickSendModal();
+                        setGlobalErpTab('communications');
+                      }}
                       data-testid="msg-direct-whatsapp-link"
-                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 text-xs font-bold transition"
+                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 text-xs font-bold transition cursor-pointer"
                     >
-                      <ExternalLink className="w-4 h-4" />
-                      <span>فتح محادثة واتساب مباشرة ({protocolLinks.normalized.e164Phone})</span>
-                    </a>
+                      <MessageSquare className="w-4 h-4" />
+                      <span>إرسال وفتح المحادثة داخل النظام فوراً ({protocolLinks.normalized.e164Phone})</span>
+                    </button>
                   )}
 
-                  {/* Direct SMS Native URI Link */}
+                  {/* Direct In-App USB SMS Bridge Dispatch */}
                   {protocolLinks.valid && (
-                    <a
-                      href={protocolLinks.smsUri}
-                      onClick={() => handleDispatchMessage(true)}
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setChannel('SMS');
+                        await handleDispatchMessage(false);
+                      }}
                       data-testid="msg-direct-sms-link"
-                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/40 text-cyan-300 text-xs font-bold transition"
+                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/40 text-cyan-300 text-xs font-bold transition cursor-pointer"
                     >
                       <Smartphone className="w-4 h-4" />
-                      <span>فتح تطبيق الرسائل النصية (SMS)</span>
-                    </a>
+                      <span>إرسال فوري عبر جسر الرسائل بالنظام (SMS)</span>
+                    </button>
                   )}
                 </div>
 

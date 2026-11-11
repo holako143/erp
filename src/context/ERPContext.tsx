@@ -66,6 +66,7 @@ import {
   WhatsAppSessionInfo,
   WhatsAppChat,
   WhatsAppChatMessage,
+  WhatsAppAccountInstance,
   UsbConnectedDevice,
   UsbDiagnosticsReport,
   BranchNodeInfo,
@@ -76,6 +77,10 @@ import {
   createInitialWhatsAppSession,
   generatePairingQRToken,
   SEED_WHATSAPP_CHATS,
+  SEED_WHATSAPP_ACCOUNTS,
+  createNewWhatsAppAccountInstance,
+  appendMessageToWhatsAppChats,
+  generateUniqueWhatsAppMessageId,
   createDefaultUsbConnectedDevice,
   runUsbAutoDiagnostics,
   SEED_BRANCH_NODES,
@@ -743,7 +748,20 @@ interface ERPContextType {
     messageAr: string;
   };
 
-  // WhatsApp Web In-App Integration
+  // WhatsApp Web Multi-Account In-App Integration
+  whatsappAccounts: WhatsAppAccountInstance[];
+  activeWhatsAppAccountId: string;
+  switchWhatsAppAccount: (accountId: string) => void;
+  addWhatsAppAccount: (params: {
+    label: string;
+    departmentAr: string;
+    phoneNumber?: string;
+    colorAccent?: WhatsAppAccountInstance['colorAccent'];
+    startConnected?: boolean;
+  }) => WhatsAppAccountInstance;
+  removeWhatsAppAccount: (accountId: string) => { success: boolean; messageAr: string };
+  startOrOpenWhatsAppChat: (recipientName: string, recipientPhone: string, customerId?: string) => string;
+  lastAutoSavedAt: string;
   whatsappSession: WhatsAppSessionInfo;
   whatsappChats: WhatsAppChat[];
   activeWhatsAppChatId: string;
@@ -752,6 +770,17 @@ interface ERPContextType {
   disconnectWhatsApp: () => Promise<void>;
   sendWhatsAppChatMessage: (chatId: string, text: string, attachmentType?: string, refNum?: string) => Promise<void>;
   receiveSimulatedWhatsAppCustomerMessage: (chatId: string, replyText: string) => void;
+  syncLiveWhatsAppMessages: (
+    accountId: string,
+    inboundMessages: Array<{
+      id: string;
+      senderPhone: string;
+      contactName: string;
+      text: string;
+      fromMe: boolean;
+      timestamp?: string;
+    }>
+  ) => void;
 
   // USB Mobile Phone Bridge (SMS over USB / ADB)
   usbConnectedDevice: UsbConnectedDevice;
@@ -857,13 +886,27 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     isOpen: false,
   });
 
-  // WhatsApp In-App Web Station & Live Chats
-  const [whatsappSession, setWhatsappSession] = useState<WhatsAppSessionInfo>(() =>
-    createInitialWhatsAppSession()
+  // WhatsApp Multi-Account In-App Web Station & Live Chats
+  const [whatsappAccounts, setWhatsappAccounts] = useState<WhatsAppAccountInstance[]>(
+    SEED_WHATSAPP_ACCOUNTS
   );
-  const [whatsappChats, setWhatsappChats] = useState<WhatsAppChat[]>(SEED_WHATSAPP_CHATS);
+  const [activeWhatsAppAccountId, setActiveWhatsAppAccountId] = useState<string>(
+    SEED_WHATSAPP_ACCOUNTS[0]?.id || 'wa-acc-sales'
+  );
+  const [lastAutoSavedAt, setLastAutoSavedAt] = useState<string>(() =>
+    new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  );
+
+  const activeWhatsAppAccountObj =
+    whatsappAccounts.find((a) => a.id === activeWhatsAppAccountId) ||
+    whatsappAccounts[0] ||
+    SEED_WHATSAPP_ACCOUNTS[0];
+
+  const whatsappSession: WhatsAppSessionInfo = activeWhatsAppAccountObj.session;
+  const whatsappChats: WhatsAppChat[] = activeWhatsAppAccountObj.chats;
+
   const [activeWhatsAppChatId, setActiveWhatsAppChatId] = useState<string>(
-    SEED_WHATSAPP_CHATS[0]?.id || 'chat-001'
+    SEED_WHATSAPP_ACCOUNTS[0]?.chats[0]?.id || 'chat-cust-1'
   );
 
   // USB Mobile Phone Bridge (SMS via connected Phone SIM)
@@ -2042,13 +2085,49 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setOutboundMessages((prev) => [newRecord, ...prev]);
 
+    // If channel is WHATSAPP, immediately append the sent message into the active in-app WhatsApp account's chats!
+    if (params.channel === 'WHATSAPP') {
+      const attachmentMap: Record<string, WhatsAppChatMessage['attachmentType']> = {
+        INVOICE: 'INVOICE',
+        RECEIPT_VOUCHER: 'RECEIPT',
+        DEBT_REMINDER: 'DEBT_REMINDER',
+        WARRANTY_RMA: 'WARRANTY',
+      };
+      const mappedAttachment = attachmentMap[params.category] || 'NONE';
+
+      let targetChatIdCreated = '';
+      setWhatsappAccounts((prevAccounts) =>
+        prevAccounts.map((acc) => {
+          if (acc.id !== activeWhatsAppAccountObj.id) return acc;
+          const appended = appendMessageToWhatsAppChats(acc.chats, {
+            recipientName: params.recipientName || 'عميل / مستلم',
+            recipientPhone: params.recipientPhone,
+            messageText: params.messageBody.trim(),
+            attachmentType: mappedAttachment,
+            referenceNumber: params.referenceNumber,
+            sender: 'ME',
+          });
+          targetChatIdCreated = appended.targetChatId;
+          return {
+            ...acc,
+            messagesDispatchedCount: acc.messagesDispatchedCount + 1,
+            lastActiveAt: 'الآن',
+            chats: appended.updatedChats,
+          };
+        })
+      );
+      if (targetChatIdCreated) {
+        setActiveWhatsAppChatId(targetChatIdCreated);
+      }
+    }
+
     try {
       await fetch('/api/v1/messaging/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...newRecord,
-          openDirectLink: params.openDirectLink,
+          openDirectLink: false,
         }),
       });
     } catch {
@@ -2065,7 +2144,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         module: 'COMMUNICATIONS',
         entityType: 'OutboundMessage',
         entityId: newRecord.id,
-        details: `Dispatched ${params.channel} (${params.category}) to ${newRecord.recipientName} [${newRecord.normalizedPhone}]${params.referenceNumber ? ` Ref: ${params.referenceNumber}` : ''}.`,
+        details: `Dispatched in-app ${params.channel} (${params.category}) via [${activeWhatsAppAccountObj.accountLabel}] to ${newRecord.recipientName} [${newRecord.normalizedPhone}]${params.referenceNumber ? ` Ref: ${params.referenceNumber}` : ''}.`,
         timestamp: new Date().toISOString(),
       },
       ...prev,
@@ -2544,12 +2623,27 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (d.messagingGatewayConfig) {
       setMessagingGatewayConfig((prev) => ({ ...prev, ...d.messagingGatewayConfig }));
     }
+    if (Array.isArray(d.whatsappAccounts) && d.whatsappAccounts.length > 0) {
+      setWhatsappAccounts(d.whatsappAccounts);
+    }
+    if (typeof d.activeWhatsAppAccountId === 'string' && d.activeWhatsAppAccountId) {
+      setActiveWhatsAppAccountId(d.activeWhatsAppAccountId);
+    }
+    if (Array.isArray(d.posCart)) {
+      setPosCart(d.posCart);
+    }
+    if (Array.isArray(d.holdBills)) {
+      setHoldBills(d.holdBills);
+    }
+    if (Array.isArray(d.interBranchTransfers)) {
+      setInterBranchTransfers(d.interBranchTransfers);
+    }
   };
 
   // Load persisted state from 0ms LocalStorage cache + Express RAM backend on mount
   useEffect(() => {
     let active = true;
-    const INSTANT_CACHE_KEY = 'rlm_erp_instant_v4_solar';
+    const INSTANT_CACHE_KEY = 'rlm_erp_instant_v5_real_wa';
 
     try {
       const cachedRaw = localStorage.getItem(INSTANT_CACHE_KEY);
@@ -2587,10 +2681,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, []);
 
-  // Instant 0ms Write-Through LocalStorage + Ultra-Fast 60ms Server RAM Sync
+  // Instant 0ms Write-Through LocalStorage + Ultra-Fast 40ms Server RAM Sync
   useEffect(() => {
     if (!isHydratedRef.current) return;
-    const INSTANT_CACHE_KEY = 'rlm_erp_instant_v4_solar';
+    const INSTANT_CACHE_KEY = 'rlm_erp_instant_v5_real_wa';
     const stateSnapshot = {
       products,
       barcodes,
@@ -2633,19 +2727,30 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       invoiceTemplateSettings,
       outboundMessages,
       messagingGatewayConfig,
+      whatsappAccounts,
+      activeWhatsAppAccountId,
+      posCart,
+      holdBills,
+      interBranchTransfers,
     };
 
     // 1. Immediate 0ms Client Write-Through
     try {
       localStorage.setItem(INSTANT_CACHE_KEY, JSON.stringify(stateSnapshot));
+      setLastAutoSavedAt(
+        new Date().toLocaleTimeString('ar-SA', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        })
+      );
     } catch {
       // ignore storage quota limits
     }
 
-    // 2. High-Speed 60ms Server RAM + Atomic Disk Sync
+    // 2. High-Speed 40ms Server RAM + Atomic Disk Sync
     const timer = setTimeout(() => {
       const t0 = performance.now();
-      // Include official ASF V2 license token or device verification headers
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       const activeV2Token = localStorage.getItem('asf_v2_signed_token');
       if (activeV2Token) {
@@ -2667,7 +2772,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setBackendConnected(true);
         })
         .catch(() => {});
-    }, 60);
+    }, 40);
     return () => clearTimeout(timer);
   }, [
     products,
@@ -2711,6 +2816,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     invoiceTemplateSettings,
     outboundMessages,
     messagingGatewayConfig,
+    whatsappAccounts,
+    activeWhatsAppAccountId,
+    posCart,
+    holdBills,
+    interBranchTransfers,
   ]);
 
   // Tenant Switcher
@@ -5403,10 +5513,15 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const [isOnboardingCompleted, setIsOnboardingCompleted] = useState<boolean>(() => {
-    return localStorage.getItem('asf_onboarding_completed') === 'true';
+    return localStorage.getItem('asf_onboarding_completed') !== 'false';
   });
   const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(() => {
-    return localStorage.getItem('asf_onboarding_completed') !== 'true';
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('autostart') === '1') return false;
+      if (params.get('onboarding') === '1') return true;
+    }
+    return false;
   });
 
   const openOnboarding = () => setIsOnboardingOpen(true);
@@ -5582,46 +5697,186 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  // WhatsApp in-app operations
+  // WhatsApp Multi-Account in-app operations
+  const switchWhatsAppAccount = (accountId: string) => {
+    const target = whatsappAccounts.find((a) => a.id === accountId);
+    if (!target) return;
+    setActiveWhatsAppAccountId(accountId);
+    if (target.chats.length > 0) {
+      setActiveWhatsAppChatId(target.chats[0].id);
+    }
+  };
+
+  const addWhatsAppAccount = (params: {
+    label: string;
+    departmentAr: string;
+    phoneNumber?: string;
+    colorAccent?: WhatsAppAccountInstance['colorAccent'];
+    startConnected?: boolean;
+  }): WhatsAppAccountInstance => {
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+    const newAcc = createNewWhatsAppAccountInstance({
+      ...params,
+      baseUrl,
+    });
+    setWhatsappAccounts((prev) => [...prev, newAcc]);
+    setActiveWhatsAppAccountId(newAcc.id);
+    if (newAcc.chats.length > 0) {
+      setActiveWhatsAppChatId(newAcc.chats[0].id);
+    }
+    fetch('/api/v1/whatsapp/accounts/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    }).catch(() => {});
+    return newAcc;
+  };
+
+  const removeWhatsAppAccount = (accountId: string): { success: boolean; messageAr: string } => {
+    if (whatsappAccounts.length <= 1) {
+      return {
+        success: false,
+        messageAr: 'لا يمكن حذف الحساب الوحيد المتبقي في النظام. يجب بقاء حساب واتساب واحد على الأقل.',
+      };
+    }
+    const remaining = whatsappAccounts.filter((a) => a.id !== accountId);
+    setWhatsappAccounts(remaining);
+    if (activeWhatsAppAccountId === accountId) {
+      const nextAcc = remaining[0];
+      setActiveWhatsAppAccountId(nextAcc.id);
+      if (nextAcc.chats.length > 0) {
+        setActiveWhatsAppChatId(nextAcc.chats[0].id);
+      }
+    }
+    return {
+      success: true,
+      messageAr: 'تم إزالة حساب الواتساب الفرعي بنجاح دون المساس ببقية الحسابات.',
+    };
+  };
+
+  const startOrOpenWhatsAppChat = (
+    recipientName: string,
+    recipientPhone: string,
+    customerId?: string
+  ): string => {
+    let resolvedChatId = '';
+    setWhatsappAccounts((prev) =>
+      prev.map((acc) => {
+        if (acc.id !== activeWhatsAppAccountObj.id) return acc;
+        const cleanDigits = (recipientPhone || '').replace(/\D/g, '');
+        const existing = acc.chats.find(
+          (c) =>
+            (customerId && c.customerId === customerId) ||
+            (cleanDigits.length >= 7 &&
+              c.normalizedPhone.replace(/\D/g, '').endsWith(cleanDigits.slice(-7)))
+        );
+        if (existing) {
+          resolvedChatId = existing.id;
+          return acc;
+        }
+        const newId = `chat-${Date.now().toString(36)}`;
+        resolvedChatId = newId;
+        const newChat: WhatsAppChat = {
+          id: newId,
+          contactName: recipientName || recipientPhone || 'عميل جديد',
+          contactPhone: recipientPhone || '+967 770 000 000',
+          normalizedPhone: `+${cleanDigits || '967770000000'}`,
+          lastMessage: 'محادثة مباشرة مفتوحة داخل النظام',
+          lastMessageTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          unreadCount: 0,
+          isBusiness: true,
+          customerId,
+          pinned: false,
+          messages: [],
+        };
+        return {
+          ...acc,
+          chats: [newChat, ...acc.chats],
+        };
+      })
+    );
+    if (resolvedChatId) {
+      setActiveWhatsAppChatId(resolvedChatId);
+    }
+    return resolvedChatId;
+  };
+
   const pairWhatsAppWithQR = async (
-    phone = '+967 770 123 456',
+    phone = '+967 771 445 880',
     name = 'المكتب الرئيسي - واتساب الأعمال'
   ): Promise<{ success: boolean; messageAr: string }> => {
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+    const tokenData = generatePairingQRToken(activeWhatsAppAccountObj.id, baseUrl);
     try {
-      const res = await fetch('/api/v1/whatsapp/pair', {
+      await fetch('/api/v1/whatsapp/pair', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, name }),
+        body: JSON.stringify({
+          accountId: activeWhatsAppAccountObj.id,
+          phoneNumber: phone,
+          pushName: name,
+        }),
       });
-      const data = await res.json();
-      if (data.session) {
-        setWhatsappSession(data.session);
-        return { success: true, messageAr: 'تم ربط جهاز واتساب بنجاح وتفعيل المزامنة المباشرة!' };
-      }
     } catch {
       // In-memory fallback
     }
-    const tokenData = generatePairingQRToken();
-    const pairedSession: WhatsAppSessionInfo = {
-      ...whatsappSession,
-      status: 'CONNECTED',
-      phoneNumber: phone,
-      pushName: name,
-      batteryLevel: 94,
-      qrCodeData: tokenData.token,
-      qrExpiresInSec: tokenData.expiresInSec,
-      pairedAt: new Date().toISOString(),
-      platform: 'WhatsApp Web Multi-Device Gateway v2.24.18 (RLM Dedicated)',
+    setWhatsappAccounts((prev) =>
+      prev.map((acc) => {
+        if (acc.id !== activeWhatsAppAccountObj.id) return acc;
+        return {
+          ...acc,
+          lastActiveAt: 'الآن',
+          session: {
+            ...acc.session,
+            status: 'CONNECTED',
+            phoneNumber: phone,
+            pushName: name,
+            batteryLevel: 96,
+            qrCodeData: tokenData.token,
+            qrExpiresInSec: tokenData.expiresInSec,
+            pairedAt: new Date().toISOString().slice(0, 16).replace('T', ' '),
+            platform: 'WhatsApp Web Multi-Device Gateway v2.3000 (RLM In-App)',
+            pairingUrl: tokenData.pairingUrl,
+            pairingCode8Digit: tokenData.pairingCode8Digit,
+            qrFullMatrixData: tokenData.fullUrlMatrixData,
+          },
+        };
+      })
+    );
+    return {
+      success: true,
+      messageAr: `تم ربط حساب (${activeWhatsAppAccountObj.accountLabel}) بنجاح وتفعيل المزامنة المباشرة داخل النظام!`,
     };
-    setWhatsappSession(pairedSession);
-    return { success: true, messageAr: 'تم ربط جهاز واتساب بنجاح وتفعيل المزامنة المباشرة!' };
   };
 
   const disconnectWhatsApp = async () => {
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+    const qr = generatePairingQRToken(activeWhatsAppAccountObj.id, baseUrl);
     try {
-      await fetch('/api/v1/whatsapp/disconnect', { method: 'POST' });
+      await fetch('/api/v1/whatsapp/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: activeWhatsAppAccountObj.id }),
+      });
     } catch {}
-    setWhatsappSession(createInitialWhatsAppSession());
+    setWhatsappAccounts((prev) =>
+      prev.map((acc) => {
+        if (acc.id !== activeWhatsAppAccountObj.id) return acc;
+        return {
+          ...acc,
+          session: {
+            ...acc.session,
+            status: 'PAIRING_QR',
+            pairedAt: undefined,
+            qrCodeData: qr.token,
+            qrExpiresInSec: qr.expiresInSec,
+            pairingUrl: qr.pairingUrl,
+            pairingCode8Digit: qr.pairingCode8Digit,
+            qrFullMatrixData: qr.fullUrlMatrixData,
+          },
+        };
+      })
+    );
   };
 
   const sendWhatsAppChatMessage = async (
@@ -5630,34 +5885,102 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     attachmentType?: string,
     refNum?: string
   ) => {
-    try {
-      await fetch('/api/v1/whatsapp/send-chat-message', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chatId, text, attachmentType, refNum }),
-      });
-    } catch {}
+    const targetChat = activeWhatsAppAccountObj.chats.find((c) => c.id === chatId);
+    const nowTime = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+    const uniqueMsgId = generateUniqueWhatsAppMessageId('wmsg');
     const newMsg: WhatsAppChatMessage = {
-      id: `wmsg-${Date.now()}`,
+      id: uniqueMsgId,
       chatId,
       sender: 'ME',
       text,
-      timestamp: new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }),
+      timestamp: nowTime,
       status: 'READ',
       attachmentType: (attachmentType as any) || 'NONE',
       referenceNumber: refNum,
     };
-    setWhatsappChats((prev) =>
-      prev.map((chat) => {
-        if (chat.id === chatId) {
-          return {
-            ...chat,
-            lastMessage: text,
-            lastMessageTime: new Date().toISOString(),
-            messages: [...chat.messages, newMsg],
-          };
+
+    // Optimistic 0ms UI update
+    setWhatsappAccounts((prev) =>
+      prev.map((acc) => {
+        if (acc.id !== activeWhatsAppAccountObj.id) return acc;
+        return {
+          ...acc,
+          messagesDispatchedCount: acc.messagesDispatchedCount + 1,
+          lastActiveAt: 'الآن',
+          chats: acc.chats.map((chat) => {
+            if (chat.id === chatId) {
+              if (chat.messages.some((m) => m.id === newMsg.id)) return chat;
+              return {
+                ...chat,
+                lastMessage: text,
+                lastMessageTime: nowTime,
+                messages: [...chat.messages, newMsg],
+              };
+            }
+            return chat;
+          }),
+        };
+      })
+    );
+
+    try {
+      await fetch('/api/v1/whatsapp/send-chat-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountId: activeWhatsAppAccountObj.id,
+          chatId,
+          text,
+          recipientPhone: targetChat?.contactPhone || targetChat?.normalizedPhone,
+          recipientName: targetChat?.contactName,
+          attachmentType,
+          referenceNumber: refNum,
+        }),
+      });
+    } catch {}
+  };
+
+  const syncLiveWhatsAppMessages = (
+    accountId: string,
+    inboundMessages: Array<{
+      id: string;
+      senderPhone: string;
+      contactName: string;
+      text: string;
+      fromMe: boolean;
+      timestamp?: string;
+    }>
+  ) => {
+    if (!Array.isArray(inboundMessages) || inboundMessages.length === 0) return;
+    setWhatsappAccounts((prev) =>
+      prev.map((acc) => {
+        if (acc.id !== accountId) return acc;
+        let updatedChats = [...acc.chats];
+        let changed = false;
+        for (const inMsg of inboundMessages) {
+          if (!inMsg || !inMsg.id || !inMsg.text) continue;
+          const alreadyExists = updatedChats.some((c) =>
+            c.messages.some((m) => m.id === inMsg.id)
+          );
+          if (!alreadyExists) {
+            const appended = appendMessageToWhatsAppChats(updatedChats, {
+              messageId: inMsg.id,
+              recipientName: inMsg.contactName || inMsg.senderPhone || 'عميل واتساب',
+              recipientPhone: inMsg.senderPhone || '+967770000000',
+              messageText: inMsg.text,
+              sender: inMsg.fromMe ? 'ME' : 'THEM',
+              timestamp: inMsg.timestamp,
+            });
+            updatedChats = appended.updatedChats;
+            changed = true;
+          }
         }
-        return chat;
+        if (!changed) return acc;
+        return {
+          ...acc,
+          lastActiveAt: 'الآن (مزامنة حية)',
+          chats: updatedChats,
+        };
       })
     );
   };
@@ -5784,18 +6107,26 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const receiveSimulatedWhatsAppCustomerMessage = (chatId: string, replyText: string) => {
     const inboundMsg = createSimulatedInboundWhatsAppMessage(chatId, replyText);
-    setWhatsappChats((prev) =>
-      prev.map((c) => {
-        if (c.id === chatId) {
-          return {
-            ...c,
-            lastMessage: replyText,
-            lastMessageTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            unreadCount: c.unreadCount + 1,
-            messages: [...c.messages, inboundMsg],
-          };
-        }
-        return c;
+    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    setWhatsappAccounts((prev) =>
+      prev.map((acc) => {
+        if (acc.id !== activeWhatsAppAccountObj.id) return acc;
+        return {
+          ...acc,
+          lastActiveAt: 'الآن',
+          chats: acc.chats.map((c) => {
+            if (c.id === chatId) {
+              return {
+                ...c,
+                lastMessage: replyText,
+                lastMessageTime: nowTime,
+                unreadCount: c.unreadCount + 1,
+                messages: [...c.messages, inboundMsg],
+              };
+            }
+            return c;
+          }),
+        };
       })
     );
   };
@@ -6121,7 +6452,14 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         currentIndustryBlueprint,
         provisionIndustrySuppliesToInventory,
 
-        // WhatsApp Web In-App Integration
+        // WhatsApp Web Multi-Account In-App Integration
+        whatsappAccounts,
+        activeWhatsAppAccountId,
+        switchWhatsAppAccount,
+        addWhatsAppAccount,
+        removeWhatsAppAccount,
+        startOrOpenWhatsAppChat,
+        lastAutoSavedAt,
         whatsappSession,
         whatsappChats,
         activeWhatsAppChatId,
@@ -6130,6 +6468,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         disconnectWhatsApp,
         sendWhatsAppChatMessage,
         receiveSimulatedWhatsAppCustomerMessage,
+        syncLiveWhatsAppMessages,
 
         // USB Mobile Phone Bridge (SMS over USB)
         usbConnectedDevice,

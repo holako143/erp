@@ -43,6 +43,8 @@ export const Navbar: React.FC = () => {
     masterSystemConfig,
     openQuickSendModal,
     outboundMessages,
+    whatsappAccounts,
+    lastAutoSavedAt,
     setIsStandaloneKeygenOpen,
     openLanPortal,
   } = useERP();
@@ -102,6 +104,7 @@ export const Navbar: React.FC = () => {
   ]);
 
   const totalAlertsCount = systemNotifications.length;
+  const connectedWaCount = whatsappAccounts.filter((a) => a.session.status === 'CONNECTED').length;
 
   const isDark = uiTheme === 'obsidian_dark';
 
@@ -141,9 +144,17 @@ export const Navbar: React.FC = () => {
             <div className="w-8 h-8 rounded-lg bg-slate-900 dark:bg-emerald-600 text-white flex items-center justify-center font-mono font-bold text-xs tracking-tighter shadow-2xs">
               RLM
             </div>
-            <span className="hidden sm:inline font-bold text-xs tracking-tight">
-              RLM Enterprise
-            </span>
+            <div className="hidden sm:flex flex-col">
+              <span className="font-bold text-xs tracking-tight leading-none">
+                RLM Enterprise
+              </span>
+              <span
+                className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono font-semibold mt-0.5"
+                title={`حفظ تلقائي لحظي — آخر مزامنة: ${lastAutoSavedAt}`}
+              >
+                حفظ تلقائي لحظي ✓
+              </span>
+            </div>
           </div>
         </div>
 
@@ -202,31 +213,33 @@ export const Navbar: React.FC = () => {
             </span>
           </button>
 
-          {/* Quick WhatsApp & SMS Sender Trigger */}
+          {/* Unified Multi-Account WhatsApp & Instant Quick-Send Station Button */}
           <button
             type="button"
-            data-testid="navbar-quick-send-btn"
-            onClick={() => openQuickSendModal({ channel: 'WHATSAPP', category: 'INVOICE' })}
+            data-testid="navbar-whatsapp-station-btn"
+            onClick={() => setActiveTab('communications')}
             title={
               language === 'ar'
-                ? 'إرسال فوري عبر واتساب أو رسالة نصية SMS'
-                : 'Send via WhatsApp or SMS'
+                ? 'مركز واتساب المتعدد والإرسال الفوري الموحد (محادثات فعلية + قوالب الفواتير والمديونيات + SMS)'
+                : 'Unified Multi-Account WhatsApp & Quick-Send Hub'
             }
-            className={`inline-flex items-center gap-1.5 px-2.5 h-8 rounded-lg border text-xs font-medium transition cursor-pointer ${
+            className={`inline-flex items-center gap-1.5 px-3 h-8 rounded-lg border text-xs font-bold transition cursor-pointer shadow-2xs ${
               isDark
-                ? 'bg-slate-800/90 hover:bg-slate-700/90 border-slate-700 text-slate-100'
-                : 'bg-slate-900 hover:bg-slate-800 border-slate-900 text-white shadow-2xs'
+                ? 'bg-emerald-950/70 hover:bg-emerald-900/80 border-emerald-700/70 text-emerald-300'
+                : 'bg-emerald-600 hover:bg-emerald-700 border-emerald-700 text-white'
             }`}
           >
-            <MessageSquare className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+            <MessageSquare className="w-3.5 h-3.5 shrink-0" />
             <span className="hidden sm:inline">
-              {language === 'ar' ? 'واتساب / SMS' : 'WhatsApp / SMS'}
+              {language === 'ar' ? 'محطة واتساب والإرسال الفوري' : 'WhatsApp & Quick Send'}
             </span>
-            {outboundMessages.length > 0 && (
-              <span className="px-1.5 py-0.2 rounded font-mono text-[10px] bg-slate-700 text-white">
-                {outboundMessages.length}
-              </span>
-            )}
+            <span
+              className={`px-1.5 py-0.2 rounded font-mono text-[10px] font-black ${
+                isDark ? 'bg-emerald-600 text-white' : 'bg-white/20 text-white'
+              }`}
+            >
+              {connectedWaCount}/{whatsappAccounts.length}
+            </span>
           </button>
 
           {/* System Notifications Center */}

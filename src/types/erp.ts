@@ -1109,6 +1109,9 @@ export interface WhatsAppSessionInfo {
   qrExpiresInSec: number;
   pairedAt?: string;
   platform: string;
+  pairingUrl?: string;
+  pairingCode8Digit?: string;
+  qrFullMatrixData?: boolean[][];
 }
 
 export interface WhatsAppChatMessage {
@@ -1137,6 +1140,19 @@ export interface WhatsAppChat {
   pinned?: boolean;
   messages: WhatsAppChatMessage[];
 }
+
+export interface WhatsAppAccountInstance {
+  id: string;
+  accountLabel: string;
+  departmentAr: string;
+  colorAccent: 'emerald' | 'blue' | 'amber' | 'violet' | 'rose';
+  session: WhatsAppSessionInfo;
+  chats: WhatsAppChat[];
+  autoReplyEnabled: boolean;
+  messagesDispatchedCount: number;
+  lastActiveAt: string;
+}
+
 
 // -------------------------------------------------------------
 // Track 12: Android USB Cable / Mobile Phone Modem Bridge (SMS over USB / ADB)
