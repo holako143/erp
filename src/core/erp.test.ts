@@ -2153,5 +2153,133 @@ test('Track 22 WhatsApp AI Bot Engine: classifies intents and generates real-tim
   assert.ok(repReply.replyText.includes('صافي الربح التشغيلي المحقق'));
 });
 
+test('Track 23 3-Month (90-Day) License Activation & SMS Bridge Readiness: activates system for 90 days (3 months) with LICENSE_ACTIVE status', async () => {
+  const {
+    detectRealHardwareFingerprint,
+    generateMachineRequestCode,
+    generateActivationSerial,
+    verifyActivationSerial,
+    evaluateSystemProtectionState,
+  } = await import('./securityEngine');
 
+  const hw = detectRealHardwareFingerprint();
+  const reqCode = generateMachineRequestCode(hw);
+  const nowMs = Date.now();
+  const serial3Months = generateActivationSerial(reqCode, '3_MONTHS', 90, nowMs);
 
+  const verified = verifyActivationSerial(serial3Months, reqCode, nowMs);
+  assert.equal(verified.valid, true);
+  assert.equal(verified.durationDays, 90);
+  assert.equal(verified.durationLabelAr, '3 أشهر (90 يوماً)');
+  assert.equal(verified.durationLabelEn, '3 Months (90 Days)');
+  assert.ok((verified.remainingDays || 0) >= 89);
+
+  const protection = evaluateSystemProtectionState({
+    hardware: hw,
+    boundHardware: hw,
+    trialStartedAtMs: nowMs,
+    trialTotalDays: 30,
+    activeSerial: serial3Months,
+    nowMs,
+  });
+  assert.equal(protection.status, 'LICENSE_ACTIVE');
+  assert.equal(protection.isLocked, false);
+  assert.equal(protection.licenseDetails?.durationDays, 90);
+});
+
+test('Track 24 Haseb Zero-Tax Invariant & WhatsApp Slash (/) Quick Shortcuts CRUD + Chat Bar Document Composers', async () => {
+  const {
+    SEED_WHATSAPP_SLASH_SHORTCUTS,
+    normalizeSlashCommandToken,
+    filterWhatsAppSlashShortcuts,
+    expandWhatsAppSlashShortcut,
+    upsertWhatsAppSlashShortcut,
+    deleteWhatsAppSlashShortcut,
+    composeChatBarQuickDocumentText,
+  } = await import('./communicationsEngine');
+  const { DEFAULT_MASTER_SYSTEM_CONFIG } = await import('./systemConfigEngine');
+  const { SEED_PRODUCTS, SEED_SALES_INVOICES, SEED_PURCHASE_ORDERS } = await import('../data/seedData');
+
+  // 1. Verify Zero-Tax (0%) invariant across system config and seed data
+  assert.equal(DEFAULT_MASTER_SYSTEM_CONFIG.defaultTaxRatePercent, 0);
+  assert.equal(DEFAULT_MASTER_SYSTEM_CONFIG.enableTaxCalculation, false);
+  for (const prod of SEED_PRODUCTS) {
+    assert.equal(prod.taxRate, 0, `Product ${prod.sku} must have 0% taxRate`);
+  }
+  for (const inv of SEED_SALES_INVOICES) {
+    assert.equal(inv.taxAmount, 0, `Invoice ${inv.invoiceNumber} must have 0 taxAmount`);
+  }
+  for (const po of SEED_PURCHASE_ORDERS) {
+    assert.equal(po.taxAmount, 0, `PO ${po.poNumber} must have 0 taxAmount`);
+  }
+
+  // 2. Verify Slash (/) Quick-Shortcuts normalization, filtering, expansion & CRUD
+  assert.equal(normalizeSlashCommandToken('ترحيب'), '/ترحيب');
+  assert.equal(normalizeSlashCommandToken('/فاتورة'), '/فاتورة');
+
+  const filtered = filterWhatsAppSlashShortcuts(SEED_WHATSAPP_SLASH_SHORTCUTS, '/قس');
+  assert.equal(filtered.isSlashActive, true);
+  assert.ok(filtered.matchedShortcuts.length >= 1);
+  assert.equal(filtered.matchedShortcuts[0].command, '/قسط');
+
+  const expanded = expandWhatsAppSlashShortcut(SEED_WHATSAPP_SLASH_SHORTCUTS[0], {
+    customerName: 'شركة البناء الحديث',
+    companyName: 'مؤسسة حاسب للطاقة',
+    balance: 12500,
+    currency: 'ر.س',
+  });
+  assert.ok(expanded.includes('شركة البناء الحديث'));
+  assert.ok(expanded.includes('مؤسسة حاسب للطاقة'));
+
+  // Add new shortcut
+  const afterAdd = upsertWhatsAppSlashShortcut(SEED_WHATSAPP_SLASH_SHORTCUTS, {
+    command: 'خصم',
+    titleAr: 'عرض خصم خاص للعميل',
+    categoryAr: 'المبيعات والفواتير',
+    contentAr: 'عميلنا {العميل}، يسعدنا منحكم خصماً خاصاً من {الشركة}.',
+  });
+  assert.equal(afterAdd.length, SEED_WHATSAPP_SLASH_SHORTCUTS.length + 1);
+  assert.equal(afterAdd[0].command, '/خصم');
+
+  // Edit existing shortcut
+  const targetId = afterAdd[0].id;
+  const afterEdit = upsertWhatsAppSlashShortcut(afterAdd, {
+    id: targetId,
+    command: '/خصم_خاص',
+    titleAr: 'عرض خصم VIP',
+    categoryAr: 'المبيعات والفواتير',
+    contentAr: 'عرض VIP للعميل {العميل}',
+  });
+  assert.equal(afterEdit.length, afterAdd.length);
+  assert.equal(afterEdit[0].command, '/خصم_خاص');
+  assert.equal(afterEdit[0].titleAr, 'عرض خصم VIP');
+
+  // Delete shortcut
+  const afterDelete = deleteWhatsAppSlashShortcut(afterEdit, targetId);
+  assert.equal(afterDelete.length, SEED_WHATSAPP_SLASH_SHORTCUTS.length);
+
+  // 3. Verify Chat Composer Bar Quick Document Builders (Invoice, Receipt, Statement, Installment)
+  const invDoc = composeChatBarQuickDocumentText({
+    docType: 'INVOICE',
+    customerName: 'مؤسسة الأفق',
+    companyName: 'نظام حاسب',
+    currency: 'ر.س',
+    invoiceNumber: 'INV-2026-500',
+    invoiceTotal: 8400,
+  });
+  assert.equal(invDoc.attachmentType, 'INVOICE');
+  assert.ok(invDoc.text.includes('INV-2026-500'));
+  assert.ok(invDoc.text.includes('معفى من الضريبة'));
+
+  const instDoc = composeChatBarQuickDocumentText({
+    docType: 'INSTALLMENT',
+    customerName: 'مؤسسة الأفق',
+    companyName: 'نظام حاسب',
+    currency: 'ر.س',
+    installmentAmount: 1500,
+    remainingBalance: 4500,
+  });
+  assert.equal(instDoc.attachmentType, 'DEBT_REMINDER');
+  assert.ok(instDoc.text.includes('إشعار استحقاق قسط'));
+  assert.ok(instDoc.text.includes('1,500'));
+});

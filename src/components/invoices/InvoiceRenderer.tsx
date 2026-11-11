@@ -195,7 +195,7 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
               ? 'إيصال مبيعات مبسط 80mm'
               : is58mm
               ? 'إيصال نقاط البيع 58mm'
-              : 'فاتورة ضريبية مبسطة 80mm'}
+              : 'فاتورة مبيعات معتمدة 80mm'}
           </div>
           <h4 className={`font-black text-slate-900 font-sans ${is58mm ? 'text-xs' : 'text-sm'} mt-1`}>
             {companyName}
@@ -276,7 +276,7 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
                     </div>
                   </div>
                   <div className="text-[9px] text-slate-400 font-sans">
-                    سعر الوحدة: {item.unitPrice.toFixed(2)} | ضريبة: {item.taxAmount.toFixed(2)}
+                    سعر الوحدة: {item.unitPrice.toFixed(2)} {currency}
                   </div>
 
                   {/* Electronics Warranty / Serial Details */}
@@ -317,7 +317,7 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
         {/* Totals Section */}
         <div className="space-y-1 text-xs border-b-2 border-dashed border-slate-300 pb-3 mb-3 font-sans">
           <div className="flex justify-between text-slate-600">
-            <span>المجموع قبل الضريبة:</span>
+            <span>المجموع الفرعي:</span>
             <span className="font-mono">{invoice.subtotal.toFixed(2)} {currency}</span>
           </div>
           {invoice.discountAmount > 0 && (
@@ -336,10 +336,6 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
               <span className="font-mono">-{invoice.discountAmount.toFixed(2)} {currency}</span>
             </div>
           )}
-          <div className="flex justify-between text-slate-600">
-            <span>ضريبة القيمة المضافة ({invoice.items[0]?.taxRate ? Math.round(invoice.items[0].taxRate * 100) : 15}%):</span>
-            <span className="font-mono">{invoice.taxAmount.toFixed(2)} {currency}</span>
-          </div>
           <div className="flex justify-between text-sm font-black text-slate-900 pt-1.5 border-t border-slate-200">
             <span>الإجمالي النهائي:</span>
             <span className="font-mono">{invoice.grandTotal.toFixed(2)} {currency}</span>
@@ -428,16 +424,16 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
               }`}
             >
               {isElectronicsA4
-                ? 'فاتورة مبيعات ضريبية + شهادة ضمان معتمدة للأجهزة والطاقة الشمسية (Official Warranty A4)'
+                ? 'فاتورة مبيعات معتمدة + شهادة ضمان رسمية للأجهزة والطاقة الشمسية (Official Warranty A4)'
                 : isMedicalA4
                 ? 'فاتورة توريد طبي وصيدلاني معتمدة (FEFO / Batch A4)'
                 : isContracting
                 ? 'فاتورة مستخلصات مقاولات وتوريدات هندسية معتمدة (Contracting & Specs A4)'
                 : isMinimalistClean
-                ? 'فاتورة ضريبية مبسطة ذات تصميم مينيمل معاصر (Minimalist Clean A4)'
+                ? 'فاتورة مبيعات مبسطة ذات تصميم مينيمل معاصر (Minimalist Clean A4)'
                 : isModernBlue
-                ? 'فاتورة ضريبية إلكترونية معتمدة (Modern Blue A4)'
-                : 'فاتورة ضريبية رسمية للشركات (Corporate Classic A4)'}
+                ? 'فاتورة مبيعات إلكترونية معتمدة (Modern Blue A4)'
+                : 'فاتورة مبيعات رسمية للشركات — نظام حاسب (Corporate Classic A4)'}
             </span>
           </div>
           <h2 className="text-xl sm:text-2xl font-black">{companyName}</h2>
@@ -540,8 +536,7 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
               )}
               <th className="py-3 px-3 text-center">الكمية</th>
               <th className="py-3 px-3">سعر الوحدة</th>
-              <th className="py-3 px-3">الضريبة</th>
-              <th className="py-3 px-3">الإجمالي شامل الضريبة</th>
+              <th className="py-3 px-3">الإجمالي الصافي</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
@@ -584,9 +579,6 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
                   <td className="py-3 px-3 text-center font-bold">{item.quantity}</td>
                   <td className="py-3 px-3 font-mono">
                     {item.unitPrice.toFixed(2)} {currency}
-                  </td>
-                  <td className="py-3 px-3 font-mono text-amber-700">
-                    {item.taxAmount.toFixed(2)} {currency}
                   </td>
                   <td className="py-3 px-3 font-mono font-black text-slate-900">
                     {item.total.toFixed(2)} {currency}
@@ -657,7 +649,7 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
         <div className="md:col-span-5 space-y-3">
           <div className="p-4 rounded-xl bg-slate-900 text-white space-y-2 text-xs">
             <div className="flex justify-between text-slate-300">
-              <span>إجمالي المبلغ (غير شامل الضريبة):</span>
+              <span>إجمالي قيمة الأصناف:</span>
               <span className="font-mono font-bold">
                 {invoice.subtotal.toFixed(2)} {currency}
               </span>
@@ -680,14 +672,8 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
                 </span>
               </div>
             )}
-            <div className="flex justify-between text-amber-300">
-              <span>ضريبة القيمة المضافة ({invoice.items[0]?.taxRate ? Math.round(invoice.items[0].taxRate * 100) : 15}% VAT):</span>
-              <span className="font-mono font-bold">
-                {invoice.taxAmount.toFixed(2)} {currency}
-              </span>
-            </div>
             <div className="border-t border-slate-700 pt-2.5 flex justify-between text-base font-black text-emerald-400">
-              <span>الإجمالي المستحق:</span>
+              <span>الإجمالي النهائي المستحق:</span>
               <span className="font-mono">
                 {invoice.grandTotal.toFixed(2)} {currency}
               </span>

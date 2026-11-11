@@ -28,6 +28,7 @@ export type LicenseDurationPreset =
   | '1_DAY'
   | '1_WEEK'
   | '1_MONTH'
+  | '3_MONTHS'
   | '1_YEAR'
   | 'CUSTOM_DAYS'
   | 'LIFETIME';
@@ -179,6 +180,8 @@ export function resolveLicenseDurationDays(
       return 7;
     case '1_MONTH':
       return 30;
+    case '3_MONTHS':
+      return 90;
     case '1_YEAR':
       return 365;
     case 'LIFETIME':
@@ -186,7 +189,7 @@ export function resolveLicenseDurationDays(
     case 'CUSTOM_DAYS':
       return Math.max(1, Math.min(36500, Math.floor(customDays || 1)));
     default:
-      return 30;
+      return 90;
   }
 }
 
@@ -194,14 +197,14 @@ export function resolveLicenseDurationDays(
  * Developer Keygen: Generates a Single-Device Activation Serial from a client's Request Code
  * Format: RLM-ACT-<DEV6>-<DUR4>-<ISS8>-<SIG8>
  * - DEV6: 6-char device-binding token derived from the 12-char hardware digest
- * - DUR4: 4-char hex of duration in days (0001 = 1 day, 0007 = 7 days, 001E = 30 days, 016D = 365 days, 8E94 = Lifetime)
+ * - DUR4: 4-char hex of duration in days (0001 = 1 day, 0007 = 7 days, 001E = 30 days, 005A = 90 days / 3 months, 016D = 365 days, 8E94 = Lifetime)
  * - ISS8: 8-char hex of issue timestamp in minutes since epoch (allows exact expiry calculation)
  * - SIG8: 8-char cryptographic signature binding DEV6 + FULL_DIGEST12 + DUR4 + ISS8
  */
 export function generateActivationSerial(
   requestCode: string,
   preset: LicenseDurationPreset,
-  customDays = 30,
+  customDays = 90,
   nowMs: number = Date.now()
 ): string {
   const reqValidation = validateMachineRequestCode(requestCode);
@@ -308,6 +311,9 @@ export function verifyActivationSerial(
   } else if (durationDays === 30) {
     durationLabelAr = 'شهر واحد (30 يوماً)';
     durationLabelEn = '1 Month (30 Days)';
+  } else if (durationDays === 90) {
+    durationLabelAr = '3 أشهر (90 يوماً)';
+    durationLabelEn = '3 Months (90 Days)';
   } else if (durationDays === 365) {
     durationLabelAr = 'سنة كاملة (365 يوماً)';
     durationLabelEn = '1 Full Year (365 Days)';

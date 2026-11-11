@@ -250,12 +250,16 @@ const MainLayout: React.FC = () => {
         <LoginGate />
       ) : (
         <div
-          className={`h-screen max-h-screen overflow-hidden flex flex-col selection:bg-slate-900 selection:text-white ${
+          className={`h-screen max-h-screen overflow-hidden flex flex-col selection:bg-emerald-600 selection:text-white transition-colors duration-200 ${
             uiTheme === 'obsidian_dark'
-              ? 'bg-slate-950 text-slate-100'
+              ? 'bg-[#0b0f19] text-slate-100'
               : uiTheme === 'swiss_light'
-              ? 'bg-zinc-50 text-zinc-900'
-              : 'bg-[#f4f6f8] text-slate-900'
+              ? 'bg-[#f8fafc] text-slate-900'
+              : uiTheme === 'haseb_royal'
+              ? 'bg-[#f2f6fc] text-slate-900'
+              : uiTheme === 'haseb_sand'
+              ? 'bg-[#f6f4ee] text-stone-900'
+              : 'bg-[#f3f7f6] text-slate-900'
           }`}
         >
           {/* Top Enterprise Bar — rendered exclusively when authenticated */}
@@ -310,9 +314,15 @@ const MainLayout: React.FC = () => {
                     key={item.k}
                     type="button"
                     onClick={() => setActiveTab(item.tab)}
-                    className="hover:text-white transition flex items-center gap-1 cursor-pointer"
+                    className="hover:text-emerald-600 dark:hover:text-emerald-400 transition flex items-center gap-1 cursor-pointer font-semibold"
                   >
-                    <kbd className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-200 font-mono text-[10px]">
+                    <kbd
+                      className={`px-1.5 py-0.5 rounded border font-mono text-[10px] font-bold ${
+                        uiTheme === 'obsidian_dark' || uiTheme === 'haseb_royal'
+                          ? 'bg-slate-900 border-slate-700 text-slate-200'
+                          : 'bg-slate-100 border-slate-300 text-slate-700'
+                      }`}
+                    >
                       {item.k}
                     </kbd>
                     <span>{item.l}</span>
@@ -320,43 +330,19 @@ const MainLayout: React.FC = () => {
                 ))}
               </div>
 
-              <div className="flex items-center gap-3 font-mono text-[10px]">
-                {/* Trial / License Status Badge in Bottom Bar */}
-                <button
-                  type="button"
-                  data-testid="footer-license-btn"
-                  onClick={() => setActiveTab('security')}
-                  className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 transition cursor-pointer"
-                  title={language === 'ar' ? 'حالة الترخيص وبصمة الجهاز' : 'Hardware License Status'}
-                >
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full ${
-                      protectionState.status === 'LICENSE_ACTIVE' ? 'bg-emerald-400' : 'bg-amber-400'
-                    }`}
-                  />
-                  <span>
-                    {protectionState.status === 'LICENSE_ACTIVE'
-                      ? language === 'ar'
-                        ? 'نسخة مرخصة'
-                        : 'Licensed'
-                      : language === 'ar'
-                      ? `نسخة تجريبية · ${protectionState.trialRemainingDays} يوم`
-                      : `Trial · ${protectionState.trialRemainingDays}d`}
-                  </span>
-                </button>
-
+              <div className="flex items-center gap-3 font-mono text-[11px] font-semibold">
                 {networkInfo && (
                   <button
                     type="button"
                     onClick={openLanPortal}
-                    className="text-sky-400 hover:text-sky-300 flex items-center gap-1 cursor-pointer transition"
+                    className="text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-1 cursor-pointer transition"
                     title={language === 'ar' ? 'انقر لفتح بوابة ربط الجوال والشبكة المحلية' : 'Click to open Mobile LAN Portal'}
                   >
                     <Wifi className="w-3 h-3" />
                     <span>LAN: {networkInfo.primaryLanUrl.replace('http://', '')}</span>
                   </button>
                 )}
-                <span className="text-emerald-400">RAM-DB SYNC: {syncLatencyMs}ms</span>
+                <span className="text-emerald-600 dark:text-emerald-400">RAM-DB SYNC: {syncLatencyMs}ms</span>
               </div>
             </div>
           )}

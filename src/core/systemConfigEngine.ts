@@ -96,8 +96,8 @@ export const DEFAULT_MASTER_SYSTEM_CONFIG: MasterSystemConfig = {
   sectorModeEnabled: true,
   globalCountryMode: 'GLOBAL',
   globalDefaultCurrency: 'SAR',
-  defaultTaxRatePercent: 15,
-  enableTaxCalculation: true,
+  defaultTaxRatePercent: 0,
+  enableTaxCalculation: false,
   cardPaymentLabelAr: 'بطاقة بنكية / دفع إلكتروني (POS Card)',
   cashPaymentLabelAr: 'نقدي فوري (Cash)',
   visibleModules: {

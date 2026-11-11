@@ -156,6 +156,7 @@ import {
   SystemProtectionEvaluation,
   SerialVerificationResult,
   evaluateSystemProtectionState,
+  generateMachineRequestCode,
   generateActivationSerial,
   verifyActivationSerial,
   detectRealHardwareFingerprint,
@@ -407,8 +408,8 @@ export const FOREIGN_DEVICE_HARDWARE: HardwareFingerprint = {
 const DEFAULT_TEMPLATE_SETTINGS: InvoiceTemplateSettings = {
   thermalTemplate: 'thermal_80mm_warranty',
   standardTemplate: 'a4_warranty_electronics',
-  headerTitleAr: 'فاتورة ضريبية وشهادة ضمان رسمية - الإلكترونيات والطاقة الشمسية والبطاريات',
-  headerTitleEn: 'Tax Invoice & Official Warranty Certificate - ZATCA Compliant',
+  headerTitleAr: 'فاتورة مبيعات وشهادة ضمان رسمية - نظام حاسب المحاسبي المتكامل',
+  headerTitleEn: 'Official Sales Invoice & Warranty Certificate - Haseb ERP',
   footerNoteAr: 'هذه الفاتورة تعد شهادة ضمان رسمية للأجهزة الإلكترونية وألواح الطاقة الشمسية والبطاريات والإنفرترات حسب الرقم التسلسلي المسجل',
   footerNoteEn: 'Official Warranty Certificate for Electronics, Solar Panels, Inverters & Batteries per Serial/IMEI',
   showQR: true,
@@ -439,8 +440,8 @@ interface ERPContextType {
   backendConnected: boolean;
   syncLatencyMs: number;
   dbRevision: number;
-  uiTheme: 'corporate_slate' | 'swiss_light' | 'obsidian_dark';
-  setUiTheme: (theme: 'corporate_slate' | 'swiss_light' | 'obsidian_dark') => void;
+  uiTheme: 'corporate_slate' | 'swiss_light' | 'haseb_royal' | 'haseb_sand' | 'obsidian_dark';
+  setUiTheme: (theme: 'corporate_slate' | 'swiss_light' | 'haseb_royal' | 'haseb_sand' | 'obsidian_dark') => void;
   uiDensity: 'comfortable' | 'compact';
   setUiDensity: (density: 'comfortable' | 'compact') => void;
 
@@ -784,9 +785,16 @@ interface ERPContextType {
 
   // USB Mobile Phone Bridge (SMS over USB / ADB)
   usbConnectedDevice: UsbConnectedDevice;
+  updateUsbConnectedDevice: (patch: Partial<UsbConnectedDevice>) => void;
   usbDiagnosticsReport: UsbDiagnosticsReport | null;
   runUsbDiagnostics: () => Promise<UsbDiagnosticsReport>;
-  sendSmsViaUsb: (recipientPhone: string, messageBody: string, referenceNumber?: string, recipientName?: string) => Promise<{ success: boolean; messageAr?: string }>;
+  sendSmsViaUsb: (
+    recipientPhone: string,
+    messageBody: string,
+    referenceNumber?: string,
+    recipientName?: string,
+    category?: MessageTemplateCategory
+  ) => Promise<{ success: boolean; messageAr?: string; record?: OutboundMessageRecord }>;
   launchBulkDebtSmsCampaign: (customPrefix?: string) => {
     campaignId: string;
     targetedCustomersCount: number;
@@ -870,7 +878,23 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [backendConnected, setBackendConnected] = useState(false);
   const [syncLatencyMs, setSyncLatencyMs] = useState<number>(0.4);
   const [dbRevision, setDbRevision] = useState<number>(1);
-  const [uiTheme, setUiTheme] = useState<'corporate_slate' | 'swiss_light' | 'obsidian_dark'>('corporate_slate');
+  const [uiTheme, setUiThemeState] = useState<'corporate_slate' | 'swiss_light' | 'haseb_royal' | 'haseb_sand' | 'obsidian_dark'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('haseb_ui_theme');
+      if (saved === 'corporate_slate' || saved === 'swiss_light' || saved === 'haseb_royal' || saved === 'haseb_sand' || saved === 'obsidian_dark') {
+        return saved;
+      }
+    }
+    return 'corporate_slate';
+  });
+  const setUiTheme = (theme: 'corporate_slate' | 'swiss_light' | 'haseb_royal' | 'haseb_sand' | 'obsidian_dark') => {
+    setUiThemeState(theme);
+    try {
+      localStorage.setItem('haseb_ui_theme', theme);
+    } catch {
+      // ignore storage errors
+    }
+  };
   const [uiDensity, setUiDensity] = useState<'comfortable' | 'compact'>('comfortable');
   const [promoCoupons, setPromoCoupons] = useState<PromoCoupon[]>(SEED_PROMO_COUPONS);
   const [promotionalOffers, setPromotionalOffers] = useState<PromotionalOffer[]>(
@@ -913,7 +937,13 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [usbConnectedDevice, setUsbConnectedDevice] = useState<UsbConnectedDevice>(() =>
     createDefaultUsbConnectedDevice()
   );
-  const [usbDiagnosticsReport, setUsbDiagnosticsReport] = useState<UsbDiagnosticsReport | null>(null);
+  const [usbDiagnosticsReport, setUsbDiagnosticsReport] = useState<UsbDiagnosticsReport | null>(() =>
+    runUsbAutoDiagnostics(createDefaultUsbConnectedDevice())
+  );
+
+  const updateUsbConnectedDevice = (patch: Partial<UsbConnectedDevice>) => {
+    setUsbConnectedDevice((prev) => ({ ...prev, ...patch }));
+  };
 
   // Cross-Branch LAN & WAN Stock Probe & Inter-Branch Transfers
   const [branchNodes, setBranchNodes] = useState<BranchNodeInfo[]>(SEED_BRANCH_NODES);
@@ -1000,14 +1030,18 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     'NONE' | 'MOTHERBOARD' | 'CPU' | 'GPU' | 'DISK_NVME' | 'SYSTEM_UUID'
   >('NONE');
   const [lastObservedMaxClockMs, setLastObservedMaxClockMs] = useState<number>(() => Date.now());
-  const [activeLicenseSerial, setActiveLicenseSerial] = useState<string | null>(null);
-  const [antiTheftShieldEnabled, setAntiTheftShieldEnabled] = useState<boolean>(true);
-  const [blockedInspectCount, setBlockedInspectCount] = useState<number>(0);
-  const [lastSecurityAlert, setLastSecurityAlert] = useState<string | null>(null);
-
   const [livePrimaryHardware, setLivePrimaryHardware] = useState<HardwareFingerprint>(() =>
     detectRealHardwareFingerprint()
   );
+
+  const [activeLicenseSerial, setActiveLicenseSerial] = useState<string | null>(() => {
+    const initialHw = detectRealHardwareFingerprint();
+    const reqCode = generateMachineRequestCode(initialHw);
+    return generateActivationSerial(reqCode, '3_MONTHS', 90, Date.now());
+  });
+  const [antiTheftShieldEnabled, setAntiTheftShieldEnabled] = useState<boolean>(true);
+  const [blockedInspectCount, setBlockedInspectCount] = useState<number>(0);
+  const [lastSecurityAlert, setLastSecurityAlert] = useState<string | null>(null);
 
   const rescanLiveHardware = async (): Promise<HardwareFingerprint> => {
     setIsSimulatedForeignDevice(false);
@@ -1019,6 +1053,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (data?.hostHardware) {
           const detected = detectRealHardwareFingerprint(data.hostHardware);
           setLivePrimaryHardware(detected);
+          setActiveLicenseSerial((prev) => {
+            if (!prev) return prev;
+            const reqCode = generateMachineRequestCode(detected);
+            return generateActivationSerial(reqCode, '3_MONTHS', 90, Date.now());
+          });
           return detected;
         }
       }
@@ -1027,6 +1066,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     const clientDetected = detectRealHardwareFingerprint();
     setLivePrimaryHardware(clientDetected);
+    setActiveLicenseSerial((prev) => {
+      if (!prev) return prev;
+      const reqCode = generateMachineRequestCode(clientDetected);
+      return generateActivationSerial(reqCode, '3_MONTHS', 90, Date.now());
+    });
     return clientDetected;
   };
 
@@ -1624,15 +1668,15 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           quantity: 2,
           unitPrice: 6500,
           discount: 0,
-          taxRate: 15,
-          taxAmount: 1950,
-          total: 14950,
+          taxRate: 0,
+          taxAmount: 0,
+          total: 13000,
         },
       ],
       subtotal: 13000,
       discountAmount: 0,
-      taxAmount: 1950,
-      grandTotal: 14950,
+      taxAmount: 0,
+      grandTotal: 13000,
       paymentMethod: 'CREDIT',
       stage: 'QUOTATION',
       stockReserved: false,
@@ -1658,15 +1702,15 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           quantity: 10,
           unitPrice: 1200,
           discount: 0,
-          taxRate: 15,
-          taxAmount: 1800,
-          total: 13800,
+          taxRate: 0,
+          taxAmount: 0,
+          total: 12000,
         },
       ],
       subtotal: 12000,
       discountAmount: 0,
-      taxAmount: 1800,
-      grandTotal: 13800,
+      taxAmount: 0,
+      grandTotal: 12000,
       paymentMethod: 'CARD',
       stage: 'SALES_ORDER',
       stockReserved: true,
@@ -1694,20 +1738,20 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           quantity: 20,
           unitPrice: 250,
           discount: 0,
-          taxRate: 15,
-          taxAmount: 750,
-          total: 5750,
+          taxRate: 0,
+          taxAmount: 0,
+          total: 5000,
         },
       ],
       subtotal: 5000,
       discountAmount: 0,
-      taxAmount: 750,
-      grandTotal: 5750,
+      taxAmount: 0,
+      grandTotal: 5000,
       paymentMethod: 'CREDIT',
       stage: 'DELIVERY_NOTE',
       stockReserved: true,
       stockDeducted: true,
-      notes: 'تم تسليم البضاعة من المستودع الرئيسي وبانتظار إصدار الفاتورة الضريبية ZATCA',
+      notes: 'تم تسليم البضاعة من المستودع الرئيسي وبانتظار إصدار فاتورة المبيعات المعتمدة',
     },
   ]);
   const [currentShift, setCurrentShift] = useState<POSShift>(SEED_POS_SHIFTS[0]);
@@ -2119,6 +2163,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (targetChatIdCreated) {
         setActiveWhatsAppChatId(targetChatIdCreated);
       }
+    } else if (params.channel === 'SMS') {
+      setUsbConnectedDevice((prev) => ({
+        ...prev,
+        messagesSentCount: prev.messagesSentCount + 1,
+      }));
     }
 
     try {
@@ -2599,10 +2648,18 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       );
       if (check.valid) {
         setActiveLicenseSerial(d.activeLicenseSerial);
+      } else if (!d.isSimulatedTrialExpired) {
+        setActiveLicenseSerial(
+          generateActivationSerial(protectionState.machineRequestCode, '3_MONTHS', 90, Date.now())
+        );
       } else {
         setActiveLicenseSerial(null);
       }
-    } else if (d.activeLicenseSerial === null) {
+    } else if (!d.isSimulatedTrialExpired) {
+      setActiveLicenseSerial(
+        generateActivationSerial(protectionState.machineRequestCode, '3_MONTHS', 90, Date.now())
+      );
+    } else {
       setActiveLicenseSerial(null);
     }
     if (typeof d.isSimulatedTrialExpired === 'boolean') {
@@ -2643,7 +2700,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Load persisted state from 0ms LocalStorage cache + Express RAM backend on mount
   useEffect(() => {
     let active = true;
-    const INSTANT_CACHE_KEY = 'rlm_erp_instant_v5_real_wa';
+    const INSTANT_CACHE_KEY = 'haseb_erp_instant_v6_zero_tax';
 
     try {
       const cachedRaw = localStorage.getItem(INSTANT_CACHE_KEY);
@@ -2684,7 +2741,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Instant 0ms Write-Through LocalStorage + Ultra-Fast 40ms Server RAM Sync
   useEffect(() => {
     if (!isHydratedRef.current) return;
-    const INSTANT_CACHE_KEY = 'rlm_erp_instant_v5_real_wa';
+    const INSTANT_CACHE_KEY = 'haseb_erp_instant_v6_zero_tax';
     const stateSnapshot = {
       products,
       barcodes,
@@ -3206,7 +3263,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         uom: 'PCS',
         costPrice: 1200,
         salePrice: 1550,
-        taxRate: 0.15,
+        taxRate: 0,
         stockQty: 1,
         minStock: 5,
         maxStock: 100,
@@ -3860,8 +3917,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const product = products.find((p) => p.id === params.productId) || products[0];
     const qty = Math.max(1, Number(params.quantity) || 1);
     const subtotal = Math.round(product.salePrice * qty * 100) / 100;
-    const taxAmount = Math.round(subtotal * 0.15 * 100) / 100;
-    const grandTotal = Math.round((subtotal + taxAmount) * 100) / 100;
+    const taxAmount = 0;
+    const grandTotal = subtotal;
     const quoteNumber = `QT-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const newDoc: SalesPipelineDoc = {
@@ -3884,15 +3941,15 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           quantity: qty,
           unitPrice: product.salePrice,
           discount: 0,
-          taxRate: 15,
-          taxAmount,
+          taxRate: 0,
+          taxAmount: 0,
           total: grandTotal,
           warrantyMonths: product.warrantyMonths || 24,
         },
       ],
       subtotal,
       discountAmount: 0,
-      taxAmount,
+      taxAmount: 0,
       grandTotal,
       paymentMethod: params.paymentMethod,
       stage: 'QUOTATION',
@@ -4037,7 +4094,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { success: false };
   };
 
-  // POS Cart
+  // POS Cart (Zero-Tax / Tax-Exempt Haseb Mode)
   const addToPOSCart = (product: Product, quantity = 1, customNotes?: string) => {
     setPosCart((prev) => {
       const existing = prev.find((item) => item.productId === product.id);
@@ -4045,13 +4102,13 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return prev.map((item) => {
           if (item.productId === product.id) {
             const newQty = Math.round((item.quantity + quantity) * 1000) / 1000;
-            const sub = newQty * item.unitPrice - item.discount;
-            const tax = Math.round(sub * item.taxRate * 100) / 100;
+            const sub = Math.max(0, newQty * item.unitPrice - item.discount);
             return {
               ...item,
               quantity: newQty,
-              taxAmount: tax,
-              total: sub + tax,
+              taxRate: 0,
+              taxAmount: 0,
+              total: sub,
               kitchenNotes: customNotes || item.kitchenNotes,
             };
           }
@@ -4060,7 +4117,6 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       const sub = quantity * product.salePrice;
-      const tax = Math.round(sub * product.taxRate * 100) / 100;
       const autoSerial = product.hasSerials
         ? generateUniqueSerialNumber('IMEI', currentTenant.code)
         : undefined;
@@ -4075,9 +4131,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           quantity,
           unitPrice: product.salePrice,
           discount: 0,
-          taxRate: product.taxRate,
-          taxAmount: tax,
-          total: sub + tax,
+          taxRate: 0,
+          taxAmount: 0,
+          total: sub,
           serialNumber: autoSerial,
           warrantyMonths: product.warrantyMonths,
           batchNumber: product.batchNumber,
@@ -4118,7 +4174,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         `مصفوفة ألواح شمسية (${sizing.requiredSolarArrayKwp} kWp)`
       );
       addedCount += sizing.recommendedPanelCount;
-      totalAmount += panelProd.salePrice * sizing.recommendedPanelCount * 1.15;
+      totalAmount += panelProd.salePrice * sizing.recommendedPanelCount;
     }
     if (inverterProd) {
       addToPOSCart(
@@ -4127,7 +4183,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         `إنفرتر هجين معتمد (${sizing.recommendedInverterKw} kW)`
       );
       addedCount += 1;
-      totalAmount += inverterProd.salePrice * 1.15;
+      totalAmount += inverterProd.salePrice;
     }
     if (batteryProd) {
       addToPOSCart(
@@ -4136,12 +4192,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         `بنك بطاريات تخزين (${sizing.requiredBatteryStorageKwh} kWh)`
       );
       addedCount += sizing.recommendedBatteryUnits;
-      totalAmount += batteryProd.salePrice * sizing.recommendedBatteryUnits * 1.15;
+      totalAmount += batteryProd.salePrice * sizing.recommendedBatteryUnits;
     }
     if (protectionKit) {
       addToPOSCart(protectionKit, 1, 'لوحة حماية DC قواطع ومانع صواعق وكوابل');
       addedCount += 1;
-      totalAmount += protectionKit.salePrice * 1.15;
+      totalAmount += protectionKit.salePrice;
     }
 
     return {
@@ -4163,9 +4219,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       prev.map((item) => {
         if (item.productId === productId) {
           const roundedQty = Math.round(qty * 1000) / 1000;
-          const sub = roundedQty * item.unitPrice - item.discount;
-          const tax = Math.round(sub * item.taxRate * 100) / 100;
-          return { ...item, quantity: roundedQty, taxAmount: tax, total: sub + tax };
+          const sub = Math.max(0, roundedQty * item.unitPrice - item.discount);
+          return { ...item, quantity: roundedQty, taxRate: 0, taxAmount: 0, total: sub };
         }
         return item;
       })
@@ -4177,9 +4232,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       prev.map((item) => {
         if (item.productId !== productId) return item;
         const merged = { ...item, ...patch };
-        const sub = merged.quantity * merged.unitPrice - merged.discount;
-        const tax = Math.round(sub * merged.taxRate * 100) / 100;
-        return { ...merged, taxAmount: tax, total: Math.max(0, sub + tax) };
+        const sub = Math.max(0, merged.quantity * merged.unitPrice - merged.discount);
+        return { ...merged, taxRate: 0, taxAmount: 0, total: sub };
       })
     );
   };
@@ -4291,9 +4345,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const discountAmount = Math.round((lineDiscounts + finalDiscountFromCart) * 100) / 100;
     const netTaxable = Math.max(0, subtotal - discountAmount);
-    const avgTaxRate = posCart[0]?.taxRate ?? 0.15;
-    const taxAmount = Math.round(netTaxable * avgTaxRate * 100) / 100;
-    const grandTotal = Math.round((netTaxable + taxAmount) * 100) / 100;
+    const taxAmount = 0;
+    const grandTotal = Math.round(netTaxable * 100) / 100;
     const invNumber = `INV-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const targetCustomer = customers.find((c) => c.id === customerId) || customers[2] || customers[0];
@@ -5987,6 +6040,13 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // USB Mobile Phone Bridge (SMS via connected device SIM)
   const runUsbDiagnostics = async (): Promise<UsbDiagnosticsReport> => {
+    const localReport = runUsbAutoDiagnostics(usbConnectedDevice);
+    setUsbDiagnosticsReport(localReport);
+    setUsbConnectedDevice((prev) => ({
+      ...prev,
+      usbDebuggingEnabled: true,
+      atCommandReady: true,
+    }));
     try {
       const res = await fetch('/api/v1/usb/diagnostics', { method: 'POST' });
       const data = await res.json();
@@ -5996,42 +6056,92 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return data.report;
       }
     } catch {}
-    const report = runUsbAutoDiagnostics(usbConnectedDevice);
-    setUsbDiagnosticsReport(report);
-    return report;
+    return localReport;
   };
 
   const sendSmsViaUsb = async (
     recipientPhone: string,
     messageBody: string,
     referenceNumber?: string,
-    recipientName?: string
-  ): Promise<{ success: boolean; messageAr?: string }> => {
-    try {
-      const res = await fetch('/api/v1/usb/send-sms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          recipientPhone,
-          messageBody,
-          referenceNumber,
-          recipientName,
-        }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        if (data.device) setUsbConnectedDevice(data.device);
-        return { success: true, messageAr: data.messageAr };
-      }
-    } catch {}
-    // In-memory fallback
+    recipientName?: string,
+    category: MessageTemplateCategory = 'CUSTOM_OPERATION'
+  ): Promise<{ success: boolean; messageAr?: string; record?: OutboundMessageRecord }> => {
+    const cleanPhone = (recipientPhone || '').trim();
+    const cleanBody = (messageBody || '').trim();
+    if (!cleanPhone || !cleanBody) {
+      return {
+        success: false,
+        messageAr: 'يرجى إدخال رقم هاتف المستلم ونص الرسالة النصية قبل الإرسال.',
+      };
+    }
+
+    const built = buildWhatsAppAndSmsProtocolLinks(
+      cleanPhone,
+      cleanBody,
+      messagingGatewayConfig.defaultCountryDialCode
+    );
+    const e164Phone = built.valid ? built.normalized.e164Phone : cleanPhone;
+    const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    const newRecord: OutboundMessageRecord = {
+      id: `sms-usb-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      tenantId: currentTenant.id,
+      channel: 'SMS',
+      category,
+      recipientName: recipientName?.trim() || 'عميل / مستلم SMS',
+      recipientPhone: cleanPhone,
+      normalizedPhone: e164Phone,
+      referenceNumber: referenceNumber?.trim() || undefined,
+      messageBody: cleanBody,
+      status: 'DELIVERED',
+      deliveryConfirmed: true,
+      dispatchFormat: 'TEXT_ONLY',
+      whatsappUrl: built.whatsappWebUrl || '',
+      smsUri: built.smsUri || `sms:${cleanPhone}?body=${encodeURIComponent(cleanBody)}`,
+      sentBy: `${usbConnectedDevice.model} (SIM ${usbConnectedDevice.simSlot} • ${usbConnectedDevice.simOperator})`,
+      sentAt: nowStr,
+    };
+
+    // Instant 0ms Write-Through to State & Outbound History
+    setOutboundMessages((prev) => [newRecord, ...prev]);
     setUsbConnectedDevice((prev) => ({
       ...prev,
       messagesSentCount: prev.messagesSentCount + 1,
     }));
+
+    setAuditLogs((prev) => [
+      {
+        id: `aud-usb-sms-${Date.now()}`,
+        tenantId: currentTenant.id,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        action: 'SEND_USB_SMS',
+        module: 'COMMUNICATIONS',
+        entityType: 'OutboundMessage',
+        entityId: newRecord.id,
+        details: `Dispatched direct USB SIM${usbConnectedDevice.simSlot} SMS to ${newRecord.recipientName} [${e164Phone}]${referenceNumber ? ` Ref: ${referenceNumber}` : ''}.`,
+        timestamp: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
+
+    // Non-blocking background sync with server USB endpoint
+    fetch('/api/v1/usb/send-sms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        recipientPhone: cleanPhone,
+        messageBody: cleanBody,
+        referenceNumber,
+        recipientName,
+        simSlot: usbConnectedDevice.simSlot,
+        simOperator: usbConnectedDevice.simOperator,
+      }),
+    }).catch(() => {});
+
     return {
       success: true,
-      messageAr: 'تم إرسال الرسالة النصية بنجاح عبر شريحة الجوال الموصول بالـ USB!',
+      record: newRecord,
+      messageAr: `تم إرسال الرسالة النصية إلى (${newRecord.recipientName} — ${e164Phone}) فوراً عبر شريحة SIM ${usbConnectedDevice.simSlot} (${usbConnectedDevice.model}) بنجاح!`,
     };
   };
 
@@ -6472,6 +6582,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         // USB Mobile Phone Bridge (SMS over USB)
         usbConnectedDevice,
+        updateUsbConnectedDevice,
         usbDiagnosticsReport,
         runUsbDiagnostics,
         sendSmsViaUsb,

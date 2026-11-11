@@ -1014,5 +1014,307 @@ export function generateGeneralQRCodeMatrix(text: string, size = 25): boolean[][
   }
 }
 
+// ============================================================================
+// WHATSAPP SLASH (/) QUICK-SHORTCUTS ENGINE & CHAT COMPOSER DOCUMENT BUILDERS
+// ============================================================================
 
+export interface WhatsAppSlashShortcut {
+  id: string;
+  command: string; // e.g. '/ترحيب' or '/فاتورة'
+  titleAr: string;
+  categoryAr: string;
+  contentAr: string;
+}
 
+export const SEED_WHATSAPP_SLASH_SHORTCUTS: WhatsAppSlashShortcut[] = [
+  {
+    id: 'sc-welcome',
+    command: '/ترحيب',
+    titleAr: 'رسالة ترحيب رسمية بالعميل',
+    categoryAr: 'خدمة العملاء',
+    contentAr:
+      'مرحباً بك عميلنا العزيز ({العميل}) في *{الشركة}* 🌟\nنسعد بخدمتكم وتلبية كافة طلباتكم في منظومات الطاقة الشمسية والإلكترونيات والبطاريات المعتمدة بضمان الوكيل.',
+  },
+  {
+    id: 'sc-invoice',
+    command: '/فاتورة',
+    titleAr: 'إشعار إرسال فاتورة مبيعات صافية',
+    categoryAr: 'المبيعات والفواتير',
+    contentAr:
+      '📄 *إشعار فاتورة مبيعات معتمدة — نظام حاسب*\nالمكرم: *{العميل}*\nتم إصدار وتوثيق فاتورتكم الصافية بنجاح في النظام مع تفعيل شهادة الضمان الرقمية للأصناف المسجلة.\nتاريخ الإصدار: {التاريخ}',
+  },
+  {
+    id: 'sc-receipt',
+    command: '/سند_قبض',
+    titleAr: 'تأكيد استلام دفعة وسند قبض مالي',
+    categoryAr: 'المحاسبة والتحصيل',
+    contentAr:
+      '💵 *تأكيد سند قبض مالي معتمد — نظام حاسب*\nالسادة / *{العميل}*\nنفيدكم باستلام دفعتكم المالية بنجاح وقيدها في حسابكم لدينا بتاريخ {التاريخ}.\nالرصيد المتبقي الحالي: *{الرصيد} {العملة}*.\nشكراً لالتزامكم وثقتكم الغالية ✅',
+  },
+  {
+    id: 'sc-statement',
+    command: '/كشف_حساب',
+    titleAr: 'إرسال ملخص كشف حساب العميل',
+    categoryAr: 'المحاسبة والتحصيل',
+    contentAr:
+      '📊 *ملخص كشف حساب معتمد — {الشركة}*\nالسادة المحترمون / *{العميل}*\nنحيطكم علماً بأن إجمالي الرصيد القائم المسجل في حسابكم حتى تاريخ {التاريخ} هو: *{الرصيد} {العملة}*.\nلأي استفسار أو مطابقة، يسعدنا تواصلكم المباشر مع الإدارة المالية.',
+  },
+  {
+    id: 'sc-installment',
+    command: '/قسط',
+    titleAr: 'تذكير بموعد سداد قسط مستحق',
+    categoryAr: 'الأقساط والتمويل',
+    contentAr:
+      '📅 *إشعار استحقاق قسط دوري — {الشركة}*\nعميلنا الكريم / *{العميل}*\nنود تذكيركم بحلول موعد سداد القسط المستحق من إجمالي رصيدكم القائم ({الرصيد} {العملة}).\nنرجو التكرم بالسداد وإرسال إشعار التحويل لتحديث جدول الأقساط آلياً.',
+  },
+  {
+    id: 'sc-warranty',
+    command: '/ضمان',
+    titleAr: 'شروط وتعليمات شهادة الضمان المعتمدة',
+    categoryAr: 'الضمان والصيانة',
+    contentAr:
+      '🛡️ *شهادة الضمان المعتمدة — {الشركة}*\nجميع الألواح الشمسية والإنفرترات والبطاريات والشاشات مكفولة بضمان الوكيل المعتمد ضد الأعطال المصنعية بموجب الرقم التسلسلي (S/N) المسجل في الفاتورة.',
+  },
+  {
+    id: 'sc-bank',
+    command: '/حساب_بنكي',
+    titleAr: 'بيانات الحسابات البنكية للتحويل والسداد',
+    categoryAr: 'المحاسبة والتحصيل',
+    contentAr:
+      '🏦 *الحسابات البنكية المعتمدة — {الشركة}*\n• بنك الكريمي / الراجحي / الأهلي — باسم: {الشركة}\n• يرجى إرسال صورة إشعار التحويل في هذه المحادثة ليتم إصدار سند القبض فوراً.',
+  },
+];
+
+export function normalizeSlashCommandToken(rawCommand: string): string {
+  const trimmed = (rawCommand || '').trim().replace(/\s+/g, '_');
+  if (!trimmed) return '/اختصار';
+  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+}
+
+export function filterWhatsAppSlashShortcuts(
+  shortcuts: WhatsAppSlashShortcut[],
+  rawInputText: string
+): {
+  isSlashActive: boolean;
+  query: string;
+  matchedShortcuts: WhatsAppSlashShortcut[];
+} {
+  const text = rawInputText || '';
+  const trimmedStart = text.trimStart();
+  if (!trimmedStart.startsWith('/')) {
+    return {
+      isSlashActive: false,
+      query: '',
+      matchedShortcuts: shortcuts,
+    };
+  }
+
+  const query = trimmedStart.slice(1).trim().toLowerCase();
+  if (!query) {
+    return {
+      isSlashActive: true,
+      query: '',
+      matchedShortcuts: shortcuts,
+    };
+  }
+
+  const matched = shortcuts.filter(
+    (s) =>
+      s.command.toLowerCase().includes(query) ||
+      s.titleAr.toLowerCase().includes(query) ||
+      s.categoryAr.toLowerCase().includes(query) ||
+      s.contentAr.toLowerCase().includes(query)
+  );
+
+  return {
+    isSlashActive: true,
+    query,
+    matchedShortcuts: matched,
+  };
+}
+
+export function expandWhatsAppSlashShortcut(
+  shortcut: WhatsAppSlashShortcut,
+  vars: {
+    customerName?: string;
+    customerPhone?: string;
+    companyName?: string;
+    balance?: number;
+    currency?: string;
+    dateIso?: string;
+  }
+): string {
+  const customerName = vars.customerName || 'عميلنا الكريم';
+  const customerPhone = vars.customerPhone || '';
+  const companyName = vars.companyName || 'نظام حاسب المحاسبي';
+  const balanceStr = (vars.balance ?? 0).toLocaleString();
+  const currency = vars.currency || 'SAR';
+  const dateIso = vars.dateIso || new Date().toISOString().slice(0, 10);
+
+  return shortcut.contentAr
+    .replace(/\{العميل\}/g, customerName)
+    .replace(/\{الهاتف\}/g, customerPhone)
+    .replace(/\{الشركة\}/g, companyName)
+    .replace(/\{الرصيد\}/g, balanceStr)
+    .replace(/\{العملة\}/g, currency)
+    .replace(/\{التاريخ\}/g, dateIso);
+}
+
+export function upsertWhatsAppSlashShortcut(
+  shortcuts: WhatsAppSlashShortcut[],
+  payload: {
+    id?: string;
+    command: string;
+    titleAr: string;
+    categoryAr?: string;
+    contentAr: string;
+  }
+): WhatsAppSlashShortcut[] {
+  const normalizedCommand = normalizeSlashCommandToken(payload.command);
+  const titleAr = payload.titleAr.trim() || normalizedCommand.slice(1);
+  const categoryAr = (payload.categoryAr || 'اختصار مخصص').trim();
+  const contentAr = payload.contentAr.trim();
+  if (!contentAr) return shortcuts;
+
+  if (payload.id) {
+    const exists = shortcuts.some((s) => s.id === payload.id);
+    if (exists) {
+      return shortcuts.map((s) =>
+        s.id === payload.id
+          ? { ...s, command: normalizedCommand, titleAr, categoryAr, contentAr }
+          : s
+      );
+    }
+  }
+
+  const newItem: WhatsAppSlashShortcut = {
+    id: payload.id || `sc-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+    command: normalizedCommand,
+    titleAr,
+    categoryAr,
+    contentAr,
+  };
+
+  return [newItem, ...shortcuts];
+}
+
+export function deleteWhatsAppSlashShortcut(
+  shortcuts: WhatsAppSlashShortcut[],
+  shortcutId: string
+): WhatsAppSlashShortcut[] {
+  return shortcuts.filter((s) => s.id !== shortcutId);
+}
+
+export function composeChatBarQuickDocumentText(params: {
+  docType: 'INVOICE' | 'RECEIPT' | 'STATEMENT' | 'INSTALLMENT';
+  companyName: string;
+  customerName: string;
+  customerPhone?: string;
+  currency: string;
+  invoiceNumber?: string;
+  invoiceTotal?: number;
+  invoiceItemsSummary?: string;
+  receiptNumber?: string;
+  receiptAmount?: number;
+  remainingBalance?: number;
+  installmentNumber?: number;
+  installmentTotalCount?: number;
+  installmentAmount?: number;
+  installmentDueDate?: string;
+  dateIso?: string;
+}): {
+  text: string;
+  attachmentType: 'INVOICE' | 'RECEIPT' | 'DEBT_REMINDER' | 'WARRANTY';
+  referenceNumber: string;
+} {
+  const dateIso = params.dateIso || new Date().toISOString().slice(0, 10);
+  const remBalance = Math.max(0, Number(params.remainingBalance ?? 0));
+
+  if (params.docType === 'INVOICE') {
+    const invNum = params.invoiceNumber || `INV-${new Date().getFullYear()}-1001`;
+    const total = Number(params.invoiceTotal ?? 0);
+    const itemsLine = params.invoiceItemsSummary
+      ? `\n📦 الأصناف: ${params.invoiceItemsSummary}`
+      : '';
+    return {
+      attachmentType: 'INVOICE',
+      referenceNumber: invNum,
+      text: [
+        `📄 *فاتورة مبيعات معتمدة (${invNum}) — نظام حاسب*`,
+        `🏢 *${params.companyName}*`,
+        `📅 التاريخ: ${dateIso}`,
+        `👤 العميل: *${params.customerName}*${itemsLine}`,
+        `────────────────────`,
+        `💰 *الإجمالي الصافي المستحق (معفى من الضريبة): ${total.toLocaleString()} ${params.currency}*`,
+        `✅ الفاتورة موثقة في نظام حاسب مع شهادة الضمان المعتمدة.`,
+      ].join('\n'),
+    };
+  }
+
+  if (params.docType === 'RECEIPT') {
+    const rvNum =
+      params.receiptNumber ||
+      `RV-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const amt = Number(params.receiptAmount ?? 5000);
+    return {
+      attachmentType: 'RECEIPT',
+      referenceNumber: rvNum,
+      text: [
+        `💵 *سند قبض مالي معتمد (${rvNum}) — نظام حاسب*`,
+        `🏢 *${params.companyName}*`,
+        `📅 التاريخ: ${dateIso}`,
+        `👤 استلمنا من المكرم: *${params.customerName}*`,
+        `💰 المبلغ المقبوض: *${amt.toLocaleString()} ${params.currency}*`,
+        `📊 الرصيد المتبقي بعد الدفعة: *${remBalance.toLocaleString()} ${params.currency}*`,
+        `────────────────────`,
+        `شكراً لالتزامكم بالسداد — تم ترحيل سند القبض في حسابكم فوراً ✅`,
+      ].join('\n'),
+    };
+  }
+
+  if (params.docType === 'STATEMENT') {
+    const stmtRef = `SOA-${dateIso.replace(/-/g, '')}`;
+    return {
+      attachmentType: 'DEBT_REMINDER',
+      referenceNumber: stmtRef,
+      text: [
+        `📊 *كشف حساب تفصيلي معتمد (${stmtRef}) — نظام حاسب*`,
+        `🏢 *${params.companyName}*`,
+        `👤 السادة المحترمون: *${params.customerName}*`,
+        `📅 حتى تاريخ: ${dateIso}`,
+        `────────────────────`,
+        `💳 *إجمالي الرصيد القائم المستحق: ${remBalance.toLocaleString()} ${params.currency}*`,
+        `📌 الحالة المحاسبية: ${remBalance > 0 ? 'رصيد مدين قائم للمطابقة والسداد' : 'الحساب مسدد ومطابق بالكامل ✅'}`,
+        `────────────────────`,
+        `نرجو التكرم بمراجعة الكشف والتواصل مع الإدارة المالية لأي استفسار.`,
+      ].join('\n'),
+    };
+  }
+
+  // INSTALLMENT (قسط)
+  const instNo = params.installmentNumber || 1;
+  const instTotal = params.installmentTotalCount || 6;
+  const instAmt =
+    params.installmentAmount ??
+    (remBalance > 0 ? Math.round((remBalance / Math.max(1, instTotal)) * 100) / 100 : 2500);
+  const dueDate =
+    params.installmentDueDate ||
+    new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+  const instRef = `INST-${new Date().getFullYear()}-0${instNo}`;
+
+  return {
+    attachmentType: 'DEBT_REMINDER',
+    referenceNumber: instRef,
+    text: [
+      `📅 *إشعار استحقاق قسط (${instRef}) — نظام حاسب*`,
+      `🏢 *${params.companyName}*`,
+      `👤 العميل: *${params.customerName}*`,
+      `🔢 رقم القسط: *القسط (${instNo}) من (${instTotal})*`,
+      `💵 قيمة القسط المستحق: *${instAmt.toLocaleString()} ${params.currency}*`,
+      `📆 تاريخ الاستحقاق: *${dueDate}*`,
+      `📊 إجمالي الرصيد المتبقي: *${remBalance.toLocaleString()} ${params.currency}*`,
+      `────────────────────`,
+      `يرجى التفضل بسداد القسط في موعده وإرسال إشعار التحويل لتحديث جدول الأقساط آلياً ✅`,
+    ].join('\n'),
+  };
+}

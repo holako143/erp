@@ -259,6 +259,7 @@ export const StandaloneActivationPortal: React.FC = () => {
                       <option value="1_DAY">يوم واحد (1 Day)</option>
                       <option value="1_WEEK">أسبوع واحد (1 Week)</option>
                       <option value="1_MONTH">شهر واحد (1 Month)</option>
+                      <option value="3_MONTHS">3 أشهر (90 يوماً - 3 Months)</option>
                       <option value="1_YEAR">سنة كاملة (1 Year)</option>
                       <option value="LIFETIME">مدى الحياة (Lifetime)</option>
                       <option value="CUSTOM_DAYS">مدة مخصصة بالأيام</option>

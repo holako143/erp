@@ -2,32 +2,38 @@ import React, { useState } from 'react';
 import { useERP, getVisibleModulesList } from '../../context/ERPContext';
 import {
   LayoutDashboard,
-  Barcode,
-  Package,
+  QrCode,
+  Boxes,
   ShoppingCart,
   Receipt,
-  Calculator,
+  Landmark,
   Bot,
   CloudCog,
-  Settings,
-  CreditCard,
+  SlidersHorizontal,
+  ScanBarcode,
   Menu,
   X,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
-  Layers,
+  Briefcase,
+  FolderKanban,
+  Truck,
+  Factory,
+  Crown,
   ShieldCheck,
   MessageSquare,
   TrendingUp,
 } from 'lucide-react';
+import { HasebBrandLogo } from '../common/HasebBrandLogo';
 
 export interface SidebarMenuItem {
   id: string;
   label: string;
   subtitle?: string;
   icon: React.ElementType;
+  iconColorClass?: string;
   count: number | null;
 }
 
@@ -60,9 +66,6 @@ export function shouldDisplaySidebarMenuItem(
   sectorModeEnabled: boolean | undefined,
   hasAccess: (moduleId: string) => boolean
 ): boolean {
-  // ============================================================================
-  // SECTOR MODE BRANCH (Distraction-Free UI for Electronics & Solar Retailers)
-  // ============================================================================
   if (sectorModeEnabled) {
     const allowedModuleIds = getVisibleModulesList(true);
     if (
@@ -74,9 +77,6 @@ export function shouldDisplaySidebarMenuItem(
     return allowedModuleIds.includes(item.id);
   }
 
-  // ============================================================================
-  // STANDARD ENTERPRISE BRANCH (RBAC + Master System Visibility)
-  // ============================================================================
   return hasAccess(item.id);
 }
 
@@ -102,135 +102,147 @@ export function Sidebar() {
   const lowStockCount = products.filter((p) => p.stockQty <= p.reorderPoint).length;
   const pendingPOCount = purchaseOrders.filter((po) => po.status === 'PENDING_APPROVAL').length;
 
-  // Master menu definition array before dynamic filtering
+  // Master menu definition array with distinct, domain-accurate professional icons
   const rawMenuItems: SidebarMenuItem[] = [
     {
       id: 'dashboard',
       label: t('dashboard'),
+      subtitle: language === 'ar' ? 'المؤشرات والملخص التنفيذي' : 'Executive Overview',
       icon: LayoutDashboard,
+      iconColorClass: 'text-emerald-600 dark:text-emerald-400',
       count: null,
     },
     {
       id: 'pos',
-      label: language === 'ar' ? 'نقطة البيع (POS)' : 'POS',
+      label: language === 'ar' ? 'نقطة البيع (POS)' : 'POS Terminal',
       subtitle: language === 'ar' ? 'الكاشير والفوترة الفورية' : 'Fast Checkout & Billing',
-      icon: CreditCard,
+      icon: ScanBarcode,
+      iconColorClass: 'text-emerald-600 dark:text-emerald-400',
       count: null,
     },
     {
       id: 'inventory',
-      label: language === 'ar' ? 'المخزون والجرد' : 'Inventory',
+      label: language === 'ar' ? 'المخزون والجرد' : 'Inventory & WMS',
       subtitle: language === 'ar' ? 'الأصناف والسيريال والمستودع' : 'Stock, Serials & WMS',
-      icon: Package,
+      icon: Boxes,
+      iconColorClass: 'text-amber-600 dark:text-amber-400',
       count: lowStockCount > 0 ? lowStockCount : null,
     },
     {
       id: 'sales',
-      label: language === 'ar' ? 'المبيعات والضمان' : 'Sales',
+      label: language === 'ar' ? 'المبيعات والضمان' : 'Sales & Warranty',
       subtitle: language === 'ar' ? 'الفواتير وفحص الضمان RMA' : 'Invoices & Warranty RMA',
       icon: Receipt,
+      iconColorClass: 'text-blue-600 dark:text-blue-400',
       count: null,
     },
     {
       id: 'accounting',
-      label: language === 'ar' ? 'المحاسبة المالية' : 'Accounting',
+      label: language === 'ar' ? 'المحاسبة المالية' : 'Financial Accounting',
       subtitle: language === 'ar' ? 'دفتر الأستاذ والسندات' : 'General Ledger & Vouchers',
-      icon: Calculator,
+      icon: Landmark,
+      iconColorClass: 'text-teal-600 dark:text-teal-400',
       count: null,
     },
     {
       id: 'reportsAndAI',
-      label: language === 'ar' ? 'التقارير والتحليل والذكاء الاصطناعي' : 'Reports, Analytics & AI',
-      subtitle: language === 'ar' ? 'تحليل المبيعات، الأرباح، المديونيات والذكاء المحلي' : 'Sales, Profits, Receivables & Local AI',
+      label: language === 'ar' ? 'التقارير والتحليل الذكي' : 'Reports & Analytics',
+      subtitle: language === 'ar' ? 'الأرباح والمديونيات والتحليل' : 'Profits, Aging & Insights',
       icon: TrendingUp,
+      iconColorClass: 'text-indigo-600 dark:text-indigo-400',
       count: null,
     },
     {
       id: 'communications',
       label: language === 'ar' ? 'الواتساب والرسائل (USB)' : 'WhatsApp & SMS Hub',
+      subtitle: language === 'ar' ? 'محادثات فورية وإرسال سريع' : 'Live Multi-Account Hub',
       icon: MessageSquare,
+      iconColorClass: 'text-emerald-600 dark:text-emerald-400',
       count: null,
     },
     {
       id: 'barcodeEngine',
       label: t('barcodeEngine'),
-      icon: Barcode,
+      subtitle: language === 'ar' ? 'طباعة الملصقات والباركود' : 'Label & Barcode Studio',
+      icon: QrCode,
+      iconColorClass: 'text-cyan-600 dark:text-cyan-400',
       count: null,
     },
     {
       id: 'purchasing',
       label: t('purchasing'),
+      subtitle: language === 'ar' ? 'الموردون وأوامر الشراء' : 'Vendors & Purchase Orders',
       icon: ShoppingCart,
+      iconColorClass: 'text-sky-600 dark:text-sky-400',
       count: pendingPOCount > 0 ? pendingPOCount : null,
     },
     {
       id: 'businessModules',
       label: language === 'ar' ? t('businessModules') : 'Business Modules',
-      icon: Layers,
+      icon: Briefcase,
+      iconColorClass: 'text-violet-600 dark:text-violet-400',
       count: null,
     },
     {
       id: 'projects',
       label: language === 'ar' ? 'إدارة المشاريع' : 'Projects',
-      icon: Layers,
+      icon: FolderKanban,
+      iconColorClass: 'text-purple-600 dark:text-purple-400',
       count: null,
     },
     {
       id: 'fleet',
       label: language === 'ar' ? 'الأسطول والنقل' : 'Fleet',
-      icon: Layers,
+      icon: Truck,
+      iconColorClass: 'text-amber-600 dark:text-amber-400',
       count: null,
     },
     {
       id: 'manufacturing',
       label: language === 'ar' ? 'التصنيع والإنتاج' : 'Manufacturing',
-      icon: Layers,
+      icon: Factory,
+      iconColorClass: 'text-orange-600 dark:text-orange-400',
       count: null,
     },
     {
       id: 'aiInsights',
       label: t('aiInsights'),
       icon: Bot,
+      iconColorClass: 'text-fuchsia-600 dark:text-fuchsia-400',
       count: null,
     },
     {
       id: 'masterAdmin',
       label: language === 'ar' ? 'الإدارة العليا للنظام (Master)' : 'Master System Admin',
-      icon: ShieldCheck,
+      icon: Crown,
+      iconColorClass: 'text-amber-500',
       count: null,
     },
     {
       id: 'saasPlatform',
       label: t('saasPlatform'),
       icon: CloudCog,
+      iconColorClass: 'text-sky-500',
       count: null,
     },
     {
       id: 'security',
       label: language === 'ar' ? 'الحماية والعضويات والترخيص' : 'Security & Licensing',
       icon: ShieldCheck,
+      iconColorClass: 'text-rose-600 dark:text-rose-400',
       count: null,
     },
     {
       id: 'settings',
       label: t('settings'),
-      icon: Settings,
+      icon: SlidersHorizontal,
+      iconColorClass: 'text-slate-600 dark:text-slate-400',
       count: null,
     },
   ];
 
-  // Retrieve allowed module IDs from ERPContext helper based on masterSystemConfig.sectorModeEnabled
   const allowedModuleIds = getVisibleModules();
 
-  // ============================================================================
-  // DYNAMIC MENU FILTERING SEPARATOR:
-  // Path A (masterSystemConfig.sectorModeEnabled === true):
-  //   Distraction-free mode for Electronics & Solar retailers — maps strictly
-  //   ['pos', 'inventory', 'sales', 'accounting'] into a unified card-based list
-  //   with zero legacy category separators.
-  // Path B (masterSystemConfig.sectorModeEnabled === false):
-  //   Expanded suite filtered by user permissions and Master Admin visibility.
-  // ============================================================================
   const visibleMenuItems: SidebarMenuItem[] = masterSystemConfig.sectorModeEnabled
     ? allowedModuleIds
         .map((modId) => rawMenuItems.find((item) => item.id === modId))
@@ -252,34 +264,35 @@ export function Sidebar() {
       ? PanelLeftOpen
       : PanelLeftClose;
 
-  const isLightSidebar = uiTheme === 'swiss_light';
+  // Theme-harmonized Sidebar styling:
+  // - corporate_slate, swiss_light, haseb_sand use refined light/warm rails that match the Navbar & workspace seamlessly
+  // - haseb_royal uses executive Royal Navy rail
+  // - obsidian_dark uses Carbon Dark rail
+  const isDarkRail = uiTheme === 'obsidian_dark' || uiTheme === 'haseb_royal';
+  const isSandRail = uiTheme === 'haseb_sand';
+  const isRoyalRail = uiTheme === 'haseb_royal';
 
   return (
     <>
-      {/* Desktop Sidebar (lg and up) - Clean Card-Based Navigation Rail */}
+      {/* Desktop Sidebar (lg and up) - Harmonized Architectural Navigation Rail */}
       <aside
         data-testid="desktop-sidebar"
         className={`hidden lg:flex flex-col shrink-0 h-full overflow-hidden select-none border-e transition-all duration-200 ${
-          isSidebarCollapsed ? 'w-16' : 'w-60'
+          isSidebarCollapsed ? 'w-17' : 'w-64'
         } ${
-          isLightSidebar
-            ? 'bg-white text-zinc-700 border-zinc-200'
-            : 'bg-[#0B1120] text-slate-300 border-slate-800/90'
+          isRoyalRail
+            ? 'bg-[#09152B] text-slate-200 border-[#172847]'
+            : isDarkRail
+            ? 'bg-[#080C14] text-slate-200 border-slate-800/90'
+            : isSandRail
+            ? 'bg-[#F6F1E6] text-stone-800 border-[#DDD2BE]'
+            : uiTheme === 'swiss_light'
+            ? 'bg-white text-slate-800 border-[#DCE0F0]'
+            : 'bg-[#F7FAF9] text-slate-800 border-[#D3E2DC]'
         }`}
       >
-        {/* Unified Card-Based Navigation List (Zero Legacy Category Separators) */}
-        <nav className={`flex-1 min-h-0 py-3 overflow-y-auto ${isSidebarCollapsed ? 'px-2' : 'px-2.5'}`}>
-          <div
-            className={
-              isSidebarCollapsed
-                ? 'space-y-2'
-                : `rounded-2xl border p-2.5 space-y-2 shadow-xs ${
-                    isLightSidebar
-                      ? 'bg-zinc-50/80 border-zinc-200/90'
-                      : 'bg-slate-900/60 border-slate-800/90'
-                  }`
-            }
-          >
+        <nav className={`flex-1 min-h-0 py-3 overflow-y-auto ${isSidebarCollapsed ? 'px-2' : 'px-3'}`}>
+          <div className="space-y-1.5">
             {visibleMenuItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
@@ -293,15 +306,19 @@ export function Sidebar() {
                   className={`relative w-full flex items-center rounded-xl border text-xs transition-all cursor-pointer group ${
                     isSidebarCollapsed
                       ? 'justify-center py-2.5 px-0'
-                      : 'justify-between px-3 py-3'
+                      : 'justify-between px-3 py-2.5'
                   } ${
                     isActive
-                      ? isLightSidebar
-                        ? 'bg-zinc-900 border-zinc-900 text-white shadow-sm font-semibold'
-                        : 'bg-slate-800/95 border-emerald-500/60 text-white shadow-sm font-semibold'
-                      : isLightSidebar
-                      ? 'bg-white border-zinc-200/80 text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50 font-medium'
-                      : 'bg-slate-950/70 border-slate-800/80 text-slate-300 hover:border-slate-700 hover:bg-slate-900 hover:text-white font-medium'
+                      ? isRoyalRail
+                        ? 'bg-blue-600 border-blue-500 text-white shadow-md shadow-blue-950/50 font-bold'
+                        : isDarkRail
+                        ? 'bg-emerald-600 border-emerald-500 text-white shadow-md shadow-emerald-950/50 font-bold'
+                        : 'bg-emerald-600 border-emerald-600 text-white shadow-sm font-bold'
+                      : isDarkRail
+                      ? 'bg-slate-900/55 border-slate-800/80 text-slate-300 hover:border-slate-700 hover:bg-slate-800/80 hover:text-white font-semibold'
+                      : isSandRail
+                      ? 'bg-[#FAF6EE] border-[#E2D8C5] text-stone-800 hover:border-emerald-600/50 hover:bg-white font-semibold shadow-2xs'
+                      : 'bg-white border-slate-200/85 text-slate-700 hover:border-emerald-400 hover:bg-emerald-50/30 hover:text-slate-950 font-semibold shadow-2xs'
                   }`}
                 >
                   <div
@@ -310,28 +327,28 @@ export function Sidebar() {
                     }`}
                   >
                     <div
-                      className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                      className={`w-8.5 h-8.5 rounded-xl flex items-center justify-center shrink-0 transition-all ${
                         isActive
-                          ? isLightSidebar
-                            ? 'bg-white/15 text-white'
-                            : 'bg-emerald-500/20 text-emerald-400'
-                          : isLightSidebar
-                          ? 'bg-zinc-100 text-zinc-600 group-hover:text-zinc-900'
-                          : 'bg-slate-900 text-slate-400 group-hover:text-slate-200'
+                          ? 'bg-white/20 text-white shadow-inner'
+                          : isDarkRail
+                          ? 'bg-slate-800/90 text-emerald-400 group-hover:scale-105'
+                          : isSandRail
+                          ? 'bg-[#EFE8D8] text-emerald-700 group-hover:scale-105'
+                          : `bg-slate-100/90 ${item.iconColorClass || 'text-emerald-600'} group-hover:scale-105`
                       }`}
                     >
-                      <Icon className="w-4 h-4 shrink-0" />
+                      <Icon className="w-4 h-4 shrink-0" strokeWidth={isActive ? 2.25 : 1.95} />
                     </div>
                     {!isSidebarCollapsed && (
                       <div className="truncate">
-                        <div className="truncate leading-snug">{item.label}</div>
+                        <div className="truncate leading-snug text-[13px]">{item.label}</div>
                         {item.subtitle && (
                           <div
-                            className={`text-[10px] truncate mt-0.5 ${
+                            className={`text-[11px] truncate mt-0.5 font-normal ${
                               isActive
-                                ? isLightSidebar
-                                  ? 'text-zinc-300'
-                                  : 'text-emerald-300/80'
+                                ? 'text-white/85'
+                                : isDarkRail
+                                ? 'text-slate-400'
                                 : 'text-slate-500'
                             }`}
                           >
@@ -342,13 +359,13 @@ export function Sidebar() {
                     )}
                   </div>
 
-                  {/* Understated Tabular Counter Only for Actionable Alerts */}
+                  {/* Actionable Alert Counter */}
                   {!isSidebarCollapsed && item.count !== null && (
                     <span
-                      className={`px-1.5 py-0.5 rounded-md font-mono text-[10px] font-bold tabular-nums ${
+                      className={`px-1.5 py-0.5 rounded-md font-mono text-[11px] font-bold tabular-nums ${
                         isActive
-                          ? 'bg-emerald-500/20 text-emerald-300'
-                          : 'bg-amber-500/15 text-amber-400'
+                          ? 'bg-white/25 text-white'
+                          : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
                       }`}
                     >
                       {item.count}
@@ -356,7 +373,7 @@ export function Sidebar() {
                   )}
 
                   {isSidebarCollapsed && item.count !== null && (
-                    <span className="absolute top-1.5 end-1.5 w-1.5 h-1.5 rounded-full bg-amber-500" />
+                    <span className="absolute top-1.5 end-1.5 w-2 h-2 rounded-full bg-amber-500" />
                   )}
                 </button>
               );
@@ -365,36 +382,38 @@ export function Sidebar() {
         </nav>
 
         {/* Minimalist Footer Collapse Control */}
-        <div className="p-3">
+        <div className="p-3 border-t border-black/5 dark:border-white/5">
           <button
             type="button"
             data-testid="toggle-sidebar"
             onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            className={`w-full px-3 py-2 rounded-xl border text-xs flex items-center transition cursor-pointer ${
+            className={`w-full px-3 py-2 rounded-xl border text-xs flex items-center transition cursor-pointer font-semibold ${
               isSidebarCollapsed ? 'justify-center' : 'justify-between'
             } ${
-              isLightSidebar
-                ? 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
-                : 'bg-slate-900/60 border-slate-800/80 text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+              isDarkRail
+                ? 'bg-slate-900/70 border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white'
+                : isSandRail
+                ? 'bg-[#FAF6EE] border-[#DDD2BE] text-stone-700 hover:bg-white'
+                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900'
             }`}
           >
             {!isSidebarCollapsed && (
-              <span className="font-medium text-[11px]">
+              <span className="text-xs">
                 {language === 'ar' ? 'طي القائمة الجانبية' : 'Collapse Navigation'}
               </span>
             )}
-            <CollapseIcon className="w-3.5 h-3.5 shrink-0" />
+            <CollapseIcon className="w-4 h-4 shrink-0" />
           </button>
         </div>
       </aside>
 
-      {/* Mobile Bottom Navigation Bar (sm/md only) - Focused on POS, Inventory, Sales, Accounting */}
+      {/* Mobile Bottom Navigation Bar (sm/md only) */}
       <div className="lg:hidden fixed bottom-0 inset-x-0 bg-[#0B1120] border-t border-slate-800 z-40 px-2 py-1.5 flex items-center justify-around">
         {[
-          { id: 'pos', label: language === 'ar' ? 'نقطة البيع POS' : 'POS', icon: CreditCard },
-          { id: 'inventory', label: language === 'ar' ? 'المخزون' : 'Inventory', icon: Package },
+          { id: 'pos', label: language === 'ar' ? 'نقطة البيع POS' : 'POS', icon: ScanBarcode },
+          { id: 'inventory', label: language === 'ar' ? 'المخزون' : 'Inventory', icon: Boxes },
           { id: 'sales', label: language === 'ar' ? 'المبيعات' : 'Sales', icon: Receipt },
-          { id: 'accounting', label: language === 'ar' ? 'المحاسبة' : 'Accounting', icon: Calculator },
+          { id: 'accounting', label: language === 'ar' ? 'المحاسبة' : 'Accounting', icon: Landmark },
         ].map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
@@ -403,7 +422,7 @@ export function Sidebar() {
               key={item.id}
               type="button"
               onClick={() => setActiveTab(item.id)}
-              className={`flex flex-col items-center gap-0.5 py-1 px-2.5 rounded-md text-[10px] font-semibold transition cursor-pointer ${
+              className={`flex flex-col items-center gap-0.5 py-1 px-2.5 rounded-md text-[11px] font-bold transition cursor-pointer ${
                 isActive ? 'text-emerald-400' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -416,7 +435,7 @@ export function Sidebar() {
           <button
             type="button"
             onClick={() => setIsMobileMenuOpen(true)}
-            className="flex flex-col items-center gap-0.5 py-1 px-2 rounded-md text-[10px] font-semibold text-slate-400 hover:text-slate-200 cursor-pointer"
+            className="flex flex-col items-center gap-0.5 py-1 px-2 rounded-md text-[11px] font-bold text-slate-400 hover:text-slate-200 cursor-pointer"
           >
             <Menu className="w-4 h-4" />
             <span>{language === 'ar' ? 'المزيد' : 'More'}</span>
@@ -429,8 +448,11 @@ export function Sidebar() {
         <div className="lg:hidden fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex justify-end">
           <div className="w-72 bg-[#0B1120] text-slate-200 h-full p-4 overflow-y-auto flex flex-col justify-between border-s border-slate-800">
             <div>
-              <div className="flex items-center justify-between pb-3 mb-3">
-                <span className="font-bold text-sm text-white">RLM Enterprise ERP</span>
+              <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
+                <div className="flex items-center gap-2.5">
+                  <HasebBrandLogo size="sm" theme={uiTheme} />
+                  <span className="font-bold text-sm text-white">حاسب — النظام المحاسبي</span>
+                </div>
                 <button
                   type="button"
                   onClick={() => setIsMobileMenuOpen(false)}
@@ -452,9 +474,9 @@ export function Sidebar() {
                         setActiveTab(item.id);
                         setIsMobileMenuOpen(false);
                       }}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border text-xs font-semibold transition cursor-pointer ${
+                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border text-xs font-bold transition cursor-pointer ${
                         isActive
-                          ? 'bg-slate-800 border-emerald-500/50 text-white'
+                          ? 'bg-emerald-600 border-emerald-500 text-white'
                           : 'bg-slate-950/60 border-slate-800 hover:bg-slate-900 text-slate-300'
                       }`}
                     >
@@ -468,8 +490,8 @@ export function Sidebar() {
               </div>
             </div>
 
-            <div className="pt-4 text-center text-[11px] font-mono text-slate-500">
-              RLM Financial Core v6.5
+            <div className="pt-4 text-center text-xs font-mono text-slate-400">
+              منظومة حاسب المحاسبية المتكاملة
             </div>
           </div>
         </div>
@@ -477,4 +499,3 @@ export function Sidebar() {
     </>
   );
 }
-

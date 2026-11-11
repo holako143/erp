@@ -190,9 +190,8 @@ export const POSView: React.FC = () => {
   const couponDiscountAmount = calculatedDiscountAmount;
 
   const netTaxable = Math.max(0, subtotal - calculatedDiscountAmount);
-  const effectiveTaxRate = (masterSystemConfig.defaultTaxRatePercent ?? 15) / 100;
-  const taxAmount = Math.round(netTaxable * effectiveTaxRate * 100) / 100;
-  const grandTotal = Math.round((netTaxable + taxAmount) * 100) / 100;
+  const taxAmount = 0;
+  const grandTotal = Math.round(netTaxable * 100) / 100;
 
   // Filtered Products for touch grid - Strictly limited to active industry (no cross-contamination)
   const filteredProducts = products.filter((p) => {
@@ -1268,12 +1267,6 @@ export const POSView: React.FC = () => {
                   </span>
                 </div>
               )}
-              <div className="flex justify-between text-slate-500">
-                <span>الضريبة ({masterSystemConfig.defaultTaxRatePercent}%):</span>
-                <span className="font-semibold font-mono tabular-nums" dir="ltr">
-                  {taxAmount.toFixed(2)} {currency}
-                </span>
-              </div>
               <div className="flex justify-between font-bold text-slate-900 text-sm pt-1 border-t border-slate-100">
                 <span>الإجمالي المستحق:</span>
                 <span
@@ -1586,11 +1579,11 @@ export const POSView: React.FC = () => {
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/90 flex flex-wrap items-center justify-between gap-3">
                 <div className="space-y-1">
                   <div className="text-[11px] text-slate-500 font-semibold">
-                    صافي الفاتورة شامل الضريبة ({masterSystemConfig.defaultTaxRatePercent}%):
+                    صافي الفاتورة المستحق للسداد:
                   </div>
                   <div className="flex items-center gap-3 text-[11px] text-slate-600">
                     <span>
-                      قبل الضريبة:{' '}
+                      المجموع الفرعي:{' '}
                       <strong className="font-mono text-slate-800" dir="ltr">
                         {subtotal.toFixed(2)}
                       </strong>
@@ -1600,12 +1593,6 @@ export const POSView: React.FC = () => {
                         خصم: -{couponDiscountAmount.toFixed(2)}
                       </span>
                     )}
-                    <span>
-                      الضريبة:{' '}
-                      <strong className="font-mono text-slate-800" dir="ltr">
-                        {taxAmount.toFixed(2)}
-                      </strong>
-                    </span>
                   </div>
                 </div>
                 <div className="text-end">

@@ -65,13 +65,14 @@ export const activationAuthority =
     ? new ActivationServerManager(SERVER_AUTHORITY_PRIVATE_KEY_PEM)
     : null;
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
 // Persistent Storage File Path & High-Concurrency In-Memory Write-Through Engine
 const DATA_DIR = path.resolve(process.cwd(), '.data');
 const DB_FILE = path.join(DATA_DIR, 'erp_store.json');
 const TMP_DB_FILE = path.join(DATA_DIR, 'erp_store.json.tmp');
-const CURRENT_SCHEMA_VERSION = '5.0-real-whatsapp-baileys';
+const CURRENT_SCHEMA_VERSION = '6.0-haseb-zero-tax';
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });

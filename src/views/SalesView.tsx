@@ -178,9 +178,9 @@ export const SalesView: React.FC = () => {
     }
 
     const netTaxable = Math.max(0, sub - discountAmount);
-    const configuredTaxPct = masterSystemConfig.defaultTaxRatePercent ?? 15;
-    const tax = Number((netTaxable * (configuredTaxPct / 100)).toFixed(2));
-    const total = Number((netTaxable + tax).toFixed(2));
+    const configuredTaxPct = 0;
+    const tax = 0;
+    const total = Number(netTaxable.toFixed(2));
 
     const created = addSalesInvoice({
       customerId: customer.id,
@@ -270,12 +270,12 @@ export const SalesView: React.FC = () => {
             <Receipt className="w-5 h-5 text-slate-700" />
             <span>
               {language === 'ar'
-                ? 'المبيعات والفواتير الضريبية وأعمار الديون'
-                : 'Sales Invoices, Credit Aging & Customer Ledgers'}
+                ? 'المبيعات والفواتير المعتمدة وأعمار الديون — نظام حاسب'
+                : 'Sales Invoices, Credit Aging & Customer Ledgers — Haseb ERP'}
             </span>
           </h1>
           <p className="text-xs text-slate-500 mt-1">
-            إصدار الفواتير الضريبية المعتمدة (ZATCA)، كشوف حسابات العملاء، تحليل أعمار الديون (30/60/90 يوم)، وسندات القبض الفورية
+            إصدار فواتير المبيعات وشهادات الضمان المعتمدة (معفاة من الضريبة 0%)، كشوف حسابات العملاء، تحليل أعمار الديون، وسندات القبض الفورية
           </p>
         </div>
 

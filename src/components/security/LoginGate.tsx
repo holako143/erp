@@ -9,11 +9,13 @@ import {
   AlertTriangle,
   KeyRound,
 } from 'lucide-react';
+import { HasebBrandLogo } from '../common/HasebBrandLogo';
 
 export const LoginGate: React.FC = () => {
   const {
     language,
     login,
+    uiTheme,
   } = useERP();
 
   const [username, setUsername] = useState('');
@@ -37,25 +39,25 @@ export const LoginGate: React.FC = () => {
   return (
     <div
       dir={language === 'ar' ? 'rtl' : 'ltr'}
-      className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between relative overflow-hidden select-none"
+      className="min-h-screen bg-[#070C16] text-slate-100 flex flex-col justify-between relative overflow-hidden select-none"
     >
-      {/* Background Subtle Grid & Glow */}
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(79,70,229,0.12),transparent_45%),radial-gradient(circle_at_80%_80%,rgba(16,185,129,0.09),transparent_45%)]" />
+      {/* Background Subtle Architectural Glow */}
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(5,150,105,0.14),transparent_48%),radial-gradient(circle_at_80%_80%,rgba(37,99,235,0.12),transparent_48%)]" />
 
       {/* Main Content: Clean Centered Login Card */}
       <main className="relative z-10 flex-1 flex items-center justify-center p-4 sm:p-8">
-        <div className="w-full max-w-md bg-slate-900/90 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl backdrop-blur-md">
+        <div className="w-full max-w-md bg-slate-900/95 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl backdrop-blur-md">
           <div className="text-center mb-6">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 mb-3 shadow-inner">
-              <ShieldCheck className="w-6 h-6" />
+            <div className="mb-3.5 flex justify-center">
+              <HasebBrandLogo size="xl" theme={uiTheme} />
             </div>
             <h1 className="text-2xl font-black text-white tracking-tight">
-              {language === 'ar' ? 'تسجيل الدخول' : 'Sign In'}
+              {language === 'ar' ? 'حاسب — النظام المحاسبي والمؤسسي المتكامل' : 'Haseb Enterprise ERP'}
             </h1>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-xs text-slate-400 mt-1.5 font-medium">
               {language === 'ar'
-                ? 'أدخل بيانات الاعتماد للوصول إلى لوحة التحكم'
-                : 'Enter your credentials to access the workspace'}
+                ? 'أدخل بيانات الاعتماد للوصول الفوري إلى منظومة حاسب الذكية'
+                : 'Enter your credentials to access Haseb Workspace'}
             </p>
           </div>
 
@@ -114,8 +116,8 @@ export const LoginGate: React.FC = () => {
             </div>
 
             {/* Note about default login */}
-            <div className="py-2 px-3 rounded-lg bg-slate-950/70 border border-slate-800 text-[11px] text-slate-400 flex items-center justify-center gap-1.5">
-              <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+            <div className="py-2.5 px-3 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-300 flex items-center justify-center gap-2 font-medium">
+              <KeyRound className="w-3.5 h-3.5 text-amber-400 shrink-0" />
               <span>
                 {language === 'ar'
                   ? 'اسم المستخدم: admin | كلمة السر: admin'
@@ -130,7 +132,7 @@ export const LoginGate: React.FC = () => {
             >
               <ShieldCheck className="w-4 h-4" />
               <span>
-                {language === 'ar' ? 'دخول النظام' : 'Sign In'}
+                {language === 'ar' ? 'دخول منظومة حاسب' : 'Sign In to Haseb'}
               </span>
             </button>
           </form>
@@ -138,8 +140,8 @@ export const LoginGate: React.FC = () => {
       </main>
 
       {/* Footer */}
-      <footer className="relative z-10 border-t border-slate-900/80 py-3 text-center text-xs text-slate-500">
-        <span>ASF Enterprise Secure ERP Platform • Single-Device Hardware Bound</span>
+      <footer className="relative z-10 border-t border-slate-900/80 py-3 text-center text-xs text-slate-500 font-medium">
+        <span>منظومة حاسب المحاسبية والمؤسسية المتكاملة • Haseb Enterprise ERP Platform</span>
       </footer>
     </div>
   );

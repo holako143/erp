@@ -5,9 +5,9 @@
 
 export const TRANSLATIONS = {
   ar: {
-    appName: 'RLM ERP المؤسسي',
-    appSubtitle: 'نظام تخطيط موارد المؤسسات الشامل متعدد الشركات والأنشطة',
-    searchPlaceholder: 'بحث عام في المنتجات، الفواتير، الحسابات، الأوامر... (Ctrl+K)',
+    appName: 'حاسب — النظام المحاسبي المتكامل',
+    appSubtitle: 'منظومة حاسب المؤسسية الذكية لنقاط البيع والمخزون والمحاسبة والواتساب',
+    searchPlaceholder: 'بحث سريع في حاسب: الأصناف، الفواتير، السيريال، الحسابات... (Ctrl+K)',
     
     // Navigation
     dashboard: 'لوحة التحكم والمؤشرات',
@@ -38,7 +38,7 @@ export const TRANSLATIONS = {
     notifications: 'الإشعارات',
     auditLogs: 'سجل التدقيق',
     logout: 'تسجيل الخروج',
-    trialNotice: 'نسخة تجارية كاملة الصلاحيات',
+    trialNotice: 'نسخة مفعلة رسمياً',
 
     // Common Actions
     save: 'حفظ',
@@ -56,9 +56,9 @@ export const TRANSLATIONS = {
     close: 'إغلاق',
     refresh: 'تحديث',
     status: 'الحالة',
-    total: 'الإجمالي',
+    total: 'الإجمالي الصافي',
     subtotal: 'المجموع الفرعي',
-    tax: 'ضريبة القيمة المضافة (15%)',
+    tax: 'معفى من الضريبة (0%)',
     discount: 'الخصم',
     netTotal: 'الصافي النهائي',
     paid: 'المدفوع',
@@ -95,7 +95,7 @@ export const TRANSLATIONS = {
     trialBalance: 'ميزان المراجعة بالمجاميع والأرصدة',
     incomeStatement: 'قائمة الدخل (الأرباح والخسائر)',
     balanceSheet: 'الميزانية العمومية والمركز المالي',
-    vatReturnReport: 'تقرير الإقرار الضريبي للزكاة والضريبة',
+    vatReturnReport: 'تقرير ملخص المبيعات والإيرادات',
     balancedRule: 'إجمالي المدين يجب أن يساوي إجمالي الدائن تماماً',
     reversalRule: 'لا يمكن حذف القيد بعد ترحيله، التصحيح عبر قيد عكسي موثق',
 
@@ -111,9 +111,9 @@ export const TRANSLATIONS = {
     offlineMode: 'العمل دون اتصال والمزامنة الآلية',
   },
   en: {
-    appName: 'RLM Enterprise ERP',
-    appSubtitle: 'Comprehensive Multi-Tenant & Multi-Activity ERP Platform',
-    searchPlaceholder: 'Search products, invoices, accounts, orders... (Ctrl+K)',
+    appName: 'Haseb Enterprise ERP',
+    appSubtitle: 'High-Speed Enterprise Accounting, POS, Inventory & Omnichannel Platform',
+    searchPlaceholder: 'Search Haseb: products, invoices, serials, accounts... (Ctrl+K)',
 
     // Navigation
     dashboard: 'Executive Dashboard',
@@ -144,7 +144,7 @@ export const TRANSLATIONS = {
     notifications: 'Notifications',
     auditLogs: 'Audit Log',
     logout: 'Sign Out',
-    trialNotice: 'Commercial Enterprise Edition',
+    trialNotice: 'Activated Commercial Edition',
 
     // Common Actions
     save: 'Save',
@@ -162,9 +162,9 @@ export const TRANSLATIONS = {
     close: 'Close',
     refresh: 'Refresh',
     status: 'Status',
-    total: 'Total',
+    total: 'Net Total',
     subtotal: 'Subtotal',
-    tax: 'VAT (15%)',
+    tax: 'Tax-Free (0%)',
     discount: 'Discount',
     netTotal: 'Net Total',
     paid: 'Paid',

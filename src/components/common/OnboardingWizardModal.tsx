@@ -18,6 +18,7 @@ import {
   UtensilsCrossed,
   HardHat,
 } from 'lucide-react';
+import { HasebBrandLogo } from './HasebBrandLogo';
 
 interface OnboardingWizardModalProps {
   isOpen: boolean;
@@ -41,7 +42,7 @@ export const OnboardingWizardModal: React.FC<OnboardingWizardModalProps> = ({ is
 
   const [step, setStep] = useState<number>(1);
   const [selectedIndustry, setSelectedIndustry] = useState<IndustryType>(activeIndustry || 'electronics');
-  const [selectedTheme, setSelectedTheme] = useState<'corporate_slate' | 'swiss_light' | 'obsidian_dark'>(
+  const [selectedTheme, setSelectedTheme] = useState<'corporate_slate' | 'swiss_light' | 'haseb_royal' | 'haseb_sand' | 'obsidian_dark'>(
     uiTheme || 'corporate_slate'
   );
   const [selectedCurrency, setSelectedCurrency] = useState<Currency>(currency || 'SAR');
@@ -128,18 +129,16 @@ export const OnboardingWizardModal: React.FC<OnboardingWizardModalProps> = ({ is
         {/* Header Banner */}
         <div className="relative px-6 py-5 bg-gradient-to-r from-emerald-950 via-slate-900 to-sky-950 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
-              <Sparkles className="w-6 h-6" />
-            </div>
+            <HasebBrandLogo size="md" theme={selectedTheme} />
             <div>
               <h2 className="text-xl font-black text-white flex items-center gap-2">
-                مرحباً بك في نظام ASF Enterprise ERP
+                مرحباً بك في منظومة حاسب المحاسبية المتكاملة
                 <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono">
                   معالج الإعداد الأولي
                 </span>
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
-                خطوات بسيطة وسريعة لتهيئة النظام بالكامل حسب نشاطك وهويتك المؤسسية
+                خطوات بسيطة وسريعة لتهيئة منظومة حاسب بالكامل حسب نشاطك وهويتك المؤسسية
               </p>
             </div>
           </div>
@@ -217,27 +216,39 @@ export const OnboardingWizardModal: React.FC<OnboardingWizardModalProps> = ({ is
               <div className="space-y-3">
                 <div className="flex items-center gap-2 text-sm font-bold text-slate-200">
                   <Palette className="w-4 h-4 text-sky-400" />
-                  <span>المظهر وثيم واجهة المستخدم:</span>
+                  <span>اختر ثيم وهوية منظومة حاسب (5 ثيمات احترافية مريحة للعين):</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   {[
                     {
                       id: 'corporate_slate',
-                      name: 'رمادي مؤسسي كلاسيكي (Corporate Slate)',
-                      desc: 'النمط المالي المتوازن للشركات والمؤسسات',
-                      bg: 'bg-slate-900 border-slate-600',
+                      name: 'زمرد حاسب الملكي (Imperial Emerald)',
+                      desc: 'هوية مالية متكاملة بتدرجات الزمرد الملكي وخلفية عاجية',
+                      bg: 'bg-emerald-700 border-emerald-500',
                     },
                     {
-                      id: 'obsidian_dark',
-                      name: 'أسود ليلي مريح (Obsidian Dark)',
-                      desc: 'تباين فائق مثالي لنقاط البيع والشاشات المضيئة',
-                      bg: 'bg-black border-slate-800',
+                      id: 'haseb_royal',
+                      name: 'ياقوت حاسب المصرفي (Royal Sapphire)',
+                      desc: 'طابع البنوك والمؤسسات بتدرجات الياقوت الأزرق والكحلي',
+                      bg: 'bg-blue-700 border-blue-500',
                     },
                     {
                       id: 'swiss_light',
-                      name: 'نهاري سويسري ناصع (Swiss Light)',
-                      desc: 'إضاءة ساطعة عالية الوضوح لبيئات المكاتب النهارية',
-                      bg: 'bg-zinc-100 text-zinc-900 border-zinc-300',
+                      name: 'كشمير حاسب السويسري (Swiss Cashmere)',
+                      desc: 'تصميم سويسري فائق النقاء بلمسات النيلي الملكي',
+                      bg: 'bg-indigo-700 border-indigo-400',
+                    },
+                    {
+                      id: 'haseb_sand',
+                      name: 'رمال حاسب الدافئة (Warm Oasis Paper)',
+                      desc: 'خلفية ورقية دافئة بدون أشعة زرقاء لورديات الكاشير الطويلة',
+                      bg: 'bg-[#f2ece1] border-[#d3c5ad]',
+                    },
+                    {
+                      id: 'obsidian_dark',
+                      name: 'ليل حاسب الكربوني (Obsidian Dark)',
+                      desc: 'وضع داكن احترافي شامل لجميع البطاقات والجداول',
+                      bg: 'bg-slate-950 border-emerald-500',
                     },
                   ].map((th) => {
                     const isSelected = selectedTheme === th.id;
