@@ -2465,3 +2465,63 @@ test('Track 27 — 100% Local Embedded SQLite 3 WAL Relational Database Engine (
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('Track 28 — Inventory Control, Item-Specific Barcode/SKU Generators, Carton Label Optical Scanner & Specific Classifications', async () => {
+  const {
+    SPECIFIC_INVENTORY_CLASSIFICATIONS,
+    generateUniqueProductBarcode,
+    generateUniqueProductSku,
+    extractCartonBarcodeAndSkuFromLabel,
+    resolveSpecificProductClassificationAr,
+  } = await import('./inventoryEngine');
+  const { isValidEAN13 } = await import('./barcodeEngine');
+  const { SEED_CATEGORIES } = await import('../data/seedData');
+
+  // 1. Verify specific inventory classifications
+  assert.ok(SPECIFIC_INVENTORY_CLASSIFICATIONS.length >= 7);
+  assert.equal(
+    resolveSpecificProductClassificationAr(
+      { categoryId: 'cat-electronics', subCategory: 'HYBRID_INVERTER' },
+      SEED_CATEGORIES
+    ),
+    'إنفرترات هجينة ومنظمات شحن (Hybrid Inverters)'
+  );
+  assert.equal(
+    resolveSpecificProductClassificationAr(
+      { categoryId: 'cat-smart-screens', subCategory: 'SMART_SCREEN' },
+      SEED_CATEGORIES
+    ),
+    'شاشات ذكية وتلفزيونات (Smart Screens 4K / OLED)'
+  );
+
+  // 2. Verify item-specific EAN-13 barcode generation & collision avoidance
+  const bar1 = generateUniqueProductBarcode('SOLAR_PANEL', []);
+  const bar2 = generateUniqueProductBarcode('SOLAR_PANEL', [bar1]);
+  assert.equal(bar1.length, 13);
+  assert.equal(isValidEAN13(bar1), true);
+  assert.ok(bar1.startsWith('6281051'));
+  assert.notEqual(bar1, bar2);
+
+  // 3. Verify item-specific SKU generation & collision avoidance
+  const sku1 = generateUniqueProductSku({
+    subCategory: 'HYBRID_INVERTER',
+    powerRatingWatts: 8000,
+    existingSkus: [],
+  });
+  const sku2 = generateUniqueProductSku({
+    subCategory: 'HYBRID_INVERTER',
+    powerRatingWatts: 8000,
+    existingSkus: [sku1],
+  });
+  assert.ok(sku1.startsWith('SOL-INV-8KW-'));
+  assert.notEqual(sku1, sku2);
+
+  // 4. Verify carton/piece camera label optical extraction
+  const cartonExtract = extractCartonBarcodeAndSkuFromLabel(
+    'CARTON: JINKO TIGER NEO 585W | MODEL: SOL-JNK-585N | EAN: 6281051884217',
+    'SOLAR_PANEL'
+  );
+  assert.equal(cartonExtract.extractedBarcode, '6281051884217');
+  assert.equal(cartonExtract.extractedSku, 'SOL-JNK-585N');
+  assert.equal(cartonExtract.detectedPowerWatts, 585);
+});

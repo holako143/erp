@@ -205,7 +205,14 @@ export const SEED_USERS: User[] = [
 ];
 
 export const SEED_CATEGORIES: Category[] = [
-  { id: 'cat-electronics', tenantId: 'tenant-alnoor', code: 'CAT-ELE', name: 'Electronics, Solar Panels, Batteries & Screens', nameAr: 'الإلكترونيات، ألواح الطاقة الشمسية، البطاريات والشاشات', industry: 'electronics' },
+  { id: 'cat-solar-panels', tenantId: 'tenant-alnoor', code: 'CAT-SOL-PNL', name: 'Solar Panels (N-Type & Bifacial)', nameAr: 'ألواح الطاقة الشمسية (Solar Panels N-Type)', industry: 'electronics' },
+  { id: 'cat-hybrid-inverters', tenantId: 'tenant-alnoor', code: 'CAT-HYB-INV', name: 'Hybrid Inverters & MPPT Controllers', nameAr: 'إنفرترات هجينة ومنظمات شحن (Hybrid Inverters)', industry: 'electronics' },
+  { id: 'cat-lithium-batteries', tenantId: 'tenant-alnoor', code: 'CAT-BAT-LFP', name: 'Lithium LiFePO4 Storage Batteries', nameAr: 'بطاريات ليثيوم فوسفات الحديد (LiFePO4 Batteries)', industry: 'electronics' },
+  { id: 'cat-gel-batteries', tenantId: 'tenant-alnoor', code: 'CAT-BAT-GEL', name: 'Tubular Gel & Deep Cycle Batteries', nameAr: 'بطاريات جل أنبوبية وأمبير عميق (Gel & AGM Batteries)', industry: 'electronics' },
+  { id: 'cat-smart-screens', tenantId: 'tenant-alnoor', code: 'CAT-SCR-4K', name: 'Smart TVs & 4K/OLED Displays', nameAr: 'شاشات ذكية وتلفزيونات (Smart Screens 4K / OLED)', industry: 'electronics' },
+  { id: 'cat-computing-electronics', tenantId: 'tenant-alnoor', code: 'CAT-CMP-ELC', name: 'Computers, Laptops & Smart Devices', nameAr: 'أجهزة حاسوب وإلكترونيات دقيقة (Computing & Electronics)', industry: 'electronics' },
+  { id: 'cat-solar-accessories', tenantId: 'tenant-alnoor', code: 'CAT-SOL-ACC', name: 'Solar Cables, DC Breakers & Accessories', nameAr: 'كابلات وقواطع وحمايات طاقة (Cables, Breakers & SPD)', industry: 'electronics' },
+  { id: 'cat-electronics', tenantId: 'tenant-alnoor', code: 'CAT-ELE', name: 'Electronics, Solar Panels, Batteries & Screens', nameAr: 'منظومات الطاقة والإلكترونيات المتكاملة', industry: 'electronics' },
   { id: 'cat-machinery', tenantId: 'tenant-alnoor', code: 'CAT-IND', name: 'Industrial Equipment', nameAr: 'المعدات والآلات الصناعية', industry: 'general' },
   { id: 'cat-restaurant', tenantId: 'tenant-alnoor', code: 'CAT-RES', name: 'Restaurant Meals & Specialty Coffee', nameAr: 'الوجبات المشوية والقهوة المختصة', industry: 'restaurant' },
   { id: 'cat-grocery', tenantId: 'tenant-alnoor', code: 'CAT-GRO', name: 'Supermarket & Fresh Groceries', nameAr: 'التموينات والمواد الغذائية والميزان', industry: 'grocery' },

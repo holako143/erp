@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useERP } from '../context/ERPContext';
 import {
   Package,
@@ -13,18 +13,30 @@ import {
   Network,
   ArrowRightLeft,
   Server,
-  Activity,
   CheckCheck,
   ClipboardCheck,
   ShoppingCart,
-  ShieldCheck,
   Camera,
+  Trash2,
+  Edit3,
+  Sparkles,
+  RefreshCw,
+  Minus,
+  FolderPlus,
+  ScanLine,
+  X,
 } from 'lucide-react';
 import { CameraBarcodeScannerModal, ScannedBatchItem } from '../components/common/CameraBarcodeScannerModal';
-import { IndustryType, ElectronicsSubCategory } from '../types/erp';
-import { generateValidEAN13 } from '../core/barcodeEngine';
-import { parseBulkProductsCSV, calculateStockAdjustmentVariance } from '../core/inventoryEngine';
-import { IndustryChameleonPanel } from '../components/common/IndustryChameleonPanel';
+import { IndustryType, ElectronicsSubCategory, Product } from '../types/erp';
+import {
+  parseBulkProductsCSV,
+  calculateStockAdjustmentVariance,
+  SPECIFIC_INVENTORY_CLASSIFICATIONS,
+  generateUniqueProductBarcode,
+  generateUniqueProductSku,
+  extractCartonBarcodeAndSkuFromLabel,
+  resolveSpecificProductClassificationAr,
+} from '../core/inventoryEngine';
 
 const SAMPLE_BULK_CSV = `SKU,Barcode,NameAr,NameEn,CostPrice,SalePrice,StockQty,UOM,ReorderPoint,Sector
 SOL-600W-TOPCON,6281042009103,لوح طاقة شمسية N-Type بايفيشال 600W,N-Type Bifacial Solar Panel 600W,390,510,80,PCS,15,electronics
@@ -37,13 +49,15 @@ export const InventoryView: React.FC = () => {
     products,
     addProduct,
     updateProduct,
+    deleteProduct,
     importBulkProductsCSV,
     categories,
+    addCategory,
+    updateCategory,
     currentWarehouse,
     currency,
     language,
     currentTenant,
-    activeIndustry,
     hasPermission,
     masterSystemConfig,
     openQuickSendModal,
@@ -62,10 +76,12 @@ export const InventoryView: React.FC = () => {
 
   // Physical Stock-Taking State (الجرد الفعلي اللحظي)
   const [stockCountsMap, setStockCountsMap] = useState<Record<string, number>>({});
-  const [stockAuditReason, setStockAuditReason] = useState<string>('جرد فعلي دوري لمستودع الطاقة الشمسية والبطاريات والشاشات');
+  const [stockAuditReason, setStockAuditReason] = useState<string>(
+    'جرد فعلي دوري لمستودع الطاقة الشمسية والبطاريات والشاشات'
+  );
   const [stockTakeBanner, setStockTakeBanner] = useState<string | null>(null);
 
-  // Live Camera Barcode Scanner State & Handlers
+  // Live Camera Barcode Scanner State & Handlers (Main Table & Stock-Taking)
   const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
   const [cameraScannerContext, setCameraScannerContext] = useState<'ITEMS' | 'STOCK_TAKE'>('ITEMS');
 
@@ -114,7 +130,6 @@ export const InventoryView: React.FC = () => {
     }
   };
 
-  const isSingleActivityLocked = masterSystemConfig.industryLockMode === 'SINGLE_LOCKED';
   const showCostPrice = masterSystemConfig.uiElementsVisibility.showCostPriceInInventory;
   const showExportImport = masterSystemConfig.uiElementsVisibility.showExportImportButtons;
 
@@ -122,25 +137,31 @@ export const InventoryView: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedSubCatFilter, setSelectedSubCatFilter] = useState<string>('ALL');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [bulkCsvText, setBulkCsvText] = useState<string>(SAMPLE_BULK_CSV);
   const [postOpeningJournal, setPostOpeningJournal] = useState<boolean>(true);
   const [importBanner, setImportBanner] = useState<string | null>(null);
   const [productModalError, setProductModalError] = useState<string | null>(null);
+  const [productModalNotice, setProductModalNotice] = useState<string | null>(null);
 
-  // Form State for new product (Dedicated to Electronics, Solar & Smart Screens)
+  // Specific Electronics & Solar Categories
+  const electronicsCategories = categories.filter((c) => !c.industry || c.industry === 'electronics');
+
+  // Form State for Add / Edit Product
   const [name, setName] = useState('');
   const [nameAr, setNameAr] = useState('');
   const [sku, setSku] = useState('');
-  const [barcode, setBarcode] = useState(generateValidEAN13());
-  const electronicsCategories = categories.filter((c) => !c.industry || c.industry === 'electronics');
-  const [categoryId, setCategoryId] = useState(electronicsCategories[0]?.id || categories[0]?.id || '');
+  const [barcode, setBarcode] = useState('');
+  const [categoryId, setCategoryId] = useState(
+    electronicsCategories[0]?.id || 'cat-solar-panels'
+  );
   const [productIndustry, setProductIndustry] = useState<IndustryType>('electronics');
   const [uom, setUom] = useState('PCS');
-  const [costPrice, setCostPrice] = useState(100);
-  const [salePrice, setSalePrice] = useState(150);
-  const [stockQty, setStockQty] = useState(20);
-  const [reorderPoint, setReorderPoint] = useState(5);
+  const [costPrice, setCostPrice] = useState<number>(100);
+  const [salePrice, setSalePrice] = useState<number>(150);
+  const [stockQty, setStockQty] = useState<number>(20);
+  const [reorderPoint, setReorderPoint] = useState<number>(5);
   const [binLocation, setBinLocation] = useState('ZA-01-S1-B01');
   const [warrantyMonths, setWarrantyMonths] = useState<number>(24);
   const [subCategory, setSubCategory] = useState<ElectronicsSubCategory>('SOLAR_PANEL');
@@ -151,15 +172,306 @@ export const InventoryView: React.FC = () => {
   const [expiryDate] = useState<string>('2027-09-30');
   const [prepTimeMinutes] = useState<number>(12);
 
+  // Custom / Edit Specific Category Inline State inside Modal
+  const [isCustomCategoryOpen, setIsCustomCategoryOpen] = useState(false);
+  const [customCategoryMode, setCustomCategoryMode] = useState<'ADD' | 'EDIT'>('ADD');
+  const [customCategoryNameAr, setCustomCategoryNameAr] = useState('');
+
+  // Carton / Piece Camera Scanner inside Add/Edit Product Modal (for Barcode & SKU)
+  const [cartonCaptureTarget, setCartonCaptureTarget] = useState<'BARCODE' | 'SKU' | null>(null);
+  const [cartonRawLabelInput, setCartonRawLabelInput] = useState('');
+  const [isLiveWebcamActive, setIsLiveWebcamActive] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const stopCartonWebcam = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    setIsLiveWebcamActive(false);
+  };
+
+  useEffect(() => {
+    return () => {
+      stopCartonWebcam();
+    };
+  }, []);
+
+  const startCartonWebcam = async () => {
+    try {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+        });
+        streamRef.current = stream;
+        setIsLiveWebcamActive(true);
+        setTimeout(() => {
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+            videoRef.current.play().catch(() => {});
+          }
+        }, 100);
+      } else {
+        setIsLiveWebcamActive(false);
+      }
+    } catch {
+      setIsLiveWebcamActive(false);
+    }
+  };
+
+  // Clear / Reset All Fields in Add Product Form (أيقونة سلة الحذف لتفريغ كافة حقول القائمة)
+  const handleClearAddProductForm = () => {
+    setName('');
+    setNameAr('');
+    setSku('');
+    setBarcode('');
+    setCostPrice(0);
+    setSalePrice(0);
+    setStockQty(0);
+    setReorderPoint(5);
+    setBinLocation('');
+    setWarrantyMonths(12);
+    setPowerRatingWatts(0);
+    setBatteryCapacitySpec('');
+    setVoltageSpec('');
+    setScreenSizeSpec('');
+    setProductModalError(null);
+    setCartonCaptureTarget(null);
+    stopCartonWebcam();
+    setProductModalNotice('تم مسح وحذف جميع البيانات في قائمة إضافة الصنف بنجاح.');
+    setTimeout(() => setProductModalNotice(null), 4000);
+  };
+
+  // Generate Unique Item Barcode (الأيقونة الأولى بجانب الباركود)
+  const handleGenerateItemBarcode = () => {
+    const existingBarcodes = products
+      .filter((p) => p.id !== editingProductId)
+      .map((p) => p.barcode);
+    const newBar = generateUniqueProductBarcode(subCategory, existingBarcodes);
+    setBarcode(newBar);
+    setProductModalNotice(`تم توليد باركود جديد خاص بهذا الصنف: ${newBar}`);
+    setTimeout(() => setProductModalNotice(null), 3500);
+  };
+
+  // Generate Unique Item SKU (الأيقونة الأولى بجانب كود الصنف)
+  const handleGenerateItemSku = () => {
+    const existingSkus = products
+      .filter((p) => p.id !== editingProductId)
+      .map((p) => p.sku);
+    const newSku = generateUniqueProductSku({
+      subCategory,
+      nameAr,
+      powerRatingWatts,
+      existingSkus,
+    });
+    setSku(newSku);
+    setProductModalNotice(`تم توليد كود صنف (SKU) ذكي وفريد لهذا الصنف: ${newSku}`);
+    setTimeout(() => setProductModalNotice(null), 3500);
+  };
+
+  // Open Carton Camera Scanner for Barcode or SKU (الأيقونة الثانية: كاميرا لتصوير الكرتون أو القطعة)
+  const handleOpenCartonCameraFor = (target: 'BARCODE' | 'SKU') => {
+    if (cartonCaptureTarget === target) {
+      stopCartonWebcam();
+      setCartonCaptureTarget(null);
+      return;
+    }
+    setCartonCaptureTarget(target);
+    const defaultSample =
+      subCategory === 'SOLAR_PANEL'
+        ? `CARTON: JINKO TIGER NEO N-TYPE 585W | MODEL: SOL-JNK-${Math.floor(500 + Math.random() * 400)} | EAN: ${generateUniqueProductBarcode('SOLAR_PANEL', products.map((p) => p.barcode))}`
+        : subCategory === 'HYBRID_INVERTER'
+        ? `CARTON: DEYE HYBRID INVERTER 8KW | P/N: INV-DEYE-${Math.floor(100 + Math.random() * 800)} | EAN: ${generateUniqueProductBarcode('HYBRID_INVERTER', products.map((p) => p.barcode))}`
+        : subCategory === 'LITHIUM_BATTERY'
+        ? `CARTON: FELICITY LIFEPO4 48V 200AH | P/N: BAT-LFP-${Math.floor(100 + Math.random() * 800)} | EAN: ${generateUniqueProductBarcode('LITHIUM_BATTERY', products.map((p) => p.barcode))}`
+        : `CARTON: SMART 4K QLED 65" | MODEL: SCR-QLED-${Math.floor(100 + Math.random() * 800)} | EAN: ${generateUniqueProductBarcode(subCategory, products.map((p) => p.barcode))}`;
+    setCartonRawLabelInput(defaultSample);
+    startCartonWebcam();
+  };
+
+  // Apply Carton Optical Scan to Barcode and/or SKU
+  const handleApplyCartonScan = (mode: 'TARGET_ONLY' | 'BOTH_AND_SPECS' = 'TARGET_ONLY') => {
+    const existingBarcodes = products
+      .filter((p) => p.id !== editingProductId)
+      .map((p) => p.barcode);
+    const existingSkus = products
+      .filter((p) => p.id !== editingProductId)
+      .map((p) => p.sku);
+
+    const extracted = extractCartonBarcodeAndSkuFromLabel(
+      cartonRawLabelInput,
+      subCategory,
+      existingBarcodes,
+      existingSkus
+    );
+
+    if (cartonCaptureTarget === 'BARCODE') {
+      setBarcode(extracted.extractedBarcode);
+      if (mode === 'BOTH_AND_SPECS') {
+        if (!sku.trim()) setSku(extracted.extractedSku);
+        if (!nameAr.trim()) {
+          setNameAr(extracted.detectedNameAr);
+          setName(extracted.detectedNameAr);
+        }
+      }
+      setProductModalNotice(
+        `تم التقاط الباركود (${extracted.extractedBarcode}) من تصوير الكرتون/القطعة بنجاح!`
+      );
+    } else if (cartonCaptureTarget === 'SKU') {
+      setSku(extracted.extractedSku);
+      if (mode === 'BOTH_AND_SPECS') {
+        if (!barcode.trim()) setBarcode(extracted.extractedBarcode);
+        if (!nameAr.trim()) {
+          setNameAr(extracted.detectedNameAr);
+          setName(extracted.detectedNameAr);
+        }
+      }
+      setProductModalNotice(
+        `تم التقاط كود الصنف (${extracted.extractedSku}) من تصوير الكرتون/القطعة بنجاح!`
+      );
+    }
+
+    stopCartonWebcam();
+    setCartonCaptureTarget(null);
+    setTimeout(() => setProductModalNotice(null), 4000);
+  };
+
+  const handleCartonImageFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const baseName = file.name.replace(/\.[^.]+$/, '').toUpperCase();
+    const simulatedLabel = `IMAGE_FILE: ${baseName} | P/N: ${generateUniqueProductSku({
+      subCategory,
+      nameAr: baseName,
+      powerRatingWatts,
+      existingSkus: products.map((p) => p.sku),
+    })} | EAN: ${generateUniqueProductBarcode(subCategory, products.map((p) => p.barcode))}`;
+    setCartonRawLabelInput(simulatedLabel);
+  };
+
+  // Open Modal for Creating a New Product
+  const handleOpenCreateModal = () => {
+    setEditingProductId(null);
+    setProductModalError(null);
+    setProductModalNotice(null);
+    setCartonCaptureTarget(null);
+    stopCartonWebcam();
+
+    const defaultSpec = SPECIFIC_INVENTORY_CLASSIFICATIONS[0];
+    setCategoryId(defaultSpec.categoryId);
+    setSubCategory(defaultSpec.subCategory);
+    setWarrantyMonths(defaultSpec.defaultWarrantyMonths);
+    setName('');
+    setNameAr('');
+    setSku(
+      generateUniqueProductSku({
+        subCategory: defaultSpec.subCategory,
+        powerRatingWatts: 585,
+        existingSkus: products.map((p) => p.sku),
+      })
+    );
+    setBarcode(
+      generateUniqueProductBarcode(
+        defaultSpec.subCategory,
+        products.map((p) => p.barcode)
+      )
+    );
+    setCostPrice(360);
+    setSalePrice(480);
+    setStockQty(20);
+    setReorderPoint(5);
+    setBinLocation('ZA-01-S1-B01');
+    setPowerRatingWatts(585);
+    setVoltageSpec('48V DC');
+    setBatteryCapacitySpec('');
+    setScreenSizeSpec('');
+    setProductIndustry('electronics');
+    setIsAddModalOpen(true);
+  };
+
+  // Open Modal for Editing an Existing Product (تعديل الصنف بالكامل)
+  const handleOpenEditModal = (product: Product) => {
+    setEditingProductId(product.id);
+    setProductModalError(null);
+    setProductModalNotice(null);
+    setCartonCaptureTarget(null);
+    stopCartonWebcam();
+
+    setName(product.name);
+    setNameAr(product.nameAr);
+    setSku(product.sku);
+    setBarcode(product.barcode);
+
+    // Resolve specific categoryId
+    const matchedSpec = SPECIFIC_INVENTORY_CLASSIFICATIONS.find(
+      (c) => c.categoryId === product.categoryId || c.subCategory === product.subCategory
+    );
+    setCategoryId(
+      product.categoryId && product.categoryId !== 'cat-electronics'
+        ? product.categoryId
+        : matchedSpec?.categoryId || electronicsCategories[0]?.id || 'cat-solar-panels'
+    );
+    setSubCategory((product.subCategory as ElectronicsSubCategory) || matchedSpec?.subCategory || 'SOLAR_PANEL');
+    setUom(product.uom || 'PCS');
+    setCostPrice(product.costPrice);
+    setSalePrice(product.salePrice);
+    setStockQty(product.stockQty);
+    setReorderPoint(product.reorderPoint || 5);
+    setBinLocation(product.binLocation || 'ZA-01-S1-B01');
+    setWarrantyMonths(product.warrantyMonths ?? 24);
+    setPowerRatingWatts(product.powerRatingWatts ?? 0);
+    setBatteryCapacitySpec(product.batteryCapacitySpec || '');
+    setVoltageSpec(product.voltageSpec || '');
+    setScreenSizeSpec(product.screenSizeSpec || '');
+    setProductIndustry(product.industry || 'electronics');
+    setIsAddModalOpen(true);
+  };
+
+  // Handle Category Selection Change -> Synchronize SubCategory & Default Warranty
+  const handleSelectSpecificCategory = (selectedCatId: string) => {
+    setCategoryId(selectedCatId);
+    const spec = SPECIFIC_INVENTORY_CLASSIFICATIONS.find((c) => c.categoryId === selectedCatId);
+    if (spec) {
+      setSubCategory(spec.subCategory);
+      if (!editingProductId) {
+        setWarrantyMonths(spec.defaultWarrantyMonths);
+      }
+    }
+  };
+
+  // Handle Adding or Renaming a Specific Category
+  const handleSaveCustomCategory = () => {
+    if (!customCategoryNameAr.trim()) return;
+    if (customCategoryMode === 'ADD') {
+      const created = addCategory(customCategoryNameAr.trim());
+      setCategoryId(created.id);
+      setProductModalNotice(`تم إنشاء التصنيف المخزني الجديد (${created.nameAr}) واختياره.`);
+    } else {
+      const currentCat = categories.find((c) => c.id === categoryId);
+      if (currentCat) {
+        updateCategory({
+          ...currentCat,
+          nameAr: customCategoryNameAr.trim(),
+          name: customCategoryNameAr.trim(),
+        });
+        setProductModalNotice(`تم تعديل مسمى التصنيف المخزني إلى (${customCategoryNameAr.trim()}).`);
+      }
+    }
+    setCustomCategoryNameAr('');
+    setIsCustomCategoryOpen(false);
+    setTimeout(() => setProductModalNotice(null), 3500);
+  };
+
   const liveBulkPreview = parseBulkProductsCSV(
     bulkCsvText,
     currentTenant.id,
     currentWarehouse.id,
-    electronicsCategories[0]?.id || 'cat-1',
+    electronicsCategories[0]?.id || 'cat-solar-panels',
     'electronics'
   );
 
-  // Filtered Products strictly dedicated to Electronics, Solar Energy, Batteries, Inverters & Smart Screens
+  // Filtered Products dedicated to Electronics, Solar Energy, Batteries, Inverters & Smart Screens
   const electronicsProducts = products.filter(
     (p) => !p.industry || p.industry === 'electronics'
   );
@@ -170,7 +482,15 @@ export const InventoryView: React.FC = () => {
       p.nameAr.includes(searchQuery) ||
       p.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.barcode.includes(searchQuery);
-    const matchesCategory = selectedCategory === 'all' || p.categoryId === selectedCategory;
+
+    const specForCat = SPECIFIC_INVENTORY_CLASSIFICATIONS.find(
+      (c) => c.categoryId === selectedCategory
+    );
+    const matchesCategory =
+      selectedCategory === 'all' ||
+      p.categoryId === selectedCategory ||
+      Boolean(specForCat && p.subCategory === specForCat.subCategory);
+
     const matchesSubCat =
       selectedSubCatFilter === 'ALL' ||
       p.subCategory === selectedSubCatFilter ||
@@ -178,6 +498,19 @@ export const InventoryView: React.FC = () => {
         (p.subCategory === 'LITHIUM_BATTERY' || p.subCategory === 'GEL_BATTERY'));
     return matchesSearch && matchesCategory && matchesSubCat;
   });
+
+  // Inline Quick Stock Adjustment (+1 / -1) in Inventory Table
+  const handleQuickStockStep = (product: Product, delta: number) => {
+    const nextQty = Math.max(0, product.stockQty + delta);
+    updateProduct({
+      ...product,
+      stockQty: nextQty,
+    });
+    setImportBanner(
+      `تم تحديث رصيد المخزون للصنف (${product.nameAr}) إلى ${nextQty} ${product.uom}.`
+    );
+    setTimeout(() => setImportBanner(null), 3500);
+  };
 
   const handleCommitSingleStockTake = (product: typeof products[0]) => {
     const countedQty = stockCountsMap[product.id] ?? product.stockQty;
@@ -212,6 +545,52 @@ export const InventoryView: React.FC = () => {
     setTimeout(() => setStockTakeBanner(null), 6000);
   };
 
+  // Commit ALL Modified Stock-Take Counts at Once (اعتماد الجرد الكلي لجميع الفروقات دفعة واحدة)
+  const handleCommitAllStockTake = () => {
+    let updatedItemsCount = 0;
+    let totalSurplusValue = 0;
+    let totalDeficitValue = 0;
+
+    filteredProducts.forEach((product) => {
+      const countedQty = stockCountsMap[product.id];
+      if (countedQty !== undefined && countedQty !== product.stockQty) {
+        const variance = calculateStockAdjustmentVariance(
+          product.id,
+          product.stockQty,
+          countedQty,
+          product.costPrice
+        );
+        updateProduct({
+          ...product,
+          stockQty: countedQty,
+        });
+        if (variance.journalLines.length > 0) {
+          addManualJournalEntry({
+            description: `${stockAuditReason} (اعتماد جماعي) — ${product.nameAr} (${product.sku})`,
+            lines: variance.journalLines.map((l) => ({
+              accountId: l.accountId,
+              debit: l.debit,
+              credit: l.credit,
+              memo: l.memo,
+            })),
+          });
+        }
+        updatedItemsCount += 1;
+        if (variance.adjustmentType === 'SURPLUS') totalSurplusValue += variance.varianceValue;
+        if (variance.adjustmentType === 'DEFICIT') totalDeficitValue += variance.varianceValue;
+      }
+    });
+
+    if (updatedItemsCount === 0) {
+      setStockTakeBanner('جميع الأرصدة الفعلية مطابقة حالياً للرصيد الدفتري — لا توجد فروقات جردية للترحيل.');
+    } else {
+      setStockTakeBanner(
+        `✓ تم اعتماد الجرد الجماعي لـ (${updatedItemsCount}) أصناف وترحيل قيود التسوية المحاسبية (إجمالي الفائض: ${formatCurrency(totalSurplusValue)} | إجمالي العجز: ${formatCurrency(totalDeficitValue)}).`
+      );
+    }
+    setTimeout(() => setStockTakeBanner(null), 6000);
+  };
+
   const handleConfirmBulkImport = () => {
     const res = importBulkProductsCSV(bulkCsvText, postOpeningJournal);
     if (res.importedCount > 0) {
@@ -236,87 +615,133 @@ export const InventoryView: React.FC = () => {
     reader.readAsText(file);
   };
 
-  const handleCreateProduct = (e: React.FormEvent) => {
+  const handleSaveProduct = (e: React.FormEvent) => {
     e.preventDefault();
     setProductModalError(null);
-    if (!name.trim() || !sku.trim()) return;
-    const cleanSku = sku.trim().toUpperCase();
-    const cleanBarcode = barcode.trim();
+    const effectiveNameAr = nameAr.trim() || name.trim();
+    const effectiveNameEn = name.trim() || nameAr.trim();
 
-    if (
-      products.some(
-        (p) => p.sku.toUpperCase() === cleanSku || p.barcode === cleanBarcode
-      )
-    ) {
-      const msg = `تنبيه منع التكرار: كود الصنف (${cleanSku}) أو الباركود (${cleanBarcode}) مسجل مسبقاً في قاعدة البيانات!`;
+    if (!effectiveNameAr || !sku.trim()) {
+      setProductModalError('يرجى إدخال اسم الصنف وكود الصنف (SKU) قبل الحفظ.');
+      return;
+    }
+
+    const cleanSku = sku.trim().toUpperCase();
+    const cleanBarcode =
+      barcode.trim() ||
+      generateUniqueProductBarcode(
+        subCategory,
+        products.map((p) => p.barcode)
+      );
+
+    // Check duplicate against other products (excluding current editing product)
+    const duplicateItem = products.find(
+      (p) =>
+        p.id !== editingProductId &&
+        (p.sku.toUpperCase() === cleanSku || p.barcode === cleanBarcode)
+    );
+
+    if (duplicateItem) {
+      const msg = `تنبيه منع التكرار: كود الصنف (${cleanSku}) أو الباركود (${cleanBarcode}) مسجل مسبقاً للصنف (${duplicateItem.nameAr})!`;
       setProductModalError(msg);
-      setImportBanner(msg);
       return;
     }
 
     if (Number(costPrice) < 0 || Number(salePrice) <= 0 || Number(stockQty) < 0) {
-      const msg = 'خطأ في المدخلات: يجب أن يكون سعر البيع أكبر من صفر وأن تكون التكلفة والرصيد الافتتاحي غير سالبة!';
+      const msg = 'خطأ في المدخلات: يجب أن يكون سعر البيع أكبر من صفر وأن تكون التكلفة والرصيد غير سالبة!';
       setProductModalError(msg);
-      setImportBanner(msg);
       return;
     }
 
-    const openingVal = Math.round((Number(stockQty) || 0) * (Number(costPrice) || 0) * 100) / 100;
+    if (editingProductId) {
+      const existingProd = products.find((p) => p.id === editingProductId);
+      if (existingProd) {
+        updateProduct({
+          ...existingProd,
+          sku: cleanSku,
+          barcode: cleanBarcode,
+          name: effectiveNameEn,
+          nameAr: effectiveNameAr,
+          categoryId,
+          industry: productIndustry,
+          uom,
+          costPrice: Number(costPrice) || 0,
+          salePrice: Number(salePrice) || 0,
+          taxRate: 0,
+          stockQty: Number(stockQty) || 0,
+          minStock: Math.max(1, Math.floor((Number(reorderPoint) || 5) / 2)),
+          maxStock: (Number(reorderPoint) || 5) * 5,
+          reorderPoint: Number(reorderPoint) || 5,
+          binLocation: binLocation || 'ZA-01-S1-B01',
+          warrantyMonths: Number(warrantyMonths) || 12,
+          subCategory,
+          powerRatingWatts: Number(powerRatingWatts) > 0 ? Number(powerRatingWatts) : undefined,
+          batteryCapacitySpec: batteryCapacitySpec.trim() || undefined,
+          voltageSpec: voltageSpec.trim() || undefined,
+          screenSizeSpec: screenSizeSpec.trim() || undefined,
+        });
+        setImportBanner(
+          `✓ تم حفظ التعديلات على الصنف (${effectiveNameAr} — ${cleanSku}) بنجاح!`
+        );
+      }
+    } else {
+      const openingVal = Math.round((Number(stockQty) || 0) * (Number(costPrice) || 0) * 100) / 100;
+      addProduct({
+        tenantId: currentTenant.id,
+        sku: cleanSku,
+        barcode: cleanBarcode,
+        name: effectiveNameEn,
+        nameAr: effectiveNameAr,
+        categoryId,
+        industry: productIndustry,
+        uom,
+        costPrice: Number(costPrice) || 0,
+        salePrice: Number(salePrice) || 0,
+        taxRate: 0,
+        stockQty: Number(stockQty) || 0,
+        minStock: Math.floor(reorderPoint / 2),
+        maxStock: reorderPoint * 5,
+        reorderPoint: Number(reorderPoint) || 5,
+        warehouseId: currentWarehouse.id,
+        binLocation: binLocation || 'ZA-01-S1-B01',
+        hasSerials: productIndustry === 'electronics',
+        hasBatches: productIndustry === 'pharmacy' || productIndustry === 'grocery',
+        warrantyMonths: productIndustry === 'electronics' ? warrantyMonths : undefined,
+        subCategory: productIndustry === 'electronics' ? subCategory : undefined,
+        powerRatingWatts:
+          productIndustry === 'electronics' && powerRatingWatts > 0 ? powerRatingWatts : undefined,
+        batteryCapacitySpec:
+          productIndustry === 'electronics' && batteryCapacitySpec.trim()
+            ? batteryCapacitySpec.trim()
+            : undefined,
+        voltageSpec:
+          productIndustry === 'electronics' && voltageSpec.trim() ? voltageSpec.trim() : undefined,
+        screenSizeSpec:
+          productIndustry === 'electronics' && screenSizeSpec.trim()
+            ? screenSizeSpec.trim()
+            : undefined,
+        expiryDate:
+          productIndustry === 'pharmacy' || productIndustry === 'grocery'
+            ? expiryDate
+            : undefined,
+        prepTimeMinutes: productIndustry === 'restaurant' ? prepTimeMinutes : undefined,
+        isActive: true,
+      });
 
-    addProduct({
-      tenantId: currentTenant.id,
-      sku: cleanSku,
-      barcode: cleanBarcode,
-      name: name.trim(),
-      nameAr: nameAr.trim() || name.trim(),
-      categoryId,
-      industry: productIndustry,
-      uom,
-      costPrice: Number(costPrice) || 0,
-      salePrice: Number(salePrice) || 0,
-      taxRate: 0.15,
-      stockQty: Number(stockQty) || 0,
-      minStock: Math.floor(reorderPoint / 2),
-      maxStock: reorderPoint * 5,
-      reorderPoint: Number(reorderPoint) || 5,
-      warehouseId: currentWarehouse.id,
-      binLocation,
-      hasSerials: productIndustry === 'electronics',
-      hasBatches: productIndustry === 'pharmacy' || productIndustry === 'grocery',
-      warrantyMonths: productIndustry === 'electronics' ? warrantyMonths : undefined,
-      subCategory: productIndustry === 'electronics' ? subCategory : undefined,
-      powerRatingWatts:
-        productIndustry === 'electronics' && powerRatingWatts > 0 ? powerRatingWatts : undefined,
-      batteryCapacitySpec:
-        productIndustry === 'electronics' && batteryCapacitySpec.trim()
-          ? batteryCapacitySpec.trim()
-          : undefined,
-      voltageSpec:
-        productIndustry === 'electronics' && voltageSpec.trim() ? voltageSpec.trim() : undefined,
-      screenSizeSpec:
-        productIndustry === 'electronics' && screenSizeSpec.trim()
-          ? screenSizeSpec.trim()
-          : undefined,
-      expiryDate:
-        productIndustry === 'pharmacy' || productIndustry === 'grocery'
-          ? expiryDate
-          : undefined,
-      prepTimeMinutes: productIndustry === 'restaurant' ? prepTimeMinutes : undefined,
-      isActive: true,
-    });
+      setImportBanner(
+        `تم إضافة الصنف (${effectiveNameAr} - ${cleanSku}) بنجاح${
+          openingVal > 0
+            ? ` وترحيل قيد رصيد مخزون افتتاحي بقيمة ${openingVal.toLocaleString()} ${currency} في الأستاذ العام`
+            : ''
+        }!`
+      );
+    }
 
+    stopCartonWebcam();
+    setCartonCaptureTarget(null);
     setIsAddModalOpen(false);
-    setImportBanner(
-      `تم إضافة الصنف (${nameAr.trim() || name.trim()} - ${cleanSku}) بنجاح${
-        openingVal > 0
-          ? ` وترحيل قيد رصيد مخزون افتتاحي بقيمة ${openingVal.toLocaleString()} ${currency} في الأستاذ العام`
-          : ''
-      }!`
-    );
-    setName('');
-    setNameAr('');
-    setSku('');
-    setBarcode(generateValidEAN13());
+    setEditingProductId(null);
+    setTimeout(() => setImportBanner(null), 5000);
   };
 
   const handleExportCSV = () => {
@@ -325,7 +750,7 @@ export const InventoryView: React.FC = () => {
       'Barcode',
       'Name (AR)',
       'Name (EN)',
-      'Sector',
+      'Classification',
       'Bin Location',
       'Cost (WAC)',
       'Sale Price',
@@ -338,7 +763,7 @@ export const InventoryView: React.FC = () => {
       p.barcode,
       `"${p.nameAr.replace(/"/g, '""')}"`,
       `"${p.name.replace(/"/g, '""')}"`,
-      p.industry || 'general',
+      `"${resolveSpecificProductClassificationAr(p, categories)}"`,
       p.binLocation || 'ZA-01',
       p.costPrice,
       p.salePrice,
@@ -354,7 +779,7 @@ export const InventoryView: React.FC = () => {
     link.href = url;
     link.setAttribute(
       'download',
-      `RLM_Inventory_${currentTenant.code}_${new Date().toISOString().slice(0, 10)}.csv`
+      `Haseb_Inventory_${currentTenant.code}_${new Date().toISOString().slice(0, 10)}.csv`
     );
     document.body.appendChild(link);
     link.click();
@@ -362,30 +787,38 @@ export const InventoryView: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
-  const industryLabelAr: Record<string, string> = {
-    electronics: 'إلكترونيات وطاقة شمسية وبطاريات',
-    general: 'عام / صناعي',
-    restaurant: 'مطاعم وكافيهات',
-    grocery: 'بقالة وسوبرماركت',
-    pharmacy: 'صيدلية وطبي',
-    contracting: 'مقاولات ومشاريع',
-  };
+  // Stock-taking live summary stats
+  const stockTakeSummary = filteredProducts.reduce(
+    (acc, p) => {
+      const counted = stockCountsMap[p.id] ?? p.stockQty;
+      const v = calculateStockAdjustmentVariance(p.id, p.stockQty, counted, p.costPrice);
+      if (v.adjustmentType === 'SURPLUS') {
+        acc.surplusCount += 1;
+        acc.netValueImpact += v.varianceValue;
+      } else if (v.adjustmentType === 'DEFICIT') {
+        acc.deficitCount += 1;
+        acc.netValueImpact -= v.varianceValue;
+      }
+      return acc;
+    },
+    { surplusCount: 0, deficitCount: 0, netValueImpact: 0 }
+  );
 
   return (
     <div className="space-y-3.5">
       {importBanner && (
         <div
           data-testid="bulk-import-banner"
-          className="p-3.5 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-950 text-xs font-bold flex items-center justify-between"
+          className="p-3.5 rounded-lg bg-blue-50 border border-blue-300 text-blue-950 text-xs font-bold flex items-center justify-between"
         >
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
             <span>{importBanner}</span>
           </div>
           <button
             type="button"
             onClick={() => setImportBanner(null)}
-            className="text-emerald-700 hover:text-emerald-950 font-bold"
+            className="text-blue-700 hover:text-blue-950 font-bold cursor-pointer"
           >
             ✕
           </button>
@@ -396,15 +829,15 @@ export const InventoryView: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100 tracking-tight flex items-center gap-2">
-            <Package className="w-5 h-5 text-emerald-700" />
+            <Package className="w-5 h-5 text-blue-700" />
             <span>
               {language === 'ar'
-                ? 'مستودع الإلكترونيات والطاقة الشمسية والبطاريات والشاشات الذكية (WMS)'
+                ? 'إدارة المخزون والجرد الفعلي والتصنيف الهندسي (WMS)'
                 : 'Solar, Electronics, Batteries & Smart Screens WMS'}
             </span>
           </h1>
           <p className="text-xs text-slate-500 mt-1">
-            مترابط بالكامل مع نقاط البيع POS، الجرد الفعلي اللحظي، تتبع الأرقام التسلسلية S/N وشهادات الضمان، وشبكة الفروع LAN
+            تحكم كامل بالأصناف والتصنيفات المخزنية المحددة، تعديل البيانات والأسعار والأرصدة، الجرد الفعلي اللحظي، وتصوير/توليد الباركود والأكواد
           </p>
         </div>
 
@@ -413,7 +846,7 @@ export const InventoryView: React.FC = () => {
             type="button"
             data-testid="inventory-goto-pos-btn"
             onClick={() => setActiveTab('pos')}
-            className="bg-teal-700 hover:bg-teal-600 text-white text-xs font-bold px-3.5 py-2 rounded-md transition flex items-center gap-1.5 cursor-pointer"
+            className="bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-bold px-3.5 py-2 rounded-md transition flex items-center gap-1.5 cursor-pointer"
           >
             <ShoppingCart className="w-3.5 h-3.5" />
             <span>نقطة البيع والضمان POS</span>
@@ -428,7 +861,7 @@ export const InventoryView: React.FC = () => {
                 category: 'LOW_STOCK_ALERT',
               })
             }
-            className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3.5 py-2 rounded-md transition flex items-center gap-1.5 cursor-pointer"
+            className="bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold px-3.5 py-2 rounded-md transition flex items-center gap-1.5 cursor-pointer"
           >
             <MessageSquare className="w-3.5 h-3.5" />
             <span>إشعار النواقص واتساب / SMS</span>
@@ -453,7 +886,7 @@ export const InventoryView: React.FC = () => {
               onClick={handleExportCSV}
               className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold px-3.5 py-2 rounded-md transition flex items-center gap-1.5 cursor-pointer"
             >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
+              <FileSpreadsheet className="w-3.5 h-3.5 text-blue-700" />
               <span>تصدير Excel/CSV</span>
             </button>
           )}
@@ -462,13 +895,8 @@ export const InventoryView: React.FC = () => {
             <button
               type="button"
               data-testid="add-product-modal-btn"
-              onClick={() => {
-                setProductModalError(null);
-                setBarcode(generateValidEAN13());
-                setProductIndustry('electronics');
-                setIsAddModalOpen(true);
-              }}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-md transition flex items-center gap-1.5 cursor-pointer"
+              onClick={handleOpenCreateModal}
+              className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-4 py-2 rounded-md transition flex items-center gap-1.5 shadow-xs cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>إضافة صنف جديد</span>
@@ -485,12 +913,12 @@ export const InventoryView: React.FC = () => {
           onClick={() => setInventorySubTab('ITEMS')}
           className={`px-4 py-2.5 font-bold text-xs flex items-center gap-2 border-b-2 transition cursor-pointer ${
             inventorySubTab === 'ITEMS'
-              ? 'border-emerald-600 text-emerald-800 dark:text-emerald-400 bg-emerald-50/50 dark:bg-emerald-950/20'
+              ? 'border-blue-600 text-blue-800 dark:text-blue-400 bg-blue-50/60 dark:bg-blue-950/20'
               : 'border-transparent text-slate-500 hover:text-slate-700'
           }`}
         >
-          <Package className="w-4 h-4 text-emerald-600" />
-          <span>سجل الأصناف والمستودع الرئيسي ({electronicsProducts.length})</span>
+          <Package className="w-4 h-4 text-blue-600" />
+          <span>سجل الأصناف والتحكم بالمخزون ({electronicsProducts.length})</span>
         </button>
 
         <button
@@ -499,11 +927,11 @@ export const InventoryView: React.FC = () => {
           onClick={() => setInventorySubTab('STOCK_TAKING')}
           className={`px-4 py-2.5 font-bold text-xs flex items-center gap-2 border-b-2 transition cursor-pointer ${
             inventorySubTab === 'STOCK_TAKING'
-              ? 'border-teal-600 text-teal-800 dark:text-teal-400 bg-teal-50/50 dark:bg-teal-950/20'
+              ? 'border-indigo-600 text-indigo-800 dark:text-indigo-400 bg-indigo-50/60 dark:bg-indigo-950/20'
               : 'border-transparent text-slate-500 hover:text-slate-700'
           }`}
         >
-          <ClipboardCheck className="w-4 h-4 text-teal-600" />
+          <ClipboardCheck className="w-4 h-4 text-indigo-600" />
           <span>الجرد الفعلي اللحظي وتسوية الفروقات المحاسبية</span>
         </button>
 
@@ -513,14 +941,14 @@ export const InventoryView: React.FC = () => {
           onClick={() => setInventorySubTab('BRANCH_TRANSFERS')}
           className={`px-4 py-2.5 font-bold text-xs flex items-center gap-2 border-b-2 transition cursor-pointer ${
             inventorySubTab === 'BRANCH_TRANSFERS'
-              ? 'border-indigo-600 text-indigo-800 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20'
+              ? 'border-blue-600 text-blue-800 dark:text-blue-400 bg-blue-50/60 dark:bg-blue-950/20'
               : 'border-transparent text-slate-500 hover:text-slate-700'
           }`}
         >
-          <Network className="w-4 h-4 text-indigo-600" />
+          <Network className="w-4 h-4 text-blue-600" />
           <span>شبكة الفروع والتحويلات اللحظية LAN Sync ({branchNodes.length} فروع متصلة)</span>
           {interBranchTransfers.length > 0 && (
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-indigo-600 text-white font-mono">
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-blue-600 text-white font-mono">
               {interBranchTransfers.length}
             </span>
           )}
@@ -538,7 +966,7 @@ export const InventoryView: React.FC = () => {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="بحث بالاسم، الكود SKU، أو الباركود..."
-                  className="w-full text-xs p-2 ps-8 bg-slate-50 border border-slate-200 rounded-md outline-hidden focus:border-emerald-600"
+                  className="w-full text-xs p-2 ps-8 bg-slate-50 border border-slate-200 rounded-md outline-hidden focus:border-blue-600"
                 />
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute start-2.5 top-2.5" />
               </div>
@@ -550,7 +978,7 @@ export const InventoryView: React.FC = () => {
                   setIsCameraScannerOpen(true);
                 }}
                 title="مسح الباركود والكود بالكاميرا للبحث عن الصنف أو تدقيقه"
-                className="shrink-0 px-2.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-xs font-bold flex items-center gap-1 transition shadow-2xs cursor-pointer group"
+                className="shrink-0 px-2.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-bold flex items-center gap-1 transition shadow-2xs cursor-pointer group"
               >
                 <Camera className="w-4 h-4 group-hover:scale-110 transition-transform" />
                 <span className="hidden sm:inline">كاميرا</span>
@@ -560,7 +988,7 @@ export const InventoryView: React.FC = () => {
             {/* Specialized Engineering Sub-Category Filter Buttons */}
             <div className="flex flex-wrap items-center gap-1 text-xs">
               {[
-                { id: 'ALL', label: 'كل أصناف الطاقة والإلكترونيات' },
+                { id: 'ALL', label: 'كل الأصناف' },
                 { id: 'SOLAR_PANEL', label: 'ألواح شمسية' },
                 { id: 'HYBRID_INVERTER', label: 'إنفرترات هجينة' },
                 { id: 'LITHIUM_BATTERY', label: 'بطاريات ليثيوم وجل' },
@@ -574,7 +1002,7 @@ export const InventoryView: React.FC = () => {
                   onClick={() => setSelectedSubCatFilter(sec.id)}
                   className={`px-2.5 py-1.5 rounded-md font-semibold transition cursor-pointer ${
                     selectedSubCatFilter === sec.id
-                      ? 'bg-slate-900 text-white'
+                      ? 'bg-blue-700 text-white'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
@@ -586,11 +1014,12 @@ export const InventoryView: React.FC = () => {
             <div className="flex items-center gap-2">
               <Filter className="w-3.5 h-3.5 text-slate-500" />
               <select
+                data-testid="inventory-category-filter-select"
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
-                className="text-xs p-2 bg-slate-50 border border-slate-200 rounded-md outline-hidden font-medium text-slate-700"
+                className="text-xs p-2 bg-slate-50 border border-slate-200 rounded-md outline-hidden font-bold text-slate-700"
               >
-                <option value="all">جميع التصنيفات المعتمدة</option>
+                <option value="all">جميع التصنيفات المخزنية المحددة</option>
                 {electronicsCategories.map((c) => (
                   <option key={c.id} value={c.id}>
                     {language === 'ar' ? c.nameAr : c.name}
@@ -604,21 +1033,25 @@ export const InventoryView: React.FC = () => {
           <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-xs text-start">
-                <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
                   <tr>
                     <th className="py-3 px-4 text-start">الصنف والمواصفات الهندسية</th>
-                    <th className="py-3 px-4 text-start">التصنيف والضمان المعتمد</th>
+                    <th className="py-3 px-4 text-start">التصنيف المخزني المحدد والضمان</th>
                     <th className="py-3 px-4 text-start">الباركود</th>
                     {showCostPrice && <th className="py-3 px-4 text-end">التكلفة (WAC)</th>}
                     <th className="py-3 px-4 text-end">سعر البيع</th>
-                    <th className="py-3 px-4 text-center">الرصيد المتاح</th>
+                    <th className="py-3 px-4 text-center">الرصيد والتحكم السريع</th>
                     <th className="py-3 px-4 text-center">الحالة</th>
-                    <th className="py-3 px-4 text-center">العمليات المترابطة (POS · الجرد · الفروع)</th>
+                    <th className="py-3 px-4 text-center">إدارة الصنف (تعديل · جرد · POS · حذف)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {filteredProducts.map((p) => {
                     const isReorder = p.stockQty <= p.reorderPoint;
+                    const specificClassificationAr = resolveSpecificProductClassificationAr(
+                      p,
+                      categories
+                    );
                     return (
                       <tr key={p.id} className="hover:bg-slate-50/70 transition">
                         <td className="py-3 px-4">
@@ -628,7 +1061,10 @@ export const InventoryView: React.FC = () => {
                           <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-2 mt-0.5">
                             <span>
                               SKU:{' '}
-                              <span className="font-mono tabular-nums text-slate-800 font-semibold" dir="ltr">
+                              <span
+                                className="font-mono tabular-nums text-blue-800 font-bold"
+                                dir="ltr"
+                              >
                                 {p.sku}
                               </span>
                             </span>
@@ -640,7 +1076,10 @@ export const InventoryView: React.FC = () => {
                               </span>
                             </span>
                           </div>
-                          {(p.powerRatingWatts || p.batteryCapacitySpec || p.voltageSpec || p.screenSizeSpec) && (
+                          {(p.powerRatingWatts ||
+                            p.batteryCapacitySpec ||
+                            p.voltageSpec ||
+                            p.screenSizeSpec) && (
                             <div className="flex flex-wrap gap-1.5 mt-1.5">
                               {p.powerRatingWatts && (
                                 <span
@@ -654,7 +1093,7 @@ export const InventoryView: React.FC = () => {
                               )}
                               {p.batteryCapacitySpec && (
                                 <span
-                                  className="text-[10px] font-mono tabular-nums bg-emerald-50 text-emerald-900 border border-emerald-200 px-1.5 py-0.5 rounded-xs font-semibold"
+                                  className="text-[10px] font-mono tabular-nums bg-blue-50 text-blue-900 border border-blue-200 px-1.5 py-0.5 rounded-xs font-semibold"
                                   dir="ltr"
                                 >
                                   {p.batteryCapacitySpec}
@@ -680,45 +1119,88 @@ export const InventoryView: React.FC = () => {
                           )}
                         </td>
                         <td className="py-3 px-4">
-                          <span className="inline-block bg-slate-100 text-slate-800 border border-slate-200 font-bold px-2 py-0.5 rounded-xs text-[10px]">
-                            إلكترونيات وطاقة شمسية وبطاريات
+                          <span
+                            data-testid={`product-specific-category-${p.sku}`}
+                            className="inline-block bg-blue-50 text-blue-900 border border-blue-200 font-bold px-2.5 py-0.5 rounded-xs text-[11px]"
+                          >
+                            {specificClassificationAr}
                           </span>
                           <div className="flex flex-wrap gap-1 mt-1">
                             {p.warrantyMonths && (
-                              <span className="text-[10px] bg-teal-50 text-teal-900 border border-teal-200 px-1.5 py-0.5 rounded-xs font-bold">
-                                ضمان <span className="font-mono tabular-nums" dir="ltr">{p.warrantyMonths}</span> شهر
+                              <span className="text-[10px] bg-indigo-50 text-indigo-900 border border-indigo-200 px-1.5 py-0.5 rounded-xs font-bold">
+                                ضمان{' '}
+                                <span className="font-mono tabular-nums" dir="ltr">
+                                  {p.warrantyMonths}
+                                </span>{' '}
+                                شهر
                               </span>
                             )}
                             {p.hasSerials && (
-                              <span className="text-[10px] bg-indigo-50 text-indigo-900 border border-indigo-200 px-1.5 py-0.5 rounded-xs font-bold">
-                                تتبع رقم تسلسلي S/N
+                              <span className="text-[10px] bg-slate-100 text-slate-700 border border-slate-200 px-1.5 py-0.5 rounded-xs font-bold">
+                                تتبع S/N
                               </span>
                             )}
                           </div>
                         </td>
-                        <td className="py-3 px-4 font-mono tabular-nums font-bold text-slate-800" dir="ltr">
+                        <td
+                          className="py-3 px-4 font-mono tabular-nums font-bold text-slate-800"
+                          dir="ltr"
+                        >
                           {p.barcode}
                         </td>
                         {showCostPrice && (
-                          <td className="py-3 px-4 text-end font-semibold font-mono tabular-nums text-slate-700" dir="ltr">
+                          <td
+                            className="py-3 px-4 text-end font-semibold font-mono tabular-nums text-slate-700"
+                            dir="ltr"
+                          >
                             {p.costPrice.toLocaleString()} {currency}
                           </td>
                         )}
-                        <td className="py-3 px-4 text-end font-bold font-mono tabular-nums text-slate-900" dir="ltr">
+                        <td
+                          className="py-3 px-4 text-end font-bold font-mono tabular-nums text-slate-900"
+                          dir="ltr"
+                        >
                           {p.salePrice.toLocaleString()} {currency}
                         </td>
                         <td className="py-3 px-4 text-center">
-                          <span className="font-bold font-mono tabular-nums text-sm text-slate-900" dir="ltr">
-                            {p.stockQty}
-                          </span>{' '}
-                          <span className="text-slate-500 font-medium">{p.uom}</span>
+                          <div className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-md px-1.5 py-1">
+                            <button
+                              type="button"
+                              data-testid={`quick-stock-dec-${p.sku}`}
+                              onClick={() => handleQuickStockStep(p, -1)}
+                              title="إنقاص الرصيد (-1)"
+                              className="w-5 h-5 rounded bg-white hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200 flex items-center justify-center font-bold transition cursor-pointer"
+                            >
+                              <Minus className="w-3 h-3" />
+                            </button>
+                            <div className="px-1.5 min-w-[3rem] text-center">
+                              <span
+                                className="font-bold font-mono tabular-nums text-sm text-slate-900"
+                                dir="ltr"
+                              >
+                                {p.stockQty}
+                              </span>{' '}
+                              <span className="text-[10px] text-slate-500 font-medium">
+                                {p.uom}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              data-testid={`quick-stock-inc-${p.sku}`}
+                              onClick={() => handleQuickStockStep(p, 1)}
+                              title="زيادة الرصيد (+1)"
+                              className="w-5 h-5 rounded bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 flex items-center justify-center font-bold transition cursor-pointer"
+                            >
+                              <Plus className="w-3 h-3" />
+                            </button>
+                          </div>
                         </td>
                         <td className="py-3 px-4 text-center">
                           <span
                             className={`inline-block px-2 py-0.5 rounded-xs text-[10px] font-bold border ${
                               isReorder
                                 ? 'bg-amber-50 text-amber-900 border-amber-300'
-                                : 'bg-emerald-50 text-emerald-900 border-emerald-200'
+                                : 'bg-blue-50 text-blue-900 border-blue-200'
                             }`}
                           >
                             {isReorder ? 'إعادة طلب' : 'متوفر'}
@@ -728,15 +1210,13 @@ export const InventoryView: React.FC = () => {
                           <div className="flex flex-wrap items-center justify-center gap-1">
                             <button
                               type="button"
-                              onClick={() => {
-                                addToPOSCart(p, 1);
-                                setActiveTab('pos');
-                              }}
-                              className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
-                              title="إضافة مباشرة لسلة نقطة البيع والانتقال للكاشير"
+                              data-testid={`edit-product-btn-${p.sku}`}
+                              onClick={() => handleOpenEditModal(p)}
+                              className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
+                              title="تعديل بيانات الصنف، السعر، الكود، الباركود، أو التصنيف المخزني"
                             >
-                              <ShoppingCart className="w-3 h-3 text-emerald-600" />
-                              <span>بيع POS</span>
+                              <Edit3 className="w-3 h-3 text-blue-600" />
+                              <span>تعديل</span>
                             </button>
                             <button
                               type="button"
@@ -747,20 +1227,45 @@ export const InventoryView: React.FC = () => {
                                 }));
                                 setInventorySubTab('STOCK_TAKING');
                               }}
-                              className="px-2 py-1 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
+                              className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
                               title="جرد وتسوية الرصيد الفعلي للصنف"
                             >
-                              <ClipboardCheck className="w-3 h-3 text-teal-600" />
+                              <ClipboardCheck className="w-3 h-3 text-indigo-600" />
                               <span>جرد</span>
                             </button>
                             <button
                               type="button"
+                              onClick={() => {
+                                addToPOSCart(p, 1);
+                                setActiveTab('pos');
+                              }}
+                              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
+                              title="إضافة مباشرة لسلة نقطة البيع والانتقال للكاشير"
+                            >
+                              <ShoppingCart className="w-3 h-3 text-slate-700" />
+                              <span>بيع POS</span>
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => openCrossBranchModal(p.sku)}
-                              className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
+                              className="px-2 py-1 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
                               title="فحص توفر الصنف في باقي الفروع والشبكة المحلية (LAN)"
                             >
-                              <Network className="w-3 h-3 text-indigo-500" />
-                              <span>الفروع (LAN)</span>
+                              <Network className="w-3 h-3 text-sky-600" />
+                              <span>الفروع</span>
+                            </button>
+                            <button
+                              type="button"
+                              data-testid={`delete-product-btn-${p.sku}`}
+                              onClick={() => {
+                                deleteProduct(p.id);
+                                setImportBanner(`تم حذف الصنف (${p.nameAr} — ${p.sku}) من سجل المخزون.`);
+                                setTimeout(() => setImportBanner(null), 4000);
+                              }}
+                              className="p-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded text-[11px] font-bold inline-flex items-center transition cursor-pointer"
+                              title="حذف الصنف من المخزون"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </td>
@@ -780,33 +1285,66 @@ export const InventoryView: React.FC = () => {
           {stockTakeBanner && (
             <div
               data-testid="stock-take-banner"
-              className="p-3.5 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-950 text-xs font-bold flex items-center justify-between"
+              className="p-3.5 rounded-lg bg-blue-50 border border-blue-300 text-blue-950 text-xs font-bold flex items-center justify-between"
             >
               <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
                 <span>{stockTakeBanner}</span>
               </div>
               <button
                 type="button"
                 onClick={() => setStockTakeBanner(null)}
-                className="text-emerald-700 hover:text-emerald-950 font-bold"
+                className="text-blue-700 hover:text-blue-950 font-bold cursor-pointer"
               >
                 ✕
               </button>
             </div>
           )}
 
-          <div className="bg-slate-900 text-white p-4 rounded-lg border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          {/* Stock-Taking Summary KPIs & Global Controls */}
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <div className="bg-white p-3.5 rounded-lg border border-slate-200 shadow-2xs">
+              <div className="text-[11px] text-slate-500 font-bold">إجمالي الأصناف الخاضعة للجرد</div>
+              <div className="text-lg font-black text-slate-900 font-mono mt-1">
+                {filteredProducts.length} صنف
+              </div>
+            </div>
+            <div className="bg-white p-3.5 rounded-lg border border-blue-200 shadow-2xs">
+              <div className="text-[11px] text-blue-700 font-bold">أصناف بفائض جردي (+)</div>
+              <div className="text-lg font-black text-blue-900 font-mono mt-1">
+                {stockTakeSummary.surplusCount}
+              </div>
+            </div>
+            <div className="bg-white p-3.5 rounded-lg border border-rose-200 shadow-2xs">
+              <div className="text-[11px] text-rose-700 font-bold">أصناف بعجز جردي (-)</div>
+              <div className="text-lg font-black text-rose-900 font-mono mt-1">
+                {stockTakeSummary.deficitCount}
+              </div>
+            </div>
+            <div className="bg-white p-3.5 rounded-lg border border-slate-200 shadow-2xs">
+              <div className="text-[11px] text-slate-500 font-bold">صافي الأثر المالي للتسويات</div>
+              <div
+                className={`text-lg font-black font-mono mt-1 ${
+                  stockTakeSummary.netValueImpact < 0 ? 'text-rose-700' : 'text-blue-800'
+                }`}
+                dir="ltr"
+              >
+                {formatCurrency(stockTakeSummary.netValueImpact)}
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-slate-900 text-white p-4 rounded-lg border border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
             <div>
               <h3 className="font-bold text-sm flex items-center gap-2">
-                <ClipboardCheck className="w-4 h-4 text-teal-400" />
-                <span>محرك الجرد الفعلي اللحظي وتسوية الفروقات لمستودع الطاقة الشمسية والإلكترونيات</span>
+                <ClipboardCheck className="w-4 h-4 text-blue-400" />
+                <span>محرك الجرد الفعلي اللحظي والتحكم الكامل بتسوية الفروقات</span>
               </h3>
               <p className="text-xs text-slate-300 mt-1">
-                أدخل العدد الفعلي الموجود في الرفوف لكل لوح شمسي أو إنفرتر أو بطارية أو شاشة، وسيقوم النظام آلياً بحساب الفائض/العجز وترحيل قيد التسوية المحاسبي المتوازن في دفتر الأستاذ العام.
+                تحكم بالعدد الفعلي لكل صنف عبر أزرار (+ / -) أو الإدخال المباشر أو مسح الكاميرا، ثم اعتمد الجرد فردياً أو جماعياً لترحيل قيد التسوية آلياً.
               </p>
             </div>
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 data-testid="stock-take-camera-scan-btn"
@@ -814,19 +1352,40 @@ export const InventoryView: React.FC = () => {
                   setCameraScannerContext('STOCK_TAKE');
                   setIsCameraScannerOpen(true);
                 }}
-                className="px-3.5 py-2 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold rounded-lg text-xs flex items-center justify-center gap-2 transition shadow-xs cursor-pointer shrink-0"
-                title="مسح باركودات الأصناف بالكاميرا وتحديث رصيد الجرد الفعلي فورياً"
+                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer shrink-0"
               >
-                <Camera className="w-4 h-4 text-slate-950" />
-                <span>مسح بالكاميرا للجرد الفعلي</span>
+                <Camera className="w-4 h-4" />
+                <span>مسح بالكاميرا للجرد</span>
               </button>
-              <div className="w-full sm:w-72">
-                <label className="block text-[11px] text-slate-300 mb-1">بيان محضر الجرد والتسوية:</label>
+              <button
+                type="button"
+                data-testid="btn-commit-all-stock-take"
+                onClick={handleCommitAllStockTake}
+                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer shrink-0"
+              >
+                <CheckCheck className="w-4 h-4" />
+                <span>اعتماد جميع الفروقات دفعة واحدة</span>
+              </button>
+              <button
+                type="button"
+                data-testid="btn-reset-stock-take"
+                onClick={() => {
+                  setStockCountsMap({});
+                  setStockTakeBanner('تمت إعادة ضبط خانات الجرد لمطابقة الأرصدة الدفترية الحالية.');
+                  setTimeout(() => setStockTakeBanner(null), 3500);
+                }}
+                className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold rounded-lg text-xs flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>إعادة ضبط</span>
+              </button>
+              <div className="w-full sm:w-64">
                 <input
                   type="text"
                   value={stockAuditReason}
                   onChange={(e) => setStockAuditReason(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded bg-slate-800 border border-slate-700 text-white text-xs outline-hidden focus:border-teal-400"
+                  placeholder="بيان محضر الجرد..."
+                  className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs outline-hidden focus:border-blue-400"
                 />
               </div>
             </div>
@@ -835,9 +1394,9 @@ export const InventoryView: React.FC = () => {
           <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-xs text-start">
-                <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
                   <tr>
-                    <th className="py-3 px-4 text-start">الصنف والموقع</th>
+                    <th className="py-3 px-4 text-start">الصنف والتصنيف المحدد</th>
                     <th className="py-3 px-4 text-center">الرصيد الدفتري بالنظام</th>
                     <th className="py-3 px-4 text-center">العدد الفعلي (الجرد)</th>
                     <th className="py-3 px-4 text-center">فرق الجرد (الكمية)</th>
@@ -858,42 +1417,82 @@ export const InventoryView: React.FC = () => {
                       <tr key={p.id} className="hover:bg-slate-50/70 transition">
                         <td className="py-3 px-4">
                           <div className="font-bold text-slate-900">{p.nameAr}</div>
-                          <div className="text-[11px] text-slate-500 font-mono" dir="ltr">
-                            {p.sku} · Bin: {p.binLocation || 'ZA-01'}
+                          <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
+                            <span className="font-mono text-blue-800 font-bold" dir="ltr">
+                              {p.sku}
+                            </span>
+                            <span>·</span>
+                            <span>{resolveSpecificProductClassificationAr(p, categories)}</span>
                           </div>
                         </td>
-                        <td className="py-3 px-4 text-center font-mono font-bold text-slate-700" dir="ltr">
+                        <td
+                          className="py-3 px-4 text-center font-mono font-bold text-slate-700"
+                          dir="ltr"
+                        >
                           {p.stockQty} {p.uom}
                         </td>
                         <td className="py-3 px-4 text-center">
-                          <input
-                            type="number"
-                            min={0}
-                            data-testid={`stock-count-input-${p.sku}`}
-                            value={counted}
-                            onChange={(e) =>
-                              setStockCountsMap((prev) => ({
-                                ...prev,
-                                [p.id]: Math.max(0, Number(e.target.value)),
-                              }))
-                            }
-                            className="w-24 text-center font-mono font-bold p-1.5 bg-slate-50 border border-slate-300 rounded-md focus:border-teal-600 outline-hidden"
-                          />
+                          <div className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              data-testid={`stock-step-dec-${p.sku}`}
+                              onClick={() =>
+                                setStockCountsMap((prev) => ({
+                                  ...prev,
+                                  [p.id]: Math.max(0, (prev[p.id] ?? p.stockQty) - 1),
+                                }))
+                              }
+                              className="w-7 h-7 rounded bg-slate-100 hover:bg-rose-100 text-slate-700 hover:text-rose-800 border border-slate-300 flex items-center justify-center font-bold cursor-pointer"
+                            >
+                              <Minus className="w-3.5 h-3.5" />
+                            </button>
+                            <input
+                              type="number"
+                              min={0}
+                              data-testid={`stock-count-input-${p.sku}`}
+                              value={counted}
+                              onChange={(e) =>
+                                setStockCountsMap((prev) => ({
+                                  ...prev,
+                                  [p.id]: Math.max(0, Number(e.target.value)),
+                                }))
+                              }
+                              className="w-20 text-center font-mono font-bold p-1.5 bg-slate-50 border border-slate-300 rounded-md focus:border-blue-600 outline-hidden"
+                            />
+                            <button
+                              type="button"
+                              data-testid={`stock-step-inc-${p.sku}`}
+                              onClick={() =>
+                                setStockCountsMap((prev) => ({
+                                  ...prev,
+                                  [p.id]: (prev[p.id] ?? p.stockQty) + 1,
+                                }))
+                              }
+                              className="w-7 h-7 rounded bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-800 border border-slate-300 flex items-center justify-center font-bold cursor-pointer"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                         <td className="py-3 px-4 text-center font-mono font-bold" dir="ltr">
                           <span
                             className={`px-2 py-0.5 rounded text-[11px] ${
                               variance.adjustmentType === 'SURPLUS'
-                                ? 'bg-emerald-100 text-emerald-800'
+                                ? 'bg-blue-100 text-blue-800'
                                 : variance.adjustmentType === 'DEFICIT'
                                 ? 'bg-rose-100 text-rose-800'
                                 : 'bg-slate-100 text-slate-600'
                             }`}
                           >
-                            {variance.varianceQty > 0 ? `+${variance.varianceQty}` : variance.varianceQty}
+                            {variance.varianceQty > 0
+                              ? `+${variance.varianceQty}`
+                              : variance.varianceQty}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-end font-mono font-bold text-slate-800" dir="ltr">
+                        <td
+                          className="py-3 px-4 text-end font-mono font-bold text-slate-800"
+                          dir="ltr"
+                        >
                           {formatCurrency(variance.varianceValue)}
                         </td>
                         <td className="py-3 px-4 text-center">
@@ -901,7 +1500,7 @@ export const InventoryView: React.FC = () => {
                             type="button"
                             data-testid={`commit-stock-take-btn-${p.sku}`}
                             onClick={() => handleCommitSingleStockTake(p)}
-                            className="px-3 py-1.5 bg-teal-700 hover:bg-teal-600 text-white rounded-md font-bold text-xs transition cursor-pointer"
+                            className="px-3 py-1.5 bg-blue-700 hover:bg-blue-600 text-white rounded-md font-bold text-xs transition cursor-pointer"
                           >
                             اعتماد الجرد وترحيل القيد
                           </button>
@@ -921,9 +1520,9 @@ export const InventoryView: React.FC = () => {
           {transferFeedback && (
             <div
               data-testid="transfer-feedback-banner"
-              className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-300 text-xs font-bold rounded-lg flex items-center gap-2"
+              className="p-3 bg-blue-50 dark:bg-blue-950/40 border border-blue-300 dark:border-blue-700 text-blue-900 dark:text-blue-300 text-xs font-bold rounded-lg flex items-center gap-2"
             >
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <CheckCircle2 className="w-4 h-4 text-blue-600" />
               <span>{transferFeedback}</span>
             </div>
           )}
@@ -937,8 +1536,8 @@ export const InventoryView: React.FC = () => {
                   عقد الفروع والخوادم المحلية المتصلة عبر الشبكة (LAN & WAN Topology)
                 </h3>
               </div>
-              <span className="text-xs bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-300 font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span className="text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300 font-bold px-2.5 py-1 rounded-md flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
                 مزامنة لحظية نشطة (Peer-to-Peer Sync)
               </span>
             </div>
@@ -957,9 +1556,7 @@ export const InventoryView: React.FC = () => {
                       </span>
                       <span
                         className={`px-1.5 py-0.5 text-[10px] font-bold rounded ${
-                          isOnline
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-rose-100 text-rose-800'
+                          isOnline ? 'bg-blue-100 text-blue-800' : 'bg-rose-100 text-rose-800'
                         }`}
                       >
                         {isOnline ? 'متصل LAN' : 'غير متصل'}
@@ -972,7 +1569,7 @@ export const InventoryView: React.FC = () => {
                       </div>
                       <div className="flex justify-between">
                         <span>زمن الاستجابة (Ping):</span>
-                        <span className="font-mono font-bold text-emerald-600" dir="ltr">
+                        <span className="font-mono font-bold text-blue-600" dir="ltr">
                           {node.latencyMs} ms
                         </span>
                       </div>
@@ -986,7 +1583,9 @@ export const InventoryView: React.FC = () => {
                     </div>
                     <button
                       type="button"
-                      onClick={() => openCrossBranchModal(electronicsProducts[0]?.sku || 'SOL-PNL-585W')}
+                      onClick={() =>
+                        openCrossBranchModal(electronicsProducts[0]?.sku || 'SOL-PNL-585W')
+                      }
                       className="w-full mt-1 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer"
                     >
                       <Network className="w-3.5 h-3.5" />
@@ -1002,7 +1601,7 @@ export const InventoryView: React.FC = () => {
           <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 overflow-hidden space-y-0">
             <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <ArrowRightLeft className="w-4 h-4 text-emerald-600" />
+                <ArrowRightLeft className="w-4 h-4 text-blue-600" />
                 <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">
                   أوامر التحويل بين الفروع وقيود المقاصة المحاسبية المتزنة
                 </h3>
@@ -1042,20 +1641,31 @@ export const InventoryView: React.FC = () => {
                     </tr>
                   ) : (
                     interBranchTransfers.map((t) => {
-                      const isApproved = t.status === 'APPROVED' || t.status === 'PENDING_APPROVAL';
+                      const isApproved =
+                        t.status === 'APPROVED' || t.status === 'PENDING_APPROVAL';
                       const isInTransit = t.status === 'IN_TRANSIT';
                       const isReceived = t.status === 'RECEIVED';
                       return (
                         <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                          <td className="py-3 px-4 font-mono font-bold text-slate-800 dark:text-slate-200" dir="ltr">
+                          <td
+                            className="py-3 px-4 font-mono font-bold text-slate-800 dark:text-slate-200"
+                            dir="ltr"
+                          >
                             {t.requestNumber || t.id}
                           </td>
-                          <td className="py-3 px-4 font-mono text-slate-500 text-[11px]" dir="ltr">
+                          <td
+                            className="py-3 px-4 font-mono text-slate-500 text-[11px]"
+                            dir="ltr"
+                          >
                             {t.requestedAt}
                           </td>
                           <td className="py-3 px-4">
-                            <div className="font-bold text-slate-800 dark:text-slate-200">{t.productNameAr}</div>
-                            <div className="font-mono text-slate-400 text-[10px]" dir="ltr">SKU: {t.sku}</div>
+                            <div className="font-bold text-slate-800 dark:text-slate-200">
+                              {t.productNameAr}
+                            </div>
+                            <div className="font-mono text-slate-400 text-[10px]" dir="ltr">
+                              SKU: {t.sku}
+                            </div>
                           </td>
                           <td className="py-3 px-4 font-medium text-slate-700 dark:text-slate-300">
                             {t.sourceBranchNameAr}
@@ -1063,19 +1673,33 @@ export const InventoryView: React.FC = () => {
                           <td className="py-3 px-4 font-medium text-slate-700 dark:text-slate-300">
                             {t.targetBranchNameAr}
                           </td>
-                          <td className="py-3 px-4 text-center font-bold font-mono tabular-nums text-slate-900 dark:text-slate-100" dir="ltr">
+                          <td
+                            className="py-3 px-4 text-center font-bold font-mono tabular-nums text-slate-900 dark:text-slate-100"
+                            dir="ltr"
+                          >
                             {t.requestedQty}
                           </td>
                           <td className="py-3 px-4 text-center">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              isReceived ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300' :
-                              isInTransit ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300' :
-                              'bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300'
-                            }`}>
-                              {isReceived ? 'تم الاستلام بالمستودع' : isInTransit ? 'قيد الشحن والنقل' : 'معتمد للتحويل'}
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                isReceived
+                                  ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300'
+                                  : isInTransit
+                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300'
+                                  : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/60 dark:text-indigo-300'
+                              }`}
+                            >
+                              {isReceived
+                                ? 'تم الاستلام بالمستودع'
+                                : isInTransit
+                                ? 'قيد الشحن والنقل'
+                                : 'معتمد للتحويل'}
                             </span>
                           </td>
-                          <td className="py-3 px-4 text-center font-mono text-[11px] text-slate-500" dir="ltr">
+                          <td
+                            className="py-3 px-4 text-center font-mono text-[11px] text-slate-500"
+                            dir="ltr"
+                          >
                             {t.journalEntryNumber || '1104-BR2 / 1104-BR1'}
                           </td>
                           <td className="py-3 px-4 text-center">
@@ -1102,13 +1726,13 @@ export const InventoryView: React.FC = () => {
                                   setTransferFeedback(res.messageAr);
                                   setTimeout(() => setTransferFeedback(null), 5000);
                                 }}
-                                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[11px] font-bold transition cursor-pointer"
+                                className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-[11px] font-bold transition cursor-pointer"
                               >
                                 تأكيد الاستلام بالمستودع
                               </button>
                             )}
                             {isReceived && (
-                              <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-bold">
+                              <span className="inline-flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400 font-bold">
                                 <CheckCheck className="w-3.5 h-3.5" />
                                 <span>مكتمل ومرحّل بالمخزون</span>
                               </span>
@@ -1125,25 +1749,47 @@ export const InventoryView: React.FC = () => {
         </div>
       )}
 
-      {/* Add Product Modal (Strictly Specialized for Electronics, Solar, Inverters, Batteries & Smart Screens) */}
+      {/* Add / Edit Product Modal (إضافة صنف طاقة شمسية / إلكترونيات / شاشات جديد) */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-md shadow-xl border border-slate-300 w-full max-w-lg overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-              <h3 className="font-bold text-base text-slate-900 flex items-center justify-between gap-2">
-                <Package className="w-4 h-4 text-teal-700" />
-                <span>إضافة صنف طاقة شمسية / إلكترونيات / شاشات جديد</span>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/65 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-300 w-full max-w-2xl overflow-hidden my-auto">
+            {/* Modal Header with Trash Icon to Clear All Form Data */}
+            <div className="px-6 py-4 bg-slate-900 text-white border-b border-slate-800 flex items-center justify-between gap-2">
+              <h3 className="font-bold text-sm sm:text-base flex items-center gap-2">
+                <Package className="w-4 h-4 text-blue-400 shrink-0" />
+                <span>
+                  {editingProductId
+                    ? 'تعديل بيانات الصنف والتصنيف المخزني المحدد'
+                    : 'إضافة صنف طاقة شمسية / إلكترونيات / شاشات جديد'}
+                </span>
               </h3>
-              <button
-                type="button"
-                onClick={() => setIsAddModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 font-bold text-lg cursor-pointer"
-              >
-                ✕
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Trash Icon Button to Delete/Clear All Data in the Add Product Form */}
+                <button
+                  type="button"
+                  data-testid="btn-clear-add-product-form"
+                  onClick={handleClearAddProductForm}
+                  title="سلة الحذف: حذف وتفريغ جميع البيانات في قائمة إضافة صنف طاقة شمسية"
+                  className="px-2.5 py-1.5 rounded-lg bg-rose-600/90 hover:bg-rose-500 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-xs cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>حذف / تفريغ البيانات</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    stopCartonWebcam();
+                    setCartonCaptureTarget(null);
+                    setIsAddModalOpen(false);
+                  }}
+                  className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center font-bold cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
-            <form onSubmit={handleCreateProduct} className="p-6 space-y-4 text-xs">
+            <form onSubmit={handleSaveProduct} className="p-5 space-y-4 text-xs max-h-[82vh] overflow-y-auto">
               {productModalError && (
                 <div
                   data-testid="product-modal-error-banner"
@@ -1152,7 +1798,137 @@ export const InventoryView: React.FC = () => {
                   {productModalError}
                 </div>
               )}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+              {productModalNotice && (
+                <div
+                  data-testid="form-cleared-banner"
+                  className="p-2.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-900 font-bold text-xs flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+                    <span>{productModalNotice}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setProductModalNotice(null)}
+                    className="text-blue-700 hover:text-blue-950 font-bold cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+
+              {/* Interactive Carton / Piece Camera Scanner Panel (Opens when clicking Camera icon next to Barcode or SKU) */}
+              {cartonCaptureTarget && (
+                <div
+                  data-testid="carton-camera-scanner-panel"
+                  className="p-4 rounded-xl bg-slate-900 text-white border-2 border-blue-500 space-y-3 shadow-lg"
+                >
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <Camera className="w-4 h-4 text-blue-400" />
+                      <span className="font-bold text-xs text-blue-200">
+                        {cartonCaptureTarget === 'BARCODE'
+                          ? 'تصوير الكرتون أو القطعة بالكاميرا لإدخال الباركود (EAN-13)'
+                          : 'تصوير الكرتون أو القطعة بالكاميرا لإدخال كود الصنف (SKU / P/N)'}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        stopCartonWebcam();
+                        setCartonCaptureTarget(null);
+                      }}
+                      className="text-slate-400 hover:text-white cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
+                    {/* Live Camera Viewfinder or Optical Box Preview */}
+                    <div className="sm:col-span-5 bg-slate-950 rounded-lg border border-slate-800 h-32 flex flex-col items-center justify-center relative overflow-hidden">
+                      {isLiveWebcamActive ? (
+                        <video
+                          ref={videoRef}
+                          autoPlay
+                          playsInline
+                          muted
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="text-center p-2 space-y-1">
+                          <ScanLine className="w-6 h-6 text-blue-400 mx-auto" />
+                          <div className="text-[11px] font-bold text-slate-200">
+                            عدسة قراءة ملصق الكرتون / القطعة
+                          </div>
+                          <button
+                            type="button"
+                            onClick={startCartonWebcam}
+                            className="px-2 py-0.5 rounded bg-blue-600/30 hover:bg-blue-600/50 text-blue-200 border border-blue-500/40 text-[10px] font-bold cursor-pointer"
+                          >
+                            تشغيل عدسة الكاميرا الحية
+                          </button>
+                        </div>
+                      )}
+                      <div className="absolute inset-x-4 top-1/2 h-0.5 bg-blue-500/80 shadow-[0_0_8px_#3b82f6]" />
+                    </div>
+
+                    {/* Optical Label Data & Capture Buttons */}
+                    <div className="sm:col-span-7 space-y-2">
+                      <label className="block text-[11px] text-slate-300 font-bold">
+                        بيانات ملصق الكرتون / القطعة الملتقطة ضوئياً:
+                      </label>
+                      <input
+                        type="text"
+                        data-testid="carton-optical-label-input"
+                        value={cartonRawLabelInput}
+                        onChange={(e) => setCartonRawLabelInput(e.target.value)}
+                        placeholder="امسح أو الصق نص ملصق الكرتون هنا..."
+                        className="w-full p-2 rounded-lg bg-slate-800 border border-slate-700 text-blue-200 font-mono text-[11px] outline-hidden focus:border-blue-400"
+                        dir="ltr"
+                      />
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          data-testid="btn-apply-carton-scan"
+                          onClick={() => handleApplyCartonScan('TARGET_ONLY')}
+                          className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
+                        >
+                          <Camera className="w-3.5 h-3.5" />
+                          <span>
+                            {cartonCaptureTarget === 'BARCODE'
+                              ? 'التقاط وإدراج الباركود الآن'
+                              : 'التقاط وإدراج كود الصنف الآن'}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="btn-apply-carton-scan-both"
+                          onClick={() => handleApplyCartonScan('BOTH_AND_SPECS')}
+                          className="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[11px] flex items-center gap-1 transition cursor-pointer"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                          <span>تعبئة الباركود + الكود معاً</span>
+                        </button>
+                        <label className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-[11px] flex items-center gap-1 cursor-pointer">
+                          <Upload className="w-3.5 h-3.5 text-blue-400" />
+                          <span>صورة كرتون</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleCartonImageFileUpload}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                {/* Arabic Product Name */}
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">اسم الصنف بالعربية *</label>
                   <input
@@ -1162,18 +1938,54 @@ export const InventoryView: React.FC = () => {
                     value={nameAr}
                     onChange={(e) => {
                       setNameAr(e.target.value);
-                      if (!name) setName(e.target.value);
+                      if (!name || name === nameAr) setName(e.target.value);
                     }}
                     placeholder="مثال: لوح طاقة شمسية 585W N-Type"
-                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg"
+                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg focus:border-blue-600 outline-hidden"
                   />
                 </div>
+
+                {/* Specific Inventory Classification with Add/Edit Category Action */}
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">التصنيف المخزني</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-bold text-slate-700">التصنيف المخزني المحدد *</label>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        data-testid="btn-toggle-custom-category"
+                        onClick={() => {
+                          setCustomCategoryMode('ADD');
+                          setCustomCategoryNameAr('');
+                          setIsCustomCategoryOpen((prev) => !prev);
+                        }}
+                        title="إضافة تصنيف مخزني مخصص جديد"
+                        className="px-1.5 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                      >
+                        <FolderPlus className="w-3 h-3" />
+                        <span>+ تصنيف جديد</span>
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="btn-edit-current-category"
+                        onClick={() => {
+                          const currentCat = categories.find((c) => c.id === categoryId);
+                          setCustomCategoryMode('EDIT');
+                          setCustomCategoryNameAr(currentCat?.nameAr || '');
+                          setIsCustomCategoryOpen(true);
+                        }}
+                        title="تعديل مسمى التصنيف المخزني المحدد"
+                        className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                      >
+                        <Edit3 className="w-3 h-3" />
+                        <span>تعديل</span>
+                      </button>
+                    </div>
+                  </div>
                   <select
+                    data-testid="new-product-category-select"
                     value={categoryId}
-                    onChange={(e) => setCategoryId(e.target.value)}
-                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold"
+                    onChange={(e) => handleSelectSpecificCategory(e.target.value)}
+                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 focus:border-blue-600 outline-hidden"
                   >
                     {electronicsCategories.map((c) => (
                       <option key={c.id} value={c.id}>
@@ -1181,9 +1993,64 @@ export const InventoryView: React.FC = () => {
                       </option>
                     ))}
                   </select>
+
+                  {isCustomCategoryOpen && (
+                    <div className="mt-1.5 flex items-center gap-1.5 bg-blue-50/70 p-1.5 rounded-lg border border-blue-200">
+                      <input
+                        type="text"
+                        data-testid="input-custom-category-name"
+                        value={customCategoryNameAr}
+                        onChange={(e) => setCustomCategoryNameAr(e.target.value)}
+                        placeholder={
+                          customCategoryMode === 'ADD'
+                            ? 'اسم التصنيف الجديد (مثال: منظمات شحن MPPT)...'
+                            : 'تعديل اسم التصنيف...'
+                        }
+                        className="flex-1 p-1.5 bg-white border border-blue-300 rounded text-xs outline-hidden"
+                      />
+                      <button
+                        type="button"
+                        data-testid="btn-save-custom-category"
+                        onClick={handleSaveCustomCategory}
+                        className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded text-[11px] cursor-pointer"
+                      >
+                        حفظ
+                      </button>
+                    </div>
+                  )}
                 </div>
+
+                {/* SKU Field + Two Small Icons Next to Label (Generate Unique SKU + Camera Carton Capture) */}
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">كود الصنف (SKU) *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-bold text-slate-700">كود الصنف (SKU) *</label>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        data-testid="btn-generate-item-sku"
+                        onClick={handleGenerateItemSku}
+                        title="توليد كود صنف (SKU) جديد وخاص بهذا الصنف تلقائياً"
+                        className="px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[10px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
+                      >
+                        <RefreshCw className="w-3 h-3 text-blue-600" />
+                        <span>توليد كود</span>
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="btn-camera-capture-sku"
+                        onClick={() => handleOpenCartonCameraFor('SKU')}
+                        title="تصوير الكرتون أو القطعة بالكاميرا لإدخال كود الصنف (SKU)"
+                        className={`px-2 py-0.5 rounded border text-[10px] font-bold inline-flex items-center gap-1 transition cursor-pointer ${
+                          cartonCaptureTarget === 'SKU'
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border-indigo-200'
+                        }`}
+                      >
+                        <Camera className="w-3 h-3" />
+                        <span>كاميرا</span>
+                      </button>
+                    </div>
+                  </div>
                   <input
                     type="text"
                     data-testid="new-product-sku"
@@ -1191,47 +2058,83 @@ export const InventoryView: React.FC = () => {
                     value={sku}
                     onChange={(e) => setSku(e.target.value)}
                     placeholder="SOL-PNL-600W"
-                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-mono"
+                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-mono font-bold text-slate-900 focus:border-blue-600 outline-hidden"
+                    dir="ltr"
                   />
                 </div>
+
+                {/* Barcode Field + Two Small Icons Next to Label (Generate Unique Barcode + Camera Carton Capture) */}
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">الباركود (EAN-13)</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-bold text-slate-700">الباركود (EAN-13)</label>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        data-testid="btn-generate-item-barcode"
+                        onClick={handleGenerateItemBarcode}
+                        title="توليد باركود جديد خاص بهذا الصنف (EAN-13 فريد)"
+                        className="px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[10px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
+                      >
+                        <RefreshCw className="w-3 h-3 text-blue-600" />
+                        <span>توليد باركود</span>
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="btn-camera-capture-barcode"
+                        onClick={() => handleOpenCartonCameraFor('BARCODE')}
+                        title="تصوير الكرتون أو القطعة بالكاميرا لإدخال الباركود"
+                        className={`px-2 py-0.5 rounded border text-[10px] font-bold inline-flex items-center gap-1 transition cursor-pointer ${
+                          cartonCaptureTarget === 'BARCODE'
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border-indigo-200'
+                        }`}
+                      >
+                        <Camera className="w-3 h-3" />
+                        <span>كاميرا</span>
+                      </button>
+                    </div>
+                  </div>
                   <input
                     type="text"
                     data-testid="new-product-barcode"
                     value={barcode}
                     onChange={(e) => setBarcode(e.target.value)}
-                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-mono"
+                    placeholder="6281051..."
+                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-mono font-bold text-slate-900 focus:border-blue-600 outline-hidden"
+                    dir="ltr"
                   />
                 </div>
+
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">التكلفة</label>
+                  <label className="block font-bold text-slate-700 mb-1">التكلفة (Cost Price)</label>
                   <input
                     type="number"
                     data-testid="new-product-cost"
                     value={costPrice}
                     onChange={(e) => setCostPrice(Number(e.target.value))}
-                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg"
+                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-600 outline-hidden"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">سعر البيع</label>
+                  <label className="block font-bold text-slate-700 mb-1">سعر البيع (Sale Price) *</label>
                   <input
                     type="number"
                     data-testid="new-product-price"
                     value={salePrice}
                     onChange={(e) => setSalePrice(Number(e.target.value))}
-                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg"
+                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-mono font-bold focus:border-blue-600 outline-hidden"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">الرصيد الافتتاحي</label>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {editingProductId ? 'الرصيد المخزني الحالي' : 'الرصيد الافتتاحي'}
+                  </label>
                   <input
                     type="number"
                     data-testid="new-product-stock"
                     value={stockQty}
                     onChange={(e) => setStockQty(Number(e.target.value))}
-                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg"
+                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-mono font-bold focus:border-blue-600 outline-hidden"
                   />
                 </div>
                 <div>
@@ -1239,7 +2142,7 @@ export const InventoryView: React.FC = () => {
                   <select
                     value={uom}
                     onChange={(e) => setUom(e.target.value)}
-                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg"
+                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold"
                   >
                     <option value="PCS">قطعة / وحدة (PCS)</option>
                     <option value="BOX">صندوق / كرتون (BOX)</option>
@@ -1248,15 +2151,25 @@ export const InventoryView: React.FC = () => {
                 </div>
               </div>
 
-              <div className="p-3 bg-slate-50 rounded-md border border-slate-200 space-y-2.5">
-                <div className="grid grid-cols-2 gap-2.5">
+              <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-200 space-y-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                   <div>
                     <label className="block font-bold text-slate-800 mb-1">
-                      التصنيف الهندسي الفرعي
+                      التصنيف الهندسي الدقيق
                     </label>
                     <select
+                      data-testid="new-product-subcategory-select"
                       value={subCategory}
-                      onChange={(e) => setSubCategory(e.target.value as ElectronicsSubCategory)}
+                      onChange={(e) => {
+                        const nextSub = e.target.value as ElectronicsSubCategory;
+                        setSubCategory(nextSub);
+                        const matchedSpec = SPECIFIC_INVENTORY_CLASSIFICATIONS.find(
+                          (c) => c.subCategory === nextSub
+                        );
+                        if (matchedSpec) {
+                          setCategoryId(matchedSpec.categoryId);
+                        }
+                      }}
                       className="w-full p-2 bg-white border border-slate-300 rounded-md font-bold"
                     >
                       <option value="SOLAR_PANEL">ألواح طاقة شمسية</option>
@@ -1279,8 +2192,19 @@ export const InventoryView: React.FC = () => {
                       className="w-full p-2 bg-white border border-slate-300 rounded-md font-mono"
                     />
                   </div>
+                  <div>
+                    <label className="block font-bold text-slate-800 mb-1">
+                      حد إعادة الطلب (Reorder)
+                    </label>
+                    <input
+                      type="number"
+                      value={reorderPoint}
+                      onChange={(e) => setReorderPoint(Number(e.target.value))}
+                      className="w-full p-2 bg-white border border-slate-300 rounded-md font-mono"
+                    />
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                   <div>
                     <label className="block font-bold text-slate-800 mb-1">
                       القدرة بالواط (Watts)
@@ -1308,24 +2232,53 @@ export const InventoryView: React.FC = () => {
                       className="w-full p-2 bg-white border border-slate-300 rounded-md font-mono"
                     />
                   </div>
+                  <div>
+                    <label className="block font-bold text-slate-800 mb-1">
+                      موقع الرف بالمستودع (Bin)
+                    </label>
+                    <input
+                      type="text"
+                      value={binLocation}
+                      onChange={(e) => setBinLocation(e.target.value)}
+                      placeholder="ZA-01-S1-B01"
+                      className="w-full p-2 bg-white border border-slate-300 rounded-md font-mono"
+                      dir="ltr"
+                    />
+                  </div>
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">
+              <div className="pt-3 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsAddModalOpen(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl cursor-pointer"
+                  data-testid="btn-clear-add-product-form-footer"
+                  onClick={handleClearAddProductForm}
+                  className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer"
                 >
-                  إلغاء
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>إفراغ جميع الحقول</span>
                 </button>
-                <button
-                  type="submit"
-                  data-testid="submit-product-btn"
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl cursor-pointer"
-                >
-                  حفظ الصنف وتوليد الباركود
-                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      stopCartonWebcam();
+                      setCartonCaptureTarget(null);
+                      setIsAddModalOpen(false);
+                    }}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl cursor-pointer"
+                  >
+                    إلغاء
+                  </button>
+                  <button
+                    type="submit"
+                    data-testid="submit-product-btn"
+                    className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-xs cursor-pointer"
+                  >
+                    {editingProductId ? 'حفظ التعديلات على الصنف' : 'حفظ الصنف وتوليد الباركود'}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -1394,7 +2347,7 @@ export const InventoryView: React.FC = () => {
                 rows={5}
                 value={bulkCsvText}
                 onChange={(e) => setBulkCsvText(e.target.value)}
-                className="w-full p-3 rounded-xl bg-slate-900 text-emerald-300 font-mono text-[11px] border border-slate-700 outline-hidden"
+                className="w-full p-3 rounded-xl bg-slate-900 text-blue-300 font-mono text-[11px] border border-slate-700 outline-hidden"
               />
             </div>
 
@@ -1406,9 +2359,10 @@ export const InventoryView: React.FC = () => {
                 </span>
                 <div className="flex items-center gap-3 font-mono font-bold">
                   <span className="text-slate-600">
-                    إجمالي الكميات: <strong className="text-slate-900">{liveBulkPreview.totalOpeningQty}</strong>
+                    إجمالي الكميات:{' '}
+                    <strong className="text-slate-900">{liveBulkPreview.totalOpeningQty}</strong>
                   </span>
-                  <span className="text-emerald-700">
+                  <span className="text-blue-700">
                     إجمالي تقييم المخزون الافتتاحي:{' '}
                     <strong>
                       {liveBulkPreview.totalOpeningValuation.toLocaleString()} {currency}
@@ -1433,13 +2387,17 @@ export const InventoryView: React.FC = () => {
                   <tbody className="divide-y divide-slate-100">
                     {liveBulkPreview.validProducts.map((item, idx) => (
                       <tr key={idx} className="hover:bg-slate-50">
-                        <td className="py-1.5 px-3 font-mono font-bold text-slate-900">{item.sku}</td>
+                        <td className="py-1.5 px-3 font-mono font-bold text-slate-900">
+                          {item.sku}
+                        </td>
                         <td className="py-1.5 px-3 font-mono text-indigo-700">{item.barcode}</td>
                         <td className="py-1.5 px-3 font-bold text-slate-800">{item.nameAr}</td>
                         <td className="py-1.5 px-3 text-center">{item.industry}</td>
                         <td className="py-1.5 px-3 text-end font-mono">{item.costPrice}</td>
-                        <td className="py-1.5 px-3 text-end font-mono font-bold">{item.salePrice}</td>
-                        <td className="py-1.5 px-3 text-center font-mono font-black text-emerald-700">
+                        <td className="py-1.5 px-3 text-end font-mono font-bold">
+                          {item.salePrice}
+                        </td>
+                        <td className="py-1.5 px-3 text-center font-mono font-black text-blue-700">
                           {item.stockQty} {item.uom}
                         </td>
                       </tr>
@@ -1459,7 +2417,8 @@ export const InventoryView: React.FC = () => {
                   className="rounded text-indigo-600 w-4 h-4"
                 />
                 <span>
-                  إصدار وترحيل قيد يومية محاسبي تلقائي بالرصيد الافتتاحي للمخزون ({liveBulkPreview.totalOpeningValuation.toLocaleString()} {currency})
+                  إصدار وترحيل قيد يومية محاسبي تلقائي بالرصيد الافتتاحي للمخزون (
+                  {liveBulkPreview.totalOpeningValuation.toLocaleString()} {currency})
                 </span>
               </label>
 
@@ -1504,4 +2463,3 @@ export const InventoryView: React.FC = () => {
     </div>
   );
 };
-

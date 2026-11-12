@@ -537,9 +537,12 @@ interface ERPContextType {
 
   // Inventory & Barcodes
   categories: Category[];
+  addCategory: (nameAr: string, nameEn?: string) => Category;
+  updateCategory: (category: Category) => void;
   products: Product[];
   addProduct: (product: Omit<Product, 'id'>) => void;
   updateProduct: (product: Product) => void;
+  deleteProduct: (productId: string) => void;
   importBulkProductsCSV: (
     rawCsvText: string,
     postOpeningBalanceJournal?: boolean
@@ -1534,7 +1537,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Inventory & Barcode
-  const [categories] = useState<Category[]>(SEED_CATEGORIES);
+  const [categories, setCategories] = useState<Category[]>(SEED_CATEGORIES);
   const [products, setProducts] = useState<Product[]>(SEED_PRODUCTS);
   const [barcodes, setBarcodes] = useState<BarcodeItem[]>(SEED_BARCODES);
   const [traceabilityEvents, setTraceabilityEvents] = useState<TraceabilityEvent[]>(SEED_TRACEABILITY);
@@ -2695,6 +2698,15 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (Array.isArray(d.interBranchTransfers)) {
       setInterBranchTransfers(d.interBranchTransfers);
     }
+    if (Array.isArray(d.categories) && d.categories.length > 0) {
+      // Merge with SEED_CATEGORIES so all new specific categories are always present
+      const existingIds = new Set(d.categories.map((c: Category) => c.id));
+      const merged = [
+        ...SEED_CATEGORIES.filter((sc) => !existingIds.has(sc.id)),
+        ...d.categories,
+      ];
+      setCategories(merged);
+    }
   };
 
   // Load persisted state from 0ms LocalStorage cache + Express RAM backend on mount
@@ -2772,6 +2784,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!isHydratedRef.current) return;
     const INSTANT_CACHE_KEY = 'haseb_erp_instant_v6_zero_tax';
     const stateSnapshot = {
+      categories,
       products,
       barcodes,
       traceabilityEvents,
@@ -2861,6 +2874,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, 40);
     return () => clearTimeout(timer);
   }, [
+    categories,
     products,
     barcodes,
     traceabilityEvents,
@@ -3084,6 +3098,61 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateProduct = (p: Product) => {
     setProducts((prev) => prev.map((item) => (item.id === p.id ? p : item)));
+    setAuditLogs((prev) => [
+      {
+        id: `aud-upd-${Date.now()}`,
+        tenantId: currentTenant.id,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        action: 'UPDATE_PRODUCT',
+        module: 'INVENTORY',
+        entityType: 'Product',
+        entityId: p.id,
+        details: `Updated product ${p.nameAr || p.name} (SKU: ${p.sku}) — Price: ${p.salePrice}, Stock: ${p.stockQty}`,
+        timestamp: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
+  };
+
+  const deleteProduct = (productId: string) => {
+    const target = products.find((p) => p.id === productId);
+    setProducts((prev) => prev.filter((item) => item.id !== productId));
+    if (target) {
+      setAuditLogs((prev) => [
+        {
+          id: `aud-del-${Date.now()}`,
+          tenantId: currentTenant.id,
+          userId: currentUser.id,
+          userName: currentUser.name,
+          action: 'DELETE_PRODUCT',
+          module: 'INVENTORY',
+          entityType: 'Product',
+          entityId: productId,
+          details: `Deleted product ${target.nameAr || target.name} (SKU: ${target.sku})`,
+          timestamp: new Date().toISOString(),
+        },
+        ...prev,
+      ]);
+    }
+  };
+
+  const addCategory = (nameAr: string, nameEn?: string): Category => {
+    const cleanAr = nameAr.trim();
+    const newCat: Category = {
+      id: `cat-custom-${Date.now()}`,
+      tenantId: currentTenant.id,
+      code: `CAT-${Math.floor(100 + Math.random() * 899)}`,
+      name: (nameEn || cleanAr).trim(),
+      nameAr: cleanAr,
+      industry: 'electronics',
+    };
+    setCategories((prev) => [newCat, ...prev]);
+    return newCat;
+  };
+
+  const updateCategory = (updated: Category) => {
+    setCategories((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
   };
 
   const importBulkProductsCSV = (
@@ -6481,9 +6550,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         auditLogs,
 
         categories,
+        addCategory,
+        updateCategory,
         products,
         addProduct,
         updateProduct,
+        deleteProduct,
         importBulkProductsCSV,
         barcodes,
         generateBarcodeForProduct,
