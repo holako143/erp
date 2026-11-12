@@ -25,6 +25,16 @@ import {
   evaluateSystemProtectionState,
 } from './securityEngine';
 import { JournalEntry } from '../types/erp';
+import {
+  TAB_SCALE_MIN,
+  TAB_SCALE_MAX,
+  DEFAULT_TAB_SCALE,
+  clampTabScale,
+  stepTabScale,
+  computeTabLayoutCssVars,
+  resolveSplitPaneLayout,
+  cycleSplitPaneMode,
+} from './workspaceLayoutEngine';
 
 // --- Barcode Engine Tests ---
 test('calculateEAN13CheckDigit calculates GS1 standard check digit accurately', () => {
@@ -2525,3 +2535,123 @@ test('Track 28 — Inventory Control, Item-Specific Barcode/SKU Generators, Cart
   assert.equal(cartonExtract.extractedSku, 'SOL-JNK-585N');
   assert.equal(cartonExtract.detectedPowerWatts, 585);
 });
+
+test('Track 29 — Inventory Recharts Mini-Dashboard Analytics & Fast Stock-Take Mode Sequential Barcode Engine (Audio & Visual Match/Mismatch Alerts)', async () => {
+  const {
+    buildInventoryMiniDashboardAnalytics,
+    processFastStockTakeScan,
+  } = await import('./inventoryEngine');
+  const { SEED_PRODUCTS, SEED_SALES_INVOICES } = await import('../data/seedData');
+
+  const electronicsProducts = SEED_PRODUCTS.filter(
+    (p) => !p.industry || p.industry === 'electronics'
+  );
+
+  // 1. Verify Mini-Dashboard Analytics dataset for Recharts
+  const analytics = buildInventoryMiniDashboardAnalytics(
+    electronicsProducts,
+    SEED_SALES_INVOICES
+  );
+  assert.ok(analytics.topDemandedItems.length >= 4);
+  assert.ok(analytics.stockLevelsItems.length >= 4);
+  assert.ok(analytics.totalUnitsInStock > 0);
+  assert.ok(analytics.totalInventoryValue > 0);
+  assert.ok(
+    analytics.topDemandedItems[0].demandedQty >=
+      analytics.topDemandedItems[analytics.topDemandedItems.length - 1].demandedQty
+  );
+
+  // 2. Verify Fast Stock-Take Mode sequential scan: DEFICIT -> MATCHED -> SURPLUS -> NOT_FOUND
+  const targetProd = electronicsProducts[0]; // SOL-PNL-585W (stockQty: 160)
+  let countsMap: Record<string, number> = {};
+
+  // Scan 1: Under system stock (155 vs 160) -> DEFICIT + DIFF_WARNING_BEEP
+  const scan1 = processFastStockTakeScan({
+    rawBarcodeOrSku: targetProd.barcode,
+    qtyInput: 155,
+    scanMode: 'SET_EXACT',
+    products: electronicsProducts,
+    currentCountsMap: countsMap,
+  });
+  countsMap = scan1.updatedCountsMap;
+  assert.equal(scan1.scanEntry.matched, true);
+  assert.equal(scan1.scanEntry.comparisonStatus, 'DEFICIT');
+  assert.equal(scan1.scanEntry.audioTone, 'DIFF_WARNING_BEEP');
+  assert.equal(scan1.scanEntry.varianceQty, -5);
+
+  // Scan 2: Increment by +5 (155 + 5 = 160) -> MATCHED + MATCH_SUCCESS_CHIME
+  const scan2 = processFastStockTakeScan({
+    rawBarcodeOrSku: targetProd.sku,
+    qtyInput: 5,
+    scanMode: 'INCREMENT',
+    products: electronicsProducts,
+    currentCountsMap: countsMap,
+  });
+  countsMap = scan2.updatedCountsMap;
+  assert.equal(scan2.scanEntry.comparisonStatus, 'MATCHED');
+  assert.equal(scan2.scanEntry.audioTone, 'MATCH_SUCCESS_CHIME');
+  assert.equal(scan2.scanEntry.countedQty, targetProd.stockQty);
+  assert.equal(scan2.scanEntry.varianceQty, 0);
+
+  // Scan 3: Increment by +2 (162 vs 160) -> SURPLUS + SURPLUS_ALERT_BEEP
+  const scan3 = processFastStockTakeScan({
+    rawBarcodeOrSku: targetProd.barcode,
+    qtyInput: 2,
+    scanMode: 'INCREMENT',
+    products: electronicsProducts,
+    currentCountsMap: countsMap,
+  });
+  assert.equal(scan3.scanEntry.comparisonStatus, 'SURPLUS');
+  assert.equal(scan3.scanEntry.audioTone, 'SURPLUS_ALERT_BEEP');
+  assert.equal(scan3.scanEntry.varianceQty, 2);
+
+  // Scan 4: Unknown barcode -> NOT_FOUND + ERROR_NOT_FOUND_TONE
+  const scan4 = processFastStockTakeScan({
+    rawBarcodeOrSku: '9999990000001',
+    qtyInput: 1,
+    products: electronicsProducts,
+    currentCountsMap: countsMap,
+  });
+  assert.equal(scan4.scanEntry.matched, false);
+  assert.equal(scan4.scanEntry.comparisonStatus, 'NOT_FOUND');
+  assert.equal(scan4.scanEntry.audioTone, 'ERROR_NOT_FOUND_TONE');
+});
+
+test('Track 30: Workspace Layout Engine scales tabs (+ / -) and resizes/maximizes split panes cleanly', () => {
+  // 1. Tab scaling bounds and stepping
+  assert.equal(clampTabScale(50), TAB_SCALE_MIN);
+  assert.equal(clampTabScale(200), TAB_SCALE_MAX);
+  assert.equal(stepTabScale(DEFAULT_TAB_SCALE, 'INC'), 105);
+  assert.equal(stepTabScale(DEFAULT_TAB_SCALE, 'DEC'), 95);
+
+  const vars100 = computeTabLayoutCssVars(100);
+  const vars120 = computeTabLayoutCssVars(120);
+  assert.equal(vars100.tabScaleRatio, 1);
+  assert.equal(vars120.tabScaleRatio, 1.2);
+  assert.ok(vars120.tabFontSizeRem > vars100.tabFontSizeRem);
+  assert.ok(vars120.tabMinHeightPx > vars100.tabMinHeightPx);
+
+  // 2. Split-pane layout resolution (POS and SALES)
+  const posBalanced = resolveSplitPaneLayout('BALANCED', 'POS');
+  assert.equal(posBalanced.primaryColClass, 'lg:col-span-7 xl:col-span-7');
+  assert.equal(posBalanced.secondaryColClass, 'lg:col-span-5 xl:col-span-5');
+
+  const posExpandPrimary = resolveSplitPaneLayout('EXPAND_PRIMARY', 'POS');
+  assert.equal(posExpandPrimary.primaryColClass, 'lg:col-span-8 xl:col-span-8');
+  assert.equal(posExpandPrimary.secondaryColClass, 'lg:col-span-4 xl:col-span-4');
+
+  const posMaximizeSecondary = resolveSplitPaneLayout('MAXIMIZE_SECONDARY', 'POS');
+  assert.equal(posMaximizeSecondary.hidePrimary, true);
+  assert.equal(posMaximizeSecondary.secondaryColClass, 'lg:col-span-12 xl:col-span-12');
+
+  const salesBalanced = resolveSplitPaneLayout('BALANCED', 'SALES');
+  assert.equal(salesBalanced.primaryColClass, 'lg:col-span-5 xl:col-span-5');
+  assert.equal(salesBalanced.secondaryColClass, 'lg:col-span-7 xl:col-span-7');
+
+  // 3. Cycling split-pane modes
+  assert.equal(cycleSplitPaneMode('BALANCED', 'NEXT'), 'EXPAND_PRIMARY');
+  assert.equal(cycleSplitPaneMode('EXPAND_PRIMARY', 'NEXT'), 'EXPAND_SECONDARY');
+  assert.equal(cycleSplitPaneMode('MAXIMIZE_SECONDARY', 'NEXT'), 'BALANCED');
+  assert.equal(cycleSplitPaneMode('BALANCED', 'PREV'), 'MAXIMIZE_SECONDARY');
+});
+

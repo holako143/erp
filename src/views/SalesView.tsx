@@ -29,6 +29,8 @@ import {
   composeDebtReminderMessageText,
   composeWarrantyRMAMessageText,
 } from '../core/messagingEngine';
+import { WorkspaceTabResizerBar } from '../components/common/WorkspaceTabResizerBar';
+import { SplitPaneRatioMode, resolveSplitPaneLayout } from '../core/workspaceLayoutEngine';
 
 export const SalesView: React.FC = () => {
   const {
@@ -64,6 +66,8 @@ export const SalesView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<
     'invoices' | 'pipeline' | 'returns' | 'warranty' | 'customers' | 'aging'
   >('invoices');
+  const [salesSplitMode, setSalesSplitMode] = useState<SplitPaneRatioMode>('BALANCED');
+  const salesSplitLayout = resolveSplitPaneLayout(salesSplitMode, 'SALES');
   const [pipelineFeedback, setPipelineFeedback] = useState<string | null>(null);
   const [returnFeedback, setReturnFeedback] = useState<string | null>(null);
   const [retInvoiceId, setRetInvoiceId] = useState(salesInvoices[0]?.id || '');
@@ -263,51 +267,57 @@ export const SalesView: React.FC = () => {
 
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-5 rounded-lg border border-slate-200/90">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <Receipt className="w-5 h-5 text-slate-700" />
-            <span>
-              {language === 'ar'
-                ? 'المبيعات والفواتير المعتمدة وأعمار الديون — نظام حاسب'
-                : 'Sales Invoices, Credit Aging & Customer Ledgers — Haseb ERP'}
-            </span>
-          </h1>
-          <p className="text-xs text-slate-500 mt-1">
-            إصدار فواتير المبيعات وشهادات الضمان المعتمدة (معفاة من الضريبة 0%)، كشوف حسابات العملاء، تحليل أعمار الديون، وسندات القبض الفورية
-          </p>
+      {/* Organized Header Card: Row 1 Title & Actions + Row 2 Sub-tabs & Workspace Resizer */}
+      <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200/90 dark:border-slate-800 shadow-2xs space-y-3.5">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100 tracking-tight flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-700 dark:text-blue-400 shrink-0">
+                <Receipt className="w-4 h-4" />
+              </div>
+              <span className="truncate">
+                {language === 'ar'
+                  ? 'المبيعات والفواتير المعتمدة وأعمار الديون — نظام حاسب'
+                  : 'Sales Invoices, Credit Aging & Customer Ledgers — Haseb ERP'}
+              </span>
+            </h1>
+            <p className="text-xs text-slate-500 mt-1 ps-10">
+              إصدار فواتير المبيعات وشهادات الضمان المعتمدة (معفاة من الضريبة 0%)، كشوف حسابات العملاء، تحليل أعمار الديون، وسندات القبض الفورية
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsNewInvoiceOpen(true)}
+              className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-3.5 py-2 rounded-lg flex items-center gap-1.5 shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5 shrink-0" />
+              <span>إصدار فاتورة مبيعات</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsNewCustomerOpen(true)}
+              className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-3.5 py-2 rounded-lg flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <Users className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <span>إضافة عميل</span>
+            </button>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setIsNewInvoiceOpen(true)}
-            className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold px-3.5 py-2 rounded-md flex items-center gap-1.5 cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>إصدار فاتورة مبيعات</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setIsNewCustomerOpen(true)}
-            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold px-3.5 py-2 rounded-md flex items-center gap-1.5 cursor-pointer"
-          >
-            <Users className="w-3.5 h-3.5" />
-            <span>إضافة عميل</span>
-          </button>
-
-          {/* Segmented Sub-tabs */}
-          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-md text-xs font-semibold text-slate-700">
+        {/* Row 2: Segmented Sub-tabs + Resizable Split-Pane Controls */}
+        <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-col xl:flex-row xl:items-center justify-between gap-2.5">
+          <div className="flex flex-wrap items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-300">
             <button
               type="button"
               data-testid="sales-tab-invoices"
               onClick={() => setActiveTab('invoices')}
-              className={`px-3 py-1.5 rounded transition cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`erp-resizable-tab px-3 py-1.5 rounded-md transition cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'invoices'
-                  ? 'bg-white text-slate-900 shadow-2xs'
-                  : 'hover:text-slate-900'
+                  ? 'bg-blue-600 text-white shadow-2xs'
+                  : 'hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               سجل الفواتير ({salesInvoices.length})
@@ -316,10 +326,10 @@ export const SalesView: React.FC = () => {
               type="button"
               data-testid="sales-tab-pipeline"
               onClick={() => setActiveTab('pipeline')}
-              className={`px-3 py-1.5 rounded transition cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`erp-resizable-tab px-3 py-1.5 rounded-md transition cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'pipeline'
-                  ? 'bg-white text-slate-900 shadow-2xs'
-                  : 'hover:text-slate-900'
+                  ? 'bg-blue-600 text-white shadow-2xs'
+                  : 'hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               عروض الأسعار وأوامر البيع ({salesPipelineDocs.length})
@@ -328,10 +338,10 @@ export const SalesView: React.FC = () => {
               type="button"
               data-testid="sales-tab-returns"
               onClick={() => setActiveTab('returns')}
-              className={`px-3 py-1.5 rounded transition cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`erp-resizable-tab px-3 py-1.5 rounded-md transition cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'returns'
-                  ? 'bg-white text-slate-900 shadow-2xs'
-                  : 'hover:text-slate-900'
+                  ? 'bg-blue-600 text-white shadow-2xs'
+                  : 'hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               المرتجعات وإشعارات الدائن ({salesReturns.length})
@@ -340,10 +350,10 @@ export const SalesView: React.FC = () => {
               type="button"
               data-testid="sales-tab-warranty"
               onClick={() => setActiveTab('warranty')}
-              className={`px-3 py-1.5 rounded transition cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`erp-resizable-tab px-3 py-1.5 rounded-md transition cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'warranty'
-                  ? 'bg-white text-slate-900 shadow-2xs'
-                  : 'hover:text-slate-900'
+                  ? 'bg-blue-600 text-white shadow-2xs'
+                  : 'hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               الضمان والصيانة RMA ({warrantyTickets.length})
@@ -352,10 +362,10 @@ export const SalesView: React.FC = () => {
               type="button"
               data-testid="sales-tab-aging"
               onClick={() => setActiveTab('aging')}
-              className={`px-3 py-1.5 rounded transition cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`erp-resizable-tab px-3 py-1.5 rounded-md transition cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'aging'
-                  ? 'bg-white text-slate-900 shadow-2xs'
-                  : 'hover:text-slate-900'
+                  ? 'bg-blue-600 text-white shadow-2xs'
+                  : 'hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               أعمار الديون وسندات القبض
@@ -364,22 +374,33 @@ export const SalesView: React.FC = () => {
               type="button"
               data-testid="sales-tab-customers"
               onClick={() => setActiveTab('customers')}
-              className={`px-3 py-1.5 rounded transition cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`erp-resizable-tab px-3 py-1.5 rounded-md transition cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'customers'
-                  ? 'bg-white text-slate-900 shadow-2xs'
-                  : 'hover:text-slate-900'
+                  ? 'bg-blue-600 text-white shadow-2xs'
+                  : 'hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               دليل العملاء ({customers.length})
             </button>
           </div>
+
+          <WorkspaceTabResizerBar
+            testIdPrefix="sales-workspace"
+            splitMode={activeTab === 'invoices' ? salesSplitMode : undefined}
+            onSplitModeChange={activeTab === 'invoices' ? setSalesSplitMode : undefined}
+            primaryPaneLabel="جدول الفواتير"
+            secondaryPaneLabel="معاينة الفاتورة"
+          />
         </div>
       </div>
 
       {activeTab === 'invoices' && (
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
-          {/* Invoices List (5 cols) */}
-          <div className="xl:col-span-5 bg-white rounded-lg border border-slate-200/90 overflow-hidden">
+          {/* Invoices List (Resizable Split Pane) */}
+          <div
+            data-testid="sales-invoices-list-pane"
+            className={`${salesSplitLayout.primaryColClass} bg-white rounded-xl border border-slate-200/90 overflow-hidden transition-all duration-200`}
+          >
             <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
               <span className="font-bold text-xs text-slate-800">
                 قائمة الفواتير الضريبية الصادرة
@@ -406,7 +427,7 @@ export const SalesView: React.FC = () => {
                         key={inv.id}
                         onClick={() => setSelectedInvoice(inv)}
                         className={`hover:bg-slate-50 cursor-pointer transition ${
-                          isSelected ? 'bg-slate-100/80' : ''
+                          isSelected ? 'bg-blue-50/70' : ''
                         }`}
                       >
                         <td className="py-2.5 px-3">
@@ -422,8 +443,8 @@ export const SalesView: React.FC = () => {
                           {inv.grandTotal.toLocaleString()} {currency}
                         </td>
                         <td className="py-2.5 px-3 text-center">
-                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-600" />
                             {inv.status}
                           </span>
                         </td>
@@ -435,9 +456,12 @@ export const SalesView: React.FC = () => {
             </div>
           </div>
 
-          {/* Multi-Template Tax Invoice Preview (7 cols) */}
+          {/* Multi-Template Tax Invoice Preview (Resizable Split Pane) */}
           {selectedInvoice && selectedInvoice.id && (
-            <div className="xl:col-span-7 bg-slate-100 p-4 rounded-lg border border-slate-200 space-y-4">
+            <div
+              data-testid="sales-invoice-preview-pane"
+              className={`${salesSplitLayout.secondaryColClass} bg-slate-100 p-4 rounded-xl border border-slate-200 space-y-4 transition-all duration-200`}
+            >
               {/* Template Selector Bar */}
               <div className="bg-white p-3 rounded-md border border-slate-200 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-1.5 text-xs">

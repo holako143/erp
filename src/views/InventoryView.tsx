@@ -25,8 +25,30 @@ import {
   FolderPlus,
   ScanLine,
   X,
+  BarChart3,
+  TrendingUp,
+  Volume2,
+  VolumeX,
+  Zap,
+  AlertTriangle,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
+import {
+  ResponsiveContainer,
+  ComposedChart,
+  BarChart,
+  Bar,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  Cell,
+} from 'recharts';
 import { CameraBarcodeScannerModal, ScannedBatchItem } from '../components/common/CameraBarcodeScannerModal';
+import { WorkspaceTabResizerBar } from '../components/common/WorkspaceTabResizerBar';
 import { IndustryType, ElectronicsSubCategory, Product } from '../types/erp';
 import {
   parseBulkProductsCSV,
@@ -36,6 +58,10 @@ import {
   generateUniqueProductSku,
   extractCartonBarcodeAndSkuFromLabel,
   resolveSpecificProductClassificationAr,
+  buildInventoryMiniDashboardAnalytics,
+  processFastStockTakeScan,
+  FastStockTakeScanEntry,
+  FastStockTakeAudioTone,
 } from '../core/inventoryEngine';
 
 const SAMPLE_BULK_CSV = `SKU,Barcode,NameAr,NameEn,CostPrice,SalePrice,StockQty,UOM,ReorderPoint,Sector
@@ -69,17 +95,81 @@ export const InventoryView: React.FC = () => {
     addToPOSCart,
     setActiveTab,
     addManualJournalEntry,
+    salesInvoices,
   } = useERP();
 
   const [inventorySubTab, setInventorySubTab] = useState<'ITEMS' | 'STOCK_TAKING' | 'BRANCH_TRANSFERS'>('ITEMS');
   const [transferFeedback, setTransferFeedback] = useState<string | null>(null);
 
-  // Physical Stock-Taking State (الجرد الفعلي اللحظي)
+  // Interactive Recharts Mini-Dashboard State
+  const [isMiniDashboardOpen, setIsMiniDashboardOpen] = useState<boolean>(true);
+  const [expandedChart, setExpandedChart] = useState<'BOTH' | 'DEMAND' | 'STOCK'>('BOTH');
+
+  // Physical Stock-Taking State (الجرد الفعلي اللحظي) & Fast Stock-Take Mode (الجرد السريع المتتالي)
   const [stockCountsMap, setStockCountsMap] = useState<Record<string, number>>({});
   const [stockAuditReason, setStockAuditReason] = useState<string>(
     'جرد فعلي دوري لمستودع الطاقة الشمسية والبطاريات والشاشات'
   );
   const [stockTakeBanner, setStockTakeBanner] = useState<string | null>(null);
+
+  // Fast Stock-Take Mode State (وضع الجرد السريع بالباركود المتتالي + التنبيهات الصوتية والمرئية)
+  const [isFastStockTakeOpen, setIsFastStockTakeOpen] = useState<boolean>(true);
+  const [fastScanCodeInput, setFastScanCodeInput] = useState<string>('');
+  const [fastScanQtyInput, setFastScanQtyInput] = useState<number>(1);
+  const [fastScanEntryMode, setFastScanEntryMode] = useState<'INCREMENT' | 'SET_EXACT'>('INCREMENT');
+  const [fastScanAudioEnabled, setFastScanAudioEnabled] = useState<boolean>(true);
+  const [fastScanLog, setFastScanLog] = useState<FastStockTakeScanEntry[]>([]);
+  const [latestFastScanAlert, setLatestFastScanAlert] = useState<FastStockTakeScanEntry | null>(null);
+  const fastBarcodeInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Web Audio API Synthesizer for Fast Stock-Take Mode (تنبيهات صوتية فورية للتطابق أو الاختلاف)
+  const playFastStockTakeAudio = (tone: FastStockTakeAudioTone) => {
+    if (!fastScanAudioEnabled) return;
+    try {
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const now = ctx.currentTime;
+
+      const playNote = (freq: number, startOffset: number, duration: number, type: OscillatorType = 'sine', gainVal = 0.14) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, now + startOffset);
+        gain.gain.setValueAtTime(gainVal, now + startOffset);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + startOffset + duration);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + startOffset);
+        osc.stop(now + startOffset + duration);
+      };
+
+      if (tone === 'MATCH_SUCCESS_CHIME') {
+        // Ascending pleasant dual chime on exact match
+        playNote(880, 0, 0.12, 'sine', 0.16);
+        playNote(1318.5, 0.11, 0.22, 'triangle', 0.18);
+      } else if (tone === 'DIFF_WARNING_BEEP') {
+        // Two-tone warning beep when counted < system stock
+        playNote(480, 0, 0.12, 'triangle', 0.15);
+        playNote(360, 0.14, 0.18, 'triangle', 0.15);
+      } else if (tone === 'SURPLUS_ALERT_BEEP') {
+        // Triple pulse when counted > system stock (surplus)
+        playNote(660, 0, 0.09, 'sine', 0.15);
+        playNote(520, 0.1, 0.09, 'sine', 0.15);
+        playNote(784, 0.2, 0.16, 'triangle', 0.16);
+      } else {
+        // Error buzz when barcode not found
+        playNote(220, 0, 0.18, 'sawtooth', 0.14);
+        playNote(165, 0.19, 0.24, 'sawtooth', 0.14);
+      }
+
+      setTimeout(() => {
+        ctx.close().catch(() => {});
+      }, 700);
+    } catch {
+      // ignore audio context restrictions in headless environments
+    }
+  };
 
   // Live Camera Barcode Scanner State & Handlers (Main Table & Stock-Taking)
   const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
@@ -804,6 +894,42 @@ export const InventoryView: React.FC = () => {
     { surplusCount: 0, deficitCount: 0, netValueImpact: 0 }
   );
 
+  // Build Recharts Mini-Dashboard Analytics for Top Demanded Items & Current Stock Levels
+  const miniDashboardAnalytics = buildInventoryMiniDashboardAnalytics(
+    electronicsProducts,
+    salesInvoices
+  );
+
+  // Execute Sequential Barcode / SKU Scan in Fast Stock-Take Mode
+  const handleExecuteFastStockScan = (
+    overrideCode?: string,
+    overrideQty?: number,
+    overrideMode?: 'INCREMENT' | 'SET_EXACT'
+  ) => {
+    const codeToScan = (overrideCode ?? fastScanCodeInput).trim();
+    if (!codeToScan) return;
+
+    const result = processFastStockTakeScan({
+      rawBarcodeOrSku: codeToScan,
+      qtyInput: overrideQty ?? fastScanQtyInput,
+      scanMode: overrideMode ?? fastScanEntryMode,
+      products: electronicsProducts,
+      currentCountsMap: stockCountsMap,
+    });
+
+    setStockCountsMap(result.updatedCountsMap);
+    setLatestFastScanAlert(result.scanEntry);
+    setFastScanLog((prev) => [result.scanEntry, ...prev.slice(0, 24)]);
+    playFastStockTakeAudio(result.scanEntry.audioTone);
+
+    if (!overrideCode) {
+      setFastScanCodeInput('');
+    }
+    setTimeout(() => {
+      fastBarcodeInputRef.current?.focus();
+    }, 30);
+  };
+
   return (
     <div className="space-y-3.5">
       {importBanner && (
@@ -825,135 +951,443 @@ export const InventoryView: React.FC = () => {
         </div>
       )}
 
-      {/* Title & Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100 tracking-tight flex items-center gap-2">
-            <Package className="w-5 h-5 text-blue-700" />
-            <span>
-              {language === 'ar'
-                ? 'إدارة المخزون والجرد الفعلي والتصنيف الهندسي (WMS)'
-                : 'Solar, Electronics, Batteries & Smart Screens WMS'}
-            </span>
-          </h1>
-          <p className="text-xs text-slate-500 mt-1">
-            تحكم كامل بالأصناف والتصنيفات المخزنية المحددة، تعديل البيانات والأسعار والأرصدة، الجرد الفعلي اللحظي، وتصوير/توليد الباركود والأكواد
-          </p>
+      {/* Organized Header Card: Row 1 Title & Primary Actions + Row 2 Sub-Tabs & Utility Actions */}
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200/90 dark:border-slate-800 p-4 shadow-2xs space-y-3">
+        {/* Row 1: Full-Width Title & Primary High-Frequency Buttons */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="flex-1 min-w-[280px]">
+            <h1 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100 tracking-tight flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-700 dark:text-blue-400 shrink-0">
+                <Package className="w-4 h-4" />
+              </div>
+              <span>
+                {language === 'ar'
+                  ? 'إدارة المخزون والجرد الفعلي والتصنيف الهندسي (WMS)'
+                  : 'Solar, Electronics, Batteries & Smart Screens WMS'}
+              </span>
+            </h1>
+            <p className="text-xs text-slate-500 mt-1 ps-10">
+              تحكم كامل بالأصناف والتصنيفات المخزنية المحددة، تعديل البيانات والأسعار والأرصدة، الجرد الفعلي اللحظي، وتصوير/توليد الباركود والأكواد
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {hasPermission('canCreate') && (
+              <button
+                type="button"
+                data-testid="add-product-modal-btn"
+                onClick={handleOpenCreateModal}
+                className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5 shrink-0" />
+                <span>إضافة صنف جديد</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              data-testid="btn-open-fast-stock-take-mode"
+              onClick={() => {
+                setInventorySubTab('STOCK_TAKING');
+                setIsFastStockTakeOpen(true);
+                setTimeout(() => fastBarcodeInputRef.current?.focus(), 80);
+              }}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <Zap className="w-3.5 h-3.5 shrink-0" />
+              <span>وضع الجرد السريع بالباركود</span>
+            </button>
+
+            <button
+              type="button"
+              data-testid="btn-toggle-inventory-mini-dashboard"
+              onClick={() => setIsMiniDashboardOpen((prev) => !prev)}
+              className={`text-xs font-bold px-3 py-2 rounded-lg border transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${
+                isMiniDashboardOpen
+                  ? 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700'
+              }`}
+            >
+              <BarChart3 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <span>{isMiniDashboardOpen ? 'إخفاء اللوحة البيانية' : 'لوحة قرارات المخزون'}</span>
+            </button>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            data-testid="inventory-goto-pos-btn"
-            onClick={() => setActiveTab('pos')}
-            className="bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-bold px-3.5 py-2 rounded-md transition flex items-center gap-1.5 cursor-pointer"
-          >
-            <ShoppingCart className="w-3.5 h-3.5" />
-            <span>نقطة البيع والضمان POS</span>
-          </button>
-
-          <button
-            type="button"
-            data-testid="inventory-whatsapp-alert-btn"
-            onClick={() =>
-              openQuickSendModal({
-                channel: 'WHATSAPP',
-                category: 'LOW_STOCK_ALERT',
-              })
-            }
-            className="bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold px-3.5 py-2 rounded-md transition flex items-center gap-1.5 cursor-pointer"
-          >
-            <MessageSquare className="w-3.5 h-3.5" />
-            <span>إشعار النواقص واتساب / SMS</span>
-          </button>
-
-          {hasPermission('canCreate') && showExportImport && (
+        {/* Row 2: Resizable Sub-Tabs Navigation + Secondary Utility Actions & Workspace Resizer */}
+        <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <button
               type="button"
-              data-testid="open-bulk-import-btn"
-              onClick={() => setIsBulkModalOpen(true)}
-              className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold px-3.5 py-2 rounded-md transition flex items-center gap-1.5 cursor-pointer"
+              data-testid="subtab-inventory-items"
+              onClick={() => setInventorySubTab('ITEMS')}
+              className={`erp-resizable-tab px-3.5 py-2 rounded-lg font-bold text-xs flex items-center gap-2 border transition cursor-pointer whitespace-nowrap shrink-0 ${
+                inventorySubTab === 'ITEMS'
+                  ? 'border-blue-600 bg-blue-600 text-white shadow-2xs'
+                  : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
+              }`}
             >
-              <Upload className="w-3.5 h-3.5" />
-              <span>استيراد جماعي Excel/CSV</span>
+              <Package className="w-3.5 h-3.5 shrink-0" />
+              <span>سجل الأصناف والتحكم بالمخزون ({electronicsProducts.length})</span>
             </button>
-          )}
 
-          {hasPermission('canExport') && showExportImport && (
             <button
               type="button"
-              data-testid="export-inventory-csv-btn"
-              onClick={handleExportCSV}
-              className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold px-3.5 py-2 rounded-md transition flex items-center gap-1.5 cursor-pointer"
+              data-testid="subtab-stock-taking"
+              onClick={() => setInventorySubTab('STOCK_TAKING')}
+              className={`erp-resizable-tab px-3.5 py-2 rounded-lg font-bold text-xs flex items-center gap-2 border transition cursor-pointer whitespace-nowrap shrink-0 ${
+                inventorySubTab === 'STOCK_TAKING'
+                  ? 'border-indigo-600 bg-indigo-600 text-white shadow-2xs'
+                  : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
+              }`}
             >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-blue-700" />
-              <span>تصدير Excel/CSV</span>
+              <ClipboardCheck className="w-3.5 h-3.5 shrink-0" />
+              <span>الجرد الفعلي اللحظي وتسوية الفروقات</span>
             </button>
-          )}
 
-          {hasPermission('canCreate') && (
             <button
               type="button"
-              data-testid="add-product-modal-btn"
-              onClick={handleOpenCreateModal}
-              className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-4 py-2 rounded-md transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+              data-testid="subtab-branch-transfers"
+              onClick={() => setInventorySubTab('BRANCH_TRANSFERS')}
+              className={`erp-resizable-tab px-3.5 py-2 rounded-lg font-bold text-xs flex items-center gap-2 border transition cursor-pointer whitespace-nowrap shrink-0 ${
+                inventorySubTab === 'BRANCH_TRANSFERS'
+                  ? 'border-blue-600 bg-blue-600 text-white shadow-2xs'
+                  : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
+              }`}
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>إضافة صنف جديد</span>
+              <Network className="w-3.5 h-3.5 shrink-0" />
+              <span>شبكة الفروع والتحويلات ({branchNodes.length} فروع)</span>
+              {interBranchTransfers.length > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-white/20 text-current font-mono">
+                  {interBranchTransfers.length}
+                </span>
+              )}
             </button>
-          )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              data-testid="inventory-goto-pos-btn"
+              onClick={() => setActiveTab('pos')}
+              className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-2.5 py-1.5 rounded-lg transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
+              <span>نقطة البيع POS</span>
+            </button>
+
+            <button
+              type="button"
+              data-testid="inventory-whatsapp-alert-btn"
+              onClick={() =>
+                openQuickSendModal({
+                  channel: 'WHATSAPP',
+                  category: 'LOW_STOCK_ALERT',
+                })
+              }
+              className="bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 text-xs font-bold px-2.5 py-1.5 rounded-lg transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+              <span>إشعار النواقص</span>
+            </button>
+
+            {hasPermission('canCreate') && showExportImport && (
+              <button
+                type="button"
+                data-testid="open-bulk-import-btn"
+                onClick={() => setIsBulkModalOpen(true)}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-xs font-semibold px-2.5 py-1.5 rounded-lg transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <Upload className="w-3.5 h-3.5 shrink-0" />
+                <span>استيراد CSV</span>
+              </button>
+            )}
+
+            {hasPermission('canExport') && showExportImport && (
+              <button
+                type="button"
+                data-testid="export-inventory-csv-btn"
+                onClick={handleExportCSV}
+                className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold px-2.5 py-1.5 rounded-lg transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                <span>تصدير CSV</span>
+              </button>
+            )}
+
+            <WorkspaceTabResizerBar
+              testIdPrefix="inventory-workspace"
+              isSectionMaximized={!isMiniDashboardOpen}
+              onToggleSectionMaximized={() => setIsMiniDashboardOpen((prev) => !prev)}
+              maximizeLabel="طي اللوحة البيانية"
+            />
+          </div>
         </div>
       </div>
 
-      {/* Sub-tab Navigation */}
-      <div className="flex flex-wrap border-b border-slate-200 dark:border-slate-800 gap-2">
-        <button
-          type="button"
-          data-testid="subtab-inventory-items"
-          onClick={() => setInventorySubTab('ITEMS')}
-          className={`px-4 py-2.5 font-bold text-xs flex items-center gap-2 border-b-2 transition cursor-pointer ${
-            inventorySubTab === 'ITEMS'
-              ? 'border-blue-600 text-blue-800 dark:text-blue-400 bg-blue-50/60 dark:bg-blue-950/20'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-          }`}
+      {/* Interactive Recharts Mini-Dashboard Inside Inventory Screen (لوحة التحكم المصغرة لاتخاذ القرار السريع) */}
+      {isMiniDashboardOpen && (
+        <div
+          data-testid="inventory-mini-dashboard"
+          className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200/90 dark:border-slate-800 p-4 shadow-2xs space-y-4"
         >
-          <Package className="w-4 h-4 text-blue-600" />
-          <span>سجل الأصناف والتحكم بالمخزون ({electronicsProducts.length})</span>
-        </button>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-600">
+                <TrendingUp className="w-4 h-4" />
+              </div>
+              <div>
+                <h2 className="text-sm font-black text-slate-900 dark:text-slate-100">
+                  لوحة التحكم المصغرة للمخزون واتخاذ القرار السريع (Interactive Inventory Analytics)
+                </h2>
+                <p className="text-[11px] text-slate-500">
+                  تحليل بياني لحظي لأكثر الأصناف طلباً ومعدلات الدوران ومستويات المخزون الحالية مقابل حد إعادة الطلب الآمن
+                </p>
+              </div>
+            </div>
 
-        <button
-          type="button"
-          data-testid="subtab-stock-taking"
-          onClick={() => setInventorySubTab('STOCK_TAKING')}
-          className={`px-4 py-2.5 font-bold text-xs flex items-center gap-2 border-b-2 transition cursor-pointer ${
-            inventorySubTab === 'STOCK_TAKING'
-              ? 'border-indigo-600 text-indigo-800 dark:text-indigo-400 bg-indigo-50/60 dark:bg-indigo-950/20'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          <ClipboardCheck className="w-4 h-4 text-indigo-600" />
-          <span>الجرد الفعلي اللحظي وتسوية الفروقات المحاسبية</span>
-        </button>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              <div className="px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                <div className="text-[10px] text-slate-500 font-bold">إجمالي وحدات المستودع</div>
+                <div className="font-mono font-black text-slate-900 dark:text-white text-sm" dir="ltr">
+                  {miniDashboardAnalytics.totalUnitsInStock.toLocaleString()} PCS
+                </div>
+              </div>
+              <div className="px-3 py-1.5 rounded-lg bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800">
+                <div className="text-[10px] text-blue-700 dark:text-blue-300 font-bold">قيمة المخزون بالتكلفة</div>
+                <div className="font-mono font-black text-blue-900 dark:text-blue-200 text-sm" dir="ltr">
+                  {miniDashboardAnalytics.totalInventoryValue.toLocaleString()} {currency}
+                </div>
+              </div>
+              <div className="px-3 py-1.5 rounded-lg bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800">
+                <div className="text-[10px] text-indigo-700 dark:text-indigo-300 font-bold">الأعلى طلباً ودوراناً</div>
+                <div className="font-bold text-indigo-950 dark:text-indigo-200 text-xs truncate max-w-[150px]">
+                  {miniDashboardAnalytics.topPerformerNameAr}
+                </div>
+              </div>
+              <div className="px-3 py-1.5 rounded-lg bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+                <div className="text-[10px] text-amber-800 dark:text-amber-300 font-bold">تحتاج إعادة طلب</div>
+                <div className="font-mono font-black text-amber-900 dark:text-amber-200 text-sm">
+                  {miniDashboardAnalytics.lowStockItemsCount} أصناف
+                </div>
+              </div>
+            </div>
+          </div>
 
-        <button
-          type="button"
-          data-testid="subtab-branch-transfers"
-          onClick={() => setInventorySubTab('BRANCH_TRANSFERS')}
-          className={`px-4 py-2.5 font-bold text-xs flex items-center gap-2 border-b-2 transition cursor-pointer ${
-            inventorySubTab === 'BRANCH_TRANSFERS'
-              ? 'border-blue-600 text-blue-800 dark:text-blue-400 bg-blue-50/60 dark:bg-blue-950/20'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          <Network className="w-4 h-4 text-blue-600" />
-          <span>شبكة الفروع والتحويلات اللحظية LAN Sync ({branchNodes.length} فروع متصلة)</span>
-          {interBranchTransfers.length > 0 && (
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-blue-600 text-white font-mono">
-              {interBranchTransfers.length}
-            </span>
-          )}
-        </button>
-      </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Recharts Chart 1: Top Demanded Items vs Current Stock */}
+            {expandedChart !== 'STOCK' && (
+              <div
+                data-testid="inventory-chart-top-demanded"
+                className={`p-3.5 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 space-y-2 ${
+                  expandedChart === 'DEMAND' ? 'lg:col-span-2' : ''
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <BarChart3 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <span>أكثر الأصناف طلباً ومبيعات مقارنة بالرصيد المتاح</span>
+                  </h3>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-[10px] font-bold text-blue-700 bg-blue-100/80 px-2 py-0.5 rounded">
+                      تفاعلي مباشر (Recharts)
+                    </span>
+                    <button
+                      type="button"
+                      data-testid="btn-resize-demand-chart"
+                      onClick={() =>
+                        setExpandedChart((prev) => (prev === 'DEMAND' ? 'BOTH' : 'DEMAND'))
+                      }
+                      className="p-1 rounded border border-slate-200 bg-white hover:bg-blue-50 text-slate-600 hover:text-blue-700 cursor-pointer"
+                      title={expandedChart === 'DEMAND' ? 'استعادة العرض المزدوج' : 'تكبير الرسم البياني'}
+                    >
+                      {expandedChart === 'DEMAND' ? (
+                        <Minimize2 className="w-3 h-3" />
+                      ) : (
+                        <Maximize2 className="w-3 h-3" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+                <div className={`${expandedChart === 'DEMAND' ? 'h-64' : 'h-48'} w-full`} dir="ltr">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart
+                      data={miniDashboardAnalytics.topDemandedItems}
+                      margin={{ top: 8, right: 12, left: 0, bottom: 4 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis
+                        dataKey="sku"
+                        tick={{ fontSize: 10, fill: '#475569', fontWeight: 700 }}
+                      />
+                      <YAxis tick={{ fontSize: 10, fill: '#475569' }} />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: '#0f172a',
+                          borderColor: '#1e293b',
+                          borderRadius: '8px',
+                          color: '#f8fafc',
+                          fontSize: '11px',
+                        }}
+                        formatter={(val: any, name: any) => [
+                          `${val} وحدة`,
+                          name === 'demandedQty'
+                            ? 'الطلب والمبيعات'
+                            : name === 'currentStock'
+                            ? 'الرصيد المتاح'
+                            : 'حد إعادة الطلب',
+                        ]}
+                        labelFormatter={(label: any, payload: any) =>
+                          payload?.[0]?.payload?.nameAr || label
+                        }
+                      />
+                      <Legend
+                        wrapperStyle={{ fontSize: '11px', fontWeight: 700 }}
+                        formatter={(val) =>
+                          val === 'demandedQty'
+                            ? 'الطلب والمبيعات'
+                            : val === 'currentStock'
+                            ? 'الرصيد الفعلي المتاح'
+                            : 'حد الطلب الآمن'
+                        }
+                      />
+                      <Bar
+                        dataKey="demandedQty"
+                        name="demandedQty"
+                        fill="#2563eb"
+                        radius={[4, 4, 0, 0]}
+                        barSize={20}
+                      />
+                      <Bar
+                        dataKey="currentStock"
+                        name="currentStock"
+                        fill="#6366f1"
+                        radius={[4, 4, 0, 0]}
+                        barSize={20}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="reorderPoint"
+                        name="reorderPoint"
+                        stroke="#f59e0b"
+                        strokeWidth={2}
+                        dot={{ r: 3, fill: '#f59e0b' }}
+                      />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+
+            {/* Recharts Chart 2: Current Stock Levels vs Reorder Point */}
+            {expandedChart !== 'DEMAND' && (
+              <div
+                data-testid="inventory-chart-stock-levels"
+                className={`p-3.5 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 space-y-2 ${
+                  expandedChart === 'STOCK' ? 'lg:col-span-2' : ''
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <Package className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                    <span>مستويات المخزون الحالية مقابل حد إعادة الطلب الآمن</span>
+                  </h3>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100/80 px-2 py-0.5 rounded">
+                      انقر على أي عمود لتصفية الصنف
+                    </span>
+                    <button
+                      type="button"
+                      data-testid="btn-resize-stock-chart"
+                      onClick={() =>
+                        setExpandedChart((prev) => (prev === 'STOCK' ? 'BOTH' : 'STOCK'))
+                      }
+                      className="p-1 rounded border border-slate-200 bg-white hover:bg-indigo-50 text-slate-600 hover:text-indigo-700 cursor-pointer"
+                      title={expandedChart === 'STOCK' ? 'استعادة العرض المزدوج' : 'تكبير الرسم البياني'}
+                    >
+                      {expandedChart === 'STOCK' ? (
+                        <Minimize2 className="w-3 h-3" />
+                      ) : (
+                        <Maximize2 className="w-3 h-3" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+                <div className={`${expandedChart === 'STOCK' ? 'h-64' : 'h-48'} w-full`} dir="ltr">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={miniDashboardAnalytics.stockLevelsItems}
+                    margin={{ top: 8, right: 12, left: 0, bottom: 4 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis
+                      dataKey="sku"
+                      tick={{ fontSize: 10, fill: '#475569', fontWeight: 700 }}
+                    />
+                    <YAxis tick={{ fontSize: 10, fill: '#475569' }} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#0f172a',
+                        borderColor: '#1e293b',
+                        borderRadius: '8px',
+                        color: '#f8fafc',
+                        fontSize: '11px',
+                      }}
+                      formatter={(val: any, name: any) => [
+                        `${val} وحدة`,
+                        name === 'stockQty' ? 'الرصيد الفعلي الحالي' : 'حد إعادة الطلب الآمن',
+                      ]}
+                      labelFormatter={(label: any, payload: any) =>
+                        payload?.[0]?.payload?.nameAr || label
+                      }
+                    />
+                    <Legend
+                      wrapperStyle={{ fontSize: '11px', fontWeight: 700 }}
+                      formatter={(val) =>
+                        val === 'stockQty' ? 'الرصيد الفعلي الحالي' : 'حد إعادة الطلب الآمن'
+                      }
+                    />
+                    <Bar
+                      dataKey="stockQty"
+                      name="stockQty"
+                      radius={[4, 4, 0, 0]}
+                      barSize={22}
+                      onClick={(data: any) => {
+                        if (data?.sku) {
+                          setSearchQuery(String(data.sku));
+                          setInventorySubTab('ITEMS');
+                        }
+                      }}
+                      className="cursor-pointer"
+                    >
+                      {miniDashboardAnalytics.stockLevelsItems.map((entry, index) => (
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={
+                            entry.healthStatus === 'OUT_OF_STOCK'
+                              ? '#e11d48'
+                              : entry.healthStatus === 'REORDER_NOW'
+                              ? '#d97706'
+                              : '#1d4ed8'
+                          }
+                        />
+                      ))}
+                    </Bar>
+                    <Bar
+                      dataKey="reorderPoint"
+                      name="reorderPoint"
+                      fill="#94a3b8"
+                      radius={[4, 4, 0, 0]}
+                      barSize={14}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {inventorySubTab === 'ITEMS' && (
         <>
@@ -1334,52 +1768,18 @@ export const InventoryView: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-slate-900 text-white p-4 rounded-lg border border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-            <div>
-              <h3 className="font-bold text-sm flex items-center gap-2">
-                <ClipboardCheck className="w-4 h-4 text-blue-400" />
-                <span>محرك الجرد الفعلي اللحظي والتحكم الكامل بتسوية الفروقات</span>
-              </h3>
-              <p className="text-xs text-slate-300 mt-1">
-                تحكم بالعدد الفعلي لكل صنف عبر أزرار (+ / -) أو الإدخال المباشر أو مسح الكاميرا، ثم اعتمد الجرد فردياً أو جماعياً لترحيل قيد التسوية آلياً.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                data-testid="stock-take-camera-scan-btn"
-                onClick={() => {
-                  setCameraScannerContext('STOCK_TAKE');
-                  setIsCameraScannerOpen(true);
-                }}
-                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer shrink-0"
-              >
-                <Camera className="w-4 h-4" />
-                <span>مسح بالكاميرا للجرد</span>
-              </button>
-              <button
-                type="button"
-                data-testid="btn-commit-all-stock-take"
-                onClick={handleCommitAllStockTake}
-                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer shrink-0"
-              >
-                <CheckCheck className="w-4 h-4" />
-                <span>اعتماد جميع الفروقات دفعة واحدة</span>
-              </button>
-              <button
-                type="button"
-                data-testid="btn-reset-stock-take"
-                onClick={() => {
-                  setStockCountsMap({});
-                  setStockTakeBanner('تمت إعادة ضبط خانات الجرد لمطابقة الأرصدة الدفترية الحالية.');
-                  setTimeout(() => setStockTakeBanner(null), 3500);
-                }}
-                className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold rounded-lg text-xs flex items-center gap-1.5 transition cursor-pointer"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>إعادة ضبط</span>
-              </button>
-              <div className="w-full sm:w-64">
+          <div className="bg-slate-900 text-white p-4 rounded-xl border border-slate-800 space-y-3">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-sm flex items-center gap-2">
+                  <ClipboardCheck className="w-4 h-4 text-blue-400 shrink-0" />
+                  <span>محرك الجرد الفعلي اللحظي والتحكم الكامل بتسوية الفروقات</span>
+                </h3>
+                <p className="text-xs text-slate-300 mt-1">
+                  تحكم بالعدد الفعلي لكل صنف عبر أزرار (+ / -) أو الإدخال المباشر أو مسح الكاميرا، ثم اعتمد الجرد فردياً أو جماعياً لترحيل قيد التسوية آلياً.
+                </p>
+              </div>
+              <div className="w-full lg:w-72 shrink-0">
                 <input
                   type="text"
                   value={stockAuditReason}
@@ -1389,7 +1789,380 @@ export const InventoryView: React.FC = () => {
                 />
               </div>
             </div>
+            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                data-testid="toggle-fast-stock-take-btn"
+                onClick={() => {
+                  setIsFastStockTakeOpen((prev) => !prev);
+                  setTimeout(() => fastBarcodeInputRef.current?.focus(), 60);
+                }}
+                className={`px-3.5 py-2 font-bold rounded-lg text-xs flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer whitespace-nowrap shrink-0 ${
+                  isFastStockTakeOpen
+                    ? 'bg-blue-500 text-white ring-2 ring-blue-300'
+                    : 'bg-slate-800 hover:bg-slate-700 text-blue-300 border border-blue-500/40'
+                }`}
+              >
+                <Zap className="w-4 h-4 shrink-0" />
+                <span>{isFastStockTakeOpen ? 'وضع الجرد السريع نشط ⚡' : 'تفعيل وضع الجرد السريع بالباركود'}</span>
+              </button>
+              <button
+                type="button"
+                data-testid="stock-take-camera-scan-btn"
+                onClick={() => {
+                  setCameraScannerContext('STOCK_TAKE');
+                  setIsCameraScannerOpen(true);
+                }}
+                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <Camera className="w-4 h-4 shrink-0" />
+                <span>مسح بالكاميرا للجرد</span>
+              </button>
+              <button
+                type="button"
+                data-testid="btn-commit-all-stock-take"
+                onClick={handleCommitAllStockTake}
+                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <CheckCheck className="w-4 h-4 shrink-0" />
+                <span>اعتماد جميع الفروقات دفعة واحدة</span>
+              </button>
+              <button
+                type="button"
+                data-testid="btn-reset-stock-take"
+                onClick={() => {
+                  setStockCountsMap({});
+                  setFastScanLog([]);
+                  setLatestFastScanAlert(null);
+                  setStockTakeBanner('تمت إعادة ضبط خانات الجرد لمطابقة الأرصدة الدفترية الحالية.');
+                  setTimeout(() => setStockTakeBanner(null), 3500);
+                }}
+                className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold rounded-lg text-xs flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+                <span>إعادة ضبط</span>
+              </button>
+            </div>
           </div>
+
+          {/* Fast Stock-Take Mode Studio (وضع الجرد السريع بالباركود المتتالي مع التنبيهات الصوتية والمرئية الفورية) */}
+          {isFastStockTakeOpen && (
+            <div
+              data-testid="fast-stock-take-panel"
+              className="bg-white dark:bg-slate-900 rounded-xl border-2 border-blue-600/80 shadow-md p-4 space-y-4"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                    <Zap className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-black text-sm text-slate-900 dark:text-white">
+                        وضع الجرد السريع بالباركود المتتالي (Fast Stock-Take Mode)
+                      </h4>
+                      <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 text-[10px] font-bold">
+                        تنبيه صوتي ومرئي لحظي
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      امسح الباركود أو كود الصنف بشكل متتالي بقارئ الباركود أو لوحة المفاتيح — سيصدر النظام نغمة وتنبيهاً مرئياً فورياً يوضح تطابق أو اختلاف الكمية عن المسجل بالنظام.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    data-testid="btn-toggle-fast-stock-audio"
+                    onClick={() => setFastScanAudioEnabled((prev) => !prev)}
+                    className={`px-3 py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                      fastScanAudioEnabled
+                        ? 'bg-blue-50 text-blue-800 border-blue-200'
+                        : 'bg-slate-100 text-slate-600 border-slate-200'
+                    }`}
+                  >
+                    {fastScanAudioEnabled ? (
+                      <>
+                        <Volume2 className="w-4 h-4 text-blue-600" />
+                        <span>التنبيه الصوتي: مفعّل</span>
+                      </>
+                    ) : (
+                      <>
+                        <VolumeX className="w-4 h-4 text-slate-500" />
+                        <span>التنبيه الصوتي: صامت</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Sequential Barcode Input Bar */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleExecuteFastStockScan();
+                }}
+                className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-end bg-slate-50 p-3 rounded-xl border border-slate-200"
+              >
+                <div className="md:col-span-5">
+                  <label className="block font-bold text-slate-700 text-[11px] mb-1">
+                    امسح الباركود أو أدخل كود الصنف (SKU / EAN-13) ثم اضغط Enter:
+                  </label>
+                  <div className="relative">
+                    <input
+                      ref={fastBarcodeInputRef}
+                      type="text"
+                      data-testid="fast-stock-barcode-input"
+                      value={fastScanCodeInput}
+                      onChange={(e) => setFastScanCodeInput(e.target.value)}
+                      placeholder="امسح الباركود هنا (مثال: 6281042005014 أو SOL-PNL-585W)..."
+                      className="w-full p-2.5 ps-9 bg-white border-2 border-blue-500 rounded-lg font-mono font-bold text-xs text-slate-900 outline-hidden"
+                      dir="ltr"
+                    />
+                    <ScanLine className="w-4 h-4 text-blue-600 absolute start-2.5 top-2.5" />
+                  </div>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block font-bold text-slate-700 text-[11px] mb-1">
+                    الكمية لكل مسحة:
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    data-testid="fast-stock-qty-input"
+                    value={fastScanQtyInput}
+                    onChange={(e) => setFastScanQtyInput(Math.max(0, Number(e.target.value)))}
+                    className="w-full p-2.5 bg-white border border-slate-300 rounded-lg font-mono font-bold text-xs text-center"
+                  />
+                </div>
+
+                <div className="md:col-span-3">
+                  <label className="block font-bold text-slate-700 text-[11px] mb-1">
+                    نمط احتساب الكمية الممسوحة:
+                  </label>
+                  <select
+                    data-testid="fast-stock-mode-select"
+                    value={fastScanEntryMode}
+                    onChange={(e) =>
+                      setFastScanEntryMode(e.target.value as 'INCREMENT' | 'SET_EXACT')
+                    }
+                    className="w-full p-2.5 bg-white border border-slate-300 rounded-lg font-bold text-xs text-slate-800"
+                  >
+                    <option value="INCREMENT">إضافة تراكمية (+ على الممسوح)</option>
+                    <option value="SET_EXACT">تثبيت كإجمالي فعلي نهائي (=)</option>
+                  </select>
+                </div>
+
+                <div className="md:col-span-2">
+                  <button
+                    type="submit"
+                    data-testid="btn-submit-fast-stock-scan"
+                    className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-500 text-white font-black rounded-lg text-xs flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
+                  >
+                    <Zap className="w-4 h-4" />
+                    <span>إدخال المسحة</span>
+                  </button>
+                </div>
+              </form>
+
+              {/* Quick 1-Click Barcode Test Chips (للتجربة الفورية للمسح المتتالي والتنبيهات) */}
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                <span className="font-bold text-slate-500">تجربة مسح سريعة بضغطة واحدة:</span>
+                {electronicsProducts.slice(0, 4).map((prod) => (
+                  <button
+                    key={prod.id}
+                    type="button"
+                    data-testid={`fast-scan-quick-match-${prod.sku}`}
+                    onClick={() => handleExecuteFastStockScan(prod.barcode, prod.stockQty, 'SET_EXACT')}
+                    className="px-2.5 py-1 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 font-bold transition cursor-pointer"
+                    title="مسح مطابق لرصيد النظام (يصدر نغمة وإشعار تطابق)"
+                  >
+                    ✓ مطابقة: {prod.sku} ({prod.stockQty})
+                  </button>
+                ))}
+                {electronicsProducts[0] && (
+                  <button
+                    type="button"
+                    data-testid={`fast-scan-quick-diff-${electronicsProducts[0].sku}`}
+                    onClick={() =>
+                      handleExecuteFastStockScan(
+                        electronicsProducts[0].barcode,
+                        Math.max(1, electronicsProducts[0].stockQty - 3),
+                        'SET_EXACT'
+                      )
+                    }
+                    className="px-2.5 py-1 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold transition cursor-pointer"
+                    title="مسح بكمية مختلفة عن النظام (يصدر نغمة وتنبيه اختلاف)"
+                  >
+                    ⚠ اختبار اختلاف كمية ({electronicsProducts[0].sku})
+                  </button>
+                )}
+              </div>
+
+              {/* High-Contrast Visual & Audio Alert Banner on Every Scan */}
+              {latestFastScanAlert && (
+                <div
+                  data-testid="fast-stock-visual-alert"
+                  data-status={latestFastScanAlert.comparisonStatus}
+                  className={`p-4 rounded-xl border-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all ${
+                    latestFastScanAlert.comparisonStatus === 'MATCHED'
+                      ? 'bg-blue-50/90 border-blue-500 text-blue-950'
+                      : latestFastScanAlert.comparisonStatus === 'DEFICIT'
+                      ? 'bg-amber-50/95 border-amber-500 text-amber-950'
+                      : latestFastScanAlert.comparisonStatus === 'SURPLUS'
+                      ? 'bg-indigo-50/95 border-indigo-500 text-indigo-950'
+                      : 'bg-rose-50/95 border-rose-500 text-rose-950'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 font-black ${
+                        latestFastScanAlert.comparisonStatus === 'MATCHED'
+                          ? 'bg-blue-600 text-white'
+                          : latestFastScanAlert.comparisonStatus === 'DEFICIT'
+                          ? 'bg-amber-500 text-slate-950'
+                          : latestFastScanAlert.comparisonStatus === 'SURPLUS'
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-rose-600 text-white'
+                      }`}
+                    >
+                      {latestFastScanAlert.comparisonStatus === 'MATCHED' ? (
+                        <CheckCircle2 className="w-5 h-5" />
+                      ) : (
+                        <AlertTriangle className="w-5 h-5" />
+                      )}
+                    </div>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-black text-sm">
+                          {latestFastScanAlert.visualTitleAr}
+                        </span>
+                        <span className="px-2 py-0.5 rounded bg-white/80 border border-current/20 font-mono text-[10px] font-bold">
+                          النغمة الصوتية: {latestFastScanAlert.audioTone}
+                        </span>
+                      </div>
+                      <p className="text-xs font-bold mt-1 opacity-90">
+                        {latestFastScanAlert.visualDetailAr}
+                      </p>
+                    </div>
+                  </div>
+
+                  {latestFastScanAlert.matched && (
+                    <div className="flex items-center gap-3 shrink-0 bg-white/90 px-3.5 py-2 rounded-lg border border-slate-200">
+                      <div className="text-center">
+                        <div className="text-[10px] text-slate-500 font-bold">المسجل بالنظام</div>
+                        <div className="font-mono font-black text-sm text-slate-800">
+                          {latestFastScanAlert.systemQty}
+                        </div>
+                      </div>
+                      <div className="text-slate-300 font-bold">|</div>
+                      <div className="text-center">
+                        <div className="text-[10px] text-blue-700 font-bold">الفعلي الممسوح</div>
+                        <div className="font-mono font-black text-sm text-blue-700">
+                          {latestFastScanAlert.countedQty}
+                        </div>
+                      </div>
+                      <div className="text-slate-300 font-bold">|</div>
+                      <div className="text-center">
+                        <div className="text-[10px] text-slate-500 font-bold">الفرق</div>
+                        <div
+                          className={`font-mono font-black text-sm ${
+                            latestFastScanAlert.varianceQty === 0
+                              ? 'text-blue-700'
+                              : latestFastScanAlert.varianceQty > 0
+                              ? 'text-indigo-700'
+                              : 'text-rose-700'
+                          }`}
+                          dir="ltr"
+                        >
+                          {latestFastScanAlert.varianceQty > 0
+                            ? `+${latestFastScanAlert.varianceQty}`
+                            : latestFastScanAlert.varianceQty}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Sequential Scans History Table */}
+              {fastScanLog.length > 0 && (
+                <div className="border border-slate-200 rounded-lg overflow-hidden">
+                  <div className="bg-slate-100 px-3 py-2 text-[11px] font-bold text-slate-700 flex items-center justify-between">
+                    <span>سجل عمليات المسح المتتالي في الجرد السريع ({fastScanLog.length})</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFastScanLog([]);
+                        setLatestFastScanAlert(null);
+                      }}
+                      className="text-rose-600 hover:text-rose-800 font-bold cursor-pointer"
+                    >
+                      مسح السجل
+                    </button>
+                  </div>
+                  <div className="max-h-40 overflow-y-auto">
+                    <table className="w-full text-[11px] text-start">
+                      <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                        <tr>
+                          <th className="py-1.5 px-3 text-start">الوقت</th>
+                          <th className="py-1.5 px-3 text-start">الباركود / الكود</th>
+                          <th className="py-1.5 px-3 text-start">الصنف</th>
+                          <th className="py-1.5 px-3 text-center">النظام</th>
+                          <th className="py-1.5 px-3 text-center">الفعلي</th>
+                          <th className="py-1.5 px-3 text-center">حالة المطابقة</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {fastScanLog.map((entry) => (
+                          <tr key={entry.scanId} className="hover:bg-slate-50">
+                            <td className="py-1.5 px-3 font-mono text-slate-500" dir="ltr">
+                              {entry.scannedAt}
+                            </td>
+                            <td className="py-1.5 px-3 font-mono font-bold text-slate-800" dir="ltr">
+                              {entry.sku || entry.rawCode}
+                            </td>
+                            <td className="py-1.5 px-3 font-bold text-slate-900">
+                              {entry.productNameAr}
+                            </td>
+                            <td className="py-1.5 px-3 text-center font-mono">
+                              {entry.systemQty}
+                            </td>
+                            <td className="py-1.5 px-3 text-center font-mono font-black text-blue-700">
+                              {entry.countedQty}
+                            </td>
+                            <td className="py-1.5 px-3 text-center">
+                              <span
+                                className={`px-2 py-0.5 rounded font-bold text-[10px] ${
+                                  entry.comparisonStatus === 'MATCHED'
+                                    ? 'bg-blue-100 text-blue-800'
+                                    : entry.comparisonStatus === 'DEFICIT'
+                                    ? 'bg-amber-100 text-amber-900'
+                                    : entry.comparisonStatus === 'SURPLUS'
+                                    ? 'bg-indigo-100 text-indigo-900'
+                                    : 'bg-rose-100 text-rose-800'
+                                }`}
+                              >
+                                {entry.comparisonStatus === 'MATCHED'
+                                  ? '✓ مطابق للنظام'
+                                  : entry.comparisonStatus === 'DEFICIT'
+                                  ? `⚠ نقص (${entry.varianceQty})`
+                                  : entry.comparisonStatus === 'SURPLUS'
+                                  ? `⚡ فائض (+${entry.varianceQty})`
+                                  : 'غير مسجل'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
             <div className="overflow-x-auto">

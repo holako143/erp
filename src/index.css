@@ -3,66 +3,50 @@
 
 @layer base {
   :root {
-    --font-sans: 'Cairo', 'Readex Pro', 'IBM Plex Sans Arabic', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    --font-mono: 'JetBrains Mono', 'IBM Plex Mono', 'Cairo', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    --erp-bg-canvas: #eef3f9;
-    --erp-bg-surface: #ffffff;
-    --erp-bg-elevated: #f5f8fc;
-    --erp-border: #d5e0ee;
-    --erp-text-primary: #0f172a;
-    --erp-text-secondary: #334155;
-    --erp-accent: #2563eb;
+    --font-sans: 'IBM Plex Sans Arabic', 'Readex Pro', 'Cairo', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'IBM Plex Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    --erp-bg-canvas: #F8FAFC;
+    --erp-bg-surface: #FFFFFF;
+    --erp-bg-elevated: #F1F5F9;
+    --erp-border: #E2E8F0;
+    --erp-text-primary: #0F172A;
+    --erp-text-secondary: #475569;
+    --erp-accent: #2563EB;
     --erp-accent-soft: rgba(37, 99, 235, 0.12);
-    --erp-accent-emerald: #2563eb;
-    --erp-accent-indigo: #4f46e5;
+    --erp-accent-emerald: #059669;
+    --erp-accent-indigo: #4F46E5;
 
-    /* Global Zero-Green Remapping: All legacy emerald/teal utility classes render as soothing Royal Sapphire & Cobalt */
-    --color-emerald-50: #eff6ff;
-    --color-emerald-100: #dbeafe;
-    --color-emerald-200: #bfdbfe;
-    --color-emerald-300: #93c5fd;
-    --color-emerald-400: #60a5fa;
-    --color-emerald-500: #3b82f6;
-    --color-emerald-600: #2563eb;
-    --color-emerald-700: #1d4ed8;
-    --color-emerald-800: #1e40af;
-    --color-emerald-900: #1e3a8a;
-    --color-emerald-950: #172554;
-    --color-teal-50: #f0f9ff;
-    --color-teal-100: #e0f2fe;
-    --color-teal-200: #bae6fd;
-    --color-teal-300: #7dd3fc;
-    --color-teal-400: #38bdf8;
-    --color-teal-500: #0284c7;
-    --color-teal-600: #0369a1;
-    --color-teal-700: #075985;
-    --color-teal-800: #0c4a6e;
-    --color-teal-900: #082f49;
-    --color-teal-950: #082f49;
-
-    /* Dynamic Harmonized Font & Window/Tab Scale Variables (Default: 110% Font / 105% Window) */
+    /* Dynamic Harmonized Font, Window & Resizable Tab Scale Variables */
     --erp-font-scale: 1.1;
     --erp-window-scale: 1.05;
-    --erp-root-font-px: 17.32px;
-    --erp-spacing-unit: 0.26rem;
-    --erp-sidebar-width: 266px;
-    --erp-navbar-height: 60px;
-    --spacing: var(--erp-spacing-unit, 0.26rem);
+    --erp-tab-scale: 1;
+    --erp-tab-py: 0.45rem;
+    --erp-tab-px: 0.85rem;
+    --erp-tab-font-size: 0.78rem;
+    --erp-tab-min-h: 34px;
+    --erp-card-gap: 0.875rem;
+    --erp-section-padding: 1rem;
+    --erp-root-font-px: 15.5px;
+    --erp-spacing-unit: 0.25rem;
+    --erp-sidebar-width: 196px;
+    --erp-navbar-height: 56px;
+    --spacing: var(--erp-spacing-unit, 0.25rem);
   }
 
   html {
-    font-size: var(--erp-root-font-px, 17.32px);
+    /* Calibrated so default 110% fontScale renders crisp 15px base matching the Lumina/Haseb reference */
+    font-size: calc(var(--erp-root-font-px, 15.5px) * 0.86);
   }
 
   /* Dynamic Professional Arabic Font Suites */
   html[data-erp-font="cairo"] {
-    --font-sans: 'Cairo', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-sans: 'Cairo', 'IBM Plex Sans Arabic', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   }
   html[data-erp-font="readex"] {
-    --font-sans: 'Readex Pro', 'Cairo', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-sans: 'Readex Pro', 'IBM Plex Sans Arabic', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   }
   html[data-erp-font="tajawal"] {
-    --font-sans: 'Tajawal', 'Cairo', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-sans: 'Tajawal', 'IBM Plex Sans Arabic', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   }
   html[data-erp-font="ibm_plex"] {
     --font-sans: 'IBM Plex Sans Arabic', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -71,78 +55,51 @@
   [dir="rtl"],
   [dir="rtl"] * {
     font-family: var(--font-sans);
-    letter-spacing: 0 !important;
+    letter-spacing: -0.01em;
   }
 
-  /* Harmonized Font Scaling across all micro & standard text classes so nothing is ever tiny */
-  .text-\[9px\],
-  .text-\[10px\] {
-    font-size: calc(0.71rem * var(--erp-font-scale, 1.1)) !important;
-    line-height: 1.48 !important;
-  }
-  .text-\[11px\] {
-    font-size: calc(0.76rem * var(--erp-font-scale, 1.1)) !important;
-    line-height: 1.5 !important;
-  }
-  .text-\[12px\],
-  .text-xs {
-    font-size: calc(0.8rem * var(--erp-font-scale, 1.1)) !important;
-    line-height: 1.52 !important;
-  }
-  .text-\[13px\],
-  .text-sm {
-    font-size: calc(0.9rem * var(--erp-font-scale, 1.1)) !important;
-    line-height: 1.55 !important;
-  }
-  .text-base {
-    font-size: calc(1rem * var(--erp-font-scale, 1.1)) !important;
-    line-height: 1.58 !important;
+  /* Anti-Collision & Resizable Tab Architecture */
+  .erp-resizable-tab,
+  [data-testid^="subtab-"],
+  [data-testid^="sales-tab-"],
+  [data-testid^="acc-tab-"] {
+    padding-top: var(--erp-tab-py, 0.45rem) !important;
+    padding-bottom: var(--erp-tab-py, 0.45rem) !important;
+    padding-inline: var(--erp-tab-px, 0.85rem) !important;
+    font-size: var(--erp-tab-font-size, 0.78rem) !important;
+    min-height: var(--erp-tab-min-h, 34px);
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
-  /* Harmonized Window, Tab & Template Scaling */
+  /* Harmonized Window, Sidebar & Table Cell Spacing */
   aside[data-testid="desktop-sidebar"]:not(.w-17) {
-    width: var(--erp-sidebar-width, 266px) !important;
+    width: calc(196px * var(--erp-tab-scale, 1)) !important;
   }
   aside[data-testid="desktop-sidebar"] [data-testid^="nav-"] {
-    padding-top: calc(0.58rem * var(--erp-window-scale, 1.05));
-    padding-bottom: calc(0.58rem * var(--erp-window-scale, 1.05));
+    padding-top: calc(0.5rem * var(--erp-tab-scale, 1));
+    padding-bottom: calc(0.5rem * var(--erp-tab-scale, 1));
   }
   main table th,
   main table td {
-    padding-top: calc(0.55rem * var(--erp-window-scale, 1.05));
-    padding-bottom: calc(0.55rem * var(--erp-window-scale, 1.05));
-    padding-inline: calc(0.75rem * var(--erp-window-scale, 1.05));
+    padding-top: calc(0.6rem * var(--erp-window-scale, 1.05));
+    padding-bottom: calc(0.6rem * var(--erp-window-scale, 1.05));
+    padding-inline: calc(0.85rem * var(--erp-window-scale, 1.05));
+    vertical-align: middle;
   }
 
   /* ============================================================================
-   * 1. ياقوت حاسب الملكي (Haseb Royal Sapphire — Default Eye-Soothing Sapphire)
+   * 1. ياقوت حاسب المؤسسي (Haseb Clean Slate & Sapphire — Default Reference Theme)
    * ============================================================================ */
   html[data-erp-theme="corporate_slate"] {
-    --erp-bg-canvas: #eef3f9;
-    --erp-bg-surface: #ffffff;
-    --erp-bg-elevated: #f5f8fc;
-    --erp-border: #d5e0ee;
-    --erp-text-primary: #0f172a;
-    --erp-text-secondary: #334155;
-    --erp-accent: #2563eb;
+    --erp-bg-canvas: #F8FAFC;
+    --erp-bg-surface: #FFFFFF;
+    --erp-bg-elevated: #F1F5F9;
+    --erp-border: #E2E8F0;
+    --erp-text-primary: #0F172A;
+    --erp-text-secondary: #475569;
+    --erp-accent: #2563EB;
     --erp-accent-soft: rgba(37, 99, 235, 0.12);
-    --color-slate-50: #f4f7fc;
-    --color-slate-100: #e8eef8;
-    --color-slate-200: #d5e0ee;
-    --color-emerald-50: #eff6ff;
-    --color-emerald-100: #dbeafe;
-    --color-emerald-200: #bfdbfe;
-    --color-emerald-300: #93c5fd;
-    --color-emerald-400: #60a5fa;
-    --color-emerald-500: #3b82f6;
-    --color-emerald-600: #2563eb;
-    --color-emerald-700: #1d4ed8;
-    --color-emerald-800: #1e40af;
-    --color-emerald-900: #1e3a8a;
-    --color-emerald-950: #172554;
-    --color-teal-500: #0284c7;
-    --color-teal-600: #0369a1;
-    --color-teal-700: #075985;
   }
 
   /* ============================================================================

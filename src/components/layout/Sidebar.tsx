@@ -25,8 +25,19 @@ import {
   ShieldCheck,
   MessageSquare,
   TrendingUp,
+  Plus,
+  Minus,
 } from 'lucide-react';
 import { HasebBrandLogo } from '../common/HasebBrandLogo';
+import {
+  applyGlobalTabScaleToDom,
+  getSavedTabScalePercent,
+} from '../common/WorkspaceTabResizerBar';
+import {
+  stepTabScale,
+  TAB_SCALE_MIN,
+  TAB_SCALE_MAX,
+} from '../../core/workspaceLayoutEngine';
 
 export interface SidebarMenuItem {
   id: string;
@@ -96,6 +107,24 @@ export function Sidebar() {
     masterSystemConfig,
   } = useERP();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [sidebarTabScale, setSidebarTabScale] = useState<number>(() => getSavedTabScalePercent());
+
+  React.useEffect(() => {
+    const handler = (e: Event) => {
+      const custom = e as CustomEvent<number>;
+      if (typeof custom.detail === 'number') {
+        setSidebarTabScale(custom.detail);
+      }
+    };
+    window.addEventListener('haseb-tab-scale-change', handler);
+    return () => window.removeEventListener('haseb-tab-scale-change', handler);
+  }, []);
+
+  const handleStepSidebarTabScale = (dir: 'INC' | 'DEC') => {
+    const next = stepTabScale(sidebarTabScale, dir);
+    setSidebarTabScale(next);
+    applyGlobalTabScaleToDom(next);
+  };
 
   const isSectorModeActive = Boolean(masterSystemConfig.sectorModeEnabled);
 
@@ -114,42 +143,42 @@ export function Sidebar() {
     },
     {
       id: 'pos',
-      label: language === 'ar' ? 'نقطة البيع (POS)' : 'POS Terminal',
+      label: language === 'ar' ? 'نقطة البيع' : 'POS Terminal',
       subtitle: language === 'ar' ? 'الكاشير والفوترة الفورية' : 'Fast Checkout & Billing',
       icon: ScanBarcode,
-      iconColorClass: 'text-blue-600 dark:text-blue-400',
+      iconColorClass: 'text-slate-400',
       count: null,
     },
     {
       id: 'inventory',
-      label: language === 'ar' ? 'المخزون والجرد' : 'Inventory & WMS',
+      label: language === 'ar' ? 'المخزون' : 'Inventory',
       subtitle: language === 'ar' ? 'الأصناف والسيريال والمستودع' : 'Stock, Serials & WMS',
       icon: Boxes,
-      iconColorClass: 'text-amber-600 dark:text-amber-400',
-      count: lowStockCount > 0 ? lowStockCount : null,
+      iconColorClass: 'text-slate-400',
+      count: null,
     },
     {
       id: 'sales',
-      label: language === 'ar' ? 'المبيعات والضمان' : 'Sales & Warranty',
+      label: language === 'ar' ? 'المبيعات' : 'Sales',
       subtitle: language === 'ar' ? 'الفواتير وفحص الضمان RMA' : 'Invoices & Warranty RMA',
       icon: Receipt,
-      iconColorClass: 'text-indigo-600 dark:text-indigo-400',
+      iconColorClass: 'text-slate-400',
       count: null,
     },
     {
       id: 'accounting',
-      label: language === 'ar' ? 'المحاسبة المالية' : 'Financial Accounting',
+      label: language === 'ar' ? 'المحاسبة' : 'Accounting',
       subtitle: language === 'ar' ? 'دفتر الأستاذ والسندات' : 'General Ledger & Vouchers',
       icon: Landmark,
-      iconColorClass: 'text-sky-600 dark:text-sky-400',
+      iconColorClass: 'text-slate-400',
       count: null,
     },
     {
       id: 'reportsAndAI',
-      label: language === 'ar' ? 'التقارير والتحليل الذكي' : 'Reports & Analytics',
+      label: language === 'ar' ? 'التقارير' : 'Reports',
       subtitle: language === 'ar' ? 'الأرباح والمديونيات والتحليل' : 'Profits, Aging & Insights',
       icon: TrendingUp,
-      iconColorClass: 'text-violet-600 dark:text-violet-400',
+      iconColorClass: 'text-slate-400',
       count: null,
     },
     {
@@ -270,11 +299,11 @@ export function Sidebar() {
 
   return (
     <>
-      {/* Desktop Sidebar (lg and up) - Harmonized Architectural Navigation Rail */}
+      {/* Desktop Sidebar (lg and up) - Lumina Quiet Luxury Navigation Rail */}
       <aside
         data-testid="desktop-sidebar"
-        className={`hidden lg:flex flex-col shrink-0 h-full overflow-hidden select-none border-e transition-all duration-200 ${
-          isSidebarCollapsed ? 'w-17' : 'w-64'
+        className={`hidden lg:flex flex-col justify-between shrink-0 h-full overflow-hidden select-none border-e p-3 z-20 transition-all duration-200 ${
+          isSidebarCollapsed ? 'w-17' : 'w-48'
         } ${
           isRoyalRail
             ? 'bg-[#0E1329] text-slate-200 border-[#1C2447]'
@@ -282,122 +311,125 @@ export function Sidebar() {
             ? 'bg-[#080C14] text-slate-200 border-slate-800/90'
             : isSandRail
             ? 'bg-[#F5EFE4] text-stone-800 border-[#DFD3BE]'
-            : uiTheme === 'swiss_light'
-            ? 'bg-white text-slate-800 border-[#DAE2EC]'
-            : 'bg-[#F6F9FD] text-slate-800 border-[#D5E0EE]'
+            : 'bg-white text-slate-800 border-slate-200/70'
         }`}
       >
-        <nav className={`flex-1 min-h-0 py-3 overflow-y-auto ${isSidebarCollapsed ? 'px-2' : 'px-3'}`}>
-          <div className="space-y-1.5">
-            {visibleMenuItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  data-testid={`nav-${item.id}`}
-                  onClick={() => setActiveTab(item.id)}
-                  title={isSidebarCollapsed ? item.label : undefined}
-                  className={`relative w-full flex items-center rounded-xl border text-xs transition-all cursor-pointer group ${
-                    isSidebarCollapsed
-                      ? 'justify-center py-2.5 px-0'
-                      : 'justify-between px-3 py-2.5'
-                  } ${
-                    isActive
-                      ? isRoyalRail
-                        ? 'bg-indigo-600 border-indigo-500 text-white shadow-md shadow-indigo-950/50 font-bold'
-                        : isDarkRail
-                        ? 'bg-blue-600 border-blue-500 text-white shadow-md shadow-blue-950/50 font-bold'
-                        : 'bg-emerald-600 border-emerald-600 text-white shadow-sm font-bold'
+        <div className="space-y-1 overflow-y-auto min-h-0">
+          {visibleMenuItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                data-testid={`nav-${item.id}`}
+                onClick={() => setActiveTab(item.id)}
+                title={isSidebarCollapsed ? item.label : undefined}
+                className={`relative w-full flex items-center rounded-xl text-[12px] transition-all cursor-pointer group ${
+                  isSidebarCollapsed
+                    ? 'justify-center py-2.5 px-0'
+                    : 'gap-2.5 px-3 py-2'
+                } ${
+                  isActive
+                    ? isRoyalRail
+                      ? 'bg-indigo-600 text-white font-semibold shadow-xs'
                       : isDarkRail
-                      ? 'bg-slate-900/55 border-slate-800/80 text-slate-300 hover:border-slate-700 hover:bg-slate-800/80 hover:text-white font-semibold'
-                      : isSandRail
-                      ? 'bg-[#FBF8F2] border-[#E3D7C4] text-stone-800 hover:border-amber-600/50 hover:bg-white font-semibold shadow-2xs'
-                      : 'bg-white border-slate-200/85 text-slate-700 hover:border-emerald-400 hover:bg-emerald-50/40 hover:text-slate-950 font-semibold shadow-2xs'
+                      ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                      : 'bg-slate-900 text-white font-semibold shadow-xs'
+                    : isDarkRail
+                    ? 'text-slate-300 hover:text-white hover:bg-slate-800/80 font-medium'
+                    : isSandRail
+                    ? 'text-stone-700 hover:text-stone-950 hover:bg-[#EFE7D6] font-medium'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 font-medium'
+                }`}
+              >
+                <Icon
+                  className={`w-4 h-4 shrink-0 ${
+                    isActive
+                      ? 'text-white'
+                      : isDarkRail
+                      ? 'text-slate-400'
+                      : 'text-slate-400 group-hover:text-slate-700'
                   }`}
-                >
-                  <div
-                    className={`flex items-center ${
-                      isSidebarCollapsed ? 'justify-center' : 'gap-3 truncate text-start'
+                  strokeWidth={isActive ? 2.1 : 1.75}
+                />
+                {!isSidebarCollapsed && <span className="truncate">{item.label}</span>}
+
+                {!isSidebarCollapsed && item.count !== null && (
+                  <span
+                    className={`ms-auto px-1.5 py-0.5 rounded-md font-mono text-[10px] font-bold tabular-nums ${
+                      isActive
+                        ? 'bg-white/20 text-white'
+                        : 'bg-amber-500/15 text-amber-600 border border-amber-500/30'
                     }`}
                   >
-                    <div
-                      className={`w-8.5 h-8.5 rounded-xl flex items-center justify-center shrink-0 transition-all ${
-                        isActive
-                          ? 'bg-white/20 text-white shadow-inner'
-                          : isDarkRail
-                          ? 'bg-slate-800/90 text-blue-400 group-hover:scale-105'
-                          : isSandRail
-                          ? 'bg-[#EFE7D6] text-amber-700 group-hover:scale-105'
-                          : `bg-slate-100/90 ${item.iconColorClass || 'text-blue-600'} group-hover:scale-105`
-                      }`}
-                    >
-                      <Icon className="w-4 h-4 shrink-0" strokeWidth={isActive ? 2.25 : 1.95} />
-                    </div>
-                    {!isSidebarCollapsed && (
-                      <div className="truncate">
-                        <div className="truncate leading-snug text-[13px]">{item.label}</div>
-                        {item.subtitle && (
-                          <div
-                            className={`text-[11px] truncate mt-0.5 font-normal ${
-                              isActive
-                                ? 'text-white/85'
-                                : isDarkRail
-                                ? 'text-slate-400'
-                                : 'text-slate-500'
-                            }`}
-                          >
-                            {item.subtitle}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                    {item.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
 
-                  {/* Actionable Alert Counter */}
-                  {!isSidebarCollapsed && item.count !== null && (
-                    <span
-                      className={`px-1.5 py-0.5 rounded-md font-mono text-[11px] font-bold tabular-nums ${
-                        isActive
-                          ? 'bg-white/25 text-white'
-                          : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
-                      }`}
-                    >
-                      {item.count}
-                    </span>
-                  )}
+        {/* Bottom Branch & Warehouse Info Card + Subtle Scale Controls */}
+        <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
+          {!isSidebarCollapsed && (
+            <div
+              className={`px-3 py-2.5 rounded-xl border text-[11px] space-y-1 ${
+                isDarkRail
+                  ? 'bg-slate-900/70 border-slate-800 text-slate-300'
+                  : 'bg-slate-50 border-slate-200/60'
+              }`}
+            >
+              <div className="flex items-center justify-between text-slate-500">
+                <span>{language === 'ar' ? 'الفرع' : 'Branch'}</span>
+                <span className="font-semibold text-slate-700 dark:text-slate-200">
+                  {language === 'ar' ? 'المركز الرئيسي' : 'Main HQ'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-slate-500">
+                <span>{language === 'ar' ? 'المستودع' : 'Warehouse'}</span>
+                <span className="font-semibold text-slate-700 dark:text-slate-200">
+                  {language === 'ar' ? 'طاقة #1' : 'Solar #1'}
+                </span>
+              </div>
+            </div>
+          )}
 
-                  {isSidebarCollapsed && item.count !== null && (
-                    <span className="absolute top-1.5 end-1.5 w-2 h-2 rounded-full bg-amber-500" />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </nav>
+          {/* Hidden/Subtle Tab Scale & Collapse Controls for programmatic & power-user access */}
+          {!isSidebarCollapsed && (
+            <div
+              data-testid="sidebar-tab-scale-controls"
+              className="hidden"
+            >
+              <button
+                type="button"
+                data-testid="sidebar-tab-scale-dec"
+                disabled={sidebarTabScale <= TAB_SCALE_MIN}
+                onClick={() => handleStepSidebarTabScale('DEC')}
+              >
+                <Minus className="w-3 h-3" />
+              </button>
+              <span data-testid="sidebar-tab-scale-value" dir="ltr">
+                {sidebarTabScale}%
+              </span>
+              <button
+                type="button"
+                data-testid="sidebar-tab-scale-inc"
+                disabled={sidebarTabScale >= TAB_SCALE_MAX}
+                onClick={() => handleStepSidebarTabScale('INC')}
+              >
+                <Plus className="w-3 h-3" />
+              </button>
+            </div>
+          )}
 
-        {/* Minimalist Footer Collapse Control */}
-        <div className="p-3 border-t border-black/5 dark:border-white/5">
           <button
             type="button"
             data-testid="toggle-sidebar"
             onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            className={`w-full px-3 py-2 rounded-xl border text-xs flex items-center transition cursor-pointer font-semibold ${
-              isSidebarCollapsed ? 'justify-center' : 'justify-between'
-            } ${
-              isDarkRail
-                ? 'bg-slate-900/70 border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white'
-                : isSandRail
-                ? 'bg-[#FBF8F2] border-[#DFD3BE] text-stone-700 hover:bg-white'
-                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-            }`}
+            className="hidden"
           >
-            {!isSidebarCollapsed && (
-              <span className="text-xs">
-                {language === 'ar' ? 'طي القائمة الجانبية' : 'Collapse Navigation'}
-              </span>
-            )}
             <CollapseIcon className="w-4 h-4 shrink-0" />
           </button>
         </div>

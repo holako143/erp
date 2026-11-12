@@ -26,6 +26,7 @@ import {
   calculateCostCenterBudgetVariance,
 } from '../core/accountingEngine';
 import { AccountType, Currency } from '../types/erp';
+import { WorkspaceTabResizerBar } from '../components/common/WorkspaceTabResizerBar';
 
 export const AccountingView: React.FC = () => {
   const {
@@ -230,184 +231,192 @@ export const AccountingView: React.FC = () => {
 
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-lg border border-slate-200/90">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <Calculator className="w-5 h-5 text-slate-700" />
-            <span>
+      {/* Organized Header Card: Row 1 Title & Actions + Row 2 Resizable Sub-tabs */}
+      <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200/90 dark:border-slate-800 shadow-2xs space-y-3.5">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100 tracking-tight flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-700 dark:text-blue-400 shrink-0">
+                <Calculator className="w-4 h-4" />
+              </div>
+              <span className="truncate">
+                {language === 'ar'
+                  ? 'المحاسبة والمالية ومراكز التكلفة (Double-Entry Engine)'
+                  : 'Full Double-Entry Accounting & Cost Center Budgets'}
+              </span>
+            </h1>
+            <p className="text-xs text-slate-500 mt-1 ps-10">
               {language === 'ar'
-                ? 'المحاسبة والمالية ومراكز التكلفة (Double-Entry Engine)'
-                : 'Full Double-Entry Accounting & Cost Center Budgets'}
-            </span>
-          </h1>
-          <p className="text-xs text-slate-500 mt-1">
-            {language === 'ar'
-              ? 'شجرة حسابات معيارية، قيود يومية متوازنة، موازنات مراكز التكلفة والانحرافات، وقوائم مالية ختامية فورية'
-              : 'Chart of accounts, balanced journal entries, cost center budget variance, and live financial statements'}
-          </p>
+                ? 'شجرة حسابات معيارية، قيود يومية متوازنة، موازنات مراكز التكلفة والانحرافات، وقوائم مالية ختامية فورية'
+                : 'Chart of accounts, balanced journal entries, cost center budget variance, and live financial statements'}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setFormError(null);
+                setIsManualModalOpen(true);
+              }}
+              className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5 shrink-0" />
+              <span>{language === 'ar' ? 'إنشاء قيد يومية يدوي' : 'New Manual Journal'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleExportTrialBalanceCSV}
+              className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <span>{language === 'ar' ? 'تصدير ميزان المراجعة CSV' : 'Export Trial Balance'}</span>
+            </button>
+
+            <button
+              type="button"
+              data-testid="accounting-whatsapp-report-btn"
+              onClick={() =>
+                openQuickSendModal({
+                  channel: 'WHATSAPP',
+                  category: 'FINANCIAL_REPORT',
+                })
+              }
+              className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+              <span>{language === 'ar' ? 'إرسال التقرير المالي' : 'Send Report via WhatsApp/SMS'}</span>
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            data-testid="accounting-whatsapp-report-btn"
-            onClick={() =>
-              openQuickSendModal({
-                channel: 'WHATSAPP',
-                category: 'FINANCIAL_REPORT',
-              })
-            }
-            className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3.5 py-2 rounded-md transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
-          >
-            <MessageSquare className="w-4 h-4" />
-            <span>{language === 'ar' ? 'إرسال التقرير المالي واتساب / SMS' : 'Send Report via WhatsApp/SMS'}</span>
-          </button>
+        {/* Row 2: Resizable Accounting Sub-Tabs + Workspace Tab Resizer */}
+        <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-col xl:flex-row xl:items-center justify-between gap-2.5">
+          <div className="flex flex-wrap items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-300">
+            <button
+              type="button"
+              onClick={() => setActiveTab('journal')}
+              className={`erp-resizable-tab px-3 py-1.5 rounded-md whitespace-nowrap shrink-0 transition cursor-pointer ${
+                activeTab === 'journal'
+                  ? 'bg-blue-600 text-white shadow-2xs'
+                  : 'hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              {language === 'ar' ? 'سجل القيود اليومية' : 'Journal Entries'} ({journalEntries.length})
+            </button>
+            <button
+              type="button"
+              data-testid="acc-tab-budgets"
+              onClick={() => setActiveTab('budgets')}
+              className={`erp-resizable-tab px-3 py-1.5 rounded-md whitespace-nowrap shrink-0 transition cursor-pointer flex items-center gap-1 ${
+                activeTab === 'budgets'
+                  ? 'bg-blue-600 text-white shadow-2xs'
+                  : 'hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <Target className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                {language === 'ar'
+                  ? 'الموازنات التقديرية ومراكز التكلفة'
+                  : 'Cost Center Budgets'}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('chart')}
+              className={`erp-resizable-tab px-3 py-1.5 rounded-md whitespace-nowrap shrink-0 transition cursor-pointer ${
+                activeTab === 'chart'
+                  ? 'bg-blue-600 text-white shadow-2xs'
+                  : 'hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              {language === 'ar' ? 'شجرة الحسابات (COA)' : 'Chart of Accounts'} ({chartAccounts.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('trialBalance')}
+              className={`erp-resizable-tab px-3 py-1.5 rounded-md whitespace-nowrap shrink-0 transition cursor-pointer ${
+                activeTab === 'trialBalance'
+                  ? 'bg-blue-600 text-white shadow-2xs'
+                  : 'hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              {language === 'ar' ? 'ميزان المراجعة' : 'Trial Balance'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('pnl')}
+              className={`erp-resizable-tab px-3 py-1.5 rounded-md whitespace-nowrap shrink-0 transition cursor-pointer ${
+                activeTab === 'pnl'
+                  ? 'bg-blue-600 text-white shadow-2xs'
+                  : 'hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              {language === 'ar' ? 'قائمة الدخل (P&L)' : 'Income Statement'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('balanceSheet')}
+              className={`erp-resizable-tab px-3 py-1.5 rounded-md whitespace-nowrap shrink-0 transition cursor-pointer ${
+                activeTab === 'balanceSheet'
+                  ? 'bg-blue-600 text-white shadow-2xs'
+                  : 'hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              {language === 'ar' ? 'الميزانية العمومية' : 'Balance Sheet'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('vatReturn')}
+              className={`erp-resizable-tab px-3 py-1.5 rounded-md whitespace-nowrap shrink-0 transition cursor-pointer ${
+                activeTab === 'vatReturn'
+                  ? 'bg-blue-600 text-white shadow-2xs'
+                  : 'hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              {language === 'ar' ? 'الإقرار الضريبي VAT' : 'VAT Return'}
+            </button>
+            <button
+              type="button"
+              data-testid="acc-tab-bankAndPdc"
+              onClick={() => setActiveTab('bankAndPdc')}
+              className={`erp-resizable-tab px-3 py-1.5 rounded-md whitespace-nowrap shrink-0 transition cursor-pointer flex items-center gap-1 ${
+                activeTab === 'bankAndPdc'
+                  ? 'bg-blue-600 text-white shadow-2xs'
+                  : 'hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <Landmark className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                {language === 'ar' ? 'التسوية البنكية والشيكات (PDC)' : 'Bank Recon & PDC'}
+              </span>
+            </button>
+            <button
+              type="button"
+              data-testid="acc-tab-multiCurrency"
+              onClick={() => setActiveTab('multiCurrency')}
+              className={`erp-resizable-tab px-3 py-1.5 rounded-md whitespace-nowrap shrink-0 transition cursor-pointer flex items-center gap-1 ${
+                activeTab === 'multiCurrency'
+                  ? 'bg-blue-600 text-white shadow-2xs'
+                  : 'hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <Coins className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                {language === 'ar' ? 'العملات وفروق الصرف (FX)' : 'Multi-Currency & FX'}
+              </span>
+            </button>
+          </div>
 
-          <button
-            type="button"
-            onClick={handleExportTrialBalanceCSV}
-            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold px-3.5 py-2 rounded-md transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
-          >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-            <span>{language === 'ar' ? 'تصدير ميزان المراجعة CSV' : 'Export Trial Balance'}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setFormError(null);
-              setIsManualModalOpen(true);
-            }}
-            className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold px-4 py-2 rounded-md transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
-          >
-            <Plus className="w-4 h-4" />
-            <span>{language === 'ar' ? 'إنشاء قيد يومية يدوي' : 'New Manual Journal'}</span>
-          </button>
+          <WorkspaceTabResizerBar testIdPrefix="accounting-workspace" />
         </div>
-      </div>
-
-      {/* Tabs Bar */}
-      <div className="flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-md text-xs font-semibold text-slate-700">
-        <button
-          type="button"
-          onClick={() => setActiveTab('journal')}
-          className={`px-3 py-1.5 rounded whitespace-nowrap shrink-0 transition cursor-pointer ${
-            activeTab === 'journal'
-              ? 'bg-white text-slate-900 shadow-2xs'
-              : 'hover:text-slate-900'
-          }`}
-        >
-          {language === 'ar' ? 'سجل القيود اليومية' : 'Journal Entries'} ({journalEntries.length})
-        </button>
-        <button
-          type="button"
-          data-testid="acc-tab-budgets"
-          onClick={() => setActiveTab('budgets')}
-          className={`px-3 py-1.5 rounded whitespace-nowrap shrink-0 transition cursor-pointer flex items-center gap-1 ${
-            activeTab === 'budgets'
-              ? 'bg-white text-slate-900 shadow-2xs'
-              : 'hover:text-slate-900'
-          }`}
-        >
-          <Target className="w-3.5 h-3.5 text-emerald-700" />
-          <span>
-            {language === 'ar'
-              ? 'الموازنات التقديرية ومراكز التكلفة'
-              : 'Cost Center Budgets'}
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('chart')}
-          className={`px-3 py-1.5 rounded whitespace-nowrap shrink-0 transition cursor-pointer ${
-            activeTab === 'chart'
-              ? 'bg-white text-slate-900 shadow-2xs'
-              : 'hover:text-slate-900'
-          }`}
-        >
-          {language === 'ar' ? 'شجرة الحسابات (COA)' : 'Chart of Accounts'} ({chartAccounts.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('trialBalance')}
-          className={`px-3 py-1.5 rounded whitespace-nowrap shrink-0 transition cursor-pointer ${
-            activeTab === 'trialBalance'
-              ? 'bg-white text-slate-900 shadow-2xs'
-              : 'hover:text-slate-900'
-          }`}
-        >
-          {language === 'ar' ? 'ميزان المراجعة' : 'Trial Balance'}
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('pnl')}
-          className={`px-3 py-1.5 rounded whitespace-nowrap shrink-0 transition cursor-pointer ${
-            activeTab === 'pnl'
-              ? 'bg-white text-slate-900 shadow-2xs'
-              : 'hover:text-slate-900'
-          }`}
-        >
-          {language === 'ar' ? 'قائمة الدخل (P&L)' : 'Income Statement'}
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('balanceSheet')}
-          className={`px-3 py-1.5 rounded whitespace-nowrap shrink-0 transition cursor-pointer ${
-            activeTab === 'balanceSheet'
-              ? 'bg-white text-slate-900 shadow-2xs'
-              : 'hover:text-slate-900'
-          }`}
-        >
-          {language === 'ar' ? 'الميزانية العمومية' : 'Balance Sheet'}
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('vatReturn')}
-          className={`px-3 py-1.5 rounded whitespace-nowrap shrink-0 transition cursor-pointer ${
-            activeTab === 'vatReturn'
-              ? 'bg-white text-slate-900 shadow-2xs'
-              : 'hover:text-slate-900'
-          }`}
-        >
-          {language === 'ar' ? 'الإقرار الضريبي VAT' : 'VAT Return'}
-        </button>
-        <button
-          type="button"
-          data-testid="acc-tab-bankAndPdc"
-          onClick={() => setActiveTab('bankAndPdc')}
-          className={`px-3 py-1.5 rounded whitespace-nowrap shrink-0 transition cursor-pointer flex items-center gap-1 ${
-            activeTab === 'bankAndPdc'
-              ? 'bg-white text-slate-900 shadow-2xs'
-              : 'hover:text-slate-900'
-          }`}
-        >
-          <Landmark className="w-3.5 h-3.5 text-slate-700" />
-          <span>
-            {language === 'ar' ? 'التسوية البنكية والشيكات (PDC)' : 'Bank Recon & PDC'}
-          </span>
-        </button>
-        <button
-          type="button"
-          data-testid="acc-tab-multiCurrency"
-          onClick={() => setActiveTab('multiCurrency')}
-          className={`px-3 py-1.5 rounded whitespace-nowrap shrink-0 transition cursor-pointer flex items-center gap-1 ${
-            activeTab === 'multiCurrency'
-              ? 'bg-white text-slate-900 shadow-2xs'
-              : 'hover:text-slate-900'
-          }`}
-        >
-          <Coins className="w-3.5 h-3.5 text-amber-600" />
-          <span>
-            {language === 'ar' ? 'العملات وفروق الصرف (FX)' : 'Multi-Currency & FX'}
-          </span>
-        </button>
       </div>
 
       {accountingNotice && (
         <div
           data-testid="accounting-action-banner"
-          className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-950 text-xs font-bold flex items-center justify-between"
+          className="p-3.5 rounded-xl bg-blue-50 border border-blue-300 text-blue-950 text-xs font-bold flex items-center justify-between"
         >
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />

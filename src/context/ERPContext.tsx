@@ -1758,7 +1758,21 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     },
   ]);
   const [currentShift, setCurrentShift] = useState<POSShift>(SEED_POS_SHIFTS[0]);
-  const [posCart, setPosCart] = useState<InvoiceItem[]>([]);
+  const [posCart, setPosCart] = useState<InvoiceItem[]>([
+    {
+      productId: 'prd-sol-pnl-585',
+      sku: 'SOL-PNL-585W',
+      productName: 'لوح طاقة شمسية مونو كريستال Jinko Tiger Neo',
+      quantity: 1,
+      unitPrice: 485,
+      discount: 0,
+      taxRate: 0,
+      taxAmount: 0,
+      total: 485,
+      serialNumber: 'IMEI-ALN-2611-001F85',
+      warrantyMonths: 144,
+    },
+  ]);
   const [holdBills, setHoldBills] = useState<POSHoldBill[]>([]);
   const [kitchenTickets, setKitchenTickets] = useState<KitchenOrderTicket[]>([
     {

@@ -39,6 +39,7 @@ import {
   Check,
   Trash2,
 } from 'lucide-react';
+import { WorkspaceTabResizerBar } from '../components/common/WorkspaceTabResizerBar';
 import { SalesInvoice, Customer } from '../types/erp';
 
 export interface AIMessageItem {
@@ -778,7 +779,7 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
       <div className="shrink-0 bg-white dark:bg-[#111827] px-4 py-3 rounded-xl border border-slate-200/90 dark:border-slate-800 shadow-2xs flex flex-wrap items-center justify-between gap-3 text-xs">
         {/* Left/Start: Title & Live RAM Indicator */}
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-emerald-600/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold">
+          <div className="w-8 h-8 rounded-lg bg-blue-600/10 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold">
             <TrendingUp className="w-4 h-4" />
           </div>
           <div>
@@ -786,8 +787,8 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
               <h1 className="font-bold text-sm text-slate-800 dark:text-slate-100">
                 {language === 'ar' ? 'مركز التقارير والتحليل والذكاء الاصطناعي' : 'Reports, Analytics & AI Engine'}
               </h1>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
                 <span>لحظي مباشر (Live RAM Sync)</span>
               </span>
             </div>
@@ -1008,8 +1009,8 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
       {/* Main Content Workspace with Sub-Navigation Tabs */}
       <div className="flex-1 min-h-0 bg-white dark:bg-[#111827] rounded-xl border border-slate-200/90 dark:border-slate-800 shadow-2xs flex flex-col overflow-hidden">
         {/* Navigation Tabs Header */}
-        <div className="shrink-0 flex items-center justify-between border-b border-slate-200 dark:border-slate-800 px-4">
-          <div className="flex items-center gap-1">
+        <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 px-4 py-1.5">
+          <div className="flex flex-wrap items-center gap-1">
             {[
               {
                 id: 'localAI',
@@ -1040,10 +1041,10 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveSubTab(tab.id as any)}
-                  className={`flex items-center gap-2 py-3 px-3.5 text-xs font-bold border-b-2 transition cursor-pointer ${
+                  className={`erp-resizable-tab flex items-center gap-2 py-2 px-3 rounded-lg text-xs font-bold border transition cursor-pointer whitespace-nowrap shrink-0 ${
                     isActive
-                      ? 'border-emerald-600 text-emerald-700 dark:text-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20'
-                      : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                      ? 'border-blue-600 bg-blue-600 text-white shadow-2xs'
+                      : 'border-transparent text-slate-600 dark:text-slate-400 hover:bg-slate-100 hover:text-slate-900 dark:hover:text-slate-200'
                   }`}
                 >
                   <Icon className="w-4 h-4 shrink-0" />
@@ -1057,6 +1058,7 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
               );
             })}
           </div>
+          <WorkspaceTabResizerBar testIdPrefix="reports-workspace" />
         </div>
 
         {/* Tab Content Panes (Scrollable Area) */}

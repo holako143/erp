@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+
+<html class="light" dir="rtl" lang="ar"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>حاسب ERP - نقطة البيع POS والفوترة الفورية</title>
+<!-- Google Fonts: IBM Plex Sans Arabic -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: "#f0f5ff",
+              100: "#e0ebff",
+              200: "#c7d9fe",
+              500: "#2563eb",
+              600: "#1d4ed8",
+              700: "#1e3a8a",
+              800: "#172554",
+              900: "#0b1329",
+            },
+            surface: {
+              canvas: "#F8FAFC",
+              card: "#FFFFFF",
+              subtle: "#F1F5F9",
+              border: "#E2E8F0",
+              borderLight: "#F1F5F9",
+            }
+          },
+          fontFamily: {
+            sans: ["IBM Plex Sans Arabic", "sans-serif"],
+          },
+          boxShadow: {
+            'soft': '0 2px 10px -2px rgba(15, 23, 42, 0.04), 0 1px 3px -1px rgba(15, 23, 42, 0.03)',
+            'card': '0 1px 4px 0 rgba(15, 23, 42, 0.04), 0 8px 16px -4px rgba(15, 23, 42, 0.02)',
+            'float': '0 12px 32px -8px rgba(15, 23, 42, 0.08), 0 4px 12px -2px rgba(15, 23, 42, 0.03)',
+          }
+        },
+      },
+    };
+  </script>
+<style>
+    body {
+      font-family: 'IBM Plex Sans Arabic', sans-serif;
+      user-select: none;
+      letter-spacing: -0.01em;
+    }
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 420, 'GRAD' 0, 'opsz' 20;
+      display: inline-block;
+      line-height: 1;
+    }
+    ::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #E2E8F0;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #CBD5E1;
+    }
+  </style>
+</head>
+<body class="bg-[#F8FAFC] text-slate-800 flex flex-col h-screen overflow-hidden text-xs antialiased selection:bg-brand-100 selection:text-brand-900">
+<!-- 1. البار العلوي (Top Navbar) فائق البساطة والنقاء بنمط Apple / Linear -->
+<header class="bg-white/95 backdrop-blur border-b border-slate-200/70 h-14 px-5 flex items-center justify-between gap-6 shrink-0 z-30 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+<!-- اليمين: الشعار الأنيق مع وسم خفيف -->
+<div class="flex items-center gap-3 shrink-0">
+<div class="w-8 h-8 rounded-xl bg-slate-900 text-white flex items-center justify-center font-bold text-sm tracking-tight shadow-sm shadow-slate-900/20">
+        ح
+      </div>
+<div class="flex items-center gap-2">
+<span class="font-bold text-[15px] text-slate-900 tracking-tight">حاسب ERP</span>
+<span class="bg-slate-100 text-slate-600 text-[10px] font-medium px-2 py-0.5 rounded-full border border-slate-200/60">
+          نقطة البيع
+        </span>
+</div>
+</div>
+<!-- الوسط: شريط البحث الرئيسي الأنيق والواسع بحواف دائرية ناعمة واختصار خفيف -->
+<div class="flex-1 max-w-xl mx-auto">
+<div class="relative group">
+<span class="material-symbols-outlined absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-slate-700 text-[19px] transition-colors">
+          search
+        </span>
+<input class="w-full bg-slate-50 hover:bg-slate-100/80 focus:bg-white border border-slate-200/70 focus:border-slate-400 rounded-full pr-10 pl-20 py-2 text-[12px] text-slate-800 placeholder-slate-400 transition shadow-none focus:ring-4 focus:ring-slate-900/5 outline-none" placeholder="ابحث بالاسم، الباركود، الرقم التسلسلي، أو العميل..." type="text"/>
+<div class="absolute left-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none">
+<kbd class="px-1.5 py-0.5 text-[10px] font-medium text-slate-400 bg-white border border-slate-200 rounded-md shadow-2xs">Ctrl + K</kbd>
+</div>
+</div>
+</div>
+<!-- اليسار: أزرار وإشعارات متناسقة ونظيفة تماماً بدون أي تكدس -->
+<div class="flex items-center gap-3 shrink-0">
+<!-- مؤشر الاتصال المتناسق -->
+<div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 text-[11px] font-medium">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+</span>
+<span class="leading-none">متصل</span>
+</div>
+<!-- كبسولة الكاشير والوردية المدمجة -->
+<div class="flex items-center gap-2 bg-slate-50 border border-slate-200/80 pl-2.5 pr-1.5 py-1 rounded-full">
+<div class="w-6 h-6 rounded-full bg-slate-900 text-white font-semibold text-[10px] flex items-center justify-center">
+          زع
+        </div>
+<div class="flex items-center gap-1.5 text-[11px] text-slate-700 font-medium">
+<span>زياد العتيبي</span>
+<span class="text-slate-300">•</span>
+<span class="text-slate-500 font-mono text-[10px]">#1042</span>
+</div>
+</div>
+<!-- زر إغلاق الوردية الهادئ -->
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-slate-600 hover:text-rose-700 hover:bg-rose-50 border border-transparent hover:border-rose-200 text-[11px] font-medium transition">
+<span class="material-symbols-outlined text-[15px]">lock_open</span>
+<span>إغلاق الوردية</span>
+</button>
+</div>
+</header>
+<!-- جسم الصفحة الرئيسي: الشريط الجانبي النحيف + معرض المنتجات + سلة الفوترة الراقية -->
+<div class="flex flex-1 overflow-hidden relative">
+<!-- شريط التنقل الجانبي الأيمن: نحيف، راقٍ ومريح للعين -->
+<aside class="w-48 bg-white border-l border-slate-200/70 flex flex-col justify-between shrink-0 p-3 z-20">
+<nav class="space-y-1">
+<a class="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-slate-900 text-white font-medium shadow-xs transition" href="#">
+<span class="material-symbols-outlined text-[19px]">point_of_sale</span>
+<span class="text-[12px]">نقطة البيع</span>
+</a>
+<a class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-50 font-medium transition" href="#">
+<span class="material-symbols-outlined text-[19px] text-slate-400">inventory_2</span>
+<span class="text-[12px]">المخزون</span>
+</a>
+<a class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-50 font-medium transition" href="#">
+<span class="material-symbols-outlined text-[19px] text-slate-400">receipt_long</span>
+<span class="text-[12px]">المبيعات</span>
+</a>
+<a class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-50 font-medium transition" href="#">
+<span class="material-symbols-outlined text-[19px] text-slate-400">account_balance_wallet</span>
+<span class="text-[12px]">المحاسبة</span>
+</a>
+<a class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-50 font-medium transition" href="#">
+<span class="material-symbols-outlined text-[19px] text-slate-400">monitoring</span>
+<span class="text-[12px]">التقارير</span>
+</a>
+</nav>
+<!-- بيانات الفرع والمستودع السفلية بهدوء -->
+<div class="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1.5 text-[11px] text-slate-500">
+<div class="flex items-center justify-between">
+<span class="text-[10px]">الفرع</span>
+<span class="font-medium text-slate-800">المركز الرئيسي</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-[10px]">المستودع</span>
+<span class="font-medium text-slate-800">طاقة #1</span>
+</div>
+</div>
+</aside>
+<!-- منطقة الوسط: المعرض والمنتجات (Product Showcase) -->
+<main class="flex-1 flex flex-col min-w-0 p-4 gap-3.5 overflow-hidden">
+<!-- شريط علوي خفيف لفلترة التصنيفات وحقل الباركود السريع F1 -->
+<div class="flex flex-col gap-3 shrink-0">
+<div class="flex items-center gap-3">
+<!-- ماسح الباركود F1 الأنيق والعصري -->
+<div class="relative flex-1">
+<span class="material-symbols-outlined absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">
+              barcode_scanner
+            </span>
+<input class="w-full bg-white border border-slate-200/80 rounded-xl pr-10 pl-14 py-2 text-xs text-slate-800 placeholder-slate-400 font-medium focus:border-slate-400 focus:ring-4 focus:ring-slate-900/5 outline-none transition shadow-2xs" placeholder="امسح الباركود أو أدخل رمز الصنف SKU مباشرة..." type="text"/>
+<span class="absolute left-3 top-1/2 -translate-y-1/2 bg-slate-100 text-slate-600 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border border-slate-200">
+              F1
+            </span>
+</div>
+<!-- تصفية سريعة وطريقة العرض -->
+<button class="px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 rounded-xl border border-slate-200/80 flex items-center gap-1.5 text-[11px] font-medium transition shadow-2xs">
+<span class="material-symbols-outlined text-[16px] text-slate-500">tune</span>
+<span>تصفية</span>
+</button>
+</div>
+<!-- تبويبات التصنيفات بأزرار Pill هادئة وعصرية -->
+<div class="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none text-[11px]">
+<button class="px-3.5 py-1.5 rounded-full bg-slate-900 text-white font-medium whitespace-nowrap shadow-xs flex items-center gap-1.5 transition">
+<span>الكل</span>
+<span class="bg-white/20 text-white text-[10px] px-1.5 py-0.2 rounded-full">11</span>
+</button>
+<button class="px-3.5 py-1.5 rounded-full bg-white hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200/70 whitespace-nowrap font-medium transition">
+            ألواح طاقة شمسية
+          </button>
+<button class="px-3.5 py-1.5 rounded-full bg-white hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200/70 whitespace-nowrap font-medium transition">
+            إنفرترات هجينة MPPT
+          </button>
+<button class="px-3.5 py-1.5 rounded-full bg-white hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200/70 whitespace-nowrap font-medium transition">
+            بطاريات ليثيوم وجل
+          </button>
+<button class="px-3.5 py-1.5 rounded-full bg-white hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200/70 whitespace-nowrap font-medium transition">
+            شاشات ذكية 4K
+          </button>
+<button class="px-3.5 py-1.5 rounded-full bg-white hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200/70 whitespace-nowrap font-medium transition">
+            حواسيب وتجهيزات
+          </button>
+</div>
+</div>
+<!-- شبكة المنتجات (Product Cards Grid) ذات مساحات تنفس واسعة ولمسات دقيقة -->
+<div class="flex-1 overflow-y-auto pr-1">
+<div class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-3.5">
+<!-- بطاقة 1 -->
+<div class="bg-white rounded-2xl p-4 border border-slate-200/70 hover:border-slate-300 shadow-soft hover:shadow-card transition flex flex-col justify-between group cursor-pointer">
+<div>
+<div class="flex items-center justify-between gap-1 mb-2">
+<span class="text-[10px] font-mono text-slate-400 font-medium">SOL-PNL-585W</span>
+<span class="bg-emerald-50 text-emerald-700 text-[10px] font-medium px-2 py-0.5 rounded-md border border-emerald-100">
+                  ضمان 144 شهر
+                </span>
+</div>
+<h3 class="font-semibold text-slate-800 text-[13px] leading-snug group-hover:text-slate-950 transition">
+                لوح طاقة شمسية مونو كريستال وجهين Jinko Tiger Neo 585W
+              </h3>
+<div class="mt-2.5 flex items-center gap-1.5 text-[10px] text-slate-500">
+<span class="bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100 font-mono">585W N-Type</span>
+<span class="bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">كفاءة 22.6%</span>
+</div>
+</div>
+<div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+<div>
+<span class="text-[10px] text-slate-400 block font-medium">السعر النقدي</span>
+<div class="text-[14px] font-bold text-slate-900 font-mono">
+                  485.00 <span class="text-[10px] font-sans font-medium text-slate-500">YER</span>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-[11px] text-slate-400">
+                  المتوفر: <span class="text-slate-700 font-semibold font-mono">160</span>
+</span>
+<button class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-900 text-slate-700 hover:text-white flex items-center justify-center transition shadow-2xs">
+<span class="material-symbols-outlined text-[18px]">add</span>
+</button>
+</div>
+</div>
+</div>
+<!-- بطاقة 2 -->
+<div class="bg-white rounded-2xl p-4 border border-slate-200/70 hover:border-slate-300 shadow-soft hover:shadow-card transition flex flex-col justify-between group cursor-pointer">
+<div>
+<div class="flex items-center justify-between gap-1 mb-2">
+<span class="text-[10px] font-mono text-slate-400 font-medium">SOL-INV-DEYE8K</span>
+<span class="bg-blue-50 text-blue-700 text-[10px] font-medium px-2 py-0.5 rounded-md border border-blue-100">
+                  ضمان 60 شهر
+                </span>
+</div>
+<h3 class="font-semibold text-slate-800 text-[13px] leading-snug group-hover:text-slate-950 transition">
+                إنفرتر طاقة شمسية هجين ذكي Deye 8kW Hybrid Dual MPPT
+              </h3>
+<div class="mt-2.5 flex items-center gap-1.5 text-[10px] text-slate-500">
+<span class="bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100 font-mono">48V / 8kW</span>
+<span class="bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">WiFi Smart</span>
+</div>
+</div>
+<div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+<div>
+<span class="text-[10px] text-slate-400 block font-medium">السعر النقدي</span>
+<div class="text-[14px] font-bold text-slate-900 font-mono">
+                  4,850.00 <span class="text-[10px] font-sans font-medium text-slate-500">YER</span>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-[11px] text-slate-400">
+                  المتوفر: <span class="text-slate-700 font-semibold font-mono">28</span>
+</span>
+<button class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-900 text-slate-700 hover:text-white flex items-center justify-center transition shadow-2xs">
+<span class="material-symbols-outlined text-[18px]">add</span>
+</button>
+</div>
+</div>
+</div>
+<!-- بطاقة 3 -->
+<div class="bg-white rounded-2xl p-4 border border-slate-200/70 hover:border-slate-300 shadow-soft hover:shadow-card transition flex flex-col justify-between group cursor-pointer">
+<div>
+<div class="flex items-center justify-between gap-1 mb-2">
+<span class="text-[10px] font-mono text-slate-400 font-medium">BAT-LI-48V200</span>
+<span class="bg-blue-50 text-blue-700 text-[10px] font-medium px-2 py-0.5 rounded-md border border-blue-100">
+                  ضمان 60 شهر
+                </span>
+</div>
+<h3 class="font-semibold text-slate-800 text-[13px] leading-snug group-hover:text-slate-950 transition">
+                بطارية ليثيوم فوسفات الحديد Felicity LiFePO4 48V 200Ah
+              </h3>
+<div class="mt-2.5 flex items-center gap-1.5 text-[10px] text-slate-500">
+<span class="bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100 font-mono">10.24kWh</span>
+<span class="bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">6000 دورة</span>
+</div>
+</div>
+<div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+<div>
+<span class="text-[10px] text-slate-400 block font-medium">السعر النقدي</span>
+<div class="text-[14px] font-bold text-slate-900 font-mono">
+                  6,750.00 <span class="text-[10px] font-sans font-medium text-slate-500">YER</span>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-[11px] text-slate-400">
+                  المتوفر: <span class="text-slate-700 font-semibold font-mono">34</span>
+</span>
+<button class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-900 text-slate-700 hover:text-white flex items-center justify-center transition shadow-2xs">
+<span class="material-symbols-outlined text-[18px]">add</span>
+</button>
+</div>
+</div>
+</div>
+<!-- بطاقة 4 -->
+<div class="bg-white rounded-2xl p-4 border border-slate-200/70 hover:border-slate-300 shadow-soft hover:shadow-card transition flex flex-col justify-between group cursor-pointer">
+<div>
+<div class="flex items-center justify-between gap-1 mb-2">
+<span class="text-[10px] font-mono text-slate-400 font-medium">SOL-INV-GROW5K</span>
+<span class="bg-amber-50 text-amber-700 text-[10px] font-medium px-2 py-0.5 rounded-md border border-amber-100">
+                  ضمان 24 شهر
+                </span>
+</div>
+<h3 class="font-semibold text-slate-800 text-[13px] leading-snug group-hover:text-slate-950 transition">
+                إنفرتر طاقة شمسية هجين Growatt 5000ES 5kW 48V
+              </h3>
+<div class="mt-2.5 flex items-center gap-1.5 text-[10px] text-slate-500">
+<span class="bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100 font-mono">5kW MPPT</span>
+<span class="bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">Off-Grid</span>
+</div>
+</div>
+<div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+<div>
+<span class="text-[10px] text-slate-400 block font-medium">السعر النقدي</span>
+<div class="text-[14px] font-bold text-slate-900 font-mono">
+                  2,450.00 <span class="text-[10px] font-sans font-medium text-slate-500">YER</span>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-[11px] text-slate-400">
+                  المتوفر: <span class="text-slate-700 font-semibold font-mono">42</span>
+</span>
+<button class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-900 text-slate-700 hover:text-white flex items-center justify-center transition shadow-2xs">
+<span class="material-symbols-outlined text-[18px]">add</span>
+</button>
+</div>
+</div>
+</div>
+<!-- بطاقة 5 -->
+<div class="bg-white rounded-2xl p-4 border border-slate-200/70 hover:border-slate-300 shadow-soft hover:shadow-card transition flex flex-col justify-between group cursor-pointer">
+<div>
+<div class="flex items-center justify-between gap-1 mb-2">
+<span class="text-[10px] font-mono text-slate-400 font-medium">BAT-GEL-12V200</span>
+<span class="bg-amber-50 text-amber-700 text-[10px] font-medium px-2 py-0.5 rounded-md border border-amber-100">
+                  ضمان 24 شهر
+                </span>
+</div>
+<h3 class="font-semibold text-slate-800 text-[13px] leading-snug group-hover:text-slate-950 transition">
+                بطارية جل أنبوبية ديب سايكل Ritar 12V 200Ah
+              </h3>
+<div class="mt-2.5 flex items-center gap-1.5 text-[10px] text-slate-500">
+<span class="bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100 font-mono">12V 200Ah</span>
+<span class="bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">Deep Cycle</span>
+</div>
+</div>
+<div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+<div>
+<span class="text-[10px] text-slate-400 block font-medium">السعر النقدي</span>
+<div class="text-[14px] font-bold text-slate-900 font-mono">
+                  860.00 <span class="text-[10px] font-sans font-medium text-slate-500">YER</span>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-[11px] text-slate-400">
+                  المتوفر: <span class="text-slate-700 font-semibold font-mono">95</span>
+</span>
+<button class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-900 text-slate-700 hover:text-white flex items-center justify-center transition shadow-2xs">
+<span class="material-symbols-outlined text-[18px]">add</span>
+</button>
+</div>
+</div>
+</div>
+<!-- بطاقة 6 -->
+<div class="bg-white rounded-2xl p-4 border border-slate-200/70 hover:border-slate-300 shadow-soft hover:shadow-card transition flex flex-col justify-between group cursor-pointer">
+<div>
+<div class="flex items-center justify-between gap-1 mb-2">
+<span class="text-[10px] font-mono text-slate-400 font-medium">SOL-ACC-DCKIT</span>
+<span class="bg-amber-50 text-amber-700 text-[10px] font-medium px-2 py-0.5 rounded-md border border-amber-100">
+                  ضمان 24 شهر
+                </span>
+</div>
+<h3 class="font-semibold text-slate-800 text-[13px] leading-snug group-hover:text-slate-950 transition">
+                لوحة حماية وتجميع طاقة شمسية 1000V DC مع قواطع وصواعق
+              </h3>
+<div class="mt-2.5 flex items-center gap-1.5 text-[10px] text-slate-500">
+<span class="bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100 font-mono">1000V DC</span>
+<span class="bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">SPD + Fuse</span>
+</div>
+</div>
+<div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+<div>
+<span class="text-[10px] text-slate-400 block font-medium">السعر النقدي</span>
+<div class="text-[14px] font-bold text-slate-900 font-mono">
+                  590.00 <span class="text-[10px] font-sans font-medium text-slate-500">YER</span>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-[11px] text-slate-400">
+                  المتوفر: <span class="text-slate-700 font-semibold font-mono">65</span>
+</span>
+<button class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-900 text-slate-700 hover:text-white flex items-center justify-center transition shadow-2xs">
+<span class="material-symbols-outlined text-[18px]">add</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- منطقة اليسار: سلة المبيعات والفوترة (Sales Cart & Checkout) -->
+<aside class="w-[390px] bg-white border-r border-slate-200/70 flex flex-col justify-between shrink-0 z-20 shadow-soft">
+<!-- رأس السلة وبيانات العميل -->
+<div class="p-4 border-b border-slate-200/70 space-y-3">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="font-bold text-[14px] text-slate-900">سلة المبيعات</span>
+<span class="bg-slate-100 text-slate-700 text-[11px] font-medium px-2 py-0.5 rounded-full">
+              1 صنف
+            </span>
+</div>
+<button class="text-slate-400 hover:text-rose-600 text-[11px] font-medium px-2 py-1 rounded-lg hover:bg-rose-50 transition flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px]">delete_sweep</span>
+<span>تفريغ السلة</span>
+</button>
+</div>
+<!-- حقول العميل ورقم الهاتف بتنسيق نظيف جداً -->
+<div class="grid grid-cols-5 gap-2 pt-1">
+<div class="col-span-3">
+<label class="block text-[10px] font-medium text-slate-400 mb-1">العميل المستفيد</label>
+<input class="w-full bg-slate-50 hover:bg-slate-100/70 focus:bg-white border border-slate-200/70 rounded-xl text-[11px] py-1.5 px-2.5 text-slate-800 font-medium focus:border-slate-400 focus:ring-2 focus:ring-slate-900/5 outline-none transition" type="text" value="عميل نقدي عام"/>
+</div>
+<div class="col-span-2">
+<label class="block text-[10px] font-medium text-slate-400 mb-1">رقم الهاتف</label>
+<input class="w-full bg-slate-50 hover:bg-slate-100/70 focus:bg-white border border-slate-200/70 rounded-xl text-[11px] py-1.5 px-2.5 text-slate-800 font-mono focus:border-slate-400 focus:ring-2 focus:ring-slate-900/5 outline-none transition" placeholder="+967..." type="text"/>
+</div>
+</div>
+</div>
+<!-- قائمة بنود السلة -->
+<div class="flex-1 overflow-y-auto p-4 space-y-3">
+<!-- عنصر السلة الأنيق -->
+<div class="bg-slate-50/70 hover:bg-slate-50 rounded-2xl p-3 border border-slate-200/70 transition space-y-2.5">
+<div class="flex items-start justify-between gap-2">
+<div class="flex-1 min-w-0">
+<h4 class="font-semibold text-slate-800 text-[12px] leading-snug">
+                لوح طاقة شمسية مونو كريستال Jinko Tiger Neo
+              </h4>
+<div class="text-[10px] text-slate-400 font-mono mt-0.5">
+                SOL-PNL-585W • 485 YER
+              </div>
+</div>
+<button class="text-slate-400 hover:text-rose-600 transition p-1 hover:bg-white rounded-lg">
+<span class="material-symbols-outlined text-[15px]">close</span>
+</button>
+</div>
+<!-- عداد الكمية + السعر الإجمالي للبند -->
+<div class="flex items-center justify-between pt-1">
+<div class="flex items-center gap-1 bg-white rounded-xl border border-slate-200/80 p-0.5 shadow-2xs">
+<button class="w-6 h-6 flex items-center justify-center text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition">
+<span class="material-symbols-outlined text-[13px]">remove</span>
+</button>
+<span class="w-7 text-center font-bold text-xs text-slate-800 font-mono">1</span>
+<button class="w-6 h-6 flex items-center justify-center text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition">
+<span class="material-symbols-outlined text-[13px]">add</span>
+</button>
+</div>
+<div class="text-left font-bold text-[14px] text-slate-900 font-mono">
+              485.00 <span class="text-[10px] font-sans font-medium text-slate-500">YER</span>
+</div>
+</div>
+<!-- حقل السيريال والضمان المدمج بنعومة -->
+<div class="bg-white rounded-xl p-1.5 border border-slate-200/80 flex items-center gap-1.5 shadow-2xs">
+<span class="bg-emerald-50 text-emerald-700 text-[9px] font-medium px-2 py-0.5 rounded-md border border-emerald-100 shrink-0">
+              ضمان 144 شهر
+            </span>
+<input class="w-full bg-transparent border-0 text-[10px] font-mono p-0 text-slate-700 focus:ring-0 placeholder-slate-400" type="text" value="IMEI-ALN-2611-001F85"/>
+<span class="material-symbols-outlined text-[15px] text-emerald-600 shrink-0" title="تم التحقق من السيريال">
+              verified
+            </span>
+</div>
+</div>
+<!-- تطبيق الخصم السريع بهدوء -->
+<div class="p-3 bg-white rounded-2xl border border-slate-200/70 space-y-2 shadow-soft">
+<div class="flex items-center justify-between text-[11px] text-slate-600 font-medium">
+<span class="flex items-center gap-1 text-slate-500">
+<span class="material-symbols-outlined text-[15px]">percent</span>
+<span>تطبيق خصم سريع</span>
+</span>
+<span class="text-[10px] text-slate-400">اختياري</span>
+</div>
+<div class="grid grid-cols-4 gap-1.5">
+<button class="py-1 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-lg text-[10px] font-medium border border-slate-200/60 transition">5%</button>
+<button class="py-1 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-lg text-[10px] font-medium border border-slate-200/60 transition">10%</button>
+<button class="py-1 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-lg text-[10px] font-medium border border-slate-200/60 transition">15%</button>
+<button class="py-1 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-lg text-[10px] font-medium border border-slate-200/60 transition">مخصص</button>
+</div>
+</div>
+</div>
+<!-- ملخص الحساب وأزرار الإجراءات السفلية -->
+<div class="p-4 border-t border-slate-200/70 bg-slate-50/50 space-y-3.5">
+<div class="space-y-1.5 text-xs text-slate-600">
+<div class="flex justify-between items-center">
+<span class="text-slate-500">المجموع الفرعي:</span>
+<span class="font-medium text-slate-800 font-mono">485.00 YER</span>
+</div>
+<div class="flex justify-between items-center text-slate-500">
+<span>الخصم المطبق:</span>
+<span class="font-mono">0.00 YER</span>
+</div>
+<div class="flex justify-between items-center text-slate-500">
+<span>الضريبة:</span>
+<span class="font-mono">0.00 YER</span>
+</div>
+<div class="pt-2 border-t border-slate-200/80 flex justify-between items-baseline">
+<span class="font-bold text-slate-900 text-sm">الإجمالي المستحق:</span>
+<div class="text-left">
+<span class="text-2xl font-bold text-slate-900 font-mono tracking-tight">485.00</span>
+<span class="text-xs font-semibold text-slate-600 mr-1">YER</span>
+</div>
+</div>
+</div>
+<!-- أزرار الإجراءات المصممة للراحة والوضوح -->
+<div class="space-y-2">
+<button class="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-[13px] rounded-xl shadow-sm hover:shadow transition flex items-center justify-center gap-2 active:scale-[0.99]">
+<span class="material-symbols-outlined text-[18px]">credit_card</span>
+<span>دفع وإصدار الفاتورة</span>
+<span class="bg-white/20 text-white text-[10px] font-mono px-1.5 py-0.5 rounded-md">F9</span>
+</button>
+<div class="grid grid-cols-3 gap-2">
+<button class="py-2 bg-white hover:bg-slate-100 text-slate-700 font-medium rounded-xl text-[11px] border border-slate-200/80 transition flex items-center justify-center gap-1 shadow-2xs">
+<span class="material-symbols-outlined text-[15px] text-slate-500">pause</span>
+<span>تعليق</span>
+</button>
+<button class="py-2 bg-white hover:bg-slate-100 text-slate-700 font-medium rounded-xl text-[11px] border border-slate-200/80 transition flex items-center justify-center gap-1 shadow-2xs">
+<span class="material-symbols-outlined text-[15px] text-slate-500">print</span>
+<span>طباعة</span>
+</button>
+<button class="py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-medium rounded-xl text-[11px] border border-emerald-200 transition flex items-center justify-center gap-1 shadow-2xs">
+<span class="material-symbols-outlined text-[15px] text-emerald-600">send</span>
+<span>واتساب</span>
+</button>
+</div>
+</div>
+</div>
+</aside>
+</div>
+<!-- 4. شريط الاختصارات السفلية الهادئ والرزين (Minimal Bottom Shortcuts Bar) -->
+<footer class="bg-white border-t border-slate-200/70 px-5 h-8 text-[11px] flex items-center justify-between shrink-0 z-30">
+<div class="flex items-center gap-5 text-slate-500">
+<div class="flex items-center gap-1.5">
+<kbd class="bg-slate-100 text-slate-700 font-bold px-1.5 py-0.2 rounded border border-slate-200 text-[10px]">F1</kbd>
+<span>مسح الباركود</span>
+</div>
+<div class="flex items-center gap-1.5">
+<kbd class="bg-slate-100 text-slate-700 font-bold px-1.5 py-0.2 rounded border border-slate-200 text-[10px]">F2</kbd>
+<span>نقطة البيع</span>
+</div>
+<div class="flex items-center gap-1.5">
+<kbd class="bg-slate-100 text-slate-700 font-bold px-1.5 py-0.2 rounded border border-slate-200 text-[10px]">F3</kbd>
+<span>المخزون</span>
+</div>
+<div class="flex items-center gap-1.5">
+<kbd class="bg-slate-900 text-white font-bold px-1.5 py-0.2 rounded text-[10px]">F9</kbd>
+<span class="text-slate-800 font-medium">الدفع الفوري</span>
+</div>
+</div>
+<div class="flex items-center gap-2 text-[10px] text-slate-400">
+<span>مستودع الطاقة الرئيسي</span>
+<span>•</span>
+<span class="font-mono text-emerald-600">Cloud Sync OK</span>
+</div>
+</footer>
+</body></html>

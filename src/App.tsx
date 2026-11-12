@@ -254,12 +254,12 @@ const MainLayout: React.FC = () => {
             uiTheme === 'obsidian_dark'
               ? 'bg-[#080c14] text-slate-100'
               : uiTheme === 'swiss_light'
-              ? 'bg-[#f2f5f8] text-slate-900'
+              ? 'bg-[#f8fafc] text-slate-800'
               : uiTheme === 'haseb_royal'
-              ? 'bg-[#f1f2f9] text-slate-900'
+              ? 'bg-[#f8fafc] text-slate-800'
               : uiTheme === 'haseb_sand'
               ? 'bg-[#f3ede2] text-stone-900'
-              : 'bg-[#eef3f9] text-slate-900'
+              : 'bg-[#F8FAFC] text-slate-800'
           }`}
         >
           {/* Top Enterprise Bar — rendered exclusively when authenticated */}
@@ -271,80 +271,91 @@ const MainLayout: React.FC = () => {
             <main
               className={`flex-1 min-w-0 min-h-0 ${
                 activeTab === 'pos'
-                  ? 'overflow-hidden p-2.5 sm:p-3 flex flex-col'
+                  ? 'overflow-hidden flex flex-col'
                   : uiDensity === 'compact'
-                  ? 'overflow-y-auto p-2.5 sm:p-3.5'
-                  : 'overflow-y-auto p-3 sm:p-4'
+                  ? 'overflow-y-auto p-3 sm:p-4'
+                  : 'overflow-y-auto p-4 sm:p-5'
               }`}
             >
               {renderActiveView()}
             </main>
           </div>
 
-          {/* Fast Keyboard Shortcuts & LAN Status Bar (Desktop) */}
+          {/* Minimal Bottom Shortcuts Bar (Matches Lumina / Haseb ERP Reference) */}
           {masterSystemConfig.uiElementsVisibility.showKeyboardShortcutsBar && (
-            <div
+            <footer
               data-testid="keyboard-shortcuts-bar"
-              className="hidden lg:flex shrink-0 items-center justify-between px-4 py-1 bg-[#080c14] border-t border-slate-800 text-[11px] text-slate-400 select-none z-30"
+              className={`hidden lg:flex shrink-0 items-center justify-between px-5 h-8 border-t text-[11px] select-none z-30 ${
+                uiTheme === 'obsidian_dark'
+                  ? 'bg-[#080c14] border-slate-800 text-slate-400'
+                  : 'bg-white border-slate-200/70 text-slate-500'
+              }`}
             >
-              <div className="flex items-center gap-3">
-                <span className="text-amber-400 font-bold flex items-center gap-1">
-                  <Keyboard className="w-3.5 h-3.5" />
-                  {language === 'ar' ? 'اختصارات حاسب السريعة:' : 'Haseb Quick Shortcuts:'}
-                </span>
-                {(masterSystemConfig.sectorModeEnabled
-                  ? [
-                      { k: 'F2', l: language === 'ar' ? 'نقطة البيع POS' : 'POS', tab: 'pos' },
-                      { k: 'F3', l: language === 'ar' ? 'المخزون والجرد' : 'Inventory', tab: 'inventory' },
-                      { k: 'F4', l: language === 'ar' ? 'المبيعات والضمان' : 'Sales', tab: 'sales' },
-                      { k: 'F7', l: language === 'ar' ? 'المحاسبة المالية' : 'Accounting', tab: 'accounting' },
-                      { k: 'F8', l: language === 'ar' ? 'التقارير والذكاء' : 'Reports & AI', tab: 'reportsAndAI' },
-                    ]
-                  : [
-                      { k: 'F1', l: language === 'ar' ? 'الرئيسية' : 'Home', tab: 'dashboard' },
-                      { k: 'F2', l: language === 'ar' ? 'نقطة البيع POS' : 'POS', tab: 'pos' },
-                      { k: 'F3', l: language === 'ar' ? 'المخزون' : 'Inventory', tab: 'inventory' },
-                      { k: 'F4', l: language === 'ar' ? 'المبيعات' : 'Sales', tab: 'sales' },
-                      { k: 'F6', l: language === 'ar' ? 'المشتريات' : 'Purchasing', tab: 'purchasing' },
-                      { k: 'F7', l: language === 'ar' ? 'المحاسبة' : 'Accounting', tab: 'accounting' },
-                      { k: 'F8', l: language === 'ar' ? 'التقارير والذكاء' : 'Reports & AI', tab: 'reportsAndAI' },
-                    ]
-                ).map((item) => (
-                  <button
-                    key={item.k}
-                    type="button"
-                    onClick={() => setActiveTab(item.tab)}
-                    className="hover:text-blue-400 transition flex items-center gap-1 cursor-pointer font-semibold"
-                  >
-                    <kbd
-                      className={`px-1.5 py-0.5 rounded border font-mono text-[10px] font-bold ${
-                        uiTheme === 'obsidian_dark' || uiTheme === 'haseb_royal'
-                          ? 'bg-slate-900 border-slate-700 text-slate-200'
-                          : 'bg-slate-100 border-slate-300 text-slate-700'
-                      }`}
-                    >
-                      {item.k}
-                    </kbd>
-                    <span>{item.l}</span>
-                  </button>
-                ))}
+              <div className="flex items-center gap-4 text-slate-500">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('pos')}
+                  className="flex items-center gap-1.5 hover:text-slate-800 transition cursor-pointer"
+                >
+                  <kbd className="px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-mono font-semibold text-slate-600">
+                    F1
+                  </kbd>
+                  <span>{language === 'ar' ? 'مسح الباركود' : 'Scan Barcode'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('pos')}
+                  className="flex items-center gap-1.5 hover:text-slate-800 transition cursor-pointer"
+                >
+                  <kbd className="px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-mono font-semibold text-slate-600">
+                    F2
+                  </kbd>
+                  <span>{language === 'ar' ? 'نقطة البيع' : 'POS'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('inventory')}
+                  className="flex items-center gap-1.5 hover:text-slate-800 transition cursor-pointer"
+                >
+                  <kbd className="px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-mono font-semibold text-slate-600">
+                    F3
+                  </kbd>
+                  <span>{language === 'ar' ? 'المخزون' : 'Inventory'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('pos');
+                    window.dispatchEvent(new CustomEvent('haseb-trigger-pos-checkout'));
+                  }}
+                  className="flex items-center gap-1.5 cursor-pointer"
+                >
+                  <kbd className="px-1.5 py-0.5 bg-slate-900 rounded text-[10px] font-mono font-semibold text-white">
+                    F9
+                  </kbd>
+                  <span className="font-semibold text-slate-700 dark:text-slate-200">
+                    {language === 'ar' ? 'الدفع الفوري' : 'Instant Pay'}
+                  </span>
+                </button>
               </div>
 
-              <div className="flex items-center gap-3 font-mono text-[11px] font-semibold">
-                {networkInfo && (
-                  <button
-                    type="button"
-                    onClick={openLanPortal}
-                    className="text-sky-400 hover:underline flex items-center gap-1 cursor-pointer transition"
-                    title={language === 'ar' ? 'انقر لفتح مركز سطح المكتب والشبكة المحلية' : 'Click to open Windows Desktop & LAN Hub'}
-                  >
-                    <Wifi className="w-3 h-3" />
-                    <span>LAN: {networkInfo.primaryLanUrl.replace('http://', '')}</span>
-                  </button>
-                )}
-                <span className="text-blue-400">RAM-DB SYNC: {syncLatencyMs}ms</span>
+              <div className="flex items-center gap-3 text-slate-400">
+                <span>{language === 'ar' ? 'مستودع الطاقة الرئيسي' : 'Main Solar Warehouse'}</span>
+                <span>•</span>
+                <button
+                  type="button"
+                  onClick={openLanPortal}
+                  className="font-mono text-[10px] text-emerald-600 font-medium hover:underline cursor-pointer"
+                  title={
+                    language === 'ar'
+                      ? 'انقر لفتح مركز سطح المكتب والشبكة المحلية'
+                      : 'Click to open Windows Desktop & LAN Hub'
+                  }
+                >
+                  Cloud Sync OK
+                </button>
               </div>
-            </div>
+            </footer>
           )}
 
           {/* Global Command Palette (Ctrl+K), Omnichannel WhatsApp/SMS Modal, Cross-Branch Probe & Offline PWA Banner */}
