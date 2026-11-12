@@ -250,16 +250,16 @@ const MainLayout: React.FC = () => {
         <LoginGate />
       ) : (
         <div
-          className={`h-screen max-h-screen overflow-hidden flex flex-col selection:bg-emerald-600 selection:text-white transition-colors duration-200 ${
+          className={`h-screen max-h-screen overflow-hidden flex flex-col selection:bg-blue-600 selection:text-white transition-colors duration-200 ${
             uiTheme === 'obsidian_dark'
-              ? 'bg-[#0b0f19] text-slate-100'
+              ? 'bg-[#080c14] text-slate-100'
               : uiTheme === 'swiss_light'
-              ? 'bg-[#f8fafc] text-slate-900'
+              ? 'bg-[#f2f5f8] text-slate-900'
               : uiTheme === 'haseb_royal'
-              ? 'bg-[#f2f6fc] text-slate-900'
+              ? 'bg-[#f1f2f9] text-slate-900'
               : uiTheme === 'haseb_sand'
-              ? 'bg-[#f6f4ee] text-stone-900'
-              : 'bg-[#f3f7f6] text-slate-900'
+              ? 'bg-[#f3ede2] text-stone-900'
+              : 'bg-[#eef3f9] text-slate-900'
           }`}
         >
           {/* Top Enterprise Bar — rendered exclusively when authenticated */}
@@ -285,12 +285,12 @@ const MainLayout: React.FC = () => {
           {masterSystemConfig.uiElementsVisibility.showKeyboardShortcutsBar && (
             <div
               data-testid="keyboard-shortcuts-bar"
-              className="hidden lg:flex shrink-0 items-center justify-between px-4 py-1 bg-[#0B1120] border-t border-slate-800 text-[11px] text-slate-400 select-none z-30"
+              className="hidden lg:flex shrink-0 items-center justify-between px-4 py-1 bg-[#080c14] border-t border-slate-800 text-[11px] text-slate-400 select-none z-30"
             >
               <div className="flex items-center gap-3">
                 <span className="text-amber-400 font-bold flex items-center gap-1">
                   <Keyboard className="w-3.5 h-3.5" />
-                  {language === 'ar' ? 'اختصارات القطاع (إلكترونيات وطاقة شمسية):' : 'Sector Shortcuts:'}
+                  {language === 'ar' ? 'اختصارات حاسب السريعة:' : 'Haseb Quick Shortcuts:'}
                 </span>
                 {(masterSystemConfig.sectorModeEnabled
                   ? [
@@ -314,7 +314,7 @@ const MainLayout: React.FC = () => {
                     key={item.k}
                     type="button"
                     onClick={() => setActiveTab(item.tab)}
-                    className="hover:text-emerald-600 dark:hover:text-emerald-400 transition flex items-center gap-1 cursor-pointer font-semibold"
+                    className="hover:text-blue-400 transition flex items-center gap-1 cursor-pointer font-semibold"
                   >
                     <kbd
                       className={`px-1.5 py-0.5 rounded border font-mono text-[10px] font-bold ${
@@ -335,14 +335,14 @@ const MainLayout: React.FC = () => {
                   <button
                     type="button"
                     onClick={openLanPortal}
-                    className="text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-1 cursor-pointer transition"
-                    title={language === 'ar' ? 'انقر لفتح بوابة ربط الجوال والشبكة المحلية' : 'Click to open Mobile LAN Portal'}
+                    className="text-sky-400 hover:underline flex items-center gap-1 cursor-pointer transition"
+                    title={language === 'ar' ? 'انقر لفتح مركز سطح المكتب والشبكة المحلية' : 'Click to open Windows Desktop & LAN Hub'}
                   >
                     <Wifi className="w-3 h-3" />
                     <span>LAN: {networkInfo.primaryLanUrl.replace('http://', '')}</span>
                   </button>
                 )}
-                <span className="text-emerald-600 dark:text-emerald-400">RAM-DB SYNC: {syncLatencyMs}ms</span>
+                <span className="text-blue-400">RAM-DB SYNC: {syncLatencyMs}ms</span>
               </div>
             </div>
           )}

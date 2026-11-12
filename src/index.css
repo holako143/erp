@@ -5,16 +5,53 @@
   :root {
     --font-sans: 'Cairo', 'Readex Pro', 'IBM Plex Sans Arabic', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     --font-mono: 'JetBrains Mono', 'IBM Plex Mono', 'Cairo', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    --erp-bg-canvas: #eef4f2;
+    --erp-bg-canvas: #eef3f9;
     --erp-bg-surface: #ffffff;
-    --erp-bg-elevated: #f6faf8;
-    --erp-border: #d3e2dc;
+    --erp-bg-elevated: #f5f8fc;
+    --erp-border: #d5e0ee;
     --erp-text-primary: #0f172a;
-    --erp-text-secondary: #475569;
-    --erp-accent: #059669;
-    --erp-accent-soft: rgba(5, 150, 105, 0.12);
-    --erp-accent-emerald: #059669;
+    --erp-text-secondary: #334155;
+    --erp-accent: #2563eb;
+    --erp-accent-soft: rgba(37, 99, 235, 0.12);
+    --erp-accent-emerald: #2563eb;
     --erp-accent-indigo: #4f46e5;
+
+    /* Global Zero-Green Remapping: All legacy emerald/teal utility classes render as soothing Royal Sapphire & Cobalt */
+    --color-emerald-50: #eff6ff;
+    --color-emerald-100: #dbeafe;
+    --color-emerald-200: #bfdbfe;
+    --color-emerald-300: #93c5fd;
+    --color-emerald-400: #60a5fa;
+    --color-emerald-500: #3b82f6;
+    --color-emerald-600: #2563eb;
+    --color-emerald-700: #1d4ed8;
+    --color-emerald-800: #1e40af;
+    --color-emerald-900: #1e3a8a;
+    --color-emerald-950: #172554;
+    --color-teal-50: #f0f9ff;
+    --color-teal-100: #e0f2fe;
+    --color-teal-200: #bae6fd;
+    --color-teal-300: #7dd3fc;
+    --color-teal-400: #38bdf8;
+    --color-teal-500: #0284c7;
+    --color-teal-600: #0369a1;
+    --color-teal-700: #075985;
+    --color-teal-800: #0c4a6e;
+    --color-teal-900: #082f49;
+    --color-teal-950: #082f49;
+
+    /* Dynamic Harmonized Font & Window/Tab Scale Variables (Default: 110% Font / 105% Window) */
+    --erp-font-scale: 1.1;
+    --erp-window-scale: 1.05;
+    --erp-root-font-px: 17.32px;
+    --erp-spacing-unit: 0.26rem;
+    --erp-sidebar-width: 266px;
+    --erp-navbar-height: 60px;
+    --spacing: var(--erp-spacing-unit, 0.26rem);
+  }
+
+  html {
+    font-size: var(--erp-root-font-px, 17.32px);
   }
 
   /* Dynamic Professional Arabic Font Suites */
@@ -37,51 +74,61 @@
     letter-spacing: 0 !important;
   }
 
-  /* Optical legibility boost for Arabic micro-labels so diacritics and dots remain razor-sharp */
-  [dir="rtl"] .text-\[9px\],
-  [dir="rtl"] .text-\[10px\] {
-    font-size: 0.71rem !important;
-    line-height: 1.45 !important;
+  /* Harmonized Font Scaling across all micro & standard text classes so nothing is ever tiny */
+  .text-\[9px\],
+  .text-\[10px\] {
+    font-size: calc(0.71rem * var(--erp-font-scale, 1.1)) !important;
+    line-height: 1.48 !important;
   }
-  [dir="rtl"] .text-\[11px\] {
-    font-size: 0.75rem !important;
+  .text-\[11px\] {
+    font-size: calc(0.76rem * var(--erp-font-scale, 1.1)) !important;
     line-height: 1.5 !important;
   }
+  .text-\[12px\],
+  .text-xs {
+    font-size: calc(0.8rem * var(--erp-font-scale, 1.1)) !important;
+    line-height: 1.52 !important;
+  }
+  .text-\[13px\],
+  .text-sm {
+    font-size: calc(0.9rem * var(--erp-font-scale, 1.1)) !important;
+    line-height: 1.55 !important;
+  }
+  .text-base {
+    font-size: calc(1rem * var(--erp-font-scale, 1.1)) !important;
+    line-height: 1.58 !important;
+  }
 
-  /* ============================================================================
-   * 1. زمرد حاسب الملكي (Haseb Imperial Emerald — Default Financial Identity)
-   * ============================================================================ */
-  html[data-erp-theme="corporate_slate"],
-  html[data-erp-theme="haseb_emerald"] {
-    --erp-bg-canvas: #eef4f2;
-    --erp-bg-surface: #ffffff;
-    --erp-bg-elevated: #f5f9f8;
-    --erp-border: #d3e2dc;
-    --erp-text-primary: #0f172a;
-    --erp-text-secondary: #334155;
-    --erp-accent: #059669;
-    --erp-accent-soft: rgba(5, 150, 105, 0.12);
-    --color-slate-50: #f4f8f7;
-    --color-slate-100: #e8f1ee;
-    --color-slate-200: #d3e2dc;
+  /* Harmonized Window, Tab & Template Scaling */
+  aside[data-testid="desktop-sidebar"]:not(.w-17) {
+    width: var(--erp-sidebar-width, 266px) !important;
+  }
+  aside[data-testid="desktop-sidebar"] [data-testid^="nav-"] {
+    padding-top: calc(0.58rem * var(--erp-window-scale, 1.05));
+    padding-bottom: calc(0.58rem * var(--erp-window-scale, 1.05));
+  }
+  main table th,
+  main table td {
+    padding-top: calc(0.55rem * var(--erp-window-scale, 1.05));
+    padding-bottom: calc(0.55rem * var(--erp-window-scale, 1.05));
+    padding-inline: calc(0.75rem * var(--erp-window-scale, 1.05));
   }
 
   /* ============================================================================
-   * 2. ياقوت حاسب المصرفي (Haseb Royal Sapphire — Banking & Institutional Blue)
-   * Remaps primary emerald/teal tokens to Royal Sapphire across all views
+   * 1. ياقوت حاسب الملكي (Haseb Royal Sapphire — Default Eye-Soothing Sapphire)
    * ============================================================================ */
-  html[data-erp-theme="haseb_royal"] {
-    --erp-bg-canvas: #edf3fc;
+  html[data-erp-theme="corporate_slate"] {
+    --erp-bg-canvas: #eef3f9;
     --erp-bg-surface: #ffffff;
-    --erp-bg-elevated: #f4f8fe;
-    --erp-border: #cfddf2;
-    --erp-text-primary: #0c1526;
+    --erp-bg-elevated: #f5f8fc;
+    --erp-border: #d5e0ee;
+    --erp-text-primary: #0f172a;
     --erp-text-secondary: #334155;
-    --erp-accent: #1d4ed8;
-    --erp-accent-soft: rgba(29, 78, 216, 0.12);
-    --color-slate-50: #f4f8fd;
-    --color-slate-100: #e8f0fb;
-    --color-slate-200: #cfddf2;
+    --erp-accent: #2563eb;
+    --erp-accent-soft: rgba(37, 99, 235, 0.12);
+    --color-slate-50: #f4f7fc;
+    --color-slate-100: #e8eef8;
+    --color-slate-200: #d5e0ee;
     --color-emerald-50: #eff6ff;
     --color-emerald-100: #dbeafe;
     --color-emerald-200: #bfdbfe;
@@ -99,21 +146,20 @@
   }
 
   /* ============================================================================
-   * 3. كشمير حاسب السويسري (Haseb Swiss Cashmere & Royal Indigo)
-   * Remaps primary tokens to refined Swiss Indigo-Violet with pearl surfaces
+   * 2. نيلي حاسب الفاخر (Haseb Imperial Indigo — Executive Violet-Indigo)
    * ============================================================================ */
-  html[data-erp-theme="swiss_light"] {
-    --erp-bg-canvas: #f3f4f9;
+  html[data-erp-theme="haseb_royal"] {
+    --erp-bg-canvas: #f1f2f9;
     --erp-bg-surface: #ffffff;
-    --erp-bg-elevated: #f8f9fc;
-    --erp-border: #dce0f0;
+    --erp-bg-elevated: #f7f8fc;
+    --erp-border: #d8dcf0;
     --erp-text-primary: #111827;
-    --erp-text-secondary: #4b5563;
+    --erp-text-secondary: #374151;
     --erp-accent: #4338ca;
     --erp-accent-soft: rgba(67, 56, 202, 0.12);
-    --color-slate-50: #f6f7fb;
-    --color-slate-100: #edeff7;
-    --color-slate-200: #dce0f0;
+    --color-slate-50: #f5f6fb;
+    --color-slate-100: #ebedf8;
+    --color-slate-200: #d8dcf0;
     --color-emerald-50: #eef2ff;
     --color-emerald-100: #e0e7ff;
     --color-emerald-200: #c7d2fe;
@@ -125,41 +171,78 @@
     --color-emerald-800: #3730a3;
     --color-emerald-900: #312e81;
     --color-emerald-950: #1e1b4b;
-    --color-teal-500: #7c3aed;
-    --color-teal-600: #6d28d9;
-    --color-teal-700: #5b21b6;
+    --color-teal-500: #6366f1;
+    --color-teal-600: #4f46e5;
+    --color-teal-700: #4338ca;
   }
 
   /* ============================================================================
-   * 4. رمال حاسب الدافئة (Haseb Warm Oasis Paper — Zero Blue-Light Eye Care)
-   * Replaces harsh white cards with warm cream paper & deep Oasis Teal accents
+   * 3. تيتانيوم حاسب الهادئ (Haseb Nordic Titanium & Ocean — Soft Daylight)
+   * ============================================================================ */
+  html[data-erp-theme="swiss_light"] {
+    --erp-bg-canvas: #f2f5f8;
+    --erp-bg-surface: #ffffff;
+    --erp-bg-elevated: #f8fafc;
+    --erp-border: #dae2ec;
+    --erp-text-primary: #0f172a;
+    --erp-text-secondary: #475569;
+    --erp-accent: #0284c7;
+    --erp-accent-soft: rgba(2, 132, 199, 0.12);
+    --color-slate-50: #f5f8fb;
+    --color-slate-100: #ebf0f6;
+    --color-slate-200: #dae2ec;
+    --color-emerald-50: #f0f9ff;
+    --color-emerald-100: #e0f2fe;
+    --color-emerald-200: #bae6fd;
+    --color-emerald-300: #7dd3fc;
+    --color-emerald-400: #38bdf8;
+    --color-emerald-500: #0ea5e9;
+    --color-emerald-600: #0284c7;
+    --color-emerald-700: #0369a1;
+    --color-emerald-800: #075985;
+    --color-emerald-900: #0c4a6e;
+    --color-emerald-950: #082f49;
+    --color-teal-500: #0284c7;
+    --color-teal-600: #0369a1;
+    --color-teal-700: #075985;
+  }
+
+  /* ============================================================================
+   * 4. كهرمان حاسب الدافئ (Haseb Warm Amber & Parchment — Zero Blue-Light)
+   * Zero Green! Warm cream paper cards with rich Bronze-Amber accents
    * ============================================================================ */
   html[data-erp-theme="haseb_sand"] {
-    --erp-bg-canvas: #f2ece1;
-    --erp-bg-surface: #faf6ee;
-    --erp-bg-elevated: #f4efe4;
-    --erp-border: #ddd2be;
+    --erp-bg-canvas: #f3ede2;
+    --erp-bg-surface: #fbf8f2;
+    --erp-bg-elevated: #f5efe4;
+    --erp-border: #dfd3be;
     --erp-text-primary: #1c1917;
     --erp-text-secondary: #57534e;
-    --erp-accent: #0f766e;
-    --erp-accent-soft: rgba(15, 118, 110, 0.14);
-    --color-white: #faf6ee;
-    --color-slate-50: #f3ede2;
-    --color-slate-100: #e9e0d0;
-    --color-slate-200: #ddd2be;
+    --erp-accent: #b45309;
+    --erp-accent-soft: rgba(180, 83, 9, 0.14);
+    --color-white: #fbf8f2;
+    --color-slate-50: #f4efe4;
+    --color-slate-100: #ebe3d3;
+    --color-slate-200: #dfd3be;
     --color-slate-300: #cbbba0;
-    --color-emerald-50: #f0fdfa;
-    --color-emerald-100: #ccfbf1;
-    --color-emerald-200: #99f6e4;
-    --color-emerald-500: #14b8a6;
-    --color-emerald-600: #0f766e;
-    --color-emerald-700: #115e59;
-    --color-emerald-800: #134e4a;
-    --color-emerald-900: #042f2e;
+    --color-emerald-50: #fffbeb;
+    --color-emerald-100: #fef3c7;
+    --color-emerald-200: #fde68a;
+    --color-emerald-300: #fcd34d;
+    --color-emerald-400: #fbbf24;
+    --color-emerald-500: #f59e0b;
+    --color-emerald-600: #d97706;
+    --color-emerald-700: #b45309;
+    --color-emerald-800: #92400e;
+    --color-emerald-900: #78350f;
+    --color-emerald-950: #451a03;
+    --color-teal-500: #d97706;
+    --color-teal-600: #b45309;
+    --color-teal-700: #92400e;
   }
 
   /* ============================================================================
-   * 5. ليل حاسب الكربوني (Haseb Obsidian Carbon Dark — OLED Eye-Safe Dark)
+   * 5. ليل حاسب الكربوني الأزرق (Haseb Carbon Dark & Sky Sapphire — Zero Green)
    * ============================================================================ */
   html[data-erp-theme="obsidian_dark"],
   .dark {
@@ -169,8 +252,19 @@
     --erp-border: #233046;
     --erp-text-primary: #f1f5f9;
     --erp-text-secondary: #94a3b8;
-    --erp-accent: #10b981;
-    --erp-accent-soft: rgba(16, 185, 129, 0.16);
+    --erp-accent: #3b82f6;
+    --erp-accent-soft: rgba(59, 130, 246, 0.16);
+    --color-emerald-50: #eff6ff;
+    --color-emerald-100: #dbeafe;
+    --color-emerald-200: #bfdbfe;
+    --color-emerald-300: #93c5fd;
+    --color-emerald-400: #60a5fa;
+    --color-emerald-500: #3b82f6;
+    --color-emerald-600: #2563eb;
+    --color-emerald-700: #1d4ed8;
+    --color-emerald-800: #1e40af;
+    --color-emerald-900: #1e3a8a;
+    --color-emerald-950: #172554;
   }
 
   /* Deep Workspace Dark-Mode Surface Adaptation (Excludes Paper Print Previews) */
@@ -184,14 +278,14 @@
     color: #e2e8f0;
   }
   html[data-erp-theme="obsidian_dark"] main .bg-emerald-50:not(.print-receipt *) {
-    background-color: rgba(16, 185, 129, 0.14) !important;
-    color: #6ee7b7 !important;
-    border-color: rgba(16, 185, 129, 0.32) !important;
+    background-color: rgba(59, 130, 246, 0.15) !important;
+    color: #93c5fd !important;
+    border-color: rgba(59, 130, 246, 0.35) !important;
   }
   html[data-erp-theme="obsidian_dark"] main .bg-sky-50:not(.print-receipt *) {
-    background-color: rgba(14, 165, 233, 0.14) !important;
+    background-color: rgba(14, 165, 233, 0.15) !important;
     color: #7dd3fc !important;
-    border-color: rgba(14, 165, 233, 0.32) !important;
+    border-color: rgba(14, 165, 233, 0.35) !important;
   }
   html[data-erp-theme="obsidian_dark"] main .border-slate-100:not(.print-receipt *),
   html[data-erp-theme="obsidian_dark"] main [class*="border-slate-200"]:not(.print-receipt *),
@@ -270,7 +364,7 @@
     box-shadow: 0 8px 20px -4px rgba(15, 23, 42, 0.07);
   }
   .dark .interactive-card:hover {
-    border-color: #10b981;
+    border-color: #3b82f6;
     box-shadow: 0 8px 22px -4px rgba(0, 0, 0, 0.5);
   }
 
@@ -280,6 +374,73 @@
   }
   button:active:not(:disabled) {
     transform: scale(0.985);
+  }
+
+  /* ============================================================================
+   * HIGH-SPEED POS & ERP FORM ACTIVE FOCUS STATE ENGINE (Tab Navigation Clarity)
+   * Highlights the active input/select/textarea and its container unmistakably
+   * ============================================================================ */
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    transition:
+      border-color 0.14s cubic-bezier(0.16, 1, 0.3, 1),
+      box-shadow 0.14s cubic-bezier(0.16, 1, 0.3, 1),
+      background-color 0.14s ease,
+      transform 0.12s ease;
+  }
+
+  input:not([type="checkbox"]):not([type="radio"]):focus,
+  select:focus,
+  textarea:focus {
+    outline: none !important;
+    border-color: var(--erp-accent) !important;
+    box-shadow:
+      0 0 0 3.5px var(--erp-accent-soft),
+      0 6px 16px -4px rgba(37, 99, 235, 0.18) !important;
+    z-index: 10;
+  }
+
+  html[data-erp-theme="obsidian_dark"] input:not([type="checkbox"]):not([type="radio"]):focus,
+  html[data-erp-theme="obsidian_dark"] select:focus,
+  html[data-erp-theme="obsidian_dark"] textarea:focus {
+    background-color: #0f172a !important;
+    color: #f8fafc !important;
+    border-color: #3b82f6 !important;
+    box-shadow:
+      0 0 0 3.5px rgba(59, 130, 246, 0.28),
+      0 6px 18px -4px rgba(37, 99, 235, 0.4) !important;
+  }
+
+  html[data-erp-theme="haseb_sand"] input:not([type="checkbox"]):not([type="radio"]):focus,
+  html[data-erp-theme="haseb_sand"] select:focus,
+  html[data-erp-theme="haseb_sand"] textarea:focus {
+    background-color: #fffdf9 !important;
+    border-color: #d97706 !important;
+    box-shadow:
+      0 0 0 3.5px rgba(217, 119, 6, 0.24),
+      0 6px 16px -4px rgba(180, 83, 9, 0.22) !important;
+  }
+
+  button:focus-visible {
+    outline: 2px solid var(--erp-accent) !important;
+    outline-offset: 2px !important;
+    box-shadow: 0 0 0 4px var(--erp-accent-soft) !important;
+  }
+
+  /* POS Fast-Entry Field Group & Step Badge Highlight on Focus-Within */
+  .pos-focus-group {
+    transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .pos-focus-group:focus-within {
+    border-color: var(--erp-accent) !important;
+    box-shadow: 0 0 0 2px var(--erp-accent-soft);
+  }
+  .pos-focus-group:focus-within .pos-tab-step-badge {
+    background-color: var(--erp-accent) !important;
+    color: #ffffff !important;
+    border-color: var(--erp-accent) !important;
+    transform: scale(1.06);
   }
 
   /* Compact High-Density Mode for Enterprise Operators */

@@ -8,68 +8,87 @@ import {
   Bell,
   MessageSquare,
   Settings as SettingsIcon,
-  Smartphone,
+  MonitorSmartphone,
   User as UserAvatarIcon,
   ShieldCheck,
   ChevronDown,
   Palette,
   Check,
   Type,
+  Coins,
+  Plus,
+  Minus,
+  Maximize2,
+  RotateCcw,
 } from 'lucide-react';
 import { SystemNotificationCenterModal } from '../common/SystemNotificationCenterModal';
 import { generateSystemNotifications } from '../../core/notificationsEngine';
 import { HasebBrandLogo } from '../common/HasebBrandLogo';
+import {
+  HASEB_SCALE_PRESETS,
+  DEFAULT_FONT_SCALE,
+  DEFAULT_WINDOW_SCALE,
+  FONT_SCALE_MIN,
+  FONT_SCALE_MAX,
+  WINDOW_SCALE_MIN,
+  WINDOW_SCALE_MAX,
+  clampFontScale,
+  clampWindowScale,
+  stepFontScale,
+  stepWindowScale,
+  computeHarmonizedScaleCssVars,
+} from '../../core/uiScaleEngine';
 
 export const HASEB_THEMES_LIST = [
   {
     id: 'corporate_slate' as const,
-    nameAr: 'زمرد حاسب الملكي (افتراضي مريح)',
-    nameEn: 'Haseb Imperial Emerald',
-    descAr: 'هوية مالية متكاملة بتدرجات الزمرد الملكي وخلفية عاجية مريحة للعين',
-    swatchBg: 'bg-[#059669]',
-    sidebarHex: '#f6faf8',
-    canvasHex: '#eef4f2',
-    accentHex: '#059669',
+    nameAr: 'ياقوت حاسب الملكي (افتراضي مريح)',
+    nameEn: 'Haseb Royal Sapphire',
+    descAr: 'تدرجات الياقوت الأزرق الهادئ مع خلفية ثلجية مريحة للعين',
+    swatchBg: 'bg-[#2563eb]',
+    sidebarHex: '#f5f8fc',
+    canvasHex: '#eef3f9',
+    accentHex: '#2563eb',
   },
   {
     id: 'haseb_royal' as const,
-    nameAr: 'ياقوت حاسب المصرفي (أزرق ملكي)',
-    nameEn: 'Haseb Royal Sapphire',
-    descAr: 'طابع البنوك والمؤسسات الكبرى بتدرجات الياقوت الأزرق والكحلي',
-    swatchBg: 'bg-[#1d4ed8]',
-    sidebarHex: '#0a162c',
-    canvasHex: '#edf3fc',
-    accentHex: '#1d4ed8',
-  },
-  {
-    id: 'swiss_light' as const,
-    nameAr: 'كشمير حاسب السويسري (نيلي عصري)',
-    nameEn: 'Haseb Swiss Cashmere',
-    descAr: 'تصميم سويسري فائق النقاء بلمسات النيلي الملكي والأسطح اللؤلؤية',
+    nameAr: 'نيلي حاسب الفاخر (أزرق نيلي مؤسسي)',
+    nameEn: 'Haseb Imperial Indigo',
+    descAr: 'هوية مصرفية فاخرة بتدرجات النيلي الملكي والأسطح اللؤلؤية',
     swatchBg: 'bg-[#4338ca]',
-    sidebarHex: '#ffffff',
-    canvasHex: '#f3f4f9',
+    sidebarHex: '#0e1329',
+    canvasHex: '#f1f2f9',
     accentHex: '#4338ca',
   },
   {
+    id: 'swiss_light' as const,
+    nameAr: 'تيتانيوم حاسب الهادئ (سماوي نهاري)',
+    nameEn: 'Haseb Nordic Titanium',
+    descAr: 'سطوع نهاري ناعم بدون توهج بلمسات الأزرق المحيطي الهادئ',
+    swatchBg: 'bg-[#0284c7]',
+    sidebarHex: '#ffffff',
+    canvasHex: '#f2f5f8',
+    accentHex: '#0284c7',
+  },
+  {
     id: 'haseb_sand' as const,
-    nameAr: 'رمال حاسب الدافئة (حماية العين)',
-    nameEn: 'Haseb Warm Oasis Paper',
-    descAr: 'وضع القراءة الورقية الدافئة بدون أشعة زرقاء لورديات الكاشير الطويلة',
-    swatchBg: 'bg-[#0f766e]',
-    sidebarHex: '#f5efe2',
-    canvasHex: '#f2ece1',
-    accentHex: '#0f766e',
+    nameAr: 'كهرمان حاسب الدافئ (حماية العين)',
+    nameEn: 'Haseb Warm Amber Paper',
+    descAr: 'وضع الورق الكريمي الدافئ والبرونز بدون أشعة زرقاء لورديات الكاشير',
+    swatchBg: 'bg-[#b45309]',
+    sidebarHex: '#f4efe4',
+    canvasHex: '#f3ede2',
+    accentHex: '#b45309',
   },
   {
     id: 'obsidian_dark' as const,
-    nameAr: 'ليل حاسب الكربوني (الوضع الليلي)',
-    nameEn: 'Haseb Obsidian Carbon',
-    descAr: 'وضع داكن احترافي متكامل لجميع البطاقات والجداول بدون أي توهج',
-    swatchBg: 'bg-[#0f172a]',
+    nameAr: 'ليل حاسب الكربوني (الوضع الليلي الأزرق)',
+    nameEn: 'Haseb Carbon Sapphire Dark',
+    descAr: 'وضع داكن كربوني مريح للعين بلمسات الياقوت السماوي الهادئ',
+    swatchBg: 'bg-[#1e3a8a]',
     sidebarHex: '#080c14',
     canvasHex: '#111827',
-    accentHex: '#10b981',
+    accentHex: '#3b82f6',
   },
 ];
 
@@ -130,7 +149,6 @@ export const Navbar: React.FC = () => {
 
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
-  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
   const [uiFont, setUiFont] = useState<HasebFontId>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('haseb_ui_font') as HasebFontId | null;
@@ -139,6 +157,26 @@ export const Navbar: React.FC = () => {
       }
     }
     return 'cairo';
+  });
+
+  const [fontScalePercent, setFontScalePercent] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = Number(localStorage.getItem('haseb_font_scale_percent'));
+      if (Number.isFinite(saved) && saved >= FONT_SCALE_MIN && saved <= FONT_SCALE_MAX) {
+        return clampFontScale(saved);
+      }
+    }
+    return DEFAULT_FONT_SCALE;
+  });
+
+  const [windowScalePercent, setWindowScalePercent] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = Number(localStorage.getItem('haseb_window_scale_percent'));
+      if (Number.isFinite(saved) && saved >= WINDOW_SCALE_MIN && saved <= WINDOW_SCALE_MAX) {
+        return clampWindowScale(saved);
+      }
+    }
+    return DEFAULT_WINDOW_SCALE;
   });
 
   useEffect(() => {
@@ -151,6 +189,27 @@ export const Navbar: React.FC = () => {
       }
     }
   }, [uiFont]);
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      const vars = computeHarmonizedScaleCssVars(fontScalePercent, windowScalePercent);
+      const root = document.documentElement;
+      root.style.setProperty('--erp-font-scale', String(vars.fontScaleRatio));
+      root.style.setProperty('--erp-window-scale', String(vars.windowScaleRatio));
+      root.style.setProperty('--erp-root-font-px', `${vars.rootFontSizePx}px`);
+      root.style.setProperty('--erp-spacing-unit', `${vars.spacingUnitRem}rem`);
+      root.style.setProperty('--erp-sidebar-width', `${vars.sidebarWidthPx}px`);
+      root.style.setProperty('--erp-navbar-height', `${vars.navbarHeightPx}px`);
+      root.dataset.erpFontScale = String(fontScalePercent);
+      root.dataset.erpWindowScale = String(windowScalePercent);
+      try {
+        localStorage.setItem('haseb_font_scale_percent', String(fontScalePercent));
+        localStorage.setItem('haseb_window_scale_percent', String(windowScalePercent));
+      } catch {
+        // ignore storage errors
+      }
+    }
+  }, [fontScalePercent, windowScalePercent]);
 
   const [clickTimestamps, setClickTimestamps] = useState<number[]>([]);
   const clickTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -170,11 +229,13 @@ export const Navbar: React.FC = () => {
 
     if (recentClicks.length >= 7) {
       setClickTimestamps([]);
+      setIsProfileMenuOpen(false);
       setIsStandaloneKeygenOpen(true);
     } else {
       clickTimeoutRef.current = setTimeout(() => {
+        setIsProfileMenuOpen(false);
         setActiveTab('settings');
-      }, 400);
+      }, 300);
     }
   };
 
@@ -218,15 +279,15 @@ export const Navbar: React.FC = () => {
         isDark
           ? 'bg-[#0B111E] border-slate-800/90 text-slate-100'
           : isSand
-          ? 'bg-[#faf6ee] border-[#ddd2be] text-stone-900'
+          ? 'bg-[#fbf8f2] border-[#dfd3be] text-stone-900'
           : isRoyal
-          ? 'bg-white border-[#cfddf2] text-slate-900'
+          ? 'bg-white border-[#d8dcf0] text-slate-900'
           : isSwiss
-          ? 'bg-white border-[#dce0f0] text-slate-900'
-          : 'bg-white border-[#d3e2dc] text-slate-900'
+          ? 'bg-white border-[#dae2ec] text-slate-900'
+          : 'bg-white border-[#d5e0ee] text-slate-900'
       }`}
     >
-      <div className="px-3 sm:px-5 h-14 flex items-center justify-between gap-3 max-w-full">
+      <div className="px-3 sm:px-5 h-14 flex items-center justify-between gap-4 max-w-full">
         {/* Zone 1 (Start): Minimalist Sidebar Toggle & Bespoke "حاسب" Brand Identity */}
         <div className="flex items-center gap-2.5 shrink-0">
           <button
@@ -245,7 +306,7 @@ export const Navbar: React.FC = () => {
               isDark
                 ? 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
                 : isSand
-                ? 'bg-[#f2ece1] border-[#ddd2be] text-stone-700 hover:bg-[#e8dfd0]'
+                ? 'bg-[#f3ede2] border-[#dfd3be] text-stone-700 hover:bg-[#eae1d0]'
                 : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
             }`}
           >
@@ -268,7 +329,7 @@ export const Navbar: React.FC = () => {
                 </span>
               </div>
               <span
-                className="text-[11px] font-mono font-semibold text-emerald-700 dark:text-emerald-400"
+                className="text-[11px] font-mono font-semibold text-blue-700 dark:text-blue-400"
                 title={`قاعدة بيانات حاسب الفورية — آخر حفظ لحظي: ${lastAutoSavedAt}`}
               >
                 حفظ تلقائي لحظي ✓
@@ -278,7 +339,7 @@ export const Navbar: React.FC = () => {
         </div>
 
         {/* Zone 2 (Center): Interactive Command & Global Search Bar (Ctrl+K) */}
-        <div className="flex-1 max-w-md mx-2">
+        <div className="flex-1 max-w-lg mx-2">
           <button
             type="button"
             onClick={() => setIsCommandPaletteOpen(true)}
@@ -286,12 +347,12 @@ export const Navbar: React.FC = () => {
               isDark
                 ? 'bg-slate-900 hover:bg-slate-800/90 border-slate-800 hover:border-slate-700 text-slate-300'
                 : isSand
-                ? 'bg-[#f2ece1] hover:bg-[#faf6ee] border-[#ddd2be] text-stone-700'
-                : 'bg-slate-50/90 hover:bg-white border-slate-200 hover:border-emerald-400 text-slate-600 shadow-2xs'
+                ? 'bg-[#f3ede2] hover:bg-[#fbf8f2] border-[#dfd3be] text-stone-700'
+                : 'bg-slate-50/90 hover:bg-white border-slate-200 hover:border-blue-400 text-slate-600 shadow-2xs'
             }`}
           >
             <div className="flex items-center gap-2 truncate">
-              <Search className="w-4 h-4 shrink-0 text-emerald-600 group-hover:scale-105 transition-transform" />
+              <Search className="w-4 h-4 shrink-0 text-blue-600 group-hover:scale-105 transition-transform" />
               <span className="truncate whitespace-nowrap text-xs font-semibold">
                 {language === 'ar'
                   ? 'بحث سريع في حاسب: صنف، سيريال، باركود، أو فاتورة...'
@@ -310,188 +371,45 @@ export const Navbar: React.FC = () => {
           </button>
         </div>
 
-        {/* Zone 3 (End): Theme & Font Studio, WhatsApp Hub, Notifications & Profile */}
-        <div className="flex items-center gap-1.5 shrink-0 relative">
-          {/* Interactive Theme & Typography Studio Switcher */}
-          <div className="relative">
-            <button
-              type="button"
-              data-testid="navbar-theme-picker-btn"
-              onClick={() => {
-                setIsThemeMenuOpen(!isThemeMenuOpen);
-                setIsNotificationsOpen(false);
-                setIsProfileMenuOpen(false);
-              }}
-              title={
-                language === 'ar'
-                  ? 'استوديو ثيمات وخطوط حاسب الاحترافية'
-                  : 'Haseb Themes & Typography Studio'
-              }
-              className={`inline-flex items-center gap-1.5 px-3 h-9 rounded-xl border text-xs font-bold transition cursor-pointer ${
-                isDark
-                  ? 'bg-slate-900 border-slate-700 text-emerald-300 hover:bg-slate-800'
-                  : isSand
-                  ? 'bg-[#f2ece1] border-[#d3c5ad] text-stone-800 hover:bg-[#e8dfd0]'
-                  : 'bg-emerald-50/80 border-emerald-200 text-emerald-800 hover:bg-emerald-100/80'
-              }`}
-            >
-              <Palette className="w-3.5 h-3.5 shrink-0" />
-              <span className="hidden xl:inline">
-                {language === 'ar' ? 'المظهر والخطوط' : 'Themes & Fonts'}
-              </span>
-            </button>
-
-            {isThemeMenuOpen && (
-              <div
-                data-testid="navbar-theme-dropdown-menu"
-                className={`absolute top-11 end-0 w-80 sm:w-96 rounded-2xl border shadow-2xl p-3 z-50 text-xs ${
-                  isDark
-                    ? 'bg-[#0f172a] border-slate-700 text-slate-100'
-                    : 'bg-white border-slate-200 text-slate-800'
-                }`}
-              >
-                {/* Section 1: 5 Curated Enterprise Themes */}
-                <div className="px-1.5 pb-2 border-b border-slate-100 dark:border-slate-800 mb-2 flex items-center justify-between">
-                  <span className="font-black text-xs flex items-center gap-1.5">
-                    <Palette className="w-3.5 h-3.5 text-emerald-600" />
-                    {language === 'ar' ? 'ثيمات حاسب المؤسسية (5 أنماط)' : 'Haseb Enterprise Themes'}
-                  </span>
-                  <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold">
-                    تطبيق فوري شامل
-                  </span>
-                </div>
-
-                <div className="space-y-1.5">
-                  {HASEB_THEMES_LIST.map((th) => {
-                    const active = uiTheme === th.id;
-                    return (
-                      <button
-                        key={th.id}
-                        type="button"
-                        data-testid={`theme-option-${th.id}`}
-                        onClick={() => {
-                          setUiTheme(th.id as any);
-                        }}
-                        className={`w-full flex items-center justify-between gap-2.5 p-2 rounded-xl text-start transition cursor-pointer border ${
-                          active
-                            ? isDark
-                              ? 'bg-emerald-950/60 border-emerald-500 text-white shadow-xs'
-                              : 'bg-emerald-50/90 border-emerald-500 text-slate-900 shadow-xs'
-                            : isDark
-                            ? 'border-slate-800/80 hover:bg-slate-800/70 text-slate-300'
-                            : 'border-slate-100 hover:bg-slate-50 text-slate-700'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          {/* Multi-Swatch Live Palette Chip (Sidebar + Canvas + Accent) */}
-                          <div className="flex items-center rounded-lg overflow-hidden border border-slate-300/80 dark:border-slate-600 shrink-0 shadow-2xs">
-                            <span
-                              className="w-2.5 h-6"
-                              style={{ backgroundColor: th.sidebarHex }}
-                            />
-                            <span
-                              className="w-2.5 h-6"
-                              style={{ backgroundColor: th.canvasHex }}
-                            />
-                            <span
-                              className="w-3 h-6"
-                              style={{ backgroundColor: th.accentHex }}
-                            />
-                          </div>
-                          <div className="min-w-0">
-                            <div className="font-bold text-xs truncate">
-                              {language === 'ar' ? th.nameAr : th.nameEn}
-                            </div>
-                            <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                              {th.descAr}
-                            </div>
-                          </div>
-                        </div>
-                        {active && <Check className="w-4 h-4 text-emerald-600 shrink-0" />}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Section 2: Professional Arabic Font Suite Selector */}
-                <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800">
-                  <div className="px-1.5 mb-2 flex items-center justify-between">
-                    <span className="font-black text-xs flex items-center gap-1.5">
-                      <Type className="w-3.5 h-3.5 text-emerald-600" />
-                      {language === 'ar' ? 'عائلة الخطوط العربية الاحترافية' : 'Arabic Typography Suite'}
-                    </span>
-                    <span className="text-[11px] text-slate-400 font-semibold">4 خطوط معتمدة</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {HASEB_FONTS_LIST.map((f) => {
-                      const activeFont = uiFont === f.id;
-                      return (
-                        <button
-                          key={f.id}
-                          type="button"
-                          data-testid={`font-option-${f.id}`}
-                          onClick={() => setUiFont(f.id)}
-                          className={`p-2 rounded-xl border text-start transition cursor-pointer flex items-center justify-between gap-1.5 ${
-                            activeFont
-                              ? isDark
-                                ? 'bg-emerald-950/60 border-emerald-500 text-white font-bold'
-                                : 'bg-emerald-50 border-emerald-500 text-slate-900 font-bold'
-                              : isDark
-                              ? 'border-slate-800 hover:bg-slate-800 text-slate-300'
-                              : 'border-slate-200/80 hover:bg-slate-50 text-slate-700'
-                          }`}
-                        >
-                          <div className="min-w-0">
-                            <div className="text-xs font-bold truncate">{f.nameAr}</div>
-                            <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
-                              {f.descAr}
-                            </div>
-                          </div>
-                          {activeFont && <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Mobile LAN Portal Button */}
+        {/* Zone 3 (End): Streamlined Operational Bar + Unified Corner Membership Hub */}
+        <div className="flex items-center gap-2 shrink-0 relative">
+          {/* 1. Windows Desktop App & Local Network (LAN) Multi-Device Hub Button */}
           <button
             type="button"
             data-testid="navbar-lan-portal-btn"
             onClick={openLanPortal}
             title={
               language === 'ar'
-                ? 'فتح بوابة ربط الجوال عبر الشبكة المحلية'
-                : 'Open Mobile LAN Portal'
+                ? 'تشغيل كبرنامج سطح مكتب للويندوز وربط أجهزة الشبكة (كمبيوتر / جوال / تابلت)'
+                : 'Windows Desktop App & Multi-Device LAN Hub'
             }
-            className={`hidden md:inline-flex items-center gap-1.5 px-2.5 h-9 rounded-xl border text-xs font-semibold transition cursor-pointer ${
+            className={`hidden md:inline-flex items-center gap-1.5 px-3 h-9 rounded-xl border text-xs font-bold transition cursor-pointer ${
               isDark
-                ? 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white'
-                : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700 hover:text-slate-900 shadow-2xs'
+                ? 'bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800 hover:text-white'
+                : isSand
+                ? 'bg-[#f3ede2] border-[#d5c6ad] text-stone-800 hover:bg-[#eae0cf]'
+                : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700 hover:text-slate-950 shadow-2xs'
             }`}
           >
-            <Smartphone className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+            <MonitorSmartphone className="w-4 h-4 text-blue-600 shrink-0" />
             <span className="hidden lg:inline">
-              {language === 'ar' ? 'ربط الجوال' : 'Mobile Link'}
+              {language === 'ar' ? 'سطح المكتب والشبكة' : 'Desktop & LAN'}
             </span>
           </button>
 
-          {/* Unified Multi-Account WhatsApp & Instant Quick-Send Station Button */}
+          {/* 2. Unified Multi-Account WhatsApp & Instant Quick-Send Station Button */}
           <button
             type="button"
             data-testid="navbar-whatsapp-station-btn"
             onClick={() => setActiveTab('communications')}
             title={
               language === 'ar'
-                ? 'مركز واتساب المتعدد والإرسال الفوري الموحد (محادثات فعلية + قوالب الفواتير والمديونيات + SMS)'
+                ? 'مركز واتساب المتعدد والإرسال الفوري الموحد'
                 : 'Unified Multi-Account WhatsApp & Quick-Send Hub'
             }
             className={`inline-flex items-center gap-1.5 px-3 h-9 rounded-xl border text-xs font-bold transition cursor-pointer shadow-2xs ${
               isDark
-                ? 'bg-emerald-950/80 hover:bg-emerald-900/90 border-emerald-700/80 text-emerald-300'
+                ? 'bg-blue-950/80 hover:bg-blue-900/90 border-blue-700/80 text-blue-200'
                 : 'bg-emerald-600 hover:bg-emerald-700 border-emerald-700 text-white'
             }`}
           >
@@ -501,14 +419,14 @@ export const Navbar: React.FC = () => {
             </span>
             <span
               className={`px-1.5 py-0.5 rounded-md font-mono text-[10px] font-black ${
-                isDark ? 'bg-emerald-600 text-white' : 'bg-white/20 text-white'
+                isDark ? 'bg-blue-600 text-white' : 'bg-white/20 text-white'
               }`}
             >
               {connectedWaCount}/{whatsappAccounts.length}
             </span>
           </button>
 
-          {/* System Notifications Center */}
+          {/* 3. System Notifications Center */}
           <div className="relative">
             <button
               type="button"
@@ -516,7 +434,6 @@ export const Navbar: React.FC = () => {
               onClick={() => {
                 setIsNotificationsOpen(true);
                 setIsProfileMenuOpen(false);
-                setIsThemeMenuOpen(false);
               }}
               title={language === 'ar' ? 'التنبيهات التشغيلية الشاملة' : 'System Notifications Center'}
               className={`relative flex items-center justify-center w-9 h-9 rounded-xl border transition cursor-pointer ${
@@ -541,71 +458,7 @@ export const Navbar: React.FC = () => {
             )}
           </div>
 
-          {/* Global Currency Selector */}
-          {masterSystemConfig.uiElementsVisibility.showCurrencySwitcher && (
-            <select
-              data-testid="navbar-currency-select"
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value as any)}
-              className={`hidden sm:inline-block h-9 px-2.5 rounded-xl border text-xs font-mono font-bold outline-hidden cursor-pointer ${
-                isDark
-                  ? 'bg-slate-900 border-slate-800 text-slate-200'
-                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-              }`}
-              title={t('currency')}
-            >
-              <option value="YER" className="text-slate-900 bg-white">
-                YER (ر.ي)
-              </option>
-              <option value="SAR" className="text-slate-900 bg-white">
-                SAR (ر.س)
-              </option>
-              <option value="USD" className="text-slate-900 bg-white">
-                USD ($)
-              </option>
-              <option value="AED" className="text-slate-900 bg-white">
-                AED (د.إ)
-              </option>
-              <option value="EUR" className="text-slate-900 bg-white">
-                EUR (€)
-              </option>
-              <option value="EGP" className="text-slate-900 bg-white">
-                EGP (ج.م)
-              </option>
-            </select>
-          )}
-
-          {/* Language Toggle */}
-          <button
-            type="button"
-            onClick={() => setLanguage(language === 'ar' ? 'en' : 'ar')}
-            className={`flex items-center gap-1 h-9 px-2.5 rounded-xl border text-xs font-bold transition cursor-pointer ${
-              isDark
-                ? 'bg-slate-900 border-slate-800 text-slate-200 hover:bg-slate-800'
-                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-            }`}
-            title={t('language')}
-          >
-            <Globe className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-            <span>{language === 'ar' ? 'EN' : 'عربي'}</span>
-          </button>
-
-          {/* Settings Trigger */}
-          <button
-            type="button"
-            data-testid="navbar-settings-stealth-trigger"
-            onClick={handleSettingsRapidClick}
-            title={language === 'ar' ? 'الإعدادات العامة للنظام' : 'System Settings'}
-            className={`flex items-center justify-center w-9 h-9 rounded-xl border text-xs transition cursor-pointer ${
-              isDark
-                ? 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800'
-                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-            }`}
-          >
-            <SettingsIcon className="w-4 h-4" />
-          </button>
-
-          {/* Compact User Profile Dropdown Triggered by Avatar Icon */}
+          {/* 4. Corner Membership Avatar Hub (Integrates Profile, Themes, Fonts, Language, Currency & Settings) */}
           <div className="relative ps-1.5 border-s border-slate-200 dark:border-slate-800">
             <button
               type="button"
@@ -613,89 +466,524 @@ export const Navbar: React.FC = () => {
               onClick={() => {
                 setIsProfileMenuOpen(!isProfileMenuOpen);
                 setIsNotificationsOpen(false);
-                setIsThemeMenuOpen(false);
               }}
-              title={language === 'ar' ? 'قائمة الحساب والإعدادات' : 'Account & Profile Menu'}
-              className={`flex items-center gap-1 px-2 h-9 rounded-xl border transition cursor-pointer ${
+              title={
+                language === 'ar'
+                  ? 'العضوية، المظهر والخطوط، تغيير اللغة، العملة، والإعدادات'
+                  : 'Membership, Appearance & Fonts, Language, Currency & Settings'
+              }
+              className={`flex items-center gap-2 px-2.5 h-9 rounded-xl border transition cursor-pointer ${
                 isDark
-                  ? 'bg-slate-900 border-slate-800 text-slate-200 hover:bg-slate-800'
-                  : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                  ? 'bg-slate-900 border-slate-700 text-slate-100 hover:bg-slate-800'
+                  : isSand
+                  ? 'bg-[#f3ede2] border-[#d5c6ad] text-stone-900 hover:bg-[#eae0cf]'
+                  : 'bg-slate-50 border-slate-200/90 text-slate-800 hover:bg-slate-100 shadow-2xs'
               }`}
             >
-              <span className="w-5 h-5 rounded-full bg-emerald-600/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+              <span
+                data-testid="navbar-theme-picker-btn"
+                className="w-6 h-6 rounded-lg bg-emerald-600 text-white flex items-center justify-center shadow-2xs"
+              >
                 <UserAvatarIcon className="w-3.5 h-3.5" />
               </span>
-              <ChevronDown className="w-3 h-3 text-slate-400" />
+              <span className="hidden xl:inline text-xs font-bold max-w-[110px] truncate">
+                {language === 'ar' ? 'العضوية والمظهر' : 'Account & Theme'}
+              </span>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
             </button>
 
             {isProfileMenuOpen && (
               <div
                 data-testid="navbar-profile-dropdown-menu"
-                className={`absolute top-11 end-0 w-56 rounded-xl border shadow-xl p-1.5 z-50 text-xs ${
+                className={`absolute top-11 end-0 w-88 sm:w-[420px] max-w-[calc(100vw-1.5rem)] max-h-[85vh] overflow-y-auto overflow-x-hidden rounded-2xl border shadow-2xl p-3.5 z-50 text-xs ${
                   isDark
-                    ? 'bg-slate-900 border-slate-800 text-slate-100'
+                    ? 'bg-[#0f172a] border-slate-700 text-slate-100'
                     : 'bg-white border-slate-200 text-slate-800'
                 }`}
               >
+                {/* Part A: User Membership Identity Header */}
                 <div
-                  className={`px-3 py-2 border-b mb-1 ${
-                    isDark ? 'border-slate-800' : 'border-slate-100'
+                  className={`p-3 rounded-xl border mb-3 flex items-center justify-between gap-2.5 ${
+                    isDark
+                      ? 'bg-slate-900/90 border-slate-800'
+                      : 'bg-slate-50/90 border-slate-200/80'
                   }`}
                 >
-                  <div className="font-bold truncate">
-                    {language === 'ar' ? currentAccount.nameAr : currentAccount.name}
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-black shrink-0 shadow-xs">
+                      <UserAvatarIcon className="w-4.5 h-4.5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-black text-xs truncate">
+                        {language === 'ar' ? currentAccount.nameAr : currentAccount.name}
+                      </div>
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate mt-0.5">
+                        {currentAccount.role}
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-[10px] text-slate-400 font-mono truncate mt-0.5">
-                    {currentAccount.role}
+                  <button
+                    type="button"
+                    data-testid="navbar-logout-btn"
+                    onClick={() => {
+                      setIsProfileMenuOpen(false);
+                      logout();
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800/70 text-rose-600 dark:text-rose-300 font-bold text-[11px] hover:bg-rose-100 transition flex items-center gap-1 cursor-pointer shrink-0"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>{language === 'ar' ? 'خروج' : 'Sign Out'}</span>
+                  </button>
+                </div>
+
+                {/* Part B: Quick System Controls (Language, Currency, Settings, Security, Desktop/LAN) */}
+                <div className="grid grid-cols-2 gap-1.5 mb-3">
+                  {/* Language Switcher */}
+                  <button
+                    type="button"
+                    data-testid="profile-menu-language-btn"
+                    onClick={() => setLanguage(language === 'ar' ? 'en' : 'ar')}
+                    className={`min-w-0 overflow-hidden flex items-center justify-between px-3 py-2 rounded-xl border font-bold transition cursor-pointer ${
+                      isDark
+                        ? 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-slate-200'
+                        : 'bg-slate-50 border-slate-200/80 hover:bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    <span className="flex items-center gap-1.5 truncate">
+                      <Globe className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span className="truncate">{language === 'ar' ? 'اللغة' : 'Language'}</span>
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-600/15 text-emerald-700 dark:text-emerald-300 font-mono text-[10px] shrink-0">
+                      {language === 'ar' ? 'English' : 'العربية'}
+                    </span>
+                  </button>
+
+                  {/* Currency Switcher */}
+                  {masterSystemConfig.uiElementsVisibility.showCurrencySwitcher && (
+                    <div
+                      className={`min-w-0 overflow-hidden flex items-center justify-between px-2.5 py-1.5 rounded-xl border ${
+                        isDark
+                          ? 'bg-slate-900 border-slate-800 text-slate-200'
+                          : 'bg-slate-50 border-slate-200/80 text-slate-700'
+                      }`}
+                    >
+                      <span className="flex items-center gap-1 font-bold text-[11px] shrink-0">
+                        <Coins className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                        <span>{language === 'ar' ? 'العملة:' : 'Curr:'}</span>
+                      </span>
+                      <select
+                        data-testid="navbar-currency-select"
+                        value={currency}
+                        onChange={(e) => setCurrency(e.target.value as any)}
+                        className="bg-transparent font-mono font-bold text-xs outline-hidden cursor-pointer truncate"
+                        title={t('currency')}
+                      >
+                        <option value="YER" className="text-slate-900 bg-white">
+                          YER (ر.ي)
+                        </option>
+                        <option value="SAR" className="text-slate-900 bg-white">
+                          SAR (ر.س)
+                        </option>
+                        <option value="USD" className="text-slate-900 bg-white">
+                          USD ($)
+                        </option>
+                        <option value="AED" className="text-slate-900 bg-white">
+                          AED (د.إ)
+                        </option>
+                        <option value="EUR" className="text-slate-900 bg-white">
+                          EUR (€)
+                        </option>
+                        <option value="EGP" className="text-slate-900 bg-white">
+                          EGP (ج.م)
+                        </option>
+                      </select>
+                    </div>
+                  )}
+
+                  {/* System Settings Button (with 7-click stealth keygen support) */}
+                  <button
+                    type="button"
+                    data-testid="navbar-settings-stealth-trigger"
+                    onClick={handleSettingsRapidClick}
+                    className={`min-w-0 overflow-hidden flex items-center gap-2 px-3 py-2 rounded-xl border font-bold transition cursor-pointer ${
+                      isDark
+                        ? 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-slate-200'
+                        : 'bg-slate-50 border-slate-200/80 hover:bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    <SettingsIcon className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span className="truncate">
+                      {language === 'ar' ? 'إعدادات النظام' : 'System Settings'}
+                    </span>
+                  </button>
+
+                  {/* Security & Permissions */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('security');
+                      setIsProfileMenuOpen(false);
+                    }}
+                    className={`min-w-0 overflow-hidden flex items-center gap-2 px-3 py-2 rounded-xl border font-bold transition cursor-pointer ${
+                      isDark
+                        ? 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-slate-200'
+                        : 'bg-slate-50 border-slate-200/80 hover:bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span className="truncate">
+                      {language === 'ar' ? 'الأمان والصلاحيات' : 'Security & Roles'}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Windows Desktop & LAN Quick Launch Row */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsProfileMenuOpen(false);
+                    openLanPortal();
+                  }}
+                  className={`w-full mb-3 px-3 py-2.5 rounded-xl border font-bold transition flex items-center justify-between gap-2 cursor-pointer ${
+                    isDark
+                      ? 'bg-blue-950/50 border-blue-800/70 text-blue-200 hover:bg-blue-900/60'
+                      : 'bg-blue-50/80 border-blue-200 text-blue-900 hover:bg-blue-100/80'
+                  }`}
+                >
+                  <span className="flex items-center gap-2 min-w-0 truncate">
+                    <MonitorSmartphone className="w-4 h-4 text-blue-600 shrink-0" />
+                    <span className="truncate">
+                      {language === 'ar'
+                        ? 'برنامج ويندوز المكتبي والربط عبر الشبكة (LAN)'
+                        : 'Windows Desktop App & LAN Network Hub'}
+                    </span>
+                  </span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-600 text-white shrink-0">
+                    فتح
+                  </span>
+                </button>
+
+                {/* Part C: Integrated Theme Studio (5 Non-Green Eye-Comfort Themes) */}
+                <div
+                  data-testid="navbar-theme-dropdown-menu"
+                  className="pt-2.5 border-t border-slate-100 dark:border-slate-800"
+                >
+                  <div className="px-1 pb-2 flex items-center justify-between">
+                    <span className="font-black text-xs flex items-center gap-1.5">
+                      <Palette className="w-3.5 h-3.5 text-emerald-600" />
+                      {language === 'ar'
+                        ? 'المظهر والثيمات المريحة للعين (5 أنماط)'
+                        : 'Eye-Comfort Themes (5 Styles)'}
+                    </span>
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
+                      تغيير لحظي
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    {HASEB_THEMES_LIST.map((th) => {
+                      const active = uiTheme === th.id;
+                      return (
+                        <button
+                          key={th.id}
+                          type="button"
+                          data-testid={`theme-option-${th.id}`}
+                          onClick={() => {
+                            setUiTheme(th.id as any);
+                          }}
+                          className={`w-full min-w-0 overflow-hidden flex items-center justify-between gap-2.5 p-2 rounded-xl text-start transition cursor-pointer border ${
+                            active
+                              ? isDark
+                                ? 'bg-blue-950/60 border-blue-500 text-white shadow-xs'
+                                : 'bg-blue-50/90 border-blue-500 text-slate-900 shadow-xs'
+                              : isDark
+                              ? 'border-slate-800/80 hover:bg-slate-800/70 text-slate-300'
+                              : 'border-slate-100 hover:bg-slate-50 text-slate-700'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                            <div className="flex items-center rounded-lg overflow-hidden border border-slate-300/80 dark:border-slate-600 shrink-0 shadow-2xs">
+                              <span
+                                className="w-2.5 h-5"
+                                style={{ backgroundColor: th.sidebarHex }}
+                              />
+                              <span
+                                className="w-2.5 h-5"
+                                style={{ backgroundColor: th.canvasHex }}
+                              />
+                              <span
+                                className="w-3 h-5"
+                                style={{ backgroundColor: th.accentHex }}
+                              />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="font-bold text-xs truncate">
+                                {language === 'ar' ? th.nameAr : th.nameEn}
+                              </div>
+                              <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                                {th.descAr}
+                              </div>
+                            </div>
+                          </div>
+                          {active && <Check className="w-4 h-4 text-emerald-600 shrink-0" />}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTab('security');
-                    setIsProfileMenuOpen(false);
-                  }}
-                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-start font-medium transition cursor-pointer ${
-                    isDark ? 'hover:bg-slate-800 text-slate-200' : 'hover:bg-slate-50 text-slate-700'
-                  }`}
-                >
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                  <span>{language === 'ar' ? 'الأمان والصلاحيات' : 'Security & Permissions'}</span>
-                </button>
+                {/* Part D: Integrated Arabic Typography Suite (4 Fonts) */}
+                <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800">
+                  <div className="px-1 mb-2 flex items-center justify-between">
+                    <span className="font-black text-xs flex items-center gap-1.5">
+                      <Type className="w-3.5 h-3.5 text-emerald-600" />
+                      {language === 'ar' ? 'عائلة الخطوط العربية الاحترافية' : 'Arabic Fonts Suite'}
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-semibold">4 خطوط</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {HASEB_FONTS_LIST.map((f) => {
+                      const activeFont = uiFont === f.id;
+                      return (
+                        <button
+                          key={f.id}
+                          type="button"
+                          data-testid={`font-option-${f.id}`}
+                          onClick={() => setUiFont(f.id)}
+                          className={`min-w-0 overflow-hidden p-2 rounded-xl border text-start transition cursor-pointer flex items-center justify-between gap-1.5 ${
+                            activeFont
+                              ? isDark
+                                ? 'bg-blue-950/60 border-blue-500 text-white font-bold'
+                                : 'bg-blue-50 border-blue-500 text-slate-900 font-bold'
+                              : isDark
+                              ? 'border-slate-800 hover:bg-slate-800 text-slate-300'
+                              : 'border-slate-200/80 hover:bg-slate-50 text-slate-700'
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-bold truncate">{f.nameAr}</div>
+                            <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                              {f.descAr}
+                            </div>
+                          </div>
+                          {activeFont && <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTab('settings');
-                    setIsProfileMenuOpen(false);
-                  }}
-                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-start font-medium transition cursor-pointer ${
-                    isDark ? 'hover:bg-slate-800 text-slate-200' : 'hover:bg-slate-50 text-slate-700'
-                  }`}
-                >
-                  <SettingsIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                  <span>{language === 'ar' ? 'إعدادات النظام' : 'System Settings'}</span>
-                </button>
-
+                {/* Part E: Harmonized Size & Workspace Scale Studio (Font + / - & Windows/Tabs + / -) */}
                 <div
-                  className={`my-1 border-t ${
-                    isDark ? 'border-slate-800' : 'border-slate-100'
-                  }`}
-                />
-
-                <button
-                  type="button"
-                  data-testid="navbar-logout-btn"
-                  onClick={() => {
-                    setIsProfileMenuOpen(false);
-                    logout();
-                  }}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-start font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                  data-testid="navbar-scale-studio-section"
+                  className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800 space-y-2.5"
                 >
-                  <LogOut className="w-3.5 h-3.5 shrink-0" />
-                  <span>{language === 'ar' ? 'تسجيل الخروج' : 'Sign Out'}</span>
-                </button>
+                  <div className="px-1 flex items-center justify-between">
+                    <span className="font-black text-xs flex items-center gap-1.5">
+                      <Maximize2 className="w-3.5 h-3.5 text-emerald-600" />
+                      {language === 'ar'
+                        ? 'الحجم ومقياس العرض المتناسق'
+                        : 'Font & Window Scale Studio'}
+                    </span>
+                    <button
+                      type="button"
+                      data-testid="scale-reset-default-btn"
+                      onClick={() => {
+                        setFontScalePercent(DEFAULT_FONT_SCALE);
+                        setWindowScalePercent(DEFAULT_WINDOW_SCALE);
+                      }}
+                      className="text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
+                      title={
+                        language === 'ar'
+                          ? 'إعادة الحجم للوضع الافتراضي المتناسق (خط 110% • نوافذ 105%)'
+                          : 'Reset to Harmonized Default (110% Font / 105% Windows)'
+                      }
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>{language === 'ar' ? 'افتراضي متناسق' : 'Reset'}</span>
+                    </button>
+                  </div>
+
+                  {/* Default Size Presets (أحجام افتراضية جاهزة) */}
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {HASEB_SCALE_PRESETS.map((preset) => {
+                      const isPresetActive =
+                        fontScalePercent === preset.fontScalePercent &&
+                        windowScalePercent === preset.windowScalePercent;
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          data-testid={`scale-preset-${preset.id}`}
+                          onClick={() => {
+                            setFontScalePercent(preset.fontScalePercent);
+                            setWindowScalePercent(preset.windowScalePercent);
+                          }}
+                          className={`min-w-0 overflow-hidden px-2.5 py-1.5 rounded-xl border text-start transition cursor-pointer flex items-center justify-between gap-1 ${
+                            isPresetActive
+                              ? isDark
+                                ? 'bg-blue-950/70 border-blue-500 text-white font-bold'
+                                : 'bg-blue-50 border-blue-500 text-slate-900 font-bold'
+                              : isDark
+                              ? 'border-slate-800 hover:bg-slate-800/80 text-slate-300'
+                              : 'border-slate-200/80 hover:bg-slate-50 text-slate-700'
+                          }`}
+                        >
+                          <span className="text-[11px] font-bold truncate">
+                            {language === 'ar' ? preset.labelAr : preset.labelEn}
+                          </span>
+                          {isPresetActive && (
+                            <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Stepper 1: تكبير وتصغير الخطوط (+ / -) */}
+                  <div
+                    className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 ${
+                      isDark
+                        ? 'bg-slate-900/90 border-slate-800'
+                        : 'bg-slate-50/90 border-slate-200/90'
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="font-bold text-xs flex items-center gap-1.5">
+                        <Type className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                        <span>
+                          {language === 'ar' ? 'تكبير / تصغير الخطوط' : 'Font Size Scale'}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                        {language === 'ar'
+                          ? 'وضوح القراءة والأرقام في الجداول والفواتير'
+                          : 'Text & numbers clarity across tables & forms'}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        data-testid="font-scale-decrease-btn"
+                        disabled={fontScalePercent <= FONT_SCALE_MIN}
+                        onClick={() =>
+                          setFontScalePercent((prev) => stepFontScale(prev, 'DEC'))
+                        }
+                        aria-label={language === 'ar' ? 'تصغير الخط' : 'Decrease Font Size'}
+                        className={`w-7.5 h-7.5 rounded-lg border flex items-center justify-center font-bold transition cursor-pointer disabled:opacity-40 ${
+                          isDark
+                            ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-100'
+                            : 'bg-white hover:bg-slate-100 border-slate-300 text-slate-800 shadow-2xs'
+                        }`}
+                      >
+                        <Minus className="w-3.5 h-3.5" />
+                      </button>
+
+                      <span
+                        data-testid="font-scale-value"
+                        className="min-w-12 text-center font-mono font-black text-xs px-1.5 py-1 rounded-md bg-blue-600/10 text-blue-700 dark:text-blue-300 border border-blue-500/20"
+                        dir="ltr"
+                      >
+                        {fontScalePercent}%
+                      </span>
+
+                      <button
+                        type="button"
+                        data-testid="font-scale-increase-btn"
+                        disabled={fontScalePercent >= FONT_SCALE_MAX}
+                        onClick={() =>
+                          setFontScalePercent((prev) => stepFontScale(prev, 'INC'))
+                        }
+                        aria-label={language === 'ar' ? 'تكبير الخط' : 'Increase Font Size'}
+                        className={`w-7.5 h-7.5 rounded-lg border flex items-center justify-center font-bold transition cursor-pointer disabled:opacity-40 ${
+                          isDark
+                            ? 'bg-blue-600 hover:bg-blue-500 border-blue-500 text-white'
+                            : 'bg-blue-600 hover:bg-blue-700 border-blue-700 text-white shadow-2xs'
+                        }`}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Stepper 2: تكبير وتصغير النوافذ والتبويبات والقوالب (+ / -) */}
+                  <div
+                    className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 ${
+                      isDark
+                        ? 'bg-slate-900/90 border-slate-800'
+                        : 'bg-slate-50/90 border-slate-200/90'
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="font-bold text-xs flex items-center gap-1.5">
+                        <Maximize2 className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                        <span>
+                          {language === 'ar'
+                            ? 'تكبير النوافذ والتبويبات'
+                            : 'Windows & Tabs Scale'}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                        {language === 'ar'
+                          ? 'توسيع القوائم، البطاقات، الحقول، والقوالب بتناسق'
+                          : 'Harmonious scaling of tabs, cards, inputs & modals'}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        data-testid="window-scale-decrease-btn"
+                        disabled={windowScalePercent <= WINDOW_SCALE_MIN}
+                        onClick={() =>
+                          setWindowScalePercent((prev) => stepWindowScale(prev, 'DEC'))
+                        }
+                        aria-label={
+                          language === 'ar'
+                            ? 'تصغير النوافذ والتبويبات'
+                            : 'Decrease Windows & Tabs Scale'
+                        }
+                        className={`w-7.5 h-7.5 rounded-lg border flex items-center justify-center font-bold transition cursor-pointer disabled:opacity-40 ${
+                          isDark
+                            ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-100'
+                            : 'bg-white hover:bg-slate-100 border-slate-300 text-slate-800 shadow-2xs'
+                        }`}
+                      >
+                        <Minus className="w-3.5 h-3.5" />
+                      </button>
+
+                      <span
+                        data-testid="window-scale-value"
+                        className="min-w-12 text-center font-mono font-black text-xs px-1.5 py-1 rounded-md bg-indigo-600/10 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20"
+                        dir="ltr"
+                      >
+                        {windowScalePercent}%
+                      </span>
+
+                      <button
+                        type="button"
+                        data-testid="window-scale-increase-btn"
+                        disabled={windowScalePercent >= WINDOW_SCALE_MAX}
+                        onClick={() =>
+                          setWindowScalePercent((prev) => stepWindowScale(prev, 'INC'))
+                        }
+                        aria-label={
+                          language === 'ar'
+                            ? 'تكبير النوافذ والتبويبات'
+                            : 'Increase Windows & Tabs Scale'
+                        }
+                        className={`w-7.5 h-7.5 rounded-lg border flex items-center justify-center font-bold transition cursor-pointer disabled:opacity-40 ${
+                          isDark
+                            ? 'bg-indigo-600 hover:bg-indigo-500 border-indigo-500 text-white'
+                            : 'bg-indigo-600 hover:bg-indigo-700 border-indigo-700 text-white shadow-2xs'
+                        }`}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>

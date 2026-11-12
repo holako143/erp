@@ -39,10 +39,10 @@ export const LoginGate: React.FC = () => {
   return (
     <div
       dir={language === 'ar' ? 'rtl' : 'ltr'}
-      className="min-h-screen bg-[#070C16] text-slate-100 flex flex-col justify-between relative overflow-hidden select-none"
+      className="min-h-screen bg-[#070B14] text-slate-100 flex flex-col justify-between relative overflow-hidden select-none"
     >
-      {/* Background Subtle Architectural Glow */}
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(5,150,105,0.14),transparent_48%),radial-gradient(circle_at_80%_80%,rgba(37,99,235,0.12),transparent_48%)]" />
+      {/* Background Subtle Architectural Sapphire & Indigo Glow */}
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(37,99,235,0.16),transparent_48%),radial-gradient(circle_at_80%_80%,rgba(79,70,229,0.14),transparent_48%)]" />
 
       {/* Main Content: Clean Centered Login Card */}
       <main className="relative z-10 flex-1 flex items-center justify-center p-4 sm:p-8">
@@ -84,7 +84,7 @@ export const LoginGate: React.FC = () => {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="admin"
-                  className="w-full bg-slate-950 border border-slate-700 focus:border-emerald-500 rounded-xl ps-10 pe-4 py-2.5 text-sm text-white font-mono outline-hidden transition"
+                  className="w-full bg-slate-950 border border-slate-700 focus:border-blue-500 rounded-xl ps-10 pe-4 py-2.5 text-sm text-white font-mono outline-hidden transition"
                   required
                 />
               </div>
@@ -102,7 +102,7 @@ export const LoginGate: React.FC = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full bg-slate-950 border border-slate-700 focus:border-emerald-500 rounded-xl ps-10 pe-10 py-2.5 text-sm text-white font-mono outline-hidden transition"
+                  className="w-full bg-slate-950 border border-slate-700 focus:border-blue-500 rounded-xl ps-10 pe-10 py-2.5 text-sm text-white font-mono outline-hidden transition"
                   required
                 />
                 <button
@@ -128,7 +128,7 @@ export const LoginGate: React.FC = () => {
             <button
               type="submit"
               data-testid="login-submit-btn"
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-sm shadow-lg shadow-emerald-900/30 transition cursor-pointer flex items-center justify-center gap-2 mt-2"
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black text-sm shadow-lg shadow-blue-950/40 transition cursor-pointer flex items-center justify-center gap-2 mt-2"
             >
               <ShieldCheck className="w-4 h-4" />
               <span>

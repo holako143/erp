@@ -2738,6 +2738,35 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, []);
 
+  // Multi-Device Local Network (LAN) Real-Time State Revision Synchronizer
+  // Ensures phones, tablets, and secondary desktop terminals on the network stay in instant sync
+  useEffect(() => {
+    const syncInterval = setInterval(() => {
+      if (!isHydratedRef.current) return;
+      fetch('/api/v1/erp/revision')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((revJson) => {
+          if (
+            revJson?.success &&
+            typeof revJson.dbRevision === 'number' &&
+            revJson.dbRevision > dbRevision
+          ) {
+            fetch('/api/v1/erp/state')
+              .then((res) => (res.ok ? res.json() : null))
+              .then((stateJson) => {
+                if (stateJson?.data && stateJson.dbRevision > dbRevision) {
+                  setDbRevision(stateJson.dbRevision);
+                  applyHydratedState(stateJson.data);
+                }
+              })
+              .catch(() => {});
+          }
+        })
+        .catch(() => {});
+    }, 3500);
+    return () => clearInterval(syncInterval);
+  }, [dbRevision]);
+
   // Instant 0ms Write-Through LocalStorage + Ultra-Fast 40ms Server RAM Sync
   useEffect(() => {
     if (!isHydratedRef.current) return;

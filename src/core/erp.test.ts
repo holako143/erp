@@ -2283,3 +2283,185 @@ test('Track 24 Haseb Zero-Tax Invariant & WhatsApp Slash (/) Quick Shortcuts CRU
   assert.ok(instDoc.text.includes('إشعار استحقاق قسط'));
   assert.ok(instDoc.text.includes('1,500'));
 });
+
+test('Track 25 — POS Keyboard Tab Navigation & Active Focus State Engine (Fast Cashier Data Entry)', async () => {
+  const {
+    buildOrderedPosFieldIds,
+    computeNextPosTabStopIndex,
+    resolvePosActiveFieldLabel,
+  } = await import('./posKeyboardNavigation');
+
+  // 1. Verify ordered tab sequence with empty cart vs populated cart
+  const emptyCartFields = buildOrderedPosFieldIds([], false);
+  assert.deepEqual(emptyCartFields, [
+    'pos-barcode-input',
+    'pos-search-input',
+    'pos-customer-select',
+    'pos-warranty-name-input',
+    'pos-warranty-phone-input',
+    'pos-discount-value-input',
+  ]);
+
+  const populatedCartFields = buildOrderedPosFieldIds(['prod-inv-01', 'prod-bat-02'], true);
+  assert.deepEqual(populatedCartFields, [
+    'pos-barcode-input',
+    'pos-search-input',
+    'pos-customer-select',
+    'pos-warranty-name-input',
+    'pos-warranty-phone-input',
+    'pos-cart-serial-prod-inv-01',
+    'pos-cart-warranty-prod-inv-01',
+    'pos-cart-serial-prod-bat-02',
+    'pos-cart-warranty-prod-bat-02',
+    'pos-discount-value-input',
+    'pos-checkout-btn',
+  ]);
+
+  // 2. Verify forward Tab (NEXT) and reverse Shift+Tab (PREV) with wrap-around
+  const nextStep1 = computeNextPosTabStopIndex(populatedCartFields, 'pos-barcode-input', 'NEXT');
+  assert.equal(nextStep1.targetIndex, 1);
+  assert.equal(nextStep1.targetFieldId, 'pos-search-input');
+  assert.equal(nextStep1.wrapped, false);
+
+  const nextStep5 = computeNextPosTabStopIndex(
+    populatedCartFields,
+    'pos-warranty-phone-input',
+    'NEXT'
+  );
+  assert.equal(nextStep5.targetIndex, 5);
+  assert.equal(nextStep5.targetFieldId, 'pos-cart-serial-prod-inv-01');
+
+  const wrapForward = computeNextPosTabStopIndex(populatedCartFields, 'pos-checkout-btn', 'NEXT');
+  assert.equal(wrapForward.targetIndex, 0);
+  assert.equal(wrapForward.targetFieldId, 'pos-barcode-input');
+  assert.equal(wrapForward.wrapped, true);
+
+  const wrapBackward = computeNextPosTabStopIndex(populatedCartFields, 'pos-barcode-input', 'PREV');
+  assert.equal(wrapBackward.targetIndex, populatedCartFields.length - 1);
+  assert.equal(wrapBackward.targetFieldId, 'pos-checkout-btn');
+  assert.equal(wrapBackward.wrapped, true);
+
+  // 3. Verify active field badge & label resolution
+  const barcodeBadge = resolvePosActiveFieldLabel('pos-barcode-input', 'ar');
+  assert.equal(barcodeBadge.stepBadge, '1');
+  assert.ok(barcodeBadge.label.includes('الباركود'));
+
+  const serialBadge = resolvePosActiveFieldLabel('pos-cart-serial-prod-inv-01', 'ar');
+  assert.equal(serialBadge.stepBadge, 'S/N');
+  assert.ok(serialBadge.label.includes('الرقم التسلسلي'));
+});
+
+test('Track 26 — Harmonized Font & Window/Tab Scale Engine (+ / - Steppers & Default Presets)', async () => {
+  const {
+    DEFAULT_FONT_SCALE,
+    DEFAULT_WINDOW_SCALE,
+    FONT_SCALE_MIN,
+    FONT_SCALE_MAX,
+    WINDOW_SCALE_MIN,
+    WINDOW_SCALE_MAX,
+    HASEB_SCALE_PRESETS,
+    stepFontScale,
+    stepWindowScale,
+    computeHarmonizedScaleCssVars,
+  } = await import('./uiScaleEngine');
+
+  assert.equal(DEFAULT_FONT_SCALE, 110);
+  assert.equal(DEFAULT_WINDOW_SCALE, 105);
+  assert.ok(HASEB_SCALE_PRESETS.length >= 4);
+
+  // Verify + / - stepping and clamping
+  assert.equal(stepFontScale(110, 'INC'), 115);
+  assert.equal(stepFontScale(110, 'DEC'), 105);
+  assert.equal(stepFontScale(FONT_SCALE_MAX, 'INC'), FONT_SCALE_MAX);
+  assert.equal(stepFontScale(FONT_SCALE_MIN, 'DEC'), FONT_SCALE_MIN);
+
+  assert.equal(stepWindowScale(105, 'INC'), 110);
+  assert.equal(stepWindowScale(105, 'DEC'), 100);
+  assert.equal(stepWindowScale(WINDOW_SCALE_MAX, 'INC'), WINDOW_SCALE_MAX);
+  assert.equal(stepWindowScale(WINDOW_SCALE_MIN, 'DEC'), WINDOW_SCALE_MIN);
+
+  // Verify proportional CSS variables calculation
+  const defaultVars = computeHarmonizedScaleCssVars(DEFAULT_FONT_SCALE, DEFAULT_WINDOW_SCALE);
+  assert.equal(defaultVars.fontScaleRatio, 1.1);
+  assert.equal(defaultVars.windowScaleRatio, 1.05);
+  assert.ok(defaultVars.rootFontSizePx > 16);
+  assert.ok(defaultVars.sidebarWidthPx > 256);
+
+  const largeVars = computeHarmonizedScaleCssVars(120, 115);
+  assert.ok(largeVars.rootFontSizePx > defaultVars.rootFontSizePx);
+  assert.ok(largeVars.spacingUnitRem > defaultVars.spacingUnitRem);
+});
+
+test('Track 27 — 100% Local Embedded SQLite 3 WAL Relational Database Engine (Zero Cloud Dependency)', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { HasebLocalSqliteEngine } = await import('../server/localSqliteDb');
+  const {
+    SEED_PRODUCTS,
+    SEED_SALES_INVOICES,
+    SEED_CUSTOMERS,
+    SEED_JOURNAL_ENTRIES,
+  } = await import('../data/seedData');
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'haseb-sqlite-wal-test-'));
+  const engine = new HasebLocalSqliteEngine(tmpDir);
+
+  try {
+    // 1. Save full state transaction into relational SQL tables + KV snapshot
+    const mockState: Record<string, unknown> = {
+      products: SEED_PRODUCTS,
+      salesInvoices: SEED_SALES_INVOICES,
+      customers: SEED_CUSTOMERS,
+      journalEntries: SEED_JOURNAL_ENTRIES,
+      serialNumbers: [
+        {
+          id: 'sn-1',
+          serialNumber: 'SN-DEYE-8K-2026-0099',
+          productId: SEED_PRODUCTS[0]?.id || 'prd-1',
+          sku: SEED_PRODUCTS[0]?.sku || 'SOL-INV-8K',
+          invoiceNumber: 'INV-2026-1001',
+          customerName: 'مؤسسة الأفق للطاقة',
+          warrantyMonths: 24,
+        },
+      ],
+    };
+
+    engine.savePrimaryStateTransaction(mockState, 'HASEB-TEST-V1', 42);
+
+    // 2. Load primary state back and verify integrity
+    const loaded = engine.loadPrimaryState('HASEB-TEST-V1');
+    assert.ok(loaded.state);
+    assert.equal(loaded.revision, 42);
+    assert.equal((loaded.state!.products as unknown[]).length, SEED_PRODUCTS.length);
+
+    // 3. Record LAN client activity (Desktop App, Mobile Phone, Browser)
+    engine.recordLanDeviceActivity('192.168.1.50', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)');
+    engine.recordLanDeviceActivity('127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) HasebDesktop');
+
+    // 4. Verify live diagnostics & zero-cloud confirmation
+    const diag = engine.getDiagnostics(42);
+    assert.equal(diag.isNativeSqliteActive, true);
+    assert.equal(diag.cloudDependencyPercent, 0);
+    assert.equal(diag.journalMode.toUpperCase(), 'WAL');
+    assert.equal(diag.tableStats.productsCount, SEED_PRODUCTS.length);
+    assert.equal(diag.tableStats.invoicesCount, SEED_SALES_INVOICES.length);
+    assert.equal(diag.tableStats.customersCount, SEED_CUSTOMERS.length);
+    assert.equal(diag.tableStats.journalEntriesCount, SEED_JOURNAL_ENTRIES.length);
+    assert.ok(diag.tableStats.serialRegistryCount >= 1);
+    assert.equal(diag.connectedLanDevices.length, 2);
+
+    // 5. Parameterized SQL search across relational tables
+    const searchRes = engine.searchLocalSql('SOL-PNL');
+    assert.ok(searchRes.queryLatencyMs >= 0);
+    assert.ok(searchRes.products.length >= 1);
+
+    // 6. WAL Checkpoint & Optimize
+    const optRes = engine.optimizeDatabase();
+    assert.equal(optRes.ok, true);
+    assert.ok(optRes.durationMs >= 0);
+  } finally {
+    engine.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});

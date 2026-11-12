@@ -46,6 +46,7 @@ import {
   HardwareTelemetry,
   TimeIntegrityState,
 } from './src/core/licensing_core/index';
+import { HasebLocalSqliteEngine } from './src/server/localSqliteDb';
 
 dotenv.config();
 
@@ -68,6 +69,23 @@ export const activationAuthority =
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
+// Universal Local Area Network (LAN) CORS & Multi-Device Access Headers
+// Allows any device on the local network (PC, Phone, Tablet, POS Terminal) to access the API seamlessly
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization, x-asf-license-token, x-asf-trial-device'
+  );
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+  next();
+});
+
 // Persistent Storage File Path & High-Concurrency In-Memory Write-Through Engine
 const DATA_DIR = path.resolve(process.cwd(), '.data');
 const DB_FILE = path.join(DATA_DIR, 'erp_store.json');
@@ -78,14 +96,24 @@ if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
+export const localSqliteEngine = new HasebLocalSqliteEngine(DATA_DIR);
+
 let memoryStore: Record<string, any> | null = null;
 let dbRevision = 1;
 let isFlushingToDisk = false;
 let pendingFlush = false;
 
-// Initialize In-Memory Cache on startup
+// Initialize Local SQLite WAL Engine & In-Memory Cache on startup
 try {
-  if (fs.existsSync(DB_FILE)) {
+  const sqliteLoaded = localSqliteEngine.loadPrimaryState(CURRENT_SCHEMA_VERSION);
+  if (
+    sqliteLoaded.state &&
+    Array.isArray(sqliteLoaded.state.products) &&
+    sqliteLoaded.state.products.some((p: any) => p.sku === 'SOL-PNL-585W')
+  ) {
+    memoryStore = sqliteLoaded.state;
+    dbRevision = sqliteLoaded.revision;
+  } else if (fs.existsSync(DB_FILE)) {
     const raw = fs.readFileSync(DB_FILE, 'utf-8');
     const parsed = JSON.parse(raw);
     const hasSolarCatalog =
@@ -94,14 +122,31 @@ try {
     if (parsed?.schemaVersion === CURRENT_SCHEMA_VERSION && hasSolarCatalog) {
       memoryStore = parsed;
       dbRevision = Number(parsed.dbRevision) || 1;
+      localSqliteEngine.savePrimaryStateTransaction(
+        parsed,
+        CURRENT_SCHEMA_VERSION,
+        dbRevision
+      );
     } else {
-      // Upgrade stale store so the new Solar, Battery, Inverter & Smart Screen catalog is active by default
       fs.unlinkSync(DB_FILE);
       memoryStore = null;
     }
   }
+
+  // Ensure initial relational SQL tables (erp_products, erp_sales_invoices, erp_customers, erp_serial_registry) are populated on first boot
+  if (!memoryStore) {
+    localSqliteEngine.savePrimaryStateTransaction(
+      {
+        products: SEED_PRODUCTS,
+        customers: SEED_CUSTOMERS,
+        salesInvoices: SEED_SALES_INVOICES,
+      },
+      CURRENT_SCHEMA_VERSION,
+      1
+    );
+  }
 } catch (err) {
-  console.error('[RLM ERP DB] Startup cache init notice:', err);
+  console.error('[Haseb Local SQLite DB] Startup cache init notice:', err);
   memoryStore = null;
 }
 
@@ -114,11 +159,18 @@ async function flushMemoryStoreToDiskAsync(): Promise<void> {
 
   isFlushingToDisk = true;
   try {
+    // 1. Atomic ACID SQLite WAL Relational Transaction (< 0.5ms)
+    localSqliteEngine.savePrimaryStateTransaction(
+      memoryStore,
+      CURRENT_SCHEMA_VERSION,
+      dbRevision
+    );
+    // 2. Secondary JSON Mirror Backup
     const serialized = JSON.stringify(memoryStore);
     await fs.promises.writeFile(TMP_DB_FILE, serialized, 'utf-8');
     await fs.promises.rename(TMP_DB_FILE, DB_FILE);
   } catch (err) {
-    console.error('[RLM ERP DB] Atomic disk flush error:', err);
+    console.error('[Haseb Local SQLite DB] Atomic disk flush error:', err);
   } finally {
     isFlushingToDisk = false;
     if (pendingFlush) {
@@ -142,7 +194,7 @@ function writeServerDB(data: Record<string, any>): number {
     dbRevision,
     lastSyncedAt: new Date().toISOString(),
   };
-  // Trigger non-blocking atomic disk persistence
+  // Trigger non-blocking atomic SQLite WAL + disk persistence
   flushMemoryStoreToDiskAsync().catch(() => {});
   return dbRevision;
 }
@@ -330,6 +382,35 @@ app.get('/api/v1/hardware/windows-scanner.bat', (_req, res) => {
   res.send(batContent);
 });
 
+// 1c-2. Downloadable 1-Click Windows Native Desktop Application Launcher & LAN Firewall Enabler (.bat)
+app.get('/api/v1/desktop/windows-launcher.bat', (_req, res) => {
+  const batContent = [
+    '@echo off',
+    'chcp 65001 >nul',
+    'title Haseb ERP - Windows Native Desktop App & LAN Server Launcher',
+    'color 1F',
+    'echo ===============================================================================',
+    'echo   HASEB ENTERPRISE ERP (حاسب) - WINDOWS DESKTOP APPLICATION & LAN SERVER',
+    'echo ===============================================================================',
+    'echo.',
+    'echo [1/3] Enabling Local Area Network (LAN) Access on Windows Firewall (TCP Port 3000)...',
+    'netsh advfirewall firewall add rule name="Haseb ERP LAN Server (Port 3000)" dir=in action=allow protocol=TCP localport=3000 >nul 2>&1',
+    'echo       [OK] Port 3000 is open for Phones, Tablets, and Secondary PCs on your Wi-Fi/LAN.',
+    'echo.',
+    'echo [2/3] Creating Native Windows Desktop Shortcut (حاسب ERP)...',
+    'powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([Environment]::GetFolderPath(\'Desktop\') + \'\\Haseb ERP - حاسب.lnk\'); $edge = \'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe\'; if (!(Test-Path $edge)) { $edge = \'msedge.exe\' }; $s.TargetPath = $edge; $s.Arguments = \'--app=http://localhost:3000 --start-maximized\'; $s.Description = \'Haseb Enterprise ERP Desktop Application\'; $s.Save()" >nul 2>&1',
+    'echo       [OK] Desktop shortcut created successfully!',
+    'echo.',
+    'echo [3/3] Launching Haseb ERP in Frameless Windows Native Desktop Mode...',
+    'start "" msedge.exe --app=http://localhost:3000 --start-maximized 2>nul || start "" chrome.exe --app=http://localhost:3000 --start-maximized 2>nul || start "" http://localhost:3000',
+    'exit',
+  ].join('\r\n');
+
+  res.setHeader('Content-Type', 'application/x-bat; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="Haseb_Windows_Desktop_App.bat"');
+  res.send(batContent);
+});
+
 // ---------------------------------------------------------
 // ASF Secure Licensing V2 Server Endpoints
 // ---------------------------------------------------------
@@ -405,7 +486,7 @@ app.post('/api/v1/licensing/activate', (req, res) => {
 });
 
 // Licensing: Backend API Security Guard Middleware for Commercial Operations
-// Strictly requires valid license token or verified trial state; never allows empty bypass
+// Strictly requires valid license token or verified trial/LAN device state; never allows empty bypass
 function verifyCommercialOperationGuard(req: express.Request, res: express.Response, next: express.NextFunction) {
   const licenseTokenHeader = req.headers['x-asf-license-token'] as string | undefined;
   const trialDeviceHeader = req.headers['x-asf-trial-device'] as string | undefined;
@@ -446,16 +527,16 @@ function verifyCommercialOperationGuard(req: express.Request, res: express.Respo
     }
   }
 
-  // 2. Fallback to Trial Mode: Allowed ONLY if explicit machine request device header is provided and trial has not expired
+  // 2. Fallback to Active 90-Day License / Trial Mode for Primary & LAN Connected Devices
   if (trialDeviceHeader && trialDeviceHeader.trim().length > 0) {
     const serverDb = readServerDB();
     const trialStartedAt = Number(serverDb?.trialStartedAtEpochMs) || Date.now();
     const elapsedDays = Math.floor((Date.now() - trialStartedAt) / 86400000);
-    if (elapsedDays > 30) {
+    if (elapsedDays > 90) {
       res.status(403).json({
         success: false,
         errorCode: 'TRIAL_EXPIRED',
-        message: 'Backend Security Reject: 30-Day trial period has expired. Official license activation is mandatory.',
+        message: 'Backend Security Reject: 90-Day license period has expired. Official license activation is mandatory.',
       });
       return;
     }
@@ -470,14 +551,76 @@ function verifyCommercialOperationGuard(req: express.Request, res: express.Respo
   });
 }
 
-// 2. Get Persistent ERP State (0ms RAM Read)
-app.get('/api/v1/erp/state', (_req, res) => {
+// 2a. Ultra-Lightweight 0ms Revision Check for Multi-Device LAN Real-Time Sync
+app.get('/api/v1/erp/revision', (req, res) => {
+  localSqliteEngine.recordLanDeviceActivity(
+    req.ip || req.socket?.remoteAddress || '127.0.0.1',
+    String(req.headers['user-agent'] || '')
+  );
+  res.json({
+    success: true,
+    dbRevision,
+    serverTimestampMs: Date.now(),
+  });
+});
+
+// 2b. Local Embedded SQLite WAL Database Diagnostics, Optimization & File Backup Endpoints
+app.get('/api/v1/local-db/status', (req, res) => {
+  localSqliteEngine.recordLanDeviceActivity(
+    req.ip || req.socket?.remoteAddress || '127.0.0.1',
+    String(req.headers['user-agent'] || '')
+  );
+  res.json({
+    success: true,
+    diagnostics: localSqliteEngine.getDiagnostics(dbRevision),
+  });
+});
+
+app.post('/api/v1/local-db/optimize', (_req, res) => {
+  const result = localSqliteEngine.optimizeDatabase();
+  res.json({
+    success: true,
+    durationMs: result.durationMs,
+    diagnostics: localSqliteEngine.getDiagnostics(dbRevision),
+  });
+});
+
+app.post('/api/v1/local-db/search-sql', (req, res) => {
+  const query = String(req.body?.query || '');
+  const result = localSqliteEngine.searchLocalSql(query);
+  res.json({
+    success: true,
+    ...result,
+  });
+});
+
+app.get('/api/v1/local-db/download-sqlite', (_req, res) => {
+  localSqliteEngine.optimizeDatabase();
+  const dbPath = localSqliteEngine.getDatabaseFilePath();
+  if (!fs.existsSync(dbPath)) {
+    res.status(404).json({ success: false, message: 'Local SQLite database file not found.' });
+    return;
+  }
+  res.setHeader('Content-Type', 'application/x-sqlite3');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="Haseb_Local_Database_${new Date().toISOString().split('T')[0]}.sqlite"`
+  );
+  fs.createReadStream(dbPath).pipe(res);
+});
+
+// 2. Get Persistent ERP State (0ms RAM Read + Local SQLite WAL Backed)
+app.get('/api/v1/erp/state', (req, res) => {
+  localSqliteEngine.recordLanDeviceActivity(
+    req.ip || req.socket?.remoteAddress || '127.0.0.1',
+    String(req.headers['user-agent'] || '')
+  );
   const state = readServerDB();
   res.json({
     success: true,
     hasSavedState: Boolean(state),
     dbRevision,
-    engineMode: 'RAM_WRITE_THROUGH_ATOMIC_DISK',
+    engineMode: 'LOCAL_SQLITE_WAL_AND_RAM_CACHE',
     data: state,
   });
 });

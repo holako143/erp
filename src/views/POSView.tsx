@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useERP } from '../context/ERPContext';
 import {
   CreditCard,
@@ -48,6 +48,11 @@ import {
 import { calculateSolarAndBatterySystemSizing } from '../core/inventoryEngine';
 import { composeInvoiceMessageText } from '../core/messagingEngine';
 import { IndustryChameleonPanel } from '../components/common/IndustryChameleonPanel';
+import {
+  buildOrderedPosFieldIds,
+  computeNextPosTabStopIndex,
+  resolvePosActiveFieldLabel,
+} from '../core/posKeyboardNavigation';
 
 export const POSView: React.FC = () => {
   const {
@@ -165,6 +170,52 @@ export const POSView: React.FC = () => {
   // Cart Discount State (Percent vs Fixed Amount)
   const [discountType, setDiscountType] = useState<'PERCENT' | 'AMOUNT'>('PERCENT');
   const [discountValue, setDiscountValue] = useState<number | ''>('');
+
+  // High-Speed POS Active Focus & Deterministic Tab Cycling State
+  const posContainerRef = useRef<HTMLDivElement | null>(null);
+  const [activePosFieldId, setActivePosFieldId] = useState<string>('pos-barcode-input');
+
+  const orderedPosFieldIds = useMemo(
+    () =>
+      buildOrderedPosFieldIds(
+        posCart.map((it) => it.productId),
+        posCart.length > 0
+      ),
+    [posCart]
+  );
+
+  const activeFieldMeta = useMemo(
+    () => resolvePosActiveFieldLabel(activePosFieldId, language),
+    [activePosFieldId, language]
+  );
+
+  const focusPosFieldById = (fieldId: string) => {
+    const root = posContainerRef.current || document;
+    const el = root.querySelector(`[data-pos-field-id="${fieldId}"]`) as
+      | HTMLInputElement
+      | HTMLSelectElement
+      | HTMLButtonElement
+      | null;
+    if (el && !el.disabled) {
+      el.focus();
+      if ('select' in el && typeof el.select === 'function' && el.tagName === 'INPUT') {
+        try {
+          el.select();
+        } catch {
+          // ignore select on unsupported input types
+        }
+      }
+      setActivePosFieldId(fieldId);
+    }
+  };
+
+  // Auto-focus Barcode Scanner field when POS mounts
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      focusPosFieldById('pos-barcode-input');
+    }, 60);
+    return () => clearTimeout(timer);
+  }, []);
 
   const showBanner = (type: 'success' | 'error', text: string) => {
     setPosBanner({ type, text });
@@ -551,8 +602,77 @@ export const POSView: React.FC = () => {
     },
   ];
 
+  // Fast Keyboard Tab / Shift+Tab / F9 Navigation Handler for POS Data Entry
+  const handlePosWorkspaceKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // F9 or Ctrl+Enter opens Checkout Modal immediately if cart has items
+    if (
+      (e.key === 'F9' || ((e.ctrlKey || e.metaKey) && e.key === 'Enter')) &&
+      posCart.length > 0 &&
+      !isCheckoutModalOpen
+    ) {
+      e.preventDefault();
+      setPaymentMethod('CASH');
+      setCashTendered(grandTotal);
+      setSplitCashAmount(Math.round((grandTotal / 2) * 100) / 100);
+      setCardReference(`RRN-${Math.floor(100000 + Math.random() * 900000)}`);
+      setIsCheckoutModalOpen(true);
+      return;
+    }
+
+    if (e.key !== 'Tab') return;
+
+    // 1. If a POS modal is open, cycle cleanly through that modal's fields
+    if (isCheckoutModalOpen || isSolarCalcOpen || isCloseShiftModalOpen) {
+      const root = posContainerRef.current;
+      if (!root) return;
+      const modalFields = Array.from(
+        root.querySelectorAll<HTMLElement>('[data-pos-modal-field]:not(:disabled)')
+      ).filter((el) => el.offsetParent !== null);
+      if (modalFields.length > 0) {
+        e.preventDefault();
+        const activeEl = document.activeElement as HTMLElement | null;
+        const currIdx = activeEl ? modalFields.indexOf(activeEl) : -1;
+        const nextIdx = e.shiftKey
+          ? (currIdx <= 0 ? modalFields.length - 1 : currIdx - 1)
+          : (currIdx + 1) % modalFields.length;
+        const target = modalFields[nextIdx];
+        if (target) {
+          target.focus();
+          if ('select' in target && typeof (target as HTMLInputElement).select === 'function') {
+            try {
+              (target as HTMLInputElement).select();
+            } catch {
+              // ignore
+            }
+          }
+        }
+      }
+      return;
+    }
+
+    // 2. Main POS Fast Data-Entry Tab Cycle
+    e.preventDefault();
+    const activeEl = document.activeElement as HTMLElement | null;
+    const currentAttrId =
+      activeEl?.getAttribute('data-pos-field-id') || activePosFieldId || null;
+
+    const { targetFieldId } = computeNextPosTabStopIndex(
+      orderedPosFieldIds,
+      currentAttrId,
+      e.shiftKey ? 'PREV' : 'NEXT'
+    );
+
+    if (targetFieldId) {
+      focusPosFieldById(targetFieldId);
+    }
+  };
+
   return (
-    <div className="h-full flex flex-col gap-2.5 overflow-hidden">
+    <div
+      ref={posContainerRef}
+      onKeyDown={handlePosWorkspaceKeyDown}
+      className="h-full flex flex-col gap-2.5 overflow-hidden"
+    >
       {posBanner && (
         <div
           className={`shrink-0 px-3 py-2 rounded-lg border text-xs font-semibold flex items-center justify-between ${
@@ -610,6 +730,32 @@ export const POSView: React.FC = () => {
               {currentShift.expectedCash.toLocaleString()} {currency}
             </strong>
           </span>
+
+          {/* Live Active Focus Field & Fast Tab Indicator Pill */}
+          <button
+            type="button"
+            data-testid="pos-active-focus-indicator"
+            onClick={() => {
+              const { targetFieldId } = computeNextPosTabStopIndex(
+                orderedPosFieldIds,
+                activePosFieldId,
+                'NEXT'
+              );
+              if (targetFieldId) focusPosFieldById(targetFieldId);
+            }}
+            title="اضغط Tab للتنقل الفوري للحقل التالي أو انقر هنا"
+            className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 font-bold text-[11px] hover:bg-emerald-100 transition cursor-pointer shadow-2xs"
+          >
+            <span className="px-1.5 py-0.2 rounded bg-emerald-600 text-white font-mono text-[10px]">
+              {activeFieldMeta.stepBadge}
+            </span>
+            <span className="truncate max-w-[180px]">
+              الحقل النشط: {activeFieldMeta.label}
+            </span>
+            <kbd className="px-1 py-0.2 rounded bg-white border border-emerald-300 text-emerald-800 font-mono text-[9px]">
+              Tab ↹
+            </kbd>
+          </button>
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
@@ -716,18 +862,31 @@ export const POSView: React.FC = () => {
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-3 overflow-hidden">
         {/* Left Column (7 cols): Touch Catalog & Barcode Reader */}
         <div className="lg:col-span-7 bg-white rounded-xl border border-slate-200/90 shadow-2xs p-3 flex flex-col min-h-0 overflow-hidden">
-          {/* Quick Barcode Scan & Search Bar */}
+          {/* Quick Barcode Scan & Search Bar (Tab Steps 1 & 2) */}
           <div className="shrink-0 grid grid-cols-1 sm:grid-cols-12 gap-2 mb-2">
             <div className="sm:col-span-6 flex items-center gap-1.5">
-              <form onSubmit={handleBarcodeSubmit} className="flex-1 relative">
+              <form onSubmit={handleBarcodeSubmit} className="pos-focus-group flex-1 relative rounded-lg">
                 <input
                   type="text"
+                  data-testid="pos-barcode-input"
+                  data-pos-field-id="pos-barcode-input"
+                  tabIndex={1}
                   value={barcodeInput}
+                  onFocus={(e) => {
+                    setActivePosFieldId('pos-barcode-input');
+                    e.currentTarget.select();
+                  }}
                   onChange={(e) => setBarcodeInput(e.target.value)}
                   placeholder="امسح الباركود أو الكود SKU..."
-                  className="w-full text-xs py-2 px-3 ps-8 bg-slate-50 border border-slate-200 rounded-lg font-mono outline-hidden focus:bg-white focus:border-slate-900 transition"
+                  className="w-full text-xs py-2 pe-8 ps-8 bg-slate-50 border border-slate-200 rounded-lg font-mono transition"
                 />
-                <Barcode className="w-4 h-4 text-slate-600 absolute start-2.5 top-2" />
+                <Barcode className="w-4 h-4 text-slate-600 absolute start-2.5 top-2 pointer-events-none" />
+                <span
+                  className="pos-tab-step-badge absolute end-2 top-1.5 px-1.5 py-0.2 rounded bg-slate-200/80 text-slate-600 border border-slate-300/80 font-mono text-[9px] font-bold pointer-events-none transition"
+                  title="ترتيب التنقل بـ Tab: 1"
+                >
+                  1
+                </span>
               </form>
               <button
                 type="button"
@@ -741,15 +900,28 @@ export const POSView: React.FC = () => {
               </button>
             </div>
 
-            <div className="sm:col-span-6 relative">
+            <div className="pos-focus-group sm:col-span-6 relative rounded-lg">
               <input
                 type="text"
+                data-testid="pos-search-input"
+                data-pos-field-id="pos-search-input"
+                tabIndex={2}
                 value={searchTerm}
+                onFocus={(e) => {
+                  setActivePosFieldId('pos-search-input');
+                  e.currentTarget.select();
+                }}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="ابحث بالاسم أو المواصفة (585W، 200Ah، OLED)..."
-                className="w-full text-xs py-2 px-3 ps-8 bg-slate-50 border border-slate-200 rounded-lg outline-hidden focus:bg-white focus:border-slate-900 transition"
+                className="w-full text-xs py-2 pe-8 ps-8 bg-slate-50 border border-slate-200 rounded-lg transition"
               />
-              <Search className="w-4 h-4 text-slate-400 absolute start-2.5 top-2" />
+              <Search className="w-4 h-4 text-slate-400 absolute start-2.5 top-2 pointer-events-none" />
+              <span
+                className="pos-tab-step-badge absolute end-2 top-1.5 px-1.5 py-0.2 rounded bg-slate-200/80 text-slate-600 border border-slate-300/80 font-mono text-[9px] font-bold pointer-events-none transition"
+                title="ترتيب التنقل بـ Tab: 2"
+              >
+                2
+              </span>
             </div>
           </div>
 
@@ -813,13 +985,13 @@ export const POSView: React.FC = () => {
             </div>
           )}
 
-          {/* Product Touch Grid — Fitted to Available Card Height */}
-          <div className="flex-1 min-h-0 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2.5 content-start pe-1">
+          {/* Product Touch Grid — Spacious 3-Column Layout for Crystal-Clear Legibility */}
+          <div className="flex-1 min-h-0 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 content-start pe-1">
             {filteredProducts.map((p) => (
               <div
                 key={p.id}
                 onClick={() => addToPOSCart(p, 1)}
-                className="bg-slate-50/70 hover:bg-white p-2.5 rounded-xl border border-slate-200/90 hover:border-emerald-600 hover:shadow-xs cursor-pointer transition flex flex-col justify-between group select-none"
+                className="bg-slate-50/70 hover:bg-white p-3 rounded-xl border border-slate-200/90 hover:border-emerald-600 hover:shadow-xs cursor-pointer transition flex flex-col justify-between group select-none"
               >
                 <div>
                   <div className="flex items-center justify-between gap-1 mb-1">
@@ -949,10 +1121,14 @@ export const POSView: React.FC = () => {
               )}
             </div>
 
-            {/* Customer / Beneficiary Quick Inputs for Warranty Certificate */}
-            <div className="grid grid-cols-12 gap-1.5 bg-slate-50 p-1.5 rounded-lg border border-slate-200/80 text-[11px]">
+            {/* Customer / Beneficiary Quick Inputs for Warranty Certificate (Tab Steps 3, 4, 5) */}
+            <div className="pos-focus-group grid grid-cols-12 gap-1.5 bg-slate-50 p-1.5 rounded-lg border border-slate-200/80 text-[11px]">
               <select
+                data-testid="pos-customer-select"
+                data-pos-field-id="pos-customer-select"
+                tabIndex={3}
                 value={selectedCustomerId}
+                onFocus={() => setActivePosFieldId('pos-customer-select')}
                 onChange={(e) => {
                   const cid = e.target.value;
                   setSelectedCustomerId(cid);
@@ -963,7 +1139,7 @@ export const POSView: React.FC = () => {
                   }
                 }}
                 aria-label="اختيار العميل"
-                className="col-span-4 bg-white border border-slate-200 rounded px-2 py-1 text-[11px] font-bold text-slate-800 outline-hidden focus:border-slate-900"
+                className="col-span-4 bg-white border border-slate-200 rounded px-2 py-1.5 text-[11px] font-bold text-slate-800 transition"
               >
                 {customers.map((c) => (
                   <option key={c.id} value={c.id}>
@@ -973,18 +1149,32 @@ export const POSView: React.FC = () => {
               </select>
               <input
                 type="text"
+                data-testid="pos-warranty-name-input"
+                data-pos-field-id="pos-warranty-name-input"
+                tabIndex={4}
                 value={warrantyCustomerName}
+                onFocus={(e) => {
+                  setActivePosFieldId('pos-warranty-name-input');
+                  e.currentTarget.select();
+                }}
                 onChange={(e) => setWarrantyCustomerName(e.target.value)}
                 placeholder="اسم المستفيد بشهادة الضمان..."
-                className="col-span-4 bg-white border border-slate-200 rounded px-2 py-1 text-[11px] font-semibold text-slate-900 outline-hidden focus:border-slate-900"
+                className="col-span-4 bg-white border border-slate-200 rounded px-2 py-1.5 text-[11px] font-semibold text-slate-900 transition"
               />
               <input
                 type="text"
+                data-testid="pos-warranty-phone-input"
+                data-pos-field-id="pos-warranty-phone-input"
+                tabIndex={5}
                 value={warrantyCustomerPhone}
+                onFocus={(e) => {
+                  setActivePosFieldId('pos-warranty-phone-input');
+                  e.currentTarget.select();
+                }}
                 onChange={(e) => setWarrantyCustomerPhone(e.target.value)}
                 placeholder="جوال العميل (967+)..."
                 dir="ltr"
-                className="col-span-4 bg-white border border-slate-200 rounded px-2 py-1 text-[11px] font-mono text-slate-800 outline-hidden focus:border-slate-900"
+                className="col-span-4 bg-white border border-slate-200 rounded px-2 py-1.5 text-[11px] font-mono text-slate-800 transition"
               />
             </div>
           </div>
@@ -1002,7 +1192,7 @@ export const POSView: React.FC = () => {
               posCart.map((item) => (
                 <div
                   key={item.productId}
-                  className="p-2.5 rounded-xl bg-slate-50/90 hover:bg-slate-50 border border-slate-200/90 text-xs space-y-1.5 transition"
+                  className="pos-focus-group p-2.5 rounded-xl bg-slate-50/90 hover:bg-slate-50 border border-slate-200/90 text-xs space-y-1.5 transition"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex-1 min-w-0">
@@ -1067,12 +1257,18 @@ export const POSView: React.FC = () => {
                     <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                     <input
                       type="text"
+                      data-testid={`pos-cart-serial-${item.productId}`}
+                      data-pos-field-id={`pos-cart-serial-${item.productId}`}
                       value={item.serialNumber || ''}
+                      onFocus={(e) => {
+                        setActivePosFieldId(`pos-cart-serial-${item.productId}`);
+                        e.currentTarget.select();
+                      }}
                       onChange={(e) =>
                         updatePOSCartItemMeta(item.productId, { serialNumber: e.target.value })
                       }
                       placeholder="الرقم التسلسلي للضمان SN / IMEI..."
-                      className="flex-1 min-w-0 bg-white border border-slate-200 focus:border-emerald-600 rounded px-2 py-0.5 text-[10px] font-mono tabular-nums outline-hidden"
+                      className="flex-1 min-w-0 bg-white border border-slate-200 rounded px-2 py-0.5 text-[10px] font-mono tabular-nums transition"
                       dir="ltr"
                     />
                     <button
@@ -1088,14 +1284,17 @@ export const POSView: React.FC = () => {
                       توليد S/N
                     </button>
                     <select
+                      data-testid={`pos-cart-warranty-${item.productId}`}
+                      data-pos-field-id={`pos-cart-warranty-${item.productId}`}
                       value={item.warrantyMonths ?? 24}
+                      onFocus={() => setActivePosFieldId(`pos-cart-warranty-${item.productId}`)}
                       onChange={(e) =>
                         updatePOSCartItemMeta(item.productId, {
                           warrantyMonths: Number(e.target.value),
                         })
                       }
                       aria-label="مدة الضمان بالشهور"
-                      className="bg-emerald-50 text-emerald-900 border border-emerald-200 rounded px-1.5 py-0.5 text-[10px] font-bold shrink-0 outline-hidden cursor-pointer"
+                      className="bg-emerald-50 text-emerald-900 border border-emerald-200 rounded px-1.5 py-0.5 text-[10px] font-bold shrink-0 cursor-pointer transition"
                     >
                       <option value={12}>ضمان 12 شهر</option>
                       <option value={24}>ضمان 24 شهر</option>
@@ -1112,11 +1311,14 @@ export const POSView: React.FC = () => {
           {/* Cart Bottom Summary, Compact Coupon Box & Checkout Buttons */}
           <div className="shrink-0 border-t border-slate-100 pt-2 space-y-2">
             {/* Sales Cart Discount Controls: Percent (%) vs Fixed Amount (Currency) */}
-            <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 space-y-2">
+            <div className="pos-focus-group p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 space-y-2">
               <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
                 <span className="flex items-center gap-1.5">
                   <Percent className="w-3.5 h-3.5 text-emerald-600" />
                   <span>تطبيق خصم على السلة:</span>
+                  <span className="pos-tab-step-badge px-1.5 py-0.2 rounded bg-slate-200/80 text-slate-600 border border-slate-300/80 font-mono text-[9px] font-bold transition">
+                    6
+                  </span>
                 </span>
 
                 {/* Mode Selector Toggle: Percent (%) vs Amount (Currency) */}
@@ -1164,7 +1366,12 @@ export const POSView: React.FC = () => {
                     max={discountType === 'PERCENT' ? 100 : subtotal}
                     step={discountType === 'PERCENT' ? '1' : '1'}
                     data-testid="pos-discount-value-input"
+                    data-pos-field-id="pos-discount-value-input"
                     value={discountValue}
+                    onFocus={(e) => {
+                      setActivePosFieldId('pos-discount-value-input');
+                      e.currentTarget.select();
+                    }}
                     onChange={(e) => {
                       const val = e.target.value === '' ? '' : parseFloat(e.target.value);
                       if (val === '') {
@@ -1178,9 +1385,9 @@ export const POSView: React.FC = () => {
                         ? 'حدد النسبة المئوية (مثلاً: 10 أو 15 أو 25)...'
                         : `حدد مبلغ الخصم المباشر بـ ${currency} (مثلاً: 50 أو 100)...`
                     }
-                    className="w-full pr-3 pl-8 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono font-bold outline-hidden focus:border-emerald-600 dark:text-white"
+                    className="w-full pr-3 pl-8 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono font-bold dark:text-white transition"
                   />
-                  <span className="absolute left-2.5 top-1.5 font-bold text-xs text-slate-400 select-none">
+                  <span className="absolute left-2.5 top-1.5 font-bold text-xs text-slate-400 select-none pointer-events-none">
                     {discountType === 'PERCENT' ? '%' : currency}
                   </span>
                 </div>
@@ -1304,7 +1511,10 @@ export const POSView: React.FC = () => {
 
               <button
                 type="button"
+                data-testid="pos-checkout-btn"
+                data-pos-field-id="pos-checkout-btn"
                 disabled={posCart.length === 0}
+                onFocus={() => setActivePosFieldId('pos-checkout-btn')}
                 onClick={() => {
                   setPaymentMethod('CASH');
                   setCashTendered(grandTotal);
@@ -1316,6 +1526,9 @@ export const POSView: React.FC = () => {
               >
                 <CreditCard className="w-4 h-4 text-emerald-400" />
                 <span>دفع وإصدار الضمان</span>
+                <kbd className="hidden sm:inline-block px-1.5 py-0.2 rounded bg-slate-800 text-emerald-300 border border-slate-700 font-mono text-[10px]">
+                  F9
+                </kbd>
               </button>
             </div>
           </div>
@@ -1352,14 +1565,17 @@ export const POSView: React.FC = () => {
             <div className="p-5 grid grid-cols-1 md:grid-cols-12 gap-5 text-xs">
               {/* Inputs Column */}
               <div className="md:col-span-6 space-y-3">
-                <div>
+                <div className="pos-focus-group p-2 rounded-md border border-transparent transition-all">
                   <label className="block font-bold text-slate-700 mb-1">
                     إجمالي الأحمال الكهربائية المستمرة (Continuous Load Watts):
                   </label>
                   <input
                     type="number"
+                    autoFocus
+                    data-pos-modal-field="solar-peak-watts"
                     data-testid="input-solar-peak-watts"
                     value={peakLoadWatts}
+                    onFocus={(e) => e.currentTarget.select()}
                     onChange={(e) => setPeakLoadWatts(Math.max(100, Number(e.target.value)))}
                     className="w-full p-2 bg-slate-50 border border-slate-300 rounded-md font-mono tabular-nums font-bold text-slate-900"
                     dir="ltr"
@@ -1367,19 +1583,21 @@ export const POSView: React.FC = () => {
                 </div>
 
                 <div className="grid grid-cols-2 gap-2.5">
-                  <div>
+                  <div className="pos-focus-group p-2 rounded-md border border-transparent transition-all">
                     <label className="block font-bold text-slate-700 mb-1">
                       ساعات التشغيل الاحتياطي (Backup Hours):
                     </label>
                     <input
                       type="number"
+                      data-pos-modal-field="solar-autonomy-hours"
                       value={autonomyHours}
+                      onFocus={(e) => e.currentTarget.select()}
                       onChange={(e) => setAutonomyHours(Math.max(1, Number(e.target.value)))}
                       className="w-full p-2 bg-slate-50 border border-slate-300 rounded-md font-mono tabular-nums font-bold text-slate-900"
                       dir="ltr"
                     />
                   </div>
-                  <div>
+                  <div className="p-2">
                     <label className="block font-bold text-slate-700 mb-1">
                       الطاقة المطلوبة يومياً (kWh):
                     </label>
@@ -1393,11 +1611,12 @@ export const POSView: React.FC = () => {
                 </div>
 
                 <div className="grid grid-cols-2 gap-2.5">
-                  <div>
+                  <div className="pos-focus-group p-2 rounded-md border border-transparent transition-all">
                     <label className="block font-bold text-slate-700 mb-1">
                       جهد منظومة البطاريات (DC Bus):
                     </label>
                     <select
+                      data-pos-modal-field="solar-system-voltage"
                       value={systemVoltage}
                       onChange={(e) => setSystemVoltage(Number(e.target.value) as 12 | 24 | 48)}
                       className="w-full p-2 bg-slate-50 border border-slate-300 rounded-md font-bold text-slate-900"
@@ -1407,11 +1626,12 @@ export const POSView: React.FC = () => {
                       <option value={12}>12V DC (منظومات صغيرة)</option>
                     </select>
                   </div>
-                  <div>
+                  <div className="pos-focus-group p-2 rounded-md border border-transparent transition-all">
                     <label className="block font-bold text-slate-700 mb-1">
                       نوع البطاريات (Chemistry):
                     </label>
                     <select
+                      data-pos-modal-field="solar-battery-chemistry"
                       value={batteryChemistry}
                       onChange={(e) =>
                         setBatteryChemistry(e.target.value as 'LIFEPO4' | 'TUBULAR_GEL')
@@ -1425,11 +1645,12 @@ export const POSView: React.FC = () => {
                 </div>
 
                 <div className="grid grid-cols-2 gap-2.5">
-                  <div>
+                  <div className="pos-focus-group p-2 rounded-md border border-transparent transition-all">
                     <label className="block font-bold text-slate-700 mb-1">
                       قدرة اللوح الشمسي الواحد (Watts):
                     </label>
                     <select
+                      data-pos-modal-field="solar-panel-watts"
                       value={panelRatingWatts}
                       onChange={(e) => setPanelRatingWatts(Number(e.target.value))}
                       className="w-full p-2 bg-slate-50 border border-slate-300 rounded-md font-mono font-bold text-slate-900"
@@ -1439,14 +1660,16 @@ export const POSView: React.FC = () => {
                       <option value={620}>620W Utility Bifacial</option>
                     </select>
                   </div>
-                  <div>
+                  <div className="pos-focus-group p-2 rounded-md border border-transparent transition-all">
                     <label className="block font-bold text-slate-700 mb-1">
                       ساعات الذروة الشمسية (Sun Hours):
                     </label>
                     <input
                       type="number"
                       step="0.5"
+                      data-pos-modal-field="solar-sun-hours"
                       value={peakSunHours}
+                      onFocus={(e) => e.currentTarget.select()}
                       onChange={(e) => setPeakSunHours(Math.max(3, Number(e.target.value)))}
                       className="w-full p-2 bg-slate-50 border border-slate-300 rounded-md font-mono tabular-nums font-bold text-slate-900"
                       dir="ltr"
@@ -1527,6 +1750,7 @@ export const POSView: React.FC = () => {
                   </button>
                   <button
                     type="button"
+                    data-pos-modal-field="solar-apply-btn"
                     data-testid="btn-apply-solar-kit-pos"
                     onClick={handleApplySolarKitToCart}
                     className="px-4 py-2 rounded-md bg-teal-600 hover:bg-teal-500 text-white font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs"
@@ -1685,19 +1909,23 @@ export const POSView: React.FC = () => {
                     </button>
                   </div>
 
-                  <div className="relative">
+                  <div className="relative pos-focus-group p-1 rounded-xl border border-transparent transition-all">
                     <input
                       type="number"
                       step="any"
                       min="0"
+                      autoFocus
+                      data-pos-modal-field="checkout-cash-tendered"
+                      data-testid="pos-checkout-cash-tendered-input"
                       value={cashTendered === 0 ? '' : cashTendered}
+                      onFocus={(e) => e.currentTarget.select()}
                       onChange={(e) => setCashTendered(Math.max(0, Number(e.target.value) || 0))}
                       placeholder="0.00"
                       className="w-full px-4 py-3 bg-white border-2 border-slate-300 focus:border-slate-900 rounded-xl font-mono tabular-nums font-black text-xl text-slate-900 outline-hidden transition shadow-inner"
                       dir="ltr"
                     />
                     <span
-                      className="absolute end-4 top-3.5 text-xs font-mono font-bold text-slate-400"
+                      className="absolute end-5 top-4.5 text-xs font-mono font-bold text-slate-400"
                       dir="ltr"
                     >
                       {currency}
@@ -1799,13 +2027,16 @@ export const POSView: React.FC = () => {
                       {grandTotal.toFixed(2)} {currency}
                     </span>
                   </div>
-                  <div>
+                  <div className="pos-focus-group p-1.5 rounded-lg border border-transparent transition-all">
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">
                       رقم مرجع العملية / التفويض البنكي (Approval / RRN):
                     </label>
                     <input
                       type="text"
+                      autoFocus
+                      data-pos-modal-field="checkout-card-reference"
                       value={cardReference}
+                      onFocus={(e) => e.currentTarget.select()}
                       onChange={(e) => setCardReference(e.target.value)}
                       placeholder="مثال: RRN-849201 أو رقم الحوالة..."
                       className="w-full px-3 py-2 bg-white border border-slate-300 focus:border-slate-900 rounded-lg font-mono text-xs font-bold text-slate-900 outline-hidden"
@@ -1819,7 +2050,7 @@ export const POSView: React.FC = () => {
               {paymentMethod === 'SPLIT' && (
                 <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
                   <div className="grid grid-cols-2 gap-3">
-                    <div>
+                    <div className="pos-focus-group p-1.5 rounded-lg border border-transparent transition-all">
                       <label className="block text-[11px] font-bold text-slate-700 mb-1">
                         الجزء المدفوع نقداً (كاش):
                       </label>
@@ -1828,7 +2059,10 @@ export const POSView: React.FC = () => {
                         step="0.01"
                         min="0"
                         max={grandTotal}
+                        autoFocus
+                        data-pos-modal-field="checkout-split-cash"
                         value={splitCashAmount}
+                        onFocus={(e) => e.currentTarget.select()}
                         onChange={(e) => {
                           const val = Math.min(grandTotal, Math.max(0, Number(e.target.value)));
                           setSplitCashAmount(val);
@@ -1837,7 +2071,7 @@ export const POSView: React.FC = () => {
                         dir="ltr"
                       />
                     </div>
-                    <div>
+                    <div className="p-1.5">
                       <label className="block text-[11px] font-bold text-slate-700 mb-1">
                         الجزء المسدد بالبطاقة / الشبكة:
                       </label>
@@ -1849,13 +2083,15 @@ export const POSView: React.FC = () => {
                       </div>
                     </div>
                   </div>
-                  <div>
+                  <div className="pos-focus-group p-1.5 rounded-lg border border-transparent transition-all">
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">
                       مرجع عملية الشبكة للجزء البنكي (اختياري):
                     </label>
                     <input
                       type="text"
+                      data-pos-modal-field="checkout-split-reference"
                       value={cardReference}
+                      onFocus={(e) => e.currentTarget.select()}
                       onChange={(e) => setCardReference(e.target.value)}
                       placeholder="رقم إيصال جهاز نقاط البيع..."
                       className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg font-mono text-xs text-slate-800 outline-hidden"
@@ -1866,10 +2102,13 @@ export const POSView: React.FC = () => {
               )}
 
               {/* Optional Invoice / Warranty Note */}
-              <div>
+              <div className="pos-focus-group p-1 rounded-xl border border-transparent transition-all">
                 <input
                   type="text"
+                  data-pos-modal-field="checkout-notes"
+                  data-testid="pos-checkout-notes-input"
                   value={checkoutNotes}
+                  onFocus={(e) => e.currentTarget.select()}
                   onChange={(e) => setCheckoutNotes(e.target.value)}
                   placeholder="ملاحظات إضافية على الفاتورة أو شهادة الضمان (اختياري)..."
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white focus:border-slate-900 rounded-xl text-xs text-slate-800 outline-hidden transition"
@@ -1888,6 +2127,7 @@ export const POSView: React.FC = () => {
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
+                    data-pos-modal-field="checkout-confirm-a4"
                     onClick={() => handlePerformCheckout(true)}
                     className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
                   >
@@ -1896,6 +2136,8 @@ export const POSView: React.FC = () => {
                   </button>
                   <button
                     type="button"
+                    data-pos-modal-field="checkout-confirm-standard"
+                    data-testid="pos-confirm-checkout-btn"
                     onClick={() => handlePerformCheckout(false)}
                     className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
                   >
@@ -2229,7 +2471,7 @@ export const POSView: React.FC = () => {
               </div>
 
               {/* Actual Cash Count Input & Quick Match */}
-              <div className="space-y-1.5">
+              <div className="pos-focus-group p-2 rounded-lg border border-transparent transition-all space-y-1.5">
                 <div className="flex items-center justify-between">
                   <label className="font-bold text-slate-800">
                     العد الفعلي للنقدية بالدرج:
@@ -2244,7 +2486,10 @@ export const POSView: React.FC = () => {
                 </div>
                 <input
                   type="number"
+                  autoFocus
+                  data-pos-modal-field="shift-actual-cash"
                   value={actualCashCount}
+                  onFocus={(e) => e.currentTarget.select()}
                   onChange={(e) => setActualCashCount(Number(e.target.value))}
                   className="w-full p-2.5 bg-white border border-slate-300 focus:border-slate-900 rounded-lg text-sm font-bold font-mono tabular-nums outline-hidden"
                   dir="ltr"
@@ -2292,11 +2537,13 @@ export const POSView: React.FC = () => {
                   />
                 </label>
                 {autoOpenNewShift && (
-                  <div className="flex items-center justify-between pt-1 border-t border-slate-200/80">
+                  <div className="pos-focus-group p-1.5 rounded-md border border-transparent transition-all flex items-center justify-between pt-1 border-t border-slate-200/80">
                     <span className="text-slate-600">عهدة الوردية الجديدة:</span>
                     <input
                       type="number"
+                      data-pos-modal-field="shift-new-float"
                       value={newShiftStartingFloat}
+                      onFocus={(e) => e.currentTarget.select()}
                       onChange={(e) => setNewShiftStartingFloat(Number(e.target.value))}
                       className="w-28 px-2 py-1 bg-white border border-slate-300 rounded font-mono font-bold text-xs text-center"
                       dir="ltr"
@@ -2316,6 +2563,7 @@ export const POSView: React.FC = () => {
                 {currentShift.status === 'CLOSED' && !autoOpenNewShift ? (
                   <button
                     type="button"
+                    data-pos-modal-field="shift-open-new-btn"
                     onClick={() => {
                       openNewPOSShift(newShiftStartingFloat);
                       setIsCloseShiftModalOpen(false);
@@ -2331,6 +2579,7 @@ export const POSView: React.FC = () => {
                 ) : (
                   <button
                     type="button"
+                    data-pos-modal-field="shift-confirm-close-btn"
                     data-testid="btn-confirm-close-shift"
                     onClick={() => {
                       closePOSShift(

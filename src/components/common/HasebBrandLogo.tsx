@@ -26,48 +26,48 @@ export const HasebBrandLogo: React.FC<HasebBrandLogoProps> = ({
   theme = 'corporate_slate',
   className = '',
 }) => {
-  // Theme-adaptive luxury gradient stops for the Haseb Emblem
+  // Non-green, eye-soothing executive gradient stops for the Haseb Emblem
   const getGradientPalette = () => {
     switch (theme) {
       case 'haseb_royal':
         return {
-          bgClass: 'bg-gradient-to-br from-[#1e3a8a] via-[#1d4ed8] to-[#0284c7] shadow-blue-900/25',
-          ringClass: 'ring-1 ring-blue-300/30',
-          accentStop1: '#93c5fd',
-          accentStop2: '#38bdf8',
+          bgClass: 'bg-gradient-to-br from-[#1e1b4b] via-[#4338ca] to-[#6366f1] shadow-indigo-950/25',
+          ringClass: 'ring-1 ring-indigo-300/35',
+          accentStop1: '#c7d2fe',
+          accentStop2: '#818cf8',
           goldDot: '#fbbf24',
         };
       case 'swiss_light':
         return {
-          bgClass: 'bg-gradient-to-br from-[#312e81] via-[#4338ca] to-[#6366f1] shadow-indigo-900/25',
-          ringClass: 'ring-1 ring-indigo-300/30',
-          accentStop1: '#c7d2fe',
-          accentStop2: '#818cf8',
-          goldDot: '#f59e0b',
+          bgClass: 'bg-gradient-to-br from-[#0c4a6e] via-[#0284c7] to-[#38bdf8] shadow-sky-900/25',
+          ringClass: 'ring-1 ring-sky-200/40',
+          accentStop1: '#bae6fd',
+          accentStop2: '#38bdf8',
+          goldDot: '#fbbf24',
         };
       case 'haseb_sand':
         return {
-          bgClass: 'bg-gradient-to-br from-[#115e59] via-[#0f766e] to-[#b45309] shadow-stone-900/20',
+          bgClass: 'bg-gradient-to-br from-[#78350f] via-[#b45309] to-[#d97706] shadow-amber-950/25',
           ringClass: 'ring-1 ring-amber-200/40',
-          accentStop1: '#99f6e4',
-          accentStop2: '#fcd34d',
-          goldDot: '#fbbf24',
+          accentStop1: '#fde68a',
+          accentStop2: '#fbbf24',
+          goldDot: '#ffffff',
         };
       case 'obsidian_dark':
         return {
-          bgClass: 'bg-gradient-to-br from-[#064e3b] via-[#047857] to-[#0f172a] shadow-emerald-950/60',
-          ringClass: 'ring-1 ring-emerald-400/40',
-          accentStop1: '#6ee7b7',
-          accentStop2: '#34d399',
+          bgClass: 'bg-gradient-to-br from-[#0f172a] via-[#1d4ed8] to-[#3b82f6] shadow-blue-950/60',
+          ringClass: 'ring-1 ring-blue-400/40',
+          accentStop1: '#bfdbfe',
+          accentStop2: '#60a5fa',
           goldDot: '#fbbf24',
         };
       case 'corporate_slate':
       default:
         return {
-          bgClass: 'bg-gradient-to-br from-[#064e3b] via-[#059669] to-[#0d9488] shadow-emerald-900/25',
-          ringClass: 'ring-1 ring-emerald-200/30',
-          accentStop1: '#a7f3d0',
-          accentStop2: '#34d399',
+          bgClass: 'bg-gradient-to-br from-[#172554] via-[#1d4ed8] to-[#2563eb] shadow-blue-900/25',
+          ringClass: 'ring-1 ring-blue-200/35',
+          accentStop1: '#bfdbfe',
+          accentStop2: '#60a5fa',
           goldDot: '#fbbf24',
         };
     }
@@ -82,7 +82,7 @@ export const HasebBrandLogo: React.FC<HasebBrandLogoProps> = ({
       aria-hidden="true"
     >
       {/* Subtle inner glass highlight */}
-      <div className="pointer-events-none absolute inset-[1px] rounded-[inherit] bg-gradient-to-b from-white/18 to-transparent" />
+      <div className="pointer-events-none absolute inset-[1px] rounded-[inherit] bg-gradient-to-b from-white/20 to-transparent" />
 
       {/* Bespoke Geometric Kufic "ح" (Haa) + Ascending Financial Ledger Emblem */}
       <svg
@@ -108,8 +108,8 @@ export const HasebBrandLogo: React.FC<HasebBrandLogoProps> = ({
         />
 
         {/* Ascending Financial Balance Pillars (Top-Left Precision Bars) */}
-        <rect x="15" y="21" width="4.5" height="9" rx="2.25" fill={palette.accentStop1} opacity="0.85" />
-        <rect x="22" y="16" width="4.5" height="14" rx="2.25" fill="#ffffff" opacity="0.95" />
+        <rect x="15" y="21" width="4.5" height="9" rx="2.25" fill={palette.accentStop1} opacity="0.88" />
+        <rect x="22" y="16" width="4.5" height="14" rx="2.25" fill="#ffffff" opacity="0.96" />
         <rect x="29" y="12" width="4.5" height="18" rx="2.25" fill={palette.goldDot} />
 
         {/* Stylized Geometric Kufic Letter "ح" (Haa) Monogram */}

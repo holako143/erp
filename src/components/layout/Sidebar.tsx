@@ -102,14 +102,14 @@ export function Sidebar() {
   const lowStockCount = products.filter((p) => p.stockQty <= p.reorderPoint).length;
   const pendingPOCount = purchaseOrders.filter((po) => po.status === 'PENDING_APPROVAL').length;
 
-  // Master menu definition array with distinct, domain-accurate professional icons
+  // Master menu definition array with distinct, domain-accurate professional icons (Zero Green)
   const rawMenuItems: SidebarMenuItem[] = [
     {
       id: 'dashboard',
       label: t('dashboard'),
       subtitle: language === 'ar' ? 'المؤشرات والملخص التنفيذي' : 'Executive Overview',
       icon: LayoutDashboard,
-      iconColorClass: 'text-emerald-600 dark:text-emerald-400',
+      iconColorClass: 'text-blue-600 dark:text-blue-400',
       count: null,
     },
     {
@@ -117,7 +117,7 @@ export function Sidebar() {
       label: language === 'ar' ? 'نقطة البيع (POS)' : 'POS Terminal',
       subtitle: language === 'ar' ? 'الكاشير والفوترة الفورية' : 'Fast Checkout & Billing',
       icon: ScanBarcode,
-      iconColorClass: 'text-emerald-600 dark:text-emerald-400',
+      iconColorClass: 'text-blue-600 dark:text-blue-400',
       count: null,
     },
     {
@@ -133,7 +133,7 @@ export function Sidebar() {
       label: language === 'ar' ? 'المبيعات والضمان' : 'Sales & Warranty',
       subtitle: language === 'ar' ? 'الفواتير وفحص الضمان RMA' : 'Invoices & Warranty RMA',
       icon: Receipt,
-      iconColorClass: 'text-blue-600 dark:text-blue-400',
+      iconColorClass: 'text-indigo-600 dark:text-indigo-400',
       count: null,
     },
     {
@@ -141,7 +141,7 @@ export function Sidebar() {
       label: language === 'ar' ? 'المحاسبة المالية' : 'Financial Accounting',
       subtitle: language === 'ar' ? 'دفتر الأستاذ والسندات' : 'General Ledger & Vouchers',
       icon: Landmark,
-      iconColorClass: 'text-teal-600 dark:text-teal-400',
+      iconColorClass: 'text-sky-600 dark:text-sky-400',
       count: null,
     },
     {
@@ -149,7 +149,7 @@ export function Sidebar() {
       label: language === 'ar' ? 'التقارير والتحليل الذكي' : 'Reports & Analytics',
       subtitle: language === 'ar' ? 'الأرباح والمديونيات والتحليل' : 'Profits, Aging & Insights',
       icon: TrendingUp,
-      iconColorClass: 'text-indigo-600 dark:text-indigo-400',
+      iconColorClass: 'text-violet-600 dark:text-violet-400',
       count: null,
     },
     {
@@ -157,7 +157,7 @@ export function Sidebar() {
       label: language === 'ar' ? 'الواتساب والرسائل (USB)' : 'WhatsApp & SMS Hub',
       subtitle: language === 'ar' ? 'محادثات فورية وإرسال سريع' : 'Live Multi-Account Hub',
       icon: MessageSquare,
-      iconColorClass: 'text-emerald-600 dark:text-emerald-400',
+      iconColorClass: 'text-blue-600 dark:text-blue-400',
       count: null,
     },
     {
@@ -165,7 +165,7 @@ export function Sidebar() {
       label: t('barcodeEngine'),
       subtitle: language === 'ar' ? 'طباعة الملصقات والباركود' : 'Label & Barcode Studio',
       icon: QrCode,
-      iconColorClass: 'text-cyan-600 dark:text-cyan-400',
+      iconColorClass: 'text-sky-600 dark:text-sky-400',
       count: null,
     },
     {
@@ -173,7 +173,7 @@ export function Sidebar() {
       label: t('purchasing'),
       subtitle: language === 'ar' ? 'الموردون وأوامر الشراء' : 'Vendors & Purchase Orders',
       icon: ShoppingCart,
-      iconColorClass: 'text-sky-600 dark:text-sky-400',
+      iconColorClass: 'text-indigo-600 dark:text-indigo-400',
       count: pendingPOCount > 0 ? pendingPOCount : null,
     },
     {
@@ -264,10 +264,6 @@ export function Sidebar() {
       ? PanelLeftOpen
       : PanelLeftClose;
 
-  // Theme-harmonized Sidebar styling:
-  // - corporate_slate, swiss_light, haseb_sand use refined light/warm rails that match the Navbar & workspace seamlessly
-  // - haseb_royal uses executive Royal Navy rail
-  // - obsidian_dark uses Carbon Dark rail
   const isDarkRail = uiTheme === 'obsidian_dark' || uiTheme === 'haseb_royal';
   const isSandRail = uiTheme === 'haseb_sand';
   const isRoyalRail = uiTheme === 'haseb_royal';
@@ -281,14 +277,14 @@ export function Sidebar() {
           isSidebarCollapsed ? 'w-17' : 'w-64'
         } ${
           isRoyalRail
-            ? 'bg-[#09152B] text-slate-200 border-[#172847]'
+            ? 'bg-[#0E1329] text-slate-200 border-[#1C2447]'
             : isDarkRail
             ? 'bg-[#080C14] text-slate-200 border-slate-800/90'
             : isSandRail
-            ? 'bg-[#F6F1E6] text-stone-800 border-[#DDD2BE]'
+            ? 'bg-[#F5EFE4] text-stone-800 border-[#DFD3BE]'
             : uiTheme === 'swiss_light'
-            ? 'bg-white text-slate-800 border-[#DCE0F0]'
-            : 'bg-[#F7FAF9] text-slate-800 border-[#D3E2DC]'
+            ? 'bg-white text-slate-800 border-[#DAE2EC]'
+            : 'bg-[#F6F9FD] text-slate-800 border-[#D5E0EE]'
         }`}
       >
         <nav className={`flex-1 min-h-0 py-3 overflow-y-auto ${isSidebarCollapsed ? 'px-2' : 'px-3'}`}>
@@ -310,15 +306,15 @@ export function Sidebar() {
                   } ${
                     isActive
                       ? isRoyalRail
-                        ? 'bg-blue-600 border-blue-500 text-white shadow-md shadow-blue-950/50 font-bold'
+                        ? 'bg-indigo-600 border-indigo-500 text-white shadow-md shadow-indigo-950/50 font-bold'
                         : isDarkRail
-                        ? 'bg-emerald-600 border-emerald-500 text-white shadow-md shadow-emerald-950/50 font-bold'
+                        ? 'bg-blue-600 border-blue-500 text-white shadow-md shadow-blue-950/50 font-bold'
                         : 'bg-emerald-600 border-emerald-600 text-white shadow-sm font-bold'
                       : isDarkRail
                       ? 'bg-slate-900/55 border-slate-800/80 text-slate-300 hover:border-slate-700 hover:bg-slate-800/80 hover:text-white font-semibold'
                       : isSandRail
-                      ? 'bg-[#FAF6EE] border-[#E2D8C5] text-stone-800 hover:border-emerald-600/50 hover:bg-white font-semibold shadow-2xs'
-                      : 'bg-white border-slate-200/85 text-slate-700 hover:border-emerald-400 hover:bg-emerald-50/30 hover:text-slate-950 font-semibold shadow-2xs'
+                      ? 'bg-[#FBF8F2] border-[#E3D7C4] text-stone-800 hover:border-amber-600/50 hover:bg-white font-semibold shadow-2xs'
+                      : 'bg-white border-slate-200/85 text-slate-700 hover:border-emerald-400 hover:bg-emerald-50/40 hover:text-slate-950 font-semibold shadow-2xs'
                   }`}
                 >
                   <div
@@ -331,10 +327,10 @@ export function Sidebar() {
                         isActive
                           ? 'bg-white/20 text-white shadow-inner'
                           : isDarkRail
-                          ? 'bg-slate-800/90 text-emerald-400 group-hover:scale-105'
+                          ? 'bg-slate-800/90 text-blue-400 group-hover:scale-105'
                           : isSandRail
-                          ? 'bg-[#EFE8D8] text-emerald-700 group-hover:scale-105'
-                          : `bg-slate-100/90 ${item.iconColorClass || 'text-emerald-600'} group-hover:scale-105`
+                          ? 'bg-[#EFE7D6] text-amber-700 group-hover:scale-105'
+                          : `bg-slate-100/90 ${item.iconColorClass || 'text-blue-600'} group-hover:scale-105`
                       }`}
                     >
                       <Icon className="w-4 h-4 shrink-0" strokeWidth={isActive ? 2.25 : 1.95} />
@@ -393,7 +389,7 @@ export function Sidebar() {
               isDarkRail
                 ? 'bg-slate-900/70 border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white'
                 : isSandRail
-                ? 'bg-[#FAF6EE] border-[#DDD2BE] text-stone-700 hover:bg-white'
+                ? 'bg-[#FBF8F2] border-[#DFD3BE] text-stone-700 hover:bg-white'
                 : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900'
             }`}
           >
@@ -423,7 +419,7 @@ export function Sidebar() {
               type="button"
               onClick={() => setActiveTab(item.id)}
               className={`flex flex-col items-center gap-0.5 py-1 px-2.5 rounded-md text-[11px] font-bold transition cursor-pointer ${
-                isActive ? 'text-emerald-400' : 'text-slate-400 hover:text-slate-200'
+                isActive ? 'text-blue-400' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               <Icon className="w-4 h-4" />
@@ -476,7 +472,7 @@ export function Sidebar() {
                       }}
                       className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border text-xs font-bold transition cursor-pointer ${
                         isActive
-                          ? 'bg-emerald-600 border-emerald-500 text-white'
+                          ? 'bg-blue-600 border-blue-500 text-white'
                           : 'bg-slate-950/60 border-slate-800 hover:bg-slate-900 text-slate-300'
                       }`}
                     >
