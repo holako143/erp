@@ -177,14 +177,14 @@ export const SalesView: React.FC = () => {
         appliedDiscountLabel = `خصم ${discountValue}%`;
       } else {
         discountAmount = Math.min(sub, discountValue);
-        appliedDiscountLabel = `خصم نقدي (${discountAmount.toFixed(2)} ${currency})`;
+        appliedDiscountLabel = `خصم نقدي (${(Math.round(discountAmount * 100) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })} ${currency})`;
       }
     }
 
     const netTaxable = Math.max(0, sub - discountAmount);
     const configuredTaxPct = 0;
     const tax = 0;
-    const total = Number(netTaxable.toFixed(2));
+    const total = Math.round(netTaxable * 100) / 100;
 
     const created = addSalesInvoice({
       customerId: customer.id,
@@ -467,9 +467,12 @@ export const SalesView: React.FC = () => {
                 <div className="flex flex-wrap items-center gap-1.5 text-xs">
                   <FileText className="w-4 h-4 text-slate-600 me-1" />
                   {[
+                    { mode: 'a4', tpl: 'a4_onyx_yemen', label: 'A4 أونكس برو (اليمن)' },
+                    { mode: 'a4', tpl: 'a4_global_sap_odoo', label: 'A4 عالمي SAP / Odoo' },
                     { mode: 'a4', tpl: 'a4_warranty_electronics', label: 'A4 شهادة ضمان وسيريال' },
                     { mode: 'a4', tpl: 'a4_corporate_classic', label: 'A4 شركات رسمية' },
                     { mode: 'a4', tpl: 'a4_modern_blue', label: 'A4 أزرق عصري' },
+                    { mode: 'thermal', tpl: 'thermal_80mm_onyx_pos', label: 'حراري 80mm أونكس برو' },
                     { mode: 'thermal', tpl: 'thermal_80mm_warranty', label: 'حراري 80mm بالضمان والسيريال' },
                     { mode: 'thermal', tpl: 'thermal_80mm_standard', label: 'حراري 80mm قياسي' },
                     { mode: 'thermal', tpl: 'thermal_58mm_compact', label: 'حراري 58mm' },
@@ -1127,8 +1130,8 @@ export const SalesView: React.FC = () => {
           }
         }
         const previewTaxRate = masterSystemConfig.defaultTaxRatePercent ?? 15;
-        const previewTax = Number((Math.max(0, rawSub - previewDisc) * (previewTaxRate / 100)).toFixed(2));
-        const previewNet = Number((Math.max(0, rawSub - previewDisc) + previewTax).toFixed(2));
+        const previewTax = Math.round(Math.max(0, rawSub - previewDisc) * (previewTaxRate / 100) * 100) / 100;
+        const previewNet = Math.round((Math.max(0, rawSub - previewDisc) + previewTax) * 100) / 100;
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4">

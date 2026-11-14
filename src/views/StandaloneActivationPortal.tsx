@@ -30,7 +30,6 @@ export const StandaloneActivationPortal: React.FC = () => {
   const [pinInput, setPinInput] = useState('');
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
-  const [showPinRecovery, setShowPinRecovery] = useState(false);
   const [showPinText, setShowPinText] = useState(false);
 
   const [targetRequestCode, setTargetRequestCode] = useState(
@@ -47,7 +46,6 @@ export const StandaloneActivationPortal: React.FC = () => {
     setPinInput('');
     setIsUnlocked(false);
     setPinError(null);
-    setShowPinRecovery(false);
     setGeneratedSerial('');
     setIsStandaloneKeygenOpen(false);
   };
@@ -59,20 +57,12 @@ export const StandaloneActivationPortal: React.FC = () => {
       setPinError(null);
       setTargetRequestCode(protectionState.machineRequestCode);
     } else {
-      setShowPinRecovery(true);
       setPinError(
         isAr
-          ? 'رمز المطور غير صحيح! يمكنك استخدام خيار استعادة الرمز بالأسفل للفتح الفوري.'
-          : 'Invalid Developer PIN! Use the recovery option below for instant access.'
+          ? 'رمز المطور غير صحيح! يرجى التأكد من إدخال الرمز السري المعتمد.'
+          : 'Invalid Developer PIN! Please enter the authorized secret PIN.'
       );
     }
-  };
-
-  const handleAutoUnlockWithMasterPin = () => {
-    setPinInput(MASTER_DEVELOPER_PIN);
-    setPinError(null);
-    setIsUnlocked(true);
-    setTargetRequestCode(protectionState.machineRequestCode);
   };
 
   const handleGenerateKey = () => {
@@ -162,7 +152,7 @@ export const StandaloneActivationPortal: React.FC = () => {
           </button>
         </div>
 
-        {/* Auth Gate: AbuSaif143 */}
+        {/* Developer Authentication Gate */}
         {!isUnlocked ? (
           <form onSubmit={handleUnlockPortal} className="p-8 max-w-md mx-auto w-full space-y-4">
             <div className="text-center space-y-2">
@@ -184,14 +174,6 @@ export const StandaloneActivationPortal: React.FC = () => {
                 <label className="block text-xs font-bold text-slate-700">
                   {isAr ? 'رمز المطور السري:' : 'Developer Secret PIN:'}
                 </label>
-                <button
-                  type="button"
-                  data-testid="standalone-keygen-forgot-pin-btn"
-                  onClick={() => setShowPinRecovery((prev) => !prev)}
-                  className="text-[11px] font-bold text-blue-600 hover:text-blue-700 underline cursor-pointer"
-                >
-                  {isAr ? 'نسيت كلمة السر؟ استعادة الرمز' : 'Forgot PIN? Recover'}
-                </button>
               </div>
               <div className="relative">
                 <input
@@ -199,7 +181,7 @@ export const StandaloneActivationPortal: React.FC = () => {
                   data-testid="standalone-keygen-pin-input"
                   value={pinInput}
                   onChange={(e) => setPinInput(e.target.value)}
-                  placeholder="AbuSaif143"
+                  placeholder="••••••••••"
                   dir="ltr"
                   className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200/80 text-slate-900 font-mono text-sm focus:bg-white focus:outline-none focus:border-slate-900 transition"
                 />
@@ -212,35 +194,6 @@ export const StandaloneActivationPortal: React.FC = () => {
                 </button>
               </div>
             </div>
-
-            {showPinRecovery && (
-              <div
-                data-testid="standalone-keygen-recovery-box"
-                className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2.5 text-xs"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-700">
-                    {isAr ? 'رمز المطور السري المعتمد:' : 'Master Developer PIN:'}
-                  </span>
-                  <code className="px-2.5 py-1 rounded-lg bg-slate-900 text-emerald-400 font-mono font-bold text-xs select-all">
-                    {MASTER_DEVELOPER_PIN}
-                  </code>
-                </div>
-                <button
-                  type="button"
-                  data-testid="standalone-keygen-autofill-unlock-btn"
-                  onClick={handleAutoUnlockWithMasterPin}
-                  className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
-                >
-                  <KeyRound className="w-3.5 h-3.5" />
-                  <span>
-                    {isAr
-                      ? `تعبئة الرمز وفتح المنصة فوراً (${MASTER_DEVELOPER_PIN})`
-                      : `Auto-Fill & Unlock Now (${MASTER_DEVELOPER_PIN})`}
-                  </span>
-                </button>
-              </div>
-            )}
 
             {pinError && (
               <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-bold flex items-center gap-2">

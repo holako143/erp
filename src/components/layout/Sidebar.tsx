@@ -532,13 +532,21 @@ export function Sidebar() {
         </div>
       </aside>
 
-      {/* Mobile Bottom Navigation Bar (sm/md only) */}
-      <div className="lg:hidden fixed bottom-0 inset-x-0 bg-[#0B1120] border-t border-slate-800 z-40 px-2 py-1.5 flex items-center justify-around">
+      {/* Mobile & Tablet Bottom Navigation Bar (lg:hidden) — Native App Feel */}
+      <nav
+        data-testid="mobile-bottom-nav"
+        className={`lg:hidden fixed bottom-0 inset-x-0 z-40 px-1.5 py-1.5 border-t flex items-center justify-around shadow-lg backdrop-blur-md ${
+          isDarkRail
+            ? 'bg-[#080C14]/95 border-slate-800 text-slate-200'
+            : 'bg-white/95 border-slate-200/80 text-slate-700'
+        }`}
+      >
         {[
-          { id: 'pos', label: language === 'ar' ? 'نقطة البيع POS' : 'POS', icon: ScanBarcode },
+          { id: 'pos', label: language === 'ar' ? 'نقطة البيع' : 'POS', icon: ScanBarcode },
           { id: 'inventory', label: language === 'ar' ? 'المخزون' : 'Inventory', icon: Boxes },
           { id: 'sales', label: language === 'ar' ? 'المبيعات' : 'Sales', icon: Receipt },
-          { id: 'communications', label: language === 'ar' ? 'خدمات التواصل' : 'WhatsApp', icon: MessageSquare },
+          { id: 'accounting', label: language === 'ar' ? 'المحاسبة' : 'Accounting', icon: Landmark },
+          { id: 'communications', label: language === 'ar' ? 'واتساب' : 'WhatsApp', icon: MessageSquare },
         ].map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
@@ -546,48 +554,50 @@ export function Sidebar() {
             <button
               key={item.id}
               type="button"
+              data-testid={`mobile-nav-${item.id}`}
               onClick={() => setActiveTab(item.id)}
-              className={`flex flex-col items-center gap-0.5 py-1 px-2.5 rounded-md text-[11px] font-bold transition cursor-pointer ${
-                isActive ? 'text-blue-400' : 'text-slate-400 hover:text-slate-200'
+              className={`flex flex-col items-center justify-center gap-0.5 py-1 px-2 rounded-xl text-[10px] font-bold transition-all cursor-pointer min-w-[54px] ${
+                isActive
+                  ? 'bg-slate-900 text-white shadow-2xs'
+                  : 'text-slate-500 hover:text-slate-900'
               }`}
             >
               <Icon className="w-4 h-4" />
-              <span>{item.label}</span>
+              <span className="truncate">{item.label}</span>
             </button>
           );
         })}
-        {!isSectorModeActive && (
-          <button
-            type="button"
-            onClick={() => setIsMobileMenuOpen(true)}
-            className="flex flex-col items-center gap-0.5 py-1 px-2 rounded-md text-[11px] font-bold text-slate-400 hover:text-slate-200 cursor-pointer"
-          >
-            <Menu className="w-4 h-4" />
-            <span>{language === 'ar' ? 'المزيد' : 'More'}</span>
-          </button>
-        )}
-      </div>
+        <button
+          type="button"
+          data-testid="mobile-nav-more-btn"
+          onClick={() => setIsMobileMenuOpen(true)}
+          className="flex flex-col items-center justify-center gap-0.5 py-1 px-2 rounded-xl text-[10px] font-bold text-slate-500 hover:text-slate-900 cursor-pointer min-w-[48px]"
+        >
+          <Menu className="w-4 h-4" />
+          <span>{language === 'ar' ? 'المزيد' : 'More'}</span>
+        </button>
+      </nav>
 
       {/* Mobile Drawer Overlay */}
       {isMobileMenuOpen && (
-        <div className="lg:hidden fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex justify-end">
-          <div className="w-72 bg-[#0B1120] text-slate-200 h-full p-4 overflow-y-auto flex flex-col justify-between border-s border-slate-800">
+        <div className="lg:hidden fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex justify-end">
+          <div className="w-72 max-w-[85vw] bg-white text-slate-800 h-full p-4 overflow-y-auto flex flex-col justify-between border-s border-slate-200 shadow-2xl">
             <div>
-              <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
+              <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-200">
                 <div className="flex items-center gap-2.5">
                   <HasebBrandLogo size="sm" theme={uiTheme} />
-                  <span className="font-bold text-sm text-white">حاسب — النظام المحاسبي</span>
+                  <span className="font-bold text-sm text-slate-900">حاسب — القائمة الكاملة</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className="p-1 rounded text-slate-400 hover:text-white"
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100 cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-2 space-y-1.5">
+              <div className="space-y-1">
                 {visibleMenuItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = activeTab === item.id;
@@ -599,23 +609,28 @@ export function Sidebar() {
                         setActiveTab(item.id);
                         setIsMobileMenuOpen(false);
                       }}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border text-xs font-bold transition cursor-pointer ${
+                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
                         isActive
-                          ? 'bg-blue-600 border-blue-500 text-white'
-                          : 'bg-slate-950/60 border-slate-800 hover:bg-slate-900 text-slate-300'
+                          ? 'bg-slate-900 text-white shadow-xs'
+                          : 'hover:bg-slate-100 text-slate-700'
                       }`}
                     >
                       <div className="flex items-center gap-2.5">
                         <Icon className="w-4 h-4" />
                         <span>{item.label}</span>
                       </div>
+                      {item.count !== null && (
+                        <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-700 font-mono text-[10px]">
+                          {item.count}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
               </div>
             </div>
 
-            <div className="pt-4 text-center text-xs font-mono text-slate-400">
+            <div className="pt-4 border-t border-slate-100 text-center text-[11px] font-mono text-slate-400">
               منظومة حاسب المحاسبية المتكاملة
             </div>
           </div>

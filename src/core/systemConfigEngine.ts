@@ -289,18 +289,28 @@ export function resolveEffectiveIndustryMode(
 }
 
 /**
- * Formats an amount with its global currency symbol (YER, SAR, USD, etc.)
+ * Formats a numeric value without trailing .00 zero decimals (e.g., 485 -> "485", 4850 -> "4,850", 12.5 -> "12.5").
+ */
+export function formatCleanNumber(amount: number): string {
+  const safeVal = Number(amount) || 0;
+  const rounded = Math.round(safeVal * 100) / 100;
+  const isWhole = Number.isInteger(rounded);
+  return rounded.toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: isWhole ? 0 : 2,
+  });
+}
+
+/**
+ * Formats an amount with its global currency symbol (YER, SAR, USD, etc.) without .00
  */
 export function formatCurrencyAmount(
   amount: number,
   currency: Currency,
   language: Language = 'ar'
 ): string {
-  const safeVal = Number(amount) || 0;
   const meta = GLOBAL_CURRENCIES_META[currency] || GLOBAL_CURRENCIES_META.YER;
-  const formatted = safeVal.toLocaleString(undefined, {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  });
+  const formatted = formatCleanNumber(amount);
   return language === 'ar' ? `${formatted} ${meta.symbolAr}` : `${formatted} ${meta.symbolEn}`;
 }
+

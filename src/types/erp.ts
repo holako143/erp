@@ -16,6 +16,7 @@ export type IndustryType =
   | 'contracting';
 
 export type ThermalTemplateType =
+  | 'thermal_80mm_onyx_pos'
   | 'thermal_80mm_standard'
   | 'thermal_80mm_restaurant'
   | 'thermal_58mm_compact'
@@ -24,6 +25,8 @@ export type ThermalTemplateType =
   | 'thermal_80mm_minimal';
 
 export type StandardInvoiceTemplateType =
+  | 'a4_onyx_yemen'
+  | 'a4_global_sap_odoo'
   | 'a4_corporate_classic'
   | 'a4_modern_blue'
   | 'a4_warranty_electronics'

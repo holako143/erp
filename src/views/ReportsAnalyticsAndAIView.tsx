@@ -2165,7 +2165,7 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
                               {item.nameAr}
                             </td>
                             <td className="py-2.5 px-3 text-center font-mono font-bold">{item.qtySold}</td>
-                            <td className="py-2.5 px-3 font-mono">{(item.cost / (item.qtySold || 1)).toFixed(2)} {currency}</td>
+                            <td className="py-2.5 px-3 font-mono">{(Math.round((item.cost / (item.qtySold || 1)) * 100) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })} {currency}</td>
                             <td className="py-2.5 px-3 font-mono font-bold text-rose-600">
                               {item.cost.toLocaleString()} {currency}
                             </td>

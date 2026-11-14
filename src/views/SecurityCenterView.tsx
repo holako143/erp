@@ -1174,19 +1174,6 @@ export const SecurityCenterView: React.FC = () => {
                   </li>
                 </ul>
               </div>
-              <div className="p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200/80 flex items-center justify-between gap-2 text-xs">
-                <div className="font-bold text-emerald-950">
-                  {language === 'ar'
-                    ? 'رمز المطور السري لفتح منصة إصدار التراخيص المستقلة:'
-                    : 'Master Developer PIN for Standalone Keygen Portal:'}
-                </div>
-                <code
-                  data-testid="security-center-master-pin-badge"
-                  className="px-3 py-1 rounded-lg bg-slate-900 text-emerald-400 font-mono font-bold text-xs select-all"
-                >
-                  AbuSaif143
-                </code>
-              </div>
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -1199,8 +1186,8 @@ export const SecurityCenterView: React.FC = () => {
                 <KeyRound className="w-4 h-4" />
                 <span>
                   {language === 'ar'
-                    ? 'فتح منصة إصدار التراخيص المستقلة (الرمز: AbuSaif143)'
-                    : 'Open Standalone Cryptographic Keygen (PIN: AbuSaif143)'}
+                    ? 'فتح منصة إصدار التراخيص المستقلة'
+                    : 'Open Standalone Cryptographic Keygen'}
                 </span>
               </button>
 

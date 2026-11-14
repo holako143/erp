@@ -804,7 +804,7 @@ export const CommunicationsView: React.FC = () => {
       );
     } else {
       setSmsBody(
-        `عميلنا العزيز (${cName})، نشكر تعاملكم مع ${company.nameAr || company.name}. رصيد حسابكم الحالي منتظم (0.00 ${currency}). نسعد بخدمتكم دائماً.`
+        `عميلنا العزيز (${cName})، نشكر تعاملكم مع ${company.nameAr || company.name}. رصيد حسابكم الحالي منتظم (0 ${currency}). نسعد بخدمتكم دائماً.`
       );
     }
   };

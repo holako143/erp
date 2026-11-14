@@ -33,6 +33,10 @@ import {
   Camera,
   ChevronDown,
   ChevronUp,
+  Image as ImageIcon,
+  LayoutGrid,
+  LayoutList,
+  ShoppingCart,
 } from 'lucide-react';
 import { CameraBarcodeScannerModal, ScannedBatchItem } from '../components/common/CameraBarcodeScannerModal';
 import { WorkspaceTabResizerBar } from '../components/common/WorkspaceTabResizerBar';
@@ -49,7 +53,11 @@ import {
   generateWeightedScaleBarcode,
   generateUniqueSerialNumber,
 } from '../core/barcodeEngine';
-import { calculateSolarAndBatterySystemSizing } from '../core/inventoryEngine';
+import {
+  calculateSolarAndBatterySystemSizing,
+  getProductVisualIllustrationUri,
+} from '../core/inventoryEngine';
+import { formatCleanNumber } from '../core/systemConfigEngine';
 import { composeInvoiceMessageText } from '../core/messagingEngine';
 import { IndustryChameleonPanel } from '../components/common/IndustryChameleonPanel';
 import {
@@ -61,6 +69,7 @@ import {
 export const POSView: React.FC = () => {
   const {
     products,
+    updateProduct,
     categories,
     posCart,
     addToPOSCart,
@@ -100,6 +109,8 @@ export const POSView: React.FC = () => {
   const [selectedElectronicsSubCat, setSelectedElectronicsSubCat] = useState<ElectronicsSubCategory | 'ALL'>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [barcodeInput, setBarcodeInput] = useState('');
+  const [posDisplayMode, setPosDisplayMode] = useState<'WITH_IMAGES' | 'DATA_ONLY'>('WITH_IMAGES');
+  const [mobilePosPane, setMobilePosPane] = useState<'CATALOG' | 'CART'>('CATALOG');
 
   // Solar & Battery Engineering Calculator Modal State
   const [isSolarCalcOpen, setIsSolarCalcOpen] = useState(false);
@@ -523,8 +534,8 @@ export const POSView: React.FC = () => {
       couponCode:
         calculatedDiscountAmount > 0
           ? discountType === 'PERCENT'
-            ? `خصم ${discountValue}%`
-            : `خصم نقدي (${calculatedDiscountAmount.toFixed(2)} ${currency})`
+            ? `خصم ${formatCleanNumber(Number(discountValue) || 0)}%`
+            : `خصم نقدي (${formatCleanNumber(calculatedDiscountAmount)} ${currency})`
           : undefined,
       taxAmount,
       grandTotal,
@@ -738,14 +749,62 @@ export const POSView: React.FC = () => {
     <div
       ref={posContainerRef}
       onKeyDown={handlePosWorkspaceKeyDown}
-      className="h-full flex-1 flex overflow-hidden relative"
+      className="h-full flex-1 flex flex-col lg:flex-row overflow-hidden relative"
     >
+      {/* ====================================================================
+          MOBILE / TABLET TOP SEGMENTED SWITCHER (< lg) — Native POS App Feel
+      ==================================================================== */}
+      <div
+        data-testid="pos-mobile-view-switcher"
+        className="lg:hidden shrink-0 bg-white border-b border-slate-200/80 px-3 py-2 flex items-center justify-between gap-2 z-20"
+      >
+        <div className="grid grid-cols-2 bg-slate-100 p-1 rounded-xl flex-1 gap-1">
+          <button
+            type="button"
+            data-testid="pos-mobile-tab-catalog"
+            onClick={() => setMobilePosPane('CATALOG')}
+            className={`py-1.5 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+              mobilePosPane === 'CATALOG'
+                ? 'bg-slate-900 text-white shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <LayoutGrid className="w-3.5 h-3.5" />
+            <span>المنتجات والأصناف ({filteredProducts.length})</span>
+          </button>
+          <button
+            type="button"
+            data-testid="pos-mobile-tab-cart"
+            onClick={() => setMobilePosPane('CART')}
+            className={`py-1.5 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+              mobilePosPane === 'CART'
+                ? 'bg-slate-900 text-white shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <ShoppingCart className="w-3.5 h-3.5" />
+            <span>السلة والدفع</span>
+            <span
+              className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                mobilePosPane === 'CART'
+                  ? 'bg-emerald-500 text-white'
+                  : 'bg-slate-200 text-slate-800'
+              }`}
+            >
+              {posCart.reduce((s, i) => s + i.quantity, 0)}
+            </span>
+          </button>
+        </div>
+      </div>
+
       {/* ====================================================================
           CENTER AREA: PRODUCT SHOWCASE & BARCODE SCANNER (Lumina Reference)
       ==================================================================== */}
       <div
         data-testid="pos-catalog-pane"
-        className={`${posSplitLayout.primaryColClass} flex-1 flex flex-col min-w-0 p-4 gap-3.5 overflow-hidden`}
+        className={`${posSplitLayout.primaryColClass} ${
+          mobilePosPane === 'CART' ? 'hidden lg:flex' : 'flex'
+        } flex-1 flex-col min-w-0 p-2.5 sm:p-4 gap-2.5 sm:gap-3.5 overflow-hidden`}
       >
         {posBanner && (
           <div
@@ -786,9 +845,9 @@ export const POSView: React.FC = () => {
           </div>
         )}
 
-        {/* Top Row: Barcode Scanner Input + Filter Toggle Button */}
-        <div className="flex items-center gap-2.5 shrink-0">
-          <form onSubmit={handleBarcodeSubmit} className="pos-focus-group relative flex-1">
+        {/* Top Row: Barcode Scanner Input + 2-Mode Display Switcher + Filter Toggle Button */}
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0">
+          <form onSubmit={handleBarcodeSubmit} className="pos-focus-group relative flex-1 min-w-[200px]">
             <Barcode className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
@@ -814,11 +873,60 @@ export const POSView: React.FC = () => {
               >
                 <Camera className="w-3.5 h-3.5" />
               </button>
-              <kbd className="px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-slate-50 rounded border border-slate-200/60">
+              <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-slate-50 rounded border border-slate-200/60">
                 F1
               </kbd>
             </div>
           </form>
+
+          {/* 2-Mode POS Product Display Toggle: WITH_IMAGES (بصور وبيانات) vs DATA_ONLY (ببيانات فقط) */}
+          <div
+            data-testid="pos-display-mode-switcher"
+            className="flex items-center bg-white border border-slate-200/80 rounded-xl p-0.5 shadow-2xs shrink-0"
+          >
+            <button
+              type="button"
+              data-testid="pos-display-mode-with-images"
+              onClick={() => {
+                setPosDisplayMode('WITH_IMAGES');
+                try {
+                  localStorage.setItem('haseb_pos_display_mode_v1', 'WITH_IMAGES');
+                } catch {
+                  // ignore
+                }
+              }}
+              title="عرض الأصناف بصور وبيانات"
+              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                posDisplayMode === 'WITH_IMAGES'
+                  ? 'bg-slate-900 text-white shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <ImageIcon className="w-3.5 h-3.5" />
+              <span>بصور وبيانات</span>
+            </button>
+            <button
+              type="button"
+              data-testid="pos-display-mode-data-only"
+              onClick={() => {
+                setPosDisplayMode('DATA_ONLY');
+                try {
+                  localStorage.setItem('haseb_pos_display_mode_v1', 'DATA_ONLY');
+                } catch {
+                  // ignore
+                }
+              }}
+              title="عرض الأصناف ببيانات فقط"
+              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                posDisplayMode === 'DATA_ONLY'
+                  ? 'bg-slate-900 text-white shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <LayoutList className="w-3.5 h-3.5" />
+              <span>ببيانات فقط</span>
+            </button>
+          </div>
 
           <button
             type="button"
@@ -940,7 +1048,7 @@ export const POSView: React.FC = () => {
         </div>
 
         {/* Category Pills Row (Rounded Full Pills matching code_9f7cabf7.html) */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 shrink-0">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 shrink-0 no-scrollbar">
           {electronicsSubCategories.map((sub) => {
             const isSelected = selectedElectronicsSubCat === sub.id;
             return (
@@ -970,100 +1078,173 @@ export const POSView: React.FC = () => {
           })}
         </div>
 
-        {/* Product Cards Grid (Lumina 2xl Rounded Cards with Semantic Warranty Badges) */}
-        <div className="flex-1 overflow-y-auto pr-0.5 min-h-0">
-          <div className="grid grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-3.5">
+        {/* Product Cards Grid (Supports 2 Display Modes: WITH_IMAGES vs DATA_ONLY) */}
+        <div className="flex-1 overflow-y-auto pr-0.5 min-h-0 pb-16 lg:pb-1">
+          <div
+            data-testid="pos-products-grid"
+            data-display-mode={posDisplayMode}
+            className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-2.5 sm:gap-3.5"
+          >
             {filteredProducts.map((p) => {
               const [chip1, chip2] = getProductSpecChips(p);
               const warrantyMonths = p.warrantyMonths || 12;
               const warrantyBadgeClass =
                 warrantyMonths >= 100
-                  ? 'bg-emerald-50 text-emerald-700'
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200/70'
                   : warrantyMonths >= 48
-                  ? 'bg-blue-50 text-blue-700'
+                  ? 'bg-blue-50 text-blue-700 border-blue-200/70'
                   : warrantyMonths >= 24
-                  ? 'bg-amber-50 text-amber-700'
-                  : 'bg-slate-100 text-slate-600';
+                  ? 'bg-amber-50 text-amber-700 border-amber-200/70'
+                  : 'bg-slate-100 text-slate-600 border-slate-200/70';
+
+              const visualImgSrc = getProductVisualIllustrationUri(p);
+              const inCartItem = posCart.find((ci) => ci.productId === p.id);
 
               return (
                 <div
                   key={p.id}
+                  data-testid={`pos-product-card-${p.sku}`}
                   onClick={() => addToPOSCart(p, 1)}
-                  className="bg-white rounded-2xl p-4 border border-slate-200/70 hover:border-blue-500/40 transition-all cursor-pointer flex flex-col justify-between group shadow-2xs select-none"
+                  className={`bg-white rounded-2xl border transition-all cursor-pointer flex flex-col justify-between group shadow-2xs hover:shadow-md select-none overflow-hidden relative ${
+                    inCartItem
+                      ? 'border-blue-600 ring-2 ring-blue-500/15'
+                      : 'border-slate-200/80 hover:border-blue-500/50'
+                  }`}
                 >
-                  <div>
-                    <div className="flex items-center justify-between gap-2 mb-2.5">
-                      <span
-                        className="text-[10px] font-mono font-medium text-slate-400 tracking-wide truncate"
-                        dir="ltr"
+                  {/* Mode 1: WITH_IMAGES — Visual Product Thumbnail Header + Quick Attach Image Action */}
+                  {posDisplayMode === 'WITH_IMAGES' && (
+                    <div className="relative h-28 sm:h-32 w-full bg-slate-50/90 border-b border-slate-100 flex items-center justify-center p-2 overflow-hidden">
+                      <img
+                        src={visualImgSrc}
+                        alt={p.nameAr || p.name}
+                        className="h-full w-full object-contain group-hover:scale-105 transition-transform duration-200"
+                        loading="lazy"
+                      />
+                      {/* Top Overlay Badges */}
+                      <div className="absolute top-2 inset-x-2 flex items-center justify-between gap-1 pointer-events-none">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[9px] font-bold border shadow-2xs backdrop-blur-xs ${warrantyBadgeClass}`}
+                        >
+                          ضمان {warrantyMonths} شهر
+                        </span>
+                        {inCartItem && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-blue-600 text-white shadow-xs">
+                            ×{inCartItem.quantity}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Direct Quick Image Upload Button on Product Card */}
+                      <label
+                        data-testid={`pos-card-attach-image-${p.sku}`}
+                        onClick={(e) => e.stopPropagation()}
+                        title="إرفاق أو تغيير صورة الصنف مباشرة"
+                        className="absolute bottom-1.5 left-1.5 w-6 h-6 rounded-lg bg-white/90 hover:bg-slate-900 text-slate-600 hover:text-white border border-slate-200/80 flex items-center justify-center shadow-2xs opacity-85 group-hover:opacity-100 transition cursor-pointer"
                       >
-                        {p.sku}
-                      </span>
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-medium shrink-0 ${warrantyBadgeClass}`}
-                      >
-                        ضمان {warrantyMonths} شهر
-                      </span>
+                        <Camera className="w-3 h-3" />
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="sr-only"
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                              if (typeof reader.result === 'string') {
+                                updateProduct(p.id, { imageUrl: reader.result });
+                                showBanner('success', `تم تحديث صورة الصنف: ${p.nameAr}`);
+                              }
+                            };
+                            reader.readAsDataURL(file);
+                          }}
+                        />
+                      </label>
                     </div>
+                  )}
 
-                    <h3 className="text-[13px] font-semibold text-slate-800 leading-snug mb-2 group-hover:text-blue-600 transition-colors line-clamp-2">
-                      {getProductDisplayName(p)}
-                    </h3>
-
-                    <div className="flex items-center gap-1.5 text-[10px] text-slate-500 mb-3">
-                      <span
-                        className="bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100 font-mono truncate"
-                        dir="ltr"
-                      >
-                        {chip1}
-                      </span>
-                      <span className="bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100 truncate">
-                        {chip2}
-                      </span>
-                      <button
-                        type="button"
-                        data-testid={`btn-probe-branches-${p.sku}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openCrossBranchModal(p.sku);
-                        }}
-                        className="sr-only"
-                        title="فحص توفر الصنف في باقي الفروع"
-                      >
-                        فحص الفروع
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="pt-3 border-t border-slate-100 flex items-end justify-between">
+                  <div className="p-3 sm:p-3.5 flex-1 flex flex-col justify-between">
                     <div>
-                      <span className="block text-[10px] text-slate-400">السعر النقدي</span>
-                      <span className="text-base font-bold text-slate-900 font-mono" dir="ltr">
-                        {p.salePrice.toLocaleString('en-US', {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}{' '}
-                        <span className="text-[10px] font-normal text-slate-400">{currency}</span>
-                      </span>
+                      <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                        <span
+                          className="text-[10px] font-mono font-semibold text-slate-400 tracking-wide truncate"
+                          dir="ltr"
+                        >
+                          {p.sku}
+                        </span>
+                        {posDisplayMode === 'DATA_ONLY' && (
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-medium border shrink-0 ${warrantyBadgeClass}`}
+                          >
+                            ضمان {warrantyMonths} شهر
+                          </span>
+                        )}
+                      </div>
+
+                      <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 leading-snug mb-2 group-hover:text-blue-600 transition-colors line-clamp-2">
+                        {getProductDisplayName(p)}
+                      </h3>
+
+                      <div className="flex flex-wrap items-center gap-1 text-[10px] text-slate-500 mb-2.5">
+                        <span
+                          className="bg-slate-50 px-1.5 py-0.5 rounded-md border border-slate-100 font-mono truncate max-w-[110px]"
+                          dir="ltr"
+                        >
+                          {chip1}
+                        </span>
+                        <span className="bg-slate-50 px-1.5 py-0.5 rounded-md border border-slate-100 truncate max-w-[110px]">
+                          {chip2}
+                        </span>
+                        <button
+                          type="button"
+                          data-testid={`btn-probe-branches-${p.sku}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openCrossBranchModal(p.sku);
+                          }}
+                          className="sr-only"
+                          title="فحص توفر الصنف في باقي الفروع"
+                        >
+                          فحص الفروع
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-slate-500">
-                        المتوفر:{' '}
-                        <strong className="text-slate-700 font-mono" dir="ltr">
-                          {p.stockQty}
-                        </strong>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          addToPOSCart(p, 1);
-                        }}
-                        className="w-8 h-8 rounded-xl bg-slate-100 group-hover:bg-slate-900 text-slate-700 group-hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-                      >
-                        <Plus className="w-4 h-4" />
-                      </button>
+                    <div className="pt-2.5 border-t border-slate-100 flex items-end justify-between gap-1">
+                      <div>
+                        <span className="block text-[9px] sm:text-[10px] text-slate-400">
+                          السعر النقدي
+                        </span>
+                        <span className="text-sm sm:text-base font-black text-slate-900 font-mono" dir="ltr">
+                          {formatCleanNumber(p.salePrice)}{' '}
+                          <span className="text-[10px] font-normal text-slate-400">{currency}</span>
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-slate-500">
+                          المتوفر:{' '}
+                          <strong
+                            className={`font-mono ${
+                              p.stockQty <= p.reorderPoint ? 'text-rose-600' : 'text-slate-700'
+                            }`}
+                            dir="ltr"
+                          >
+                            {p.stockQty}
+                          </strong>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            addToPOSCart(p, 1);
+                          }}
+                          className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-slate-100 group-hover:bg-slate-900 text-slate-700 group-hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                        >
+                          <Plus className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1071,6 +1252,47 @@ export const POSView: React.FC = () => {
             })}
           </div>
         </div>
+
+        {/* Mobile Sticky Quick Cart Summary Bar (Only visible on < lg when viewing Catalog) */}
+        {posCart.length > 0 && (
+          <div
+            data-testid="pos-mobile-sticky-cart-bar"
+            className="lg:hidden shrink-0 bg-slate-900 text-white rounded-2xl p-3 flex items-center justify-between gap-3 shadow-xl border border-slate-800"
+          >
+            <div onClick={() => setMobilePosPane('CART')} className="cursor-pointer">
+              <div className="text-[10px] text-slate-300 font-medium">
+                سلة المبيعات ({posCart.reduce((s, i) => s + i.quantity, 0)} أصناف)
+              </div>
+              <div className="text-base font-black font-mono text-emerald-400" dir="ltr">
+                {formatCleanNumber(grandTotal)} {currency}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setMobilePosPane('CART')}
+                className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold cursor-pointer"
+              >
+                مراجعة السلة
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPaymentMethod('CASH');
+                  setCashTendered(grandTotal);
+                  setSplitCashAmount(Math.round((grandTotal / 2) * 100) / 100);
+                  setCardReference(`RRN-${Math.floor(100000 + Math.random() * 900000)}`);
+                  setIsQuickNumpadOpen(false);
+                  setIsCheckoutModalOpen(true);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+              >
+                <CreditCard className="w-3.5 h-3.5" />
+                <span>دفع فوري</span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ====================================================================
@@ -1078,7 +1300,9 @@ export const POSView: React.FC = () => {
       ==================================================================== */}
       <aside
         data-testid="pos-cart-pane"
-        className="w-[380px] xl:w-[390px] bg-white border-r border-slate-200/70 flex flex-col justify-between shrink-0 z-20"
+        className={`${
+          mobilePosPane === 'CATALOG' ? 'hidden lg:flex' : 'flex flex-1'
+        } w-full lg:w-[380px] xl:w-[390px] bg-white border-r border-slate-200/70 flex-col justify-between shrink-0 z-20 overflow-hidden`}
       >
         {/* Cart Header */}
         <div className="p-4 border-b border-slate-200/70 space-y-3">
@@ -1188,7 +1412,7 @@ export const POSView: React.FC = () => {
                         : item.productName}
                     </h4>
                     <span className="text-[10px] text-slate-400 font-mono block mt-0.5" dir="ltr">
-                      {item.sku} • {item.unitPrice.toLocaleString()} {currency}
+                      {item.sku} • {formatCleanNumber(item.unitPrice)} {currency}
                     </span>
                   </div>
                   <button
@@ -1227,7 +1451,7 @@ export const POSView: React.FC = () => {
                   </div>
                   <div className="text-left">
                     <span className="text-sm font-bold text-slate-900 font-mono" dir="ltr">
-                      {item.total.toFixed(2)}{' '}
+                      {formatCleanNumber(item.total)}{' '}
                       <span className="text-[10px] font-normal text-slate-500">{currency}</span>
                     </span>
                   </div>
@@ -1406,13 +1630,13 @@ export const POSView: React.FC = () => {
           </div>
         </div>
 
-        {/* Cart Footer & Totals (Matching code_9f7cabf7.html) */}
-        <div className="p-4 border-t border-slate-200/70 bg-slate-50/50 space-y-3.5">
+        {/* Cart Footer & Totals (Clean integers without .00) */}
+        <div className="p-4 pb-20 lg:pb-4 border-t border-slate-200/70 bg-slate-50/50 space-y-3.5">
           <div className="space-y-1.5 text-xs">
             <div className="flex items-center justify-between text-slate-500">
               <span>المجموع الفرعي:</span>
               <span className="font-mono font-medium text-slate-700" dir="ltr">
-                {subtotal.toFixed(2)} {currency}
+                {formatCleanNumber(subtotal)} {currency}
               </span>
             </div>
             <div
@@ -1421,14 +1645,14 @@ export const POSView: React.FC = () => {
             >
               <span>الخصم المطبق:</span>
               <span className="font-mono font-medium text-slate-700" dir="ltr">
-                {calculatedDiscountAmount > 0 ? `-${calculatedDiscountAmount.toFixed(2)}` : '0.00'}{' '}
+                {calculatedDiscountAmount > 0 ? `-${formatCleanNumber(calculatedDiscountAmount)}` : '0'}{' '}
                 {currency}
               </span>
             </div>
             <div className="flex items-center justify-between text-slate-500">
               <span>الضريبة:</span>
               <span className="font-mono font-medium text-slate-700" dir="ltr">
-                0.00 {currency}
+                0 {currency}
               </span>
             </div>
             <div className="pt-2 border-t border-slate-200/70 flex items-baseline justify-between">
@@ -1438,7 +1662,7 @@ export const POSView: React.FC = () => {
                 className="text-2xl font-bold text-slate-900 font-mono"
                 dir="ltr"
               >
-                {grandTotal.toFixed(2)}{' '}
+                {formatCleanNumber(grandTotal)}{' '}
                 <span className="text-xs font-normal text-slate-500">{currency}</span>
               </span>
             </div>
@@ -1502,7 +1726,7 @@ export const POSView: React.FC = () => {
                   recipientName: warrantyCustomerName || 'عميل نقدي عام',
                   recipientPhone: warrantyCustomerPhone || '+967 771 445 880',
                   referenceNumber: `POS-${Date.now().toString().slice(-4)}`,
-                  messageBody: `فاتورة مبيعات وشهادة ضمان حاسب ERP — الإجمالي: ${grandTotal.toFixed(2)} ${currency}`,
+                  messageBody: `فاتورة مبيعات وشهادة ضمان حاسب ERP — الإجمالي: ${formatCleanNumber(grandTotal)} ${currency}`,
                 });
               }}
               className="py-2 px-3 rounded-xl border border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100/70 text-emerald-800 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40"
@@ -1804,12 +2028,12 @@ export const POSView: React.FC = () => {
                     <span>
                       المجموع الفرعي:{' '}
                       <strong className="font-mono text-slate-800" dir="ltr">
-                        {subtotal.toFixed(2)}
+                        {formatCleanNumber(subtotal)}
                       </strong>
                     </span>
                     {couponDiscountAmount > 0 && (
                       <span className="text-emerald-700 font-bold">
-                        خصم: -{couponDiscountAmount.toFixed(2)}
+                        خصم: -{formatCleanNumber(couponDiscountAmount)}
                       </span>
                     )}
                   </div>
@@ -1822,7 +2046,8 @@ export const POSView: React.FC = () => {
                     className="text-2xl font-black font-mono tabular-nums text-slate-900 mt-0.5"
                     dir="ltr"
                   >
-                    {grandTotal.toFixed(2)} <span className="text-sm font-bold text-emerald-700">{currency}</span>
+                    {formatCleanNumber(grandTotal)}{' '}
+                    <span className="text-sm font-bold text-emerald-700">{currency}</span>
                   </div>
                 </div>
               </div>
@@ -1842,7 +2067,7 @@ export const POSView: React.FC = () => {
                     {
                       id: 'CARD',
                       titleAr: 'بطاقة بنكية / شبكة',
-                      subAr: 'مدى • فيزا • تحويل فوري',
+                      subAr: 'ام فلوس • جوالي • تحويل فوري',
                     },
                     {
                       id: 'SPLIT',
@@ -1900,7 +2125,7 @@ export const POSView: React.FC = () => {
                       onClick={() => setCashTendered(grandTotal)}
                       className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 underline cursor-pointer"
                     >
-                      مطابقة تامّة ({grandTotal.toFixed(2)})
+                      مطابقة تامّة ({formatCleanNumber(grandTotal)})
                     </button>
                   </div>
 
@@ -1915,7 +2140,7 @@ export const POSView: React.FC = () => {
                       value={cashTendered === 0 ? '' : cashTendered}
                       onFocus={(e) => e.currentTarget.select()}
                       onChange={(e) => setCashTendered(Math.max(0, Number(e.target.value) || 0))}
-                      placeholder="0.00"
+                      placeholder="0"
                       className="w-full px-4 py-3 bg-white border-2 border-slate-300 focus:border-slate-900 rounded-xl font-mono tabular-nums font-black text-xl text-slate-900 outline-hidden transition shadow-inner"
                       dir="ltr"
                     />
@@ -2028,7 +2253,7 @@ export const POSView: React.FC = () => {
                       </div>
                     </div>
                     <span className="font-mono tabular-nums text-lg font-black" dir="ltr">
-                      {Math.abs(cashTendered - grandTotal).toFixed(2)} {currency}
+                      {formatCleanNumber(Math.abs(cashTendered - grandTotal))} {currency}
                     </span>
                   </div>
                 </div>
@@ -2042,7 +2267,7 @@ export const POSView: React.FC = () => {
                       مبلغ السداد عبر جهاز الشبكة / البطاقة:
                     </span>
                     <span className="font-mono font-bold text-sm text-emerald-700" dir="ltr">
-                      {grandTotal.toFixed(2)} {currency}
+                      {formatCleanNumber(grandTotal)} {currency}
                     </span>
                   </div>
                   <div className="pos-focus-group p-1.5 rounded-lg border border-transparent transition-all">
@@ -2097,7 +2322,7 @@ export const POSView: React.FC = () => {
                         className="w-full px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg font-mono tabular-nums font-bold text-sm text-emerald-900"
                         dir="ltr"
                       >
-                        {Math.max(0, grandTotal - splitCashAmount).toFixed(2)} {currency}
+                        {formatCleanNumber(Math.max(0, grandTotal - splitCashAmount))} {currency}
                       </div>
                     </div>
                   </div>
@@ -2177,11 +2402,11 @@ export const POSView: React.FC = () => {
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) setIsReceiptModalOpen(false);
           }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-2 sm:p-4"
         >
           <div className="bg-slate-50 rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-4xl max-h-[92vh] overflow-hidden flex flex-col">
             {/* Top Template Switcher Toolbar (Lumina POS Theme) */}
-            <div className="px-6 py-4 bg-white border-b border-slate-200/80 text-slate-900 flex flex-wrap items-center justify-between gap-3">
+            <div className="px-4 sm:px-6 py-4 bg-white border-b border-slate-200/80 text-slate-900 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
                   <Printer className="w-5 h-5" />
@@ -2191,23 +2416,26 @@ export const POSView: React.FC = () => {
                     معاينة وطباعة الفاتورة وشهادة الضمان ({completedInvoice.invoiceNumber})
                   </span>
                   <p className="text-[11px] text-slate-500">
-                    اختر القالب المناسب للطباعة (حراري 80mm شهادة ضمان أو فاتورة ضريبية رسمية A4)
+                    اختر القالب المناسب للطباعة (أونكس برو اليمن، عالمي SAP/Odoo، أو حراري 80mm)
                   </p>
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
                 {[
-                  { mode: 'thermal', tpl: 'thermal_80mm_warranty', label: 'حراري 80mm ضمان وسيريال' },
+                  { mode: 'a4', tpl: 'a4_onyx_yemen', label: 'A4 أونكس برو (اليمن)' },
+                  { mode: 'a4', tpl: 'a4_global_sap_odoo', label: 'A4 عالمي SAP / Odoo' },
                   { mode: 'a4', tpl: 'a4_warranty_electronics', label: 'A4 شهادة ضمان رسمية' },
+                  { mode: 'thermal', tpl: 'thermal_80mm_onyx_pos', label: 'حراري 80mm أونكس برو' },
+                  { mode: 'thermal', tpl: 'thermal_80mm_warranty', label: 'حراري 80mm ضمان وسيريال' },
                   { mode: 'thermal', tpl: 'thermal_80mm_standard', label: 'حراري 80mm قياسي' },
                   { mode: 'a4', tpl: 'a4_corporate_classic', label: 'فاتورة A4 مؤسسية' },
-                  { mode: 'a4', tpl: 'a4_modern_blue', label: 'فاتورة A4 عصرية' },
                   { mode: 'thermal', tpl: 'thermal_58mm_compact', label: 'حراري 58mm مضغوط' },
                 ].map((opt) => (
                   <button
                     key={opt.tpl}
                     type="button"
+                    data-testid={`pos-receipt-tpl-${opt.tpl}`}
                     onClick={() => {
                       setReceiptViewMode(opt.mode as any);
                       if (opt.mode === 'thermal') {
@@ -2234,7 +2462,7 @@ export const POSView: React.FC = () => {
             </div>
 
             {/* Scrollable Invoice Renderer */}
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className="flex-1 overflow-y-auto p-3 sm:p-6">
               <InvoiceRenderer
                 invoice={completedInvoice}
                 mode={receiptViewMode}
@@ -2484,31 +2712,31 @@ export const POSView: React.FC = () => {
                 <div className="flex justify-between">
                   <span className="text-slate-500">عهدة بداية الوردية:</span>
                   <span className="font-bold font-mono tabular-nums" dir="ltr">
-                    {currentShift.startingCash.toFixed(2)} {currency}
+                    {formatCleanNumber(currentShift.startingCash)} {currency}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">مبيعات الكاش (النقدية):</span>
                   <span className="font-bold text-emerald-700 font-mono tabular-nums" dir="ltr">
-                    +{currentShift.cashSales.toFixed(2)} {currency}
+                    +{formatCleanNumber(currentShift.cashSales)} {currency}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">مبيعات الشبكة والبطاقة:</span>
                   <span className="font-bold text-indigo-700 font-mono tabular-nums" dir="ltr">
-                    +{currentShift.cardSales.toFixed(2)} {currency}
+                    +{formatCleanNumber(currentShift.cardSales)} {currency}
                   </span>
                 </div>
                 <div className="flex justify-between border-t border-slate-200 pt-1.5 font-bold text-slate-700">
                   <span>إجمالي مبيعات الوردية:</span>
                   <span className="font-mono tabular-nums" dir="ltr">
-                    {currentShift.totalSales.toFixed(2)} {currency}
+                    {formatCleanNumber(currentShift.totalSales)} {currency}
                   </span>
                 </div>
                 <div className="flex justify-between border-t border-slate-200 pt-1.5 font-bold text-sm text-slate-900">
                   <span>النقدية المتوقعة بالدرج:</span>
                   <span className="font-mono tabular-nums text-emerald-700" dir="ltr">
-                    {currentShift.expectedCash.toFixed(2)} {currency}
+                    {formatCleanNumber(currentShift.expectedCash)} {currency}
                   </span>
                 </div>
               </div>
@@ -2524,7 +2752,7 @@ export const POSView: React.FC = () => {
                     onClick={() => setActualCashCount(currentShift.expectedCash)}
                     className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 underline cursor-pointer"
                   >
-                    مطابقة مع المتوقع ({currentShift.expectedCash.toFixed(2)})
+                    مطابقة مع المتوقع ({formatCleanNumber(currentShift.expectedCash)})
                   </button>
                 </div>
                 <input
@@ -2560,7 +2788,7 @@ export const POSView: React.FC = () => {
                         : 'عجز نقدي بالصندوق (Shortage):'}
                     </span>
                     <span className="font-mono tabular-nums text-sm" dir="ltr">
-                      {diff > 0 ? `+${diff.toFixed(2)}` : diff.toFixed(2)} {currency}
+                      {diff > 0 ? `+${formatCleanNumber(diff)}` : formatCleanNumber(diff)} {currency}
                     </span>
                   </div>
                 );
@@ -2612,7 +2840,7 @@ export const POSView: React.FC = () => {
                       setIsCloseShiftModalOpen(false);
                       showBanner(
                         'success',
-                        `تم فتح وردية كاشير جديدة بعهدة افتتاحية ${newShiftStartingFloat.toFixed(2)} ${currency}`
+                        `تم فتح وردية كاشير جديدة بعهدة افتتاحية ${formatCleanNumber(newShiftStartingFloat)} ${currency}`
                       );
                     }}
                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg shadow-2xs transition cursor-pointer"
@@ -2633,7 +2861,7 @@ export const POSView: React.FC = () => {
                       showBanner(
                         'success',
                         autoOpenNewShift
-                          ? `تم إغلاق الوردية السابقة بنجاح وفتح وردية جديدة بعهدة ${newShiftStartingFloat.toLocaleString()} ${currency}`
+                          ? `تم إغلاق الوردية السابقة بنجاح وفتح وردية جديدة بعهدة ${formatCleanNumber(newShiftStartingFloat)} ${currency}`
                           : 'تم إغلاق وتسليم وردية الكاشير بنجاح (Z-Report)'
                       );
                     }}

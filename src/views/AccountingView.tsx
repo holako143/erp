@@ -1874,7 +1874,7 @@ export const AccountingView: React.FC = () => {
                       <CheckCircle2 className="w-4 h-4" /> Balanced ✅
                     </span>
                   ) : (
-                    <span>Diff: {liveCheck.difference.toFixed(2)} ❌</span>
+                    <span>Diff: {(Math.round(liveCheck.difference * 100) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })} ❌</span>
                   )}
                 </div>
               </div>

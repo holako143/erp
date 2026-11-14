@@ -1301,3 +1301,102 @@ export function processFastStockTakeScan(params: {
     },
   };
 }
+
+// ============================================================================
+// PRODUCT IMAGE & ILLUSTRATION ENGINE (FOR POS & INVENTORY)
+// ============================================================================
+
+export const PRESET_PRODUCT_ILLUSTRATIONS: {
+  id: string;
+  labelAr: string;
+  subCategory: ElectronicsSubCategory;
+  dataUri: string;
+}[] = [
+  {
+    id: 'preset-solar-panel',
+    labelAr: 'لوح طاقة شمسية N-Type',
+    subCategory: 'SOLAR_PANEL',
+    dataUri: `data:image/svg+xml;utf8,${encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#f0f9ff"/><stop offset="100%" stop-color="#e0f2fe"/></linearGradient><linearGradient id="pnl" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#0f172a"/><stop offset="50%" stop-color="#1e3a8a"/><stop offset="100%" stop-color="#172554"/></linearGradient></defs><rect width="320" height="180" rx="16" fill="url(#bg)"/><circle cx="275" cy="36" r="18" fill="#f59e0b" opacity="0.9"/><circle cx="275" cy="36" r="25" fill="#fbbf24" opacity="0.25"/><g transform="translate(65, 22) skewX(-10)"><rect x="0" y="0" width="175" height="132" rx="6" fill="url(#pnl)" stroke="#94a3b8" stroke-width="3"/><line x1="44" y1="0" x2="44" y2="132" stroke="#38bdf8" stroke-width="1.2" opacity="0.55"/><line x1="88" y1="0" x2="88" y2="132" stroke="#38bdf8" stroke-width="1.2" opacity="0.55"/><line x1="132" y1="0" x2="132" y2="132" stroke="#38bdf8" stroke-width="1.2" opacity="0.55"/><line x1="0" y1="33" x2="175" y2="33" stroke="#cbd5e1" stroke-width="1" opacity="0.45"/><line x1="0" y1="66" x2="175" y2="66" stroke="#cbd5e1" stroke-width="1" opacity="0.45"/><line x1="0" y1="99" x2="175" y2="99" stroke="#cbd5e1" stroke-width="1" opacity="0.45"/></g><rect x="16" y="142" width="92" height="22" rx="6" fill="#0284c7"/><text x="62" y="157" text-anchor="middle" fill="#ffffff" font-family="monospace" font-size="11" font-weight="bold">BIFACIAL PV</text></svg>`
+    )}`,
+  },
+  {
+    id: 'preset-hybrid-inverter',
+    labelAr: 'إنفرتر طاقة هجين MPPT',
+    subCategory: 'HYBRID_INVERTER',
+    dataUri: `data:image/svg+xml;utf8,${encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#f8fafc"/><stop offset="100%" stop-color="#e2e8f0"/></linearGradient></defs><rect width="320" height="180" rx="16" fill="url(#bg)"/><rect x="95" y="16" width="130" height="148" rx="12" fill="#ffffff" stroke="#334155" stroke-width="3"/><rect x="105" y="26" width="110" height="22" rx="4" fill="#0f172a"/><text x="160" y="41" text-anchor="middle" fill="#38bdf8" font-family="monospace" font-size="10" font-weight="bold">HYBRID MPPT</text><rect x="118" y="58" width="84" height="50" rx="6" fill="#022c22" stroke="#10b981" stroke-width="2"/><text x="160" y="81" text-anchor="middle" fill="#34d399" font-family="monospace" font-size="14" font-weight="bold">230V AC</text><text x="160" y="98" text-anchor="middle" fill="#a7f3d0" font-family="monospace" font-size="9">PV 48V • PURE SINE</text><circle cx="135" cy="126" r="5" fill="#10b981"/><circle cx="160" cy="126" r="5" fill="#3b82f6"/><circle cx="185" cy="126" r="5" fill="#f59e0b"/><rect x="115" y="146" width="22" height="10" rx="2" fill="#334155"/><rect x="149" y="146" width="22" height="10" rx="2" fill="#334155"/><rect x="183" y="146" width="22" height="10" rx="2" fill="#334155"/></svg>`
+    )}`,
+  },
+  {
+    id: 'preset-lithium-battery',
+    labelAr: 'بطارية ليثيوم LiFePO4',
+    subCategory: 'LITHIUM_BATTERY',
+    dataUri: `data:image/svg+xml;utf8,${encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ecfdf5"/><stop offset="100%" stop-color="#d1fae5"/></linearGradient></defs><rect width="320" height="180" rx="16" fill="url(#bg)"/><rect x="65" y="28" width="190" height="124" rx="12" fill="#0f172a" stroke="#059669" stroke-width="3"/><rect x="82" y="44" width="76" height="42" rx="6" fill="#064e3b" stroke="#10b981" stroke-width="1.5"/><text x="120" y="66" text-anchor="middle" fill="#34d399" font-family="monospace" font-size="13" font-weight="bold">LiFePO4</text><text x="120" y="79" text-anchor="middle" fill="#a7f3d0" font-family="monospace" font-size="9">6000 CYCLES</text><rect x="174" y="46" width="62" height="12" rx="4" fill="#10b981"/><rect x="174" y="64" width="62" height="12" rx="4" fill="#10b981"/><rect x="174" y="82" width="48" height="12" rx="4" fill="#34d399"/><circle cx="95" cy="118" r="9" fill="#ef4444"/><circle cx="225" cy="118" r="9" fill="#3b82f6"/><text x="160" y="122" text-anchor="middle" fill="#e2e8f0" font-family="monospace" font-size="11" font-weight="bold">48V / 51.2V BMS</text></svg>`
+    )}`,
+  },
+  {
+    id: 'preset-gel-battery',
+    labelAr: 'بطارية جل أنبوبية Deep Cycle',
+    subCategory: 'GEL_BATTERY',
+    dataUri: `data:image/svg+xml;utf8,${encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180"><rect width="320" height="180" rx="16" fill="#fef3c7"/><rect x="92" y="30" width="26" height="14" rx="3" fill="#dc2626"/><rect x="202" y="30" width="26" height="14" rx="3" fill="#2563eb"/><rect x="65" y="42" width="190" height="112" rx="10" fill="#1e293b" stroke="#d97706" stroke-width="3"/><rect x="85" y="60" width="150" height="52" rx="6" fill="#f59e0b"/><text x="160" y="84" text-anchor="middle" fill="#0f172a" font-family="monospace" font-size="15" font-weight="bold">DEEP CYCLE GEL</text><text x="160" y="102" text-anchor="middle" fill="#1e293b" font-family="monospace" font-size="11" font-weight="bold">12V 200Ah SOLAR</text></svg>`
+    )}`,
+  },
+  {
+    id: 'preset-smart-screen',
+    labelAr: 'شاشة ذكية 4K QLED / OLED',
+    subCategory: 'SMART_SCREEN',
+    dataUri: `data:image/svg+xml;utf8,${encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180"><defs><linearGradient id="scr" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1e1b4b"/><stop offset="50%" stop-color="#312e81"/><stop offset="100%" stop-color="#0f172a"/></linearGradient></defs><rect width="320" height="180" rx="16" fill="#eef2ff"/><rect x="52" y="22" width="216" height="118" rx="8" fill="url(#scr)" stroke="#0f172a" stroke-width="4"/><circle cx="115" cy="80" r="34" fill="#6366f1" opacity="0.45"/><circle cx="195" cy="75" r="42" fill="#ec4899" opacity="0.35"/><text x="160" y="82" text-anchor="middle" fill="#ffffff" font-family="monospace" font-size="18" font-weight="bold">4K ULTRA HD</text><text x="160" y="102" text-anchor="middle" fill="#a5b4fc" font-family="monospace" font-size="10">QLED • 120Hz • SMART TV</text><path d="M130 140 L115 158 L205 158 L190 140 Z" fill="#334155"/></svg>`
+    )}`,
+  },
+  {
+    id: 'preset-computing-mobile',
+    labelAr: 'حواسيب وتجهيزات تقنية',
+    subCategory: 'COMPUTING_MOBILE',
+    dataUri: `data:image/svg+xml;utf8,${encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180"><rect width="320" height="180" rx="16" fill="#f1f5f9"/><rect x="78" y="28" width="164" height="102" rx="8" fill="#0f172a" stroke="#475569" stroke-width="3"/><rect x="88" y="38" width="144" height="82" rx="4" fill="#1e293b"/><text x="160" y="80" text-anchor="middle" fill="#38bdf8" font-family="monospace" font-size="14" font-weight="bold">PRO WORKSTATION</text><text x="160" y="98" text-anchor="middle" fill="#94a3b8" font-family="monospace" font-size="10">CORE ULTRA • SSD NVMe</text><path d="M56 130 L264 130 L278 146 L42 146 Z" fill="#64748b"/></svg>`
+    )}`,
+  },
+  {
+    id: 'preset-solar-accessory',
+    labelAr: 'لوحة قواطع وحماية DC / SPD',
+    subCategory: 'SOLAR_ACCESSORY',
+    dataUri: `data:image/svg+xml;utf8,${encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180"><rect width="320" height="180" rx="16" fill="#f8fafc"/><rect x="80" y="22" width="160" height="136" rx="10" fill="#ffffff" stroke="#475569" stroke-width="3"/><rect x="100" y="46" width="32" height="64" rx="4" fill="#e2e8f0" stroke="#64748b" stroke-width="1.5"/><rect x="144" y="46" width="32" height="64" rx="4" fill="#e2e8f0" stroke="#64748b" stroke-width="1.5"/><rect x="188" y="46" width="32" height="64" rx="4" fill="#fee2e2" stroke="#ef4444" stroke-width="1.5"/><rect x="106" y="72" width="20" height="12" rx="2" fill="#0f172a"/><rect x="150" y="72" width="20" height="12" rx="2" fill="#0f172a"/><rect x="194" y="72" width="20" height="12" rx="2" fill="#dc2626"/><text x="160" y="138" text-anchor="middle" fill="#0f172a" font-family="monospace" font-size="11" font-weight="bold">1000V DC COMBINER</text></svg>`
+    )}`,
+  },
+];
+
+export function getProductVisualIllustrationUri(product: {
+  imageUrl?: string;
+  subCategory?: ElectronicsSubCategory;
+  categoryId?: string;
+  sku?: string;
+  nameAr?: string;
+}): string {
+  if (product.imageUrl && product.imageUrl.trim().length > 0) {
+    return product.imageUrl.trim();
+  }
+  const sub = product.subCategory;
+  const matchedPreset = PRESET_PRODUCT_ILLUSTRATIONS.find((p) => p.subCategory === sub);
+  if (matchedPreset) return matchedPreset.dataUri;
+
+  const skuUpper = (product.sku || '').toUpperCase();
+  if (skuUpper.includes('INV')) return PRESET_PRODUCT_ILLUSTRATIONS[1].dataUri;
+  if (skuUpper.includes('BAT-GEL')) return PRESET_PRODUCT_ILLUSTRATIONS[3].dataUri;
+  if (skuUpper.includes('BAT')) return PRESET_PRODUCT_ILLUSTRATIONS[2].dataUri;
+  if (skuUpper.includes('TV') || skuUpper.includes('SCR') || skuUpper.includes('MON')) {
+    return PRESET_PRODUCT_ILLUSTRATIONS[4].dataUri;
+  }
+  if (skuUpper.includes('LAP') || skuUpper.includes('POS')) {
+    return PRESET_PRODUCT_ILLUSTRATIONS[5].dataUri;
+  }
+  if (skuUpper.includes('ACC') || skuUpper.includes('DC')) {
+    return PRESET_PRODUCT_ILLUSTRATIONS[6].dataUri;
+  }
+  return PRESET_PRODUCT_ILLUSTRATIONS[0].dataUri;
+}
+

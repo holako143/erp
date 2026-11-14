@@ -338,9 +338,16 @@ export const SettingsView: React.FC = () => {
     paperWidth: '80mm' | '58mm';
   }[] = [
     {
+      id: 'thermal_80mm_onyx_pos',
+      titleAr: 'قالب كاشير أونكس برو التجاري — اليمن (Onyx POS 80mm)',
+      descAr: 'تصميم أونكس برو المعتمد لمعارض الطاقة الشمسية والتجارة في اليمن مع تفقيط وباركود Code-128 وQR.',
+      categoryBadge: 'أونكس برو اليمن (الأشهر)',
+      paperWidth: '80mm',
+    },
+    {
       id: 'thermal_80mm_standard',
       titleAr: 'قالب كاشير قياسي 80mm',
-      descAr: 'تصميم تقليدي متين لمعارض التجزئة والتجارة مع باركود ورمز ZATCA ضريبي مباشر.',
+      descAr: 'تصميم تقليدي متين لمعارض التجزئة والتجارة مع باركود ورمز QR ضريبي مباشر.',
       categoryBadge: 'تجزئة وتجارة عامة',
       paperWidth: '80mm',
     },
@@ -387,6 +394,18 @@ export const SettingsView: React.FC = () => {
     descAr: string;
     badgeAr: string;
   }[] = [
+    {
+      id: 'a4_onyx_yemen',
+      titleAr: 'فاتورة أونكس برو التجارية المعتمدة — اليمن (Onyx Pro Yemen A4)',
+      descAr: 'التصميم الرسمي الأشهر في اليمن بترويسة مزدوجة، تفقيط المبلغ بالحروف، وحسابات بنك الكريمي والتضامن.',
+      badgeAr: 'أونكس برو اليمن (الأشهر)',
+    },
+    {
+      id: 'a4_global_sap_odoo',
+      titleAr: 'الفاتورة التجارية العالمية الموحدة (SAP / Odoo Global B2B A4)',
+      descAr: 'قالب دولي ثنائي اللغة (عربي/إنجليزي) بمعايير SAP وOdoo العالمية مع باركود Code-128 وQR.',
+      badgeAr: 'عالمي SAP / Odoo',
+    },
     {
       id: 'a4_corporate_classic',
       titleAr: 'فاتورة الشركات والمؤسسات الرسمية (Corporate Classic A4)',

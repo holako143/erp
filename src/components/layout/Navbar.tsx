@@ -464,7 +464,7 @@ export const Navbar: React.FC = () => {
 
   return (
     <header
-      className={`h-14 border-b px-5 flex items-center justify-between shrink-0 z-30 transition-colors duration-200 relative ${
+      className={`h-13 sm:h-14 border-b px-2.5 sm:px-5 flex items-center justify-between gap-2 shrink-0 z-30 transition-colors duration-200 relative ${
         isDark
           ? 'bg-[#0B111E] border-slate-800/90 text-slate-100'
           : isSand
@@ -473,7 +473,7 @@ export const Navbar: React.FC = () => {
       }`}
     >
       {/* Right: Brand Identity & Active Module Badge (7 Rapid Clicks opens Security & Permissions) */}
-      <div className="flex items-center gap-3 shrink-0">
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0 min-w-0">
         <div
           data-testid="haseb-brand-identity"
           onClick={handleBrandRapidClick}
@@ -482,24 +482,24 @@ export const Navbar: React.FC = () => {
               ? 'حاسب ERP (انقر للرئيسية • 7 نقرات متتالية سريعة لفتح مركز الأمان والصلاحيات)'
               : 'Haseb ERP (Click for POS • 7 rapid clicks for Security & Permissions)'
           }
-          className="flex items-center gap-2.5 cursor-pointer group select-none"
+          className="flex items-center gap-2 cursor-pointer group select-none min-w-0"
         >
-          <div className="w-8 h-8 rounded-xl bg-slate-900 flex items-center justify-center text-white font-bold text-sm shadow-xs group-active:scale-95 transition-transform">
+          <div className="w-8 h-8 rounded-xl bg-slate-900 flex items-center justify-center text-white font-bold text-sm shadow-xs group-active:scale-95 transition-transform shrink-0">
             ح
           </div>
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-sm tracking-tight text-slate-900 dark:text-white">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+            <span className="font-bold text-xs sm:text-sm tracking-tight text-slate-900 dark:text-white truncate">
               {language === 'ar' ? 'حاسب ERP' : 'Haseb ERP'}
             </span>
-            <span className="text-[11px] font-medium text-slate-500 bg-slate-100 dark:bg-slate-800 dark:text-slate-300 px-2 py-0.5 rounded-full">
+            <span className="text-[10px] sm:text-[11px] font-medium text-slate-500 bg-slate-100 dark:bg-slate-800 dark:text-slate-300 px-2 py-0.5 rounded-full truncate max-w-[95px] sm:max-w-none">
               {currentTabBadge}
             </span>
           </div>
         </div>
       </div>
 
-      {/* Center: Global Search Bar (Rounded Full Pill with Ctrl + K) */}
-      <div className="flex-1 max-w-xl mx-6">
+      {/* Center: Global Search Bar (Full Pill on md+, Compact Trigger on Mobile) */}
+      <div className="hidden md:block flex-1 max-w-xl mx-3 lg:mx-6">
         <button
           type="button"
           onClick={() => {
@@ -534,8 +534,27 @@ export const Navbar: React.FC = () => {
         </button>
       </div>
 
-      {/* Left: Notifications Bell, Logged-in Membership Capsule, and Close Shift Action */}
-      <div className="flex items-center gap-2.5 shrink-0 relative">
+      {/* Left: Mobile Search Button, Notifications Bell, Logged-in Membership Capsule */}
+      <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0 relative">
+        {/* Mobile Quick Search Trigger (< md) */}
+        <button
+          type="button"
+          onClick={() => {
+            setActivePopover(closeAllPopovers());
+            closeLanPortal();
+            closeQuickSendModal();
+            setIsCommandPaletteOpen(true);
+          }}
+          title={language === 'ar' ? 'بحث سريع (Ctrl+K)' : 'Quick Search'}
+          className={`md:hidden flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-full border transition cursor-pointer ${
+            isDark
+              ? 'bg-slate-900 border-slate-700 text-slate-200'
+              : 'bg-slate-50 hover:bg-slate-100 border-slate-200/80 text-slate-700'
+          }`}
+        >
+          <Search className="w-4 h-4" />
+        </button>
+
         {/* System Notifications Bell Button (Anchored Downward Dropdown) */}
         <div ref={notificationsContainerRef} className="relative">
           <button
@@ -553,7 +572,7 @@ export const Navbar: React.FC = () => {
                 ? `مركز الإشعارات والتنبيهات التشغيلية (${totalAlertsCount})`
                 : `System Notifications (${totalAlertsCount})`
             }
-            className={`relative flex items-center justify-center w-9 h-9 rounded-full border transition cursor-pointer ${
+            className={`relative flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-full border transition cursor-pointer ${
               isNotificationsOpen
                 ? 'bg-slate-900 border-slate-900 text-white shadow-2xs'
                 : isDark
@@ -594,7 +613,7 @@ export const Navbar: React.FC = () => {
                 ? `العضوية الحالية: ${currentAccount.nameAr} — التحكم السريع والمظهر والخطوط والحجم`
                 : `Current Account: ${currentAccount.name} — Quick Controls, Themes, Fonts & Scale`
             }
-            className={`flex items-center gap-2 pl-2.5 pr-1 py-1 rounded-full border transition cursor-pointer ${
+            className={`flex items-center gap-1.5 sm:gap-2 pl-2 sm:pl-2.5 pr-1 py-1 rounded-full border transition cursor-pointer ${
               isProfileMenuOpen
                 ? isDark
                   ? 'bg-slate-800 border-blue-500 text-white'
@@ -613,12 +632,12 @@ export const Navbar: React.FC = () => {
             <div className="text-[11px] leading-none flex items-center gap-1.5">
               <span
                 data-testid="navbar-logged-in-account-name"
-                className="font-semibold text-slate-700 dark:text-slate-200 max-w-[160px] truncate"
+                className="font-semibold text-slate-700 dark:text-slate-200 max-w-[85px] sm:max-w-[160px] truncate"
               >
                 {cleanAccountName}
               </span>
-              <span className="text-slate-300">•</span>
-              <span className="text-slate-500 font-mono" dir="ltr">
+              <span className="hidden sm:inline text-slate-300">•</span>
+              <span className="hidden sm:inline text-slate-500 font-mono" dir="ltr">
                 @{currentAccount.username}
               </span>
             </div>

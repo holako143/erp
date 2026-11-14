@@ -2879,3 +2879,42 @@ test('Track 35: Yemeni Rial (YER) default currency, Yemeni banks in Double-Entry
     false
   );
 });
+
+test('Track 36: Clean number formatting without .00, Product visual illustration resolution, and ISO QR Code matrix', async () => {
+  const { formatCleanNumber, formatCurrencyAmount } = await import('./systemConfigEngine');
+  const { getProductVisualIllustrationUri } = await import('./inventoryEngine');
+  const { generateGeneralQRCodeMatrix } = await import('./communicationsEngine');
+
+  // 1. Clean number formatting strips .00 on integers and preserves non-zero decimals
+  assert.equal(formatCleanNumber(485), '485');
+  assert.equal(formatCleanNumber(4850.0), '4,850');
+  assert.equal(formatCleanNumber(0), '0');
+  assert.equal(formatCleanNumber(485.5), '485.5');
+  assert.equal(formatCleanNumber(485.75), '485.75');
+  assert.ok(!formatCurrencyAmount(485, 'YER', 'ar').includes('.00'));
+  assert.ok(!formatCurrencyAmount(6750, 'SAR', 'ar').includes('.00'));
+
+  // 2. Product visual illustration returns custom imageUrl when attached, or category SVG preset
+  const customImgUri = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+  assert.equal(
+    getProductVisualIllustrationUri({
+      sku: 'SOL-PNL-585W',
+      nameAr: 'لوح طاقة شمسية',
+      imageUrl: customImgUri,
+    }),
+    customImgUri
+  );
+  const autoSvg = getProductVisualIllustrationUri({
+    sku: 'SOL-INV-DEYE8K',
+    nameAr: 'إنفرتر هجين Deye 8kW',
+  });
+  assert.ok(autoSvg.startsWith('data:image/svg+xml;utf8,'));
+
+  // 3. Invoice QR matrix has 25x25 modules with 3 standard 7x7 finder patterns
+  const qrMatrix = generateGeneralQRCodeMatrix('INV-2026-1001|TOTAL:485|YER', 25);
+  assert.equal(qrMatrix.length, 25);
+  assert.equal(qrMatrix[0][0], true);
+  assert.equal(qrMatrix[0][24], true);
+  assert.equal(qrMatrix[24][0], true);
+});
+

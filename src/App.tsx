@@ -367,12 +367,12 @@ const MainLayout: React.FC = () => {
           <div className="flex-1 min-h-0 flex w-full overflow-hidden">
             {isAuthenticated && <Sidebar />}
             <main
-              className={`flex-1 min-w-0 min-h-0 ${
+              className={`flex-1 min-w-0 min-h-0 pb-16 lg:pb-0 ${
                 activeTab === 'pos'
                   ? 'overflow-hidden flex flex-col'
                   : uiDensity === 'compact'
-                  ? 'overflow-y-auto p-3 sm:p-4'
-                  : 'overflow-y-auto p-4 sm:p-5'
+                  ? 'overflow-y-auto p-2.5 sm:p-4'
+                  : 'overflow-y-auto p-3 sm:p-5'
               }`}
             >
               <Profiler id={activeTab} onRender={handleViewRenderProfile}>
