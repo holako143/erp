@@ -12,7 +12,7 @@ import { OfflineIndicator } from './components/layout/PWAInstallBanner';
 import { LoginGate } from './components/security/LoginGate';
 import { HardwareLockModal } from './components/security/HardwareLockModal';
 import { QuickSendModal } from './components/messaging/QuickSendModal';
-import { ShieldAlert, Wifi, Keyboard } from 'lucide-react';
+import { ShieldAlert, MessageSquare, Send, Zap } from 'lucide-react';
 
 // Views
 import { DashboardView } from './views/DashboardView';
@@ -57,7 +57,14 @@ const MainLayout: React.FC = () => {
     openLanPortal,
     isOnboardingOpen,
     closeOnboarding,
+    setIsCommandPaletteOpen,
+    openQuickSendModal,
+    whatsappAccounts,
   } = useERP();
+
+  const connectedWhatsAppCount = whatsappAccounts.filter(
+    (acc) => acc.session.status === 'CONNECTED'
+  ).length;
 
   // Global Anti-Theft Source Code Protection Shield & Fast Keyboard Shortcuts
   useEffect(() => {
@@ -149,11 +156,89 @@ const MainLayout: React.FC = () => {
       }
     };
 
+    // Universal Click-Outside & Escape Dismissal for all Modal Backdrops across the App
+    const triggerModalDismissButton = (backdropEl: HTMLElement) => {
+      // Do not auto-dismiss mandatory security lock screen
+      if (backdropEl.hasAttribute('data-mandatory-lock')) return;
+      const buttons = Array.from(backdropEl.querySelectorAll('button'));
+      const closeBtn = buttons.find((btn) => {
+        const testId = (btn.getAttribute('data-testid') || '').toLowerCase();
+        const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
+        const title = (btn.getAttribute('title') || '').toLowerCase();
+        const text = (btn.textContent || '').trim();
+        if (
+          testId.includes('close') ||
+          testId.includes('cancel') ||
+          ariaLabel.includes('إغلاق') ||
+          ariaLabel.includes('close') ||
+          title.includes('إغلاق') ||
+          title.includes('close')
+        ) {
+          return true;
+        }
+        if (
+          text === '✕' ||
+          text === '×' ||
+          text === 'إغلاق' ||
+          text === 'إلغاء' ||
+          text === 'إغلاق النافذة' ||
+          text === 'Cancel' ||
+          text === 'Close'
+        ) {
+          return true;
+        }
+        // Check if button only contains an X icon (lucide-x)
+        if (text === '' && btn.querySelector('svg.lucide-x')) {
+          return true;
+        }
+        return false;
+      });
+      if (closeBtn) {
+        closeBtn.click();
+      }
+    };
+
+    const handleGlobalModalBackdropPointerDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      if (
+        target.classList &&
+        target.classList.contains('fixed') &&
+        target.classList.contains('inset-0')
+      ) {
+        // Defer slightly so explicit React onMouseDown handlers run first without double-firing
+        setTimeout(() => {
+          if (document.body.contains(target)) {
+            triggerModalDismissButton(target);
+          }
+        }, 10);
+      }
+    };
+
+    const handleGlobalEscapeDismiss = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const openBackdrops = Array.from(
+        document.querySelectorAll<HTMLElement>('div.fixed.inset-0')
+      );
+      if (openBackdrops.length > 0) {
+        const topmostBackdrop = openBackdrops[openBackdrops.length - 1];
+        setTimeout(() => {
+          if (document.body.contains(topmostBackdrop)) {
+            triggerModalDismissButton(topmostBackdrop);
+          }
+        }, 10);
+      }
+    };
+
     window.addEventListener('contextmenu', handleContextMenu);
     window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleGlobalEscapeDismiss);
+    document.addEventListener('mousedown', handleGlobalModalBackdropPointerDown);
     return () => {
       window.removeEventListener('contextmenu', handleContextMenu);
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keydown', handleGlobalEscapeDismiss);
+      document.removeEventListener('mousedown', handleGlobalModalBackdropPointerDown);
     };
   }, [
     antiTheftShieldEnabled,
@@ -281,23 +366,23 @@ const MainLayout: React.FC = () => {
             </main>
           </div>
 
-          {/* Minimal Bottom Shortcuts Bar (Matches Lumina / Haseb ERP Reference) */}
+          {/* Bottom Shortcuts & WhatsApp Bar (Lumina / Haseb ERP Reference) */}
           {masterSystemConfig.uiElementsVisibility.showKeyboardShortcutsBar && (
             <footer
               data-testid="keyboard-shortcuts-bar"
-              className={`hidden lg:flex shrink-0 items-center justify-between px-5 h-8 border-t text-[11px] select-none z-30 ${
+              className={`hidden lg:flex shrink-0 items-center justify-between px-5 h-9 border-t text-[11px] select-none z-30 ${
                 uiTheme === 'obsidian_dark'
                   ? 'bg-[#080c14] border-slate-800 text-slate-400'
                   : 'bg-white border-slate-200/70 text-slate-500'
               }`}
             >
-              <div className="flex items-center gap-4 text-slate-500">
+              <div className="flex items-center gap-3.5 text-slate-500 overflow-x-auto no-scrollbar">
                 <button
                   type="button"
                   onClick={() => setActiveTab('pos')}
-                  className="flex items-center gap-1.5 hover:text-slate-800 transition cursor-pointer"
+                  className="flex items-center gap-1.5 hover:text-slate-900 dark:hover:text-white transition cursor-pointer shrink-0"
                 >
-                  <kbd className="px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-mono font-semibold text-slate-600">
+                  <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-[10px] font-mono font-semibold text-slate-600 dark:text-slate-300">
                     F1
                   </kbd>
                   <span>{language === 'ar' ? 'مسح الباركود' : 'Scan Barcode'}</span>
@@ -305,9 +390,9 @@ const MainLayout: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setActiveTab('pos')}
-                  className="flex items-center gap-1.5 hover:text-slate-800 transition cursor-pointer"
+                  className="flex items-center gap-1.5 hover:text-slate-900 dark:hover:text-white transition cursor-pointer shrink-0"
                 >
-                  <kbd className="px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-mono font-semibold text-slate-600">
+                  <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-[10px] font-mono font-semibold text-slate-600 dark:text-slate-300">
                     F2
                   </kbd>
                   <span>{language === 'ar' ? 'نقطة البيع' : 'POS'}</span>
@@ -315,12 +400,32 @@ const MainLayout: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setActiveTab('inventory')}
-                  className="flex items-center gap-1.5 hover:text-slate-800 transition cursor-pointer"
+                  className="flex items-center gap-1.5 hover:text-slate-900 dark:hover:text-white transition cursor-pointer shrink-0"
                 >
-                  <kbd className="px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-mono font-semibold text-slate-600">
+                  <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-[10px] font-mono font-semibold text-slate-600 dark:text-slate-300">
                     F3
                   </kbd>
                   <span>{language === 'ar' ? 'المخزون' : 'Inventory'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('sales')}
+                  className="flex items-center gap-1.5 hover:text-slate-900 dark:hover:text-white transition cursor-pointer shrink-0"
+                >
+                  <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-[10px] font-mono font-semibold text-slate-600 dark:text-slate-300">
+                    F4
+                  </kbd>
+                  <span>{language === 'ar' ? 'المبيعات' : 'Sales'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('accounting')}
+                  className="flex items-center gap-1.5 hover:text-slate-900 dark:hover:text-white transition cursor-pointer shrink-0"
+                >
+                  <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-[10px] font-mono font-semibold text-slate-600 dark:text-slate-300">
+                    F7
+                  </kbd>
+                  <span>{language === 'ar' ? 'المحاسبة' : 'Accounting'}</span>
                 </button>
                 <button
                   type="button"
@@ -328,20 +433,80 @@ const MainLayout: React.FC = () => {
                     setActiveTab('pos');
                     window.dispatchEvent(new CustomEvent('haseb-trigger-pos-checkout'));
                   }}
-                  className="flex items-center gap-1.5 cursor-pointer"
+                  className="flex items-center gap-1.5 cursor-pointer shrink-0"
                 >
-                  <kbd className="px-1.5 py-0.5 bg-slate-900 rounded text-[10px] font-mono font-semibold text-white">
+                  <kbd className="px-1.5 py-0.5 bg-slate-900 dark:bg-blue-600 rounded text-[10px] font-mono font-semibold text-white">
                     F9
                   </kbd>
-                  <span className="font-semibold text-slate-700 dark:text-slate-200">
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">
                     {language === 'ar' ? 'الدفع الفوري' : 'Instant Pay'}
                   </span>
                 </button>
+
+                <span className="h-3.5 w-px bg-slate-200 dark:bg-slate-800 shrink-0" />
+
+                {/* Quick Shortcut Launcher Button */}
+                <button
+                  type="button"
+                  data-testid="footer-quick-action-btn"
+                  onClick={() => setIsCommandPaletteOpen(true)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold transition cursor-pointer shrink-0"
+                  title={language === 'ar' ? 'فتح لوحة الاختصارات السريعة (Ctrl+K)' : 'Quick Action Palette (Ctrl+K)'}
+                >
+                  <Zap className="w-3 h-3 text-amber-500" />
+                  <span>{language === 'ar' ? 'اختصار سريع' : 'Quick Action'}</span>
+                  <kbd className="px-1 py-0.2 bg-white dark:bg-slate-900 rounded text-[9px] font-mono text-slate-500 border border-slate-200/70 dark:border-slate-700">
+                    Ctrl+K
+                  </kbd>
+                </button>
               </div>
 
-              <div className="flex items-center gap-3 text-slate-400">
+              <div className="flex items-center gap-2.5 text-slate-400 shrink-0">
+                {/* WhatsApp Station Shortcut in Bottom Bar */}
+                <button
+                  type="button"
+                  data-testid="footer-whatsapp-hub-btn"
+                  onClick={() => setActiveTab('communications')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold transition cursor-pointer ${
+                    activeTab === 'communications'
+                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                      : 'bg-emerald-50/90 hover:bg-emerald-100/80 text-emerald-700 border-emerald-200/80 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800/60'
+                  }`}
+                  title={language === 'ar' ? 'فتح خدمات التواصل ومحطة واتساب' : 'Open WhatsApp & Communications'}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <MessageSquare className="w-3 h-3" />
+                  <span>{language === 'ar' ? 'واتساب' : 'WhatsApp'}</span>
+                  <span className="font-mono text-[10px] opacity-85">({connectedWhatsAppCount})</span>
+                </button>
+
+                {/* Instant WhatsApp Send Modal Trigger */}
+                <button
+                  type="button"
+                  data-testid="footer-whatsapp-quick-send-btn"
+                  onClick={() =>
+                    openQuickSendModal({
+                      recipientName: language === 'ar' ? 'عميل مباشر' : 'Direct Customer',
+                      recipientPhone: '+967771234567',
+                      channel: 'WHATSAPP',
+                      category: 'CUSTOM_OPERATION',
+                      referenceNumber: `MSG-${Date.now().toString().slice(-4)}`,
+                      messageBody:
+                        language === 'ar'
+                          ? 'مرحباً بكم في مؤسسة حاسب للطاقة الشمسية والإلكترونيات الحديثة.'
+                          : 'Welcome to Haseb Solar & Modern Electronics.',
+                    })
+                  }
+                  className="flex items-center gap-1 px-2 py-1 rounded-full bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/70 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/70 dark:border-slate-700 text-[10px] font-medium transition cursor-pointer"
+                  title={language === 'ar' ? 'إرسال رسالة واتساب فورية' : 'Instant WhatsApp Message'}
+                >
+                  <Send className="w-2.5 h-2.5 text-emerald-600" />
+                  <span>{language === 'ar' ? 'إرسال فوري' : 'Quick Send'}</span>
+                </button>
+
+                <span className="text-slate-300 dark:text-slate-700">•</span>
                 <span>{language === 'ar' ? 'مستودع الطاقة الرئيسي' : 'Main Solar Warehouse'}</span>
-                <span>•</span>
+                <span className="text-slate-300 dark:text-slate-700">•</span>
                 <button
                   type="button"
                   onClick={openLanPortal}

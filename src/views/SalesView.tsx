@@ -266,31 +266,31 @@ export const SalesView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-5">
-      {/* Organized Header Card: Row 1 Title & Actions + Row 2 Sub-tabs & Workspace Resizer */}
-      <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200/90 dark:border-slate-800 shadow-2xs space-y-3.5">
+    <div className="space-y-4">
+      {/* Lumina POS-Style Header Card: Title, Primary Actions & Pill Sub-tabs */}
+      <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/70 dark:border-slate-800 shadow-2xs space-y-3">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100 tracking-tight flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-700 dark:text-blue-400 shrink-0">
-                <Receipt className="w-4 h-4" />
-              </div>
-              <span className="truncate">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
+              <Receipt className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 tracking-tight truncate">
                 {language === 'ar'
                   ? 'المبيعات والفواتير المعتمدة وأعمار الديون — نظام حاسب'
                   : 'Sales Invoices, Credit Aging & Customer Ledgers — Haseb ERP'}
-              </span>
-            </h1>
-            <p className="text-xs text-slate-500 mt-1 ps-10">
-              إصدار فواتير المبيعات وشهادات الضمان المعتمدة (معفاة من الضريبة 0%)، كشوف حسابات العملاء، تحليل أعمار الديون، وسندات القبض الفورية
-            </p>
+              </h1>
+              <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                إصدار فواتير المبيعات وشهادات الضمان المعتمدة (معفاة من الضريبة 0%)، كشوف حسابات العملاء، وسندات القبض الفورية
+              </p>
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={() => setIsNewInvoiceOpen(true)}
-              className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-3.5 py-2 rounded-lg flex items-center gap-1.5 shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
+              className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold px-4 py-2 rounded-xl flex items-center gap-1.5 shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
             >
               <Plus className="w-3.5 h-3.5 shrink-0" />
               <span>إصدار فاتورة مبيعات</span>
@@ -299,25 +299,25 @@ export const SalesView: React.FC = () => {
             <button
               type="button"
               onClick={() => setIsNewCustomerOpen(true)}
-              className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-3.5 py-2 rounded-lg flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200/80 text-xs font-semibold px-3.5 py-2 rounded-xl flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
-              <Users className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <Users className="w-3.5 h-3.5 text-slate-600 shrink-0" />
               <span>إضافة عميل</span>
             </button>
           </div>
         </div>
 
-        {/* Row 2: Segmented Sub-tabs + Resizable Split-Pane Controls */}
+        {/* Row 2: POS-Style Rounded-Full Sub-tabs + Resizable Split-Pane Controls */}
         <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-col xl:flex-row xl:items-center justify-between gap-2.5">
-          <div className="flex flex-wrap items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-300">
+          <div className="flex items-center gap-1.5 flex-wrap text-xs">
             <button
               type="button"
               data-testid="sales-tab-invoices"
               onClick={() => setActiveTab('invoices')}
-              className={`erp-resizable-tab px-3 py-1.5 rounded-md transition cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`erp-resizable-tab px-4 py-1.5 rounded-full border transition cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'invoices'
-                  ? 'bg-blue-600 text-white shadow-2xs'
-                  : 'hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
               سجل الفواتير ({salesInvoices.length})
@@ -326,10 +326,10 @@ export const SalesView: React.FC = () => {
               type="button"
               data-testid="sales-tab-pipeline"
               onClick={() => setActiveTab('pipeline')}
-              className={`erp-resizable-tab px-3 py-1.5 rounded-md transition cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`erp-resizable-tab px-4 py-1.5 rounded-full border transition cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'pipeline'
-                  ? 'bg-blue-600 text-white shadow-2xs'
-                  : 'hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
               عروض الأسعار وأوامر البيع ({salesPipelineDocs.length})
@@ -338,10 +338,10 @@ export const SalesView: React.FC = () => {
               type="button"
               data-testid="sales-tab-returns"
               onClick={() => setActiveTab('returns')}
-              className={`erp-resizable-tab px-3 py-1.5 rounded-md transition cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`erp-resizable-tab px-4 py-1.5 rounded-full border transition cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'returns'
-                  ? 'bg-blue-600 text-white shadow-2xs'
-                  : 'hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
               المرتجعات وإشعارات الدائن ({salesReturns.length})
@@ -350,10 +350,10 @@ export const SalesView: React.FC = () => {
               type="button"
               data-testid="sales-tab-warranty"
               onClick={() => setActiveTab('warranty')}
-              className={`erp-resizable-tab px-3 py-1.5 rounded-md transition cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`erp-resizable-tab px-4 py-1.5 rounded-full border transition cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'warranty'
-                  ? 'bg-blue-600 text-white shadow-2xs'
-                  : 'hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
               الضمان والصيانة RMA ({warrantyTickets.length})
@@ -362,10 +362,10 @@ export const SalesView: React.FC = () => {
               type="button"
               data-testid="sales-tab-aging"
               onClick={() => setActiveTab('aging')}
-              className={`erp-resizable-tab px-3 py-1.5 rounded-md transition cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`erp-resizable-tab px-4 py-1.5 rounded-full border transition cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'aging'
-                  ? 'bg-blue-600 text-white shadow-2xs'
-                  : 'hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
               أعمار الديون وسندات القبض
@@ -374,10 +374,10 @@ export const SalesView: React.FC = () => {
               type="button"
               data-testid="sales-tab-customers"
               onClick={() => setActiveTab('customers')}
-              className={`erp-resizable-tab px-3 py-1.5 rounded-md transition cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`erp-resizable-tab px-4 py-1.5 rounded-full border transition cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'customers'
-                  ? 'bg-blue-600 text-white shadow-2xs'
-                  : 'hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
               دليل العملاء ({customers.length})
@@ -395,23 +395,23 @@ export const SalesView: React.FC = () => {
       </div>
 
       {activeTab === 'invoices' && (
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
-          {/* Invoices List (Resizable Split Pane) */}
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
+          {/* Invoices List (Resizable Split Pane - Lumina Card) */}
           <div
             data-testid="sales-invoices-list-pane"
-            className={`${salesSplitLayout.primaryColClass} bg-white rounded-xl border border-slate-200/90 overflow-hidden transition-all duration-200`}
+            className={`${salesSplitLayout.primaryColClass} bg-white rounded-2xl border border-slate-200/70 shadow-2xs overflow-hidden transition-all duration-200`}
           >
-            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
               <span className="font-bold text-xs text-slate-800">
-                قائمة الفواتير الضريبية الصادرة
+                قائمة الفواتير الصادرة المعتمدة
               </span>
-              <span className="text-[11px] font-mono text-slate-500">
+              <span className="text-[11px] font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
                 {salesInvoices.length} مستند
               </span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs text-start">
-                <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
+                <thead className="bg-slate-50/80 text-slate-500 font-semibold border-b border-slate-100">
                   <tr>
                     <th className="py-2.5 px-3 text-start">رقم الفاتورة</th>
                     <th className="py-2.5 px-3 text-start">العميل</th>
@@ -426,8 +426,8 @@ export const SalesView: React.FC = () => {
                       <tr
                         key={inv.id}
                         onClick={() => setSelectedInvoice(inv)}
-                        className={`hover:bg-slate-50 cursor-pointer transition ${
-                          isSelected ? 'bg-blue-50/70' : ''
+                        className={`hover:bg-slate-50/80 cursor-pointer transition ${
+                          isSelected ? 'bg-slate-100/80' : ''
                         }`}
                       >
                         <td className="py-2.5 px-3">
@@ -443,8 +443,8 @@ export const SalesView: React.FC = () => {
                           {inv.grandTotal.toLocaleString()} {currency}
                         </td>
                         <td className="py-2.5 px-3 text-center">
-                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700">
-                            <span className="w-1.5 h-1.5 rounded-full bg-blue-600" />
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/70 text-[10px] font-semibold">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                             {inv.status}
                           </span>
                         </td>
@@ -460,10 +460,10 @@ export const SalesView: React.FC = () => {
           {selectedInvoice && selectedInvoice.id && (
             <div
               data-testid="sales-invoice-preview-pane"
-              className={`${salesSplitLayout.secondaryColClass} bg-slate-100 p-4 rounded-xl border border-slate-200 space-y-4 transition-all duration-200`}
+              className={`${salesSplitLayout.secondaryColClass} bg-white p-4 rounded-2xl border border-slate-200/70 shadow-2xs space-y-4 transition-all duration-200`}
             >
               {/* Template Selector Bar */}
-              <div className="bg-white p-3 rounded-md border border-slate-200 flex flex-wrap items-center justify-between gap-2">
+              <div className="bg-slate-50/80 p-3 rounded-xl border border-slate-200/70 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-1.5 text-xs">
                   <FileText className="w-4 h-4 text-slate-600 me-1" />
                   {[

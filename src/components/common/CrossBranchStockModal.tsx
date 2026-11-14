@@ -65,21 +65,26 @@ export const CrossBranchStockModal: React.FC = () => {
   return (
     <div
       data-testid="cross-branch-stock-modal"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-fadeIn"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) {
+          closeCrossBranchModal();
+        }
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-fadeIn"
     >
-      <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh]">
-        {/* Modal Header */}
-        <div className="px-6 py-4 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-indigo-500/20 text-indigo-400 rounded-xl border border-indigo-500/30">
-              <Network className="w-6 h-6 animate-pulse" />
+      <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-200/90 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh] text-slate-800 dark:text-slate-100">
+        {/* Lumina POS-Style Modal Header */}
+        <div className="px-5 py-4 bg-slate-50/90 dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 bg-slate-900 text-white rounded-xl flex items-center justify-center shrink-0 shadow-2xs">
+              <Network className="w-5 h-5" />
             </div>
-            <div>
-              <h3 className="text-lg font-black tracking-tight">
+            <div className="min-w-0">
+              <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white tracking-tight">
                 فحص توفر الصنف في شبكة الفروع (LAN & WAN Stock Probe)
               </h3>
-              <p className="text-xs text-indigo-200 mt-0.5">
-                استعلام لحظي عن المخزون عبر الشبكة المحلية والربط السحابي بدون انقطاع
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                استعلام لحظي عن المخزون عبر الشبكة المحلية والربط الفوري بين المستودعات
               </p>
             </div>
           </div>
@@ -88,14 +93,14 @@ export const CrossBranchStockModal: React.FC = () => {
             type="button"
             data-testid="btn-close-branch-modal"
             onClick={closeCrossBranchModal}
-            className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition cursor-pointer"
+            className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition cursor-pointer shrink-0"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Modal Body */}
-        <div className="p-6 overflow-y-auto space-y-6">
+        <div className="p-5 overflow-y-auto space-y-5 bg-[#F8FAFC] dark:bg-slate-950">
           {/* Target Product Info Banner */}
           <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700/60 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">

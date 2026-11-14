@@ -339,26 +339,31 @@ export const QuickSendModal: React.FC = () => {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4"
       data-testid="quick-send-modal"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) {
+          closeQuickSendModal();
+        }
+      }}
     >
-      <div className="bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden text-slate-100">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-l from-emerald-950/90 via-slate-900 to-cyan-950/90 border-b border-slate-800">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
-              <MessageSquare className="w-6 h-6" />
+      <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden text-slate-800 dark:text-slate-100">
+        {/* Lumina POS-Style Header */}
+        <div className="flex items-center justify-between px-5 py-4 bg-slate-50/90 dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
+              <MessageSquare className="w-5 h-5" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold text-white">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white tracking-tight">
                   مركز الإرسال الموحد عبر الرقم (واتساب WhatsApp & رسائل نصية SMS)
                 </h2>
-                <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                <span className="px-2.5 py-0.5 text-[11px] font-semibold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/80 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800">
                   متصل بالنظام المحاسبي
                 </span>
               </div>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
                 إرسال الفواتير، كشوف المديونيات، سندات القبض، إشعارات الصيانة، والتقارير المالية مباشرة لأي رقم هاتف محلي أو دولي
               </p>
             </div>
@@ -368,23 +373,23 @@ export const QuickSendModal: React.FC = () => {
             onClick={closeQuickSendModal}
             data-testid="close-quick-send-modal-btn"
             aria-label="إغلاق نافذة الإرسال"
-            className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+            className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition cursor-pointer shrink-0"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="flex items-center justify-between px-6 py-2.5 bg-slate-950/60 border-b border-slate-800 text-xs font-semibold">
-          <div className="flex items-center gap-2">
+        {/* POS-Style Rounded-Full Pill Navigation Sub-Tabs */}
+        <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-2.5 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 text-xs shrink-0">
+          <div className="flex flex-wrap items-center gap-1.5">
             <button
               type="button"
               onClick={() => setActiveTab('COMPOSE')}
               data-testid="tab-msg-compose"
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg transition ${
+              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full border transition cursor-pointer ${
                 activeTab === 'COMPOSE'
-                  ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
               <Send className="w-3.5 h-3.5" />
@@ -394,10 +399,10 @@ export const QuickSendModal: React.FC = () => {
               type="button"
               onClick={() => setActiveTab('HISTORY')}
               data-testid="tab-msg-history"
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg transition ${
+              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full border transition cursor-pointer ${
                 activeTab === 'HISTORY'
-                  ? 'bg-cyan-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
               <History className="w-3.5 h-3.5" />
@@ -407,10 +412,10 @@ export const QuickSendModal: React.FC = () => {
               type="button"
               onClick={() => setActiveTab('SETTINGS')}
               data-testid="tab-msg-settings"
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg transition ${
+              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full border transition cursor-pointer ${
                 activeTab === 'SETTINGS'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
               <Settings className="w-3.5 h-3.5" />
@@ -418,31 +423,31 @@ export const QuickSendModal: React.FC = () => {
             </button>
           </div>
 
-          <div className="flex items-center gap-2 text-[11px] text-slate-400">
-            <ShieldCheck className="w-4 h-4 text-emerald-400" />
+          <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 px-3 py-1 rounded-full border border-slate-200/70 dark:border-slate-700">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
             <span>المفتاح الدولي الافتراضي: {messagingGatewayConfig.defaultCountryDialCode}</span>
           </div>
         </div>
 
         {/* Body Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+        <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-[#F8FAFC] dark:bg-slate-950">
           {activeTab === 'COMPOSE' && (
             <>
               {/* Feedback Banner */}
               {feedbackBanner && (
                 <div
                   data-testid="msg-dispatch-success-banner"
-                  className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                  className={`p-3.5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
                     feedbackBanner.type === 'success'
-                      ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-200'
-                      : 'bg-rose-950/60 border-rose-500/40 text-rose-200'
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-900 dark:bg-emerald-950/60 dark:border-emerald-800 dark:text-emerald-200'
+                      : 'bg-rose-50 border-rose-200 text-rose-900 dark:bg-rose-950/60 dark:border-rose-800 dark:text-rose-200'
                   }`}
                 >
-                  <div className="flex items-center gap-2.5 text-sm font-medium">
+                  <div className="flex items-center gap-2.5 text-xs font-bold">
                     {feedbackBanner.type === 'success' ? (
-                      <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                      <CheckCircle2 className="w-4.5 h-4.5 text-emerald-600 shrink-0" />
                     ) : (
-                      <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
+                      <AlertTriangle className="w-4.5 h-4.5 text-rose-600 shrink-0" />
                     )}
                     <span>{feedbackBanner.text}</span>
                   </div>
@@ -454,10 +459,10 @@ export const QuickSendModal: React.FC = () => {
                           closeQuickSendModal();
                           setGlobalErpTab('communications');
                         }}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition cursor-pointer"
+                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition cursor-pointer shadow-2xs"
                       >
                         <MessageSquare className="w-3.5 h-3.5" />
-                        <span>عرض المحادثة داخل محطة واتساب بالنظام</span>
+                        <span>عرض المحادثة داخل خدمات التواصل</span>
                       </button>
                     </div>
                   )}
@@ -467,23 +472,27 @@ export const QuickSendModal: React.FC = () => {
               {/* Top Row: Channel Selection & Template Type */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Channel & Multi-Account Selector */}
-                <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
+                <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-2xs space-y-3">
                   <div>
-                    <label className="block text-xs font-bold text-slate-400 mb-2">
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
                       1. اختر قناة الإرسال للرقم المستهدف (داخلي 100%)
                     </label>
-                    <div className="grid grid-cols-2 gap-2.5">
+                    <div className="grid grid-cols-2 gap-2">
                       <button
                         type="button"
                         onClick={() => setChannel('WHATSAPP')}
                         data-testid="msg-channel-whatsapp"
                         className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-bold transition cursor-pointer ${
                           channel === 'WHATSAPP'
-                            ? 'bg-emerald-600/20 border-emerald-500 text-emerald-300 shadow-sm'
-                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                            ? 'bg-slate-900 border-slate-900 text-white shadow-2xs'
+                            : 'bg-slate-50 dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100'
                         }`}
                       >
-                        <MessageSquare className="w-4 h-4 text-emerald-400" />
+                        <MessageSquare
+                          className={`w-4 h-4 ${
+                            channel === 'WHATSAPP' ? 'text-emerald-400' : 'text-emerald-600'
+                          }`}
+                        />
                         <span>واتساب مدمج بالنظام</span>
                       </button>
                       <button
@@ -492,11 +501,15 @@ export const QuickSendModal: React.FC = () => {
                         data-testid="msg-channel-sms"
                         className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-bold transition cursor-pointer ${
                           channel === 'SMS'
-                            ? 'bg-cyan-600/20 border-cyan-500 text-cyan-300 shadow-sm'
-                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                            ? 'bg-slate-900 border-slate-900 text-white shadow-2xs'
+                            : 'bg-slate-50 dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100'
                         }`}
                       >
-                        <Smartphone className="w-4 h-4 text-cyan-400" />
+                        <Smartphone
+                          className={`w-4 h-4 ${
+                            channel === 'SMS' ? 'text-sky-400' : 'text-blue-600'
+                          }`}
+                        />
                         <span>رسالة نصية للرقم (SMS)</span>
                       </button>
                     </div>
@@ -504,13 +517,13 @@ export const QuickSendModal: React.FC = () => {
 
                   {channel === 'WHATSAPP' && (
                     <div>
-                      <label className="block text-[11px] font-bold text-emerald-400 mb-1">
+                      <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
                         حساب الواتساب المرسل منه داخل النظام:
                       </label>
                       <select
                         value={activeWhatsAppAccountId}
                         onChange={(e) => switchWhatsAppAccount(e.target.value)}
-                        className="w-full bg-slate-900 border border-emerald-500/40 rounded-lg px-2.5 py-1.5 text-xs text-white font-bold focus:outline-none"
+                        className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-slate-100 font-bold focus:outline-none focus:border-slate-900"
                       >
                         {whatsappAccounts.map((acc) => (
                           <option key={acc.id} value={acc.id}>
@@ -524,8 +537,8 @@ export const QuickSendModal: React.FC = () => {
                 </div>
 
                 {/* Category / Operation Preset Selector */}
-                <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4">
-                  <label className="block text-xs font-bold text-slate-400 mb-2">
+                <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-2xs">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
                     2. نوع العملية وصيغة إرسال الفاتورة (حسب اختيارك)
                   </label>
                   <div className="space-y-2.5">
@@ -545,10 +558,10 @@ export const QuickSendModal: React.FC = () => {
                           type="button"
                           onClick={() => handleApplyTemplatePreset(item.id)}
                           data-testid={`msg-preset-${item.id}`}
-                          className={`px-2 py-1 rounded-lg text-[11px] font-semibold border transition ${
+                          className={`px-3 py-1 rounded-full text-[11px] font-semibold border transition cursor-pointer ${
                             category === item.id
-                              ? 'bg-indigo-600/25 border-indigo-500 text-indigo-300'
-                              : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                              ? 'bg-slate-900 border-slate-900 text-white shadow-2xs'
+                              : 'bg-slate-50 dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100'
                           }`}
                         >
                           {item.label}
@@ -557,9 +570,11 @@ export const QuickSendModal: React.FC = () => {
                     </div>
 
                     {category === 'INVOICE' && (
-                      <div className="p-2 bg-slate-900/90 rounded-lg border border-slate-700/80 flex items-center justify-between text-xs">
-                        <span className="text-slate-400 font-bold">صيغة إرسال الفاتورة:</span>
-                        <div className="flex items-center gap-1">
+                      <div className="p-2.5 bg-slate-50 dark:bg-slate-800/80 rounded-xl border border-slate-200/80 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <span className="text-slate-600 dark:text-slate-300 font-bold text-[11px]">
+                          صيغة إرسال الفاتورة:
+                        </span>
+                        <div className="flex flex-wrap items-center gap-1">
                           {[
                             { id: 'TEXT_ONLY', label: 'نص مفصل' },
                             { id: 'IMAGE_SNAPSHOT', label: 'صورة معتمدة' },
@@ -570,10 +585,10 @@ export const QuickSendModal: React.FC = () => {
                               key={fmt.id}
                               type="button"
                               onClick={() => setAttachmentFormat(fmt.id as any)}
-                              className={`px-2 py-0.5 rounded text-[10px] font-bold transition ${
+                              className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold transition cursor-pointer border ${
                                 attachmentFormat === fmt.id
-                                  ? 'bg-emerald-600 text-white'
-                                  : 'bg-slate-800 text-slate-400 hover:text-white'
+                                  ? 'bg-slate-900 border-slate-900 text-white'
+                                  : 'bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100'
                               }`}
                             >
                               {fmt.label}
@@ -587,9 +602,9 @@ export const QuickSendModal: React.FC = () => {
               </div>
 
               {/* Quick Autofill from Existing Customers or Invoices */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-950/40 border border-slate-800/80 rounded-xl p-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-2xs">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1.5">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                     اختيار سريع من دليل العملاء (لتعبئة الاسم والرقم تلقائياً)
                   </label>
                   <select
@@ -597,7 +612,7 @@ export const QuickSendModal: React.FC = () => {
                     onChange={(e) => handleSelectCustomer(e.target.value)}
                     data-testid="msg-customer-select"
                     aria-label="اختيار عميل"
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-slate-100 focus:border-slate-900 focus:bg-white focus:outline-none"
                   >
                     <option value="">-- اختر عميلاً من قاعدة البيانات أو أدخل الرقم يدوياً --</option>
                     {customers.map((c) => (
@@ -609,7 +624,7 @@ export const QuickSendModal: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1.5">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                     أو اختيار فاتورة مبيعات لتوليد نص الفاتورة والضمان فوراً
                   </label>
                   <select
@@ -617,7 +632,7 @@ export const QuickSendModal: React.FC = () => {
                     onChange={(e) => handleSelectInvoice(e.target.value)}
                     data-testid="msg-invoice-select"
                     aria-label="اختيار فاتورة"
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-slate-100 focus:border-slate-900 focus:bg-white focus:outline-none"
                   >
                     <option value="">-- اختر فاتورة من السجل --</option>
                     {salesInvoices.map((inv) => (
@@ -630,30 +645,30 @@ export const QuickSendModal: React.FC = () => {
               </div>
 
               {/* Recipient Name, Phone Number, and Reference Number */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-2xs">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                     اسم المستلم / العميل
                   </label>
                   <div className="relative">
-                    <User className="w-4 h-4 text-slate-500 absolute right-3 top-2.5" />
+                    <User className="w-4 h-4 text-slate-400 absolute right-3 top-2.5" />
                     <input
                       type="text"
                       value={recipientName}
                       onChange={(e) => setRecipientName(e.target.value)}
                       data-testid="msg-recipient-name-input"
                       placeholder="مثال: شركة البناء الحديث / م. سالم"
-                      className="w-full bg-slate-950 border border-slate-700 rounded-lg pr-9 pl-3 py-2 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 rounded-xl pr-9 pl-3 py-2 text-xs text-slate-900 dark:text-white focus:border-slate-900 focus:bg-white focus:outline-none"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                     رقم الجوال / الواتساب (محلي أو دولي) *
                   </label>
                   <div className="relative">
-                    <Phone className="w-4 h-4 text-emerald-400 absolute right-3 top-2.5" />
+                    <Phone className="w-4 h-4 text-emerald-600 absolute right-3 top-2.5" />
                     <input
                       type="text"
                       dir="ltr"
@@ -661,7 +676,7 @@ export const QuickSendModal: React.FC = () => {
                       onChange={(e) => setRecipientPhone(e.target.value)}
                       data-testid="msg-recipient-phone-input"
                       placeholder="771234567 أو +966501234567"
-                      className="w-full bg-slate-950 border border-slate-700 rounded-lg pr-9 pl-3 py-2 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 rounded-xl pr-9 pl-3 py-2 text-xs text-slate-900 dark:text-white font-mono focus:border-slate-900 focus:bg-white focus:outline-none"
                     />
                   </div>
                   {/* Normalized Phone Preview Badge */}
@@ -671,15 +686,15 @@ export const QuickSendModal: React.FC = () => {
                   >
                     {protocolLinks.valid ? (
                       <>
-                        <span className="text-emerald-400 font-mono font-bold" dir="ltr">
+                        <span className="text-emerald-700 dark:text-emerald-400 font-mono font-bold" dir="ltr">
                           {protocolLinks.normalized.e164Phone}
                         </span>
-                        <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/80 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800 text-[10px] font-semibold">
                           {countryLabelMap[protocolLinks.normalized.countryDetected]}
                         </span>
                       </>
                     ) : (
-                      <span className="text-amber-400">
+                      <span className="text-amber-600 dark:text-amber-400 font-medium">
                         {protocolLinks.normalized.errorAr || 'أدخل رقم الهاتف لتفعيل روابط الإرسال'}
                       </span>
                     )}
@@ -687,37 +702,37 @@ export const QuickSendModal: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                     رقم المرجع (فاتورة / سند / تذكرة)
                   </label>
                   <div className="relative">
-                    <FileText className="w-4 h-4 text-slate-500 absolute right-3 top-2.5" />
+                    <FileText className="w-4 h-4 text-slate-400 absolute right-3 top-2.5" />
                     <input
                       type="text"
                       value={referenceNumber}
                       onChange={(e) => setReferenceNumber(e.target.value)}
                       data-testid="msg-reference-input"
                       placeholder="INV-2026-1001"
-                      className="w-full bg-slate-950 border border-slate-700 rounded-lg pr-9 pl-3 py-2 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 rounded-xl pr-9 pl-3 py-2 text-xs text-slate-900 dark:text-white font-mono focus:border-slate-900 focus:bg-white focus:outline-none"
                     />
                   </div>
                 </div>
               </div>
 
               {/* Message Body Editor */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-2xs">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
                     <span>نص الرسالة الجاهزة للإرسال (قابل للتعديل الفوري)</span>
                   </label>
-                  <div className="flex items-center gap-3 text-[11px] text-slate-400">
+                  <div className="flex items-center gap-3 text-[11px] text-slate-500">
                     <span>عدد الأحرف: {messageBody.length}</span>
                     <span>شرائح SMS: {smsSegments}</span>
                     <button
                       type="button"
                       onClick={handleCopyMessage}
-                      className="inline-flex items-center gap-1 text-cyan-400 hover:text-cyan-300 font-semibold"
+                      className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-semibold cursor-pointer"
                     >
                       <Copy className="w-3 h-3" />
                       <span>{copiedFlag ? 'تم النسخ!' : 'نسخ النص'}</span>
@@ -725,17 +740,17 @@ export const QuickSendModal: React.FC = () => {
                   </div>
                 </div>
                 <textarea
-                  rows={8}
+                  rows={7}
                   value={messageBody}
                   onChange={(e) => setMessageBody(e.target.value)}
                   data-testid="msg-body-textarea"
                   placeholder="اكتب نص الفاتورة أو الإشعار المراد إرساله..."
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-xs text-slate-100 leading-relaxed focus:border-emerald-500 focus:outline-none font-sans"
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200/90 dark:border-slate-700 rounded-xl p-3.5 text-xs text-slate-900 dark:text-slate-100 leading-relaxed focus:border-slate-900 focus:bg-white focus:outline-none font-sans"
                 />
               </div>
 
               {/* Action Buttons Bar */}
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-800">
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-200/80 dark:border-slate-800">
                 <div className="flex flex-wrap items-center gap-2">
                   {/* Direct In-App WhatsApp Chat Dispatch & Open */}
                   {protocolLinks.valid && (
@@ -747,7 +762,7 @@ export const QuickSendModal: React.FC = () => {
                         setGlobalErpTab('communications');
                       }}
                       data-testid="msg-direct-whatsapp-link"
-                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 text-xs font-bold transition cursor-pointer"
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-200/90 text-emerald-700 dark:bg-emerald-950/60 dark:border-emerald-800 dark:text-emerald-300 text-xs font-bold transition cursor-pointer"
                     >
                       <MessageSquare className="w-4 h-4" />
                       <span>إرسال وفتح المحادثة داخل النظام فوراً ({protocolLinks.normalized.e164Phone})</span>
@@ -763,27 +778,28 @@ export const QuickSendModal: React.FC = () => {
                         await handleDispatchMessage(false);
                       }}
                       data-testid="msg-direct-sms-link"
-                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/40 text-cyan-300 text-xs font-bold transition cursor-pointer"
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200/90 text-slate-700 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200 text-xs font-bold transition cursor-pointer"
                     >
-                      <Smartphone className="w-4 h-4" />
+                      <Smartphone className="w-4 h-4 text-blue-600" />
                       <span>إرسال فوري عبر جسر الرسائل بالنظام (SMS)</span>
                     </button>
                   )}
                 </div>
 
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={closeQuickSendModal}
-                    className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition"
+                    className="px-4 py-2 rounded-xl bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200/90 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold transition cursor-pointer"
                   >
                     إلغاء
                   </button>
                   <button
                     type="button"
+                    disabled={isSending}
                     onClick={() => handleDispatchMessage(false)}
                     data-testid="msg-dispatch-gateway-btn"
-                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-l from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/20 transition"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-2xs transition cursor-pointer disabled:opacity-50"
                   >
                     <Send className="w-4 h-4" />
                     <span>
@@ -798,18 +814,18 @@ export const QuickSendModal: React.FC = () => {
           )}
 
           {activeTab === 'HISTORY' && (
-            <div className="space-y-3" data-testid="msg-history-list">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-2xs space-y-3" data-testid="msg-history-list">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-white">
+                <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
                   سجل الإشعارات والفواتير المرسلة عبر واتساب و SMS ({outboundMessages.length})
                 </h3>
-                <span className="text-xs text-slate-400">
+                <span className="text-[11px] text-slate-500">
                   يتم الحفظ الفوري في قاعدة البيانات وسجل المراجعة
                 </span>
               </div>
-              <div className="overflow-x-auto border border-slate-800 rounded-xl">
+              <div className="overflow-x-auto border border-slate-200/80 dark:border-slate-800 rounded-xl">
                 <table className="w-full text-right text-xs">
-                  <thead className="bg-slate-950 text-slate-400 border-b border-slate-800">
+                  <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-b border-slate-200/80 dark:border-slate-800 font-bold">
                     <tr>
                       <th className="py-2.5 px-3">القناة</th>
                       <th className="py-2.5 px-3">التصنيف</th>
@@ -821,31 +837,31 @@ export const QuickSendModal: React.FC = () => {
                       <th className="py-2.5 px-3">إجراء سريع</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/70">
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
                     {outboundMessages.map((msg) => (
-                      <tr key={msg.id} className="hover:bg-slate-800/40">
+                      <tr key={msg.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
                         <td className="py-2.5 px-3">
                           <span
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
                               msg.channel === 'WHATSAPP'
-                                ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
-                                : 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200/80 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800'
+                                : 'bg-blue-50 text-blue-700 border-blue-200/80 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800'
                             }`}
                           >
                             {msg.channel === 'WHATSAPP' ? 'WhatsApp' : 'SMS'}
                           </span>
                         </td>
-                        <td className="py-2.5 px-3 text-slate-300 font-medium">{msg.category}</td>
-                        <td className="py-2.5 px-3 font-semibold text-white">{msg.recipientName}</td>
-                        <td className="py-2.5 px-3 font-mono text-emerald-400" dir="ltr">
+                        <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300 font-medium">{msg.category}</td>
+                        <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white">{msg.recipientName}</td>
+                        <td className="py-2.5 px-3 font-mono text-emerald-700 dark:text-emerald-400 font-semibold" dir="ltr">
                           {msg.normalizedPhone}
                         </td>
-                        <td className="py-2.5 px-3 font-mono text-slate-300">
+                        <td className="py-2.5 px-3 font-mono text-slate-600 dark:text-slate-300">
                           {msg.referenceNumber || '—'}
                         </td>
-                        <td className="py-2.5 px-3 text-slate-400 font-mono">{msg.sentAt}</td>
+                        <td className="py-2.5 px-3 text-slate-500 font-mono">{msg.sentAt}</td>
                         <td className="py-2.5 px-3">
-                          <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 text-[11px]">
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-[10px] font-semibold">
                             تم الإرسال ✓
                           </span>
                         </td>
@@ -861,7 +877,7 @@ export const QuickSendModal: React.FC = () => {
                               setMessageBody(msg.messageBody);
                               setActiveTab('COMPOSE');
                             }}
-                            className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[11px] font-semibold"
+                            className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-semibold cursor-pointer"
                           >
                             إعادة فتح وإرسال
                           </button>
@@ -877,12 +893,12 @@ export const QuickSendModal: React.FC = () => {
           {activeTab === 'SETTINGS' && (
             <div className="space-y-4" data-testid="msg-settings-panel">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
-                  <h4 className="text-xs font-bold text-emerald-400">
+                <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-2xs space-y-3">
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-white">
                     إعدادات الترقيم الدولي وبوابة الـ SMS
                   </h4>
                   <div>
-                    <label className="block text-xs text-slate-300 mb-1">
+                    <label className="block text-xs text-slate-600 dark:text-slate-300 font-medium mb-1">
                       مفتاح الدولة الافتراضي للأرقام المحلية
                     </label>
                     <select
@@ -892,7 +908,7 @@ export const QuickSendModal: React.FC = () => {
                       }
                       data-testid="msg-default-country-select"
                       aria-label="مفتاح الدولة الافتراضي"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white"
                     >
                       <option value="+967">اليمن (+967)</option>
                       <option value="+966">السعودية (+966)</option>
@@ -903,7 +919,7 @@ export const QuickSendModal: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="block text-xs text-slate-300 mb-1">
+                    <label className="block text-xs text-slate-600 dark:text-slate-300 font-medium mb-1">
                       اسم المرسل في الرسائل النصية (SMS Sender ID)
                     </label>
                     <input
@@ -912,12 +928,12 @@ export const QuickSendModal: React.FC = () => {
                       onChange={(e) =>
                         updateMessagingGatewayConfig({ smsSenderId: e.target.value })
                       }
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono"
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white font-mono"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs text-slate-300 mb-1">
+                    <label className="block text-xs text-slate-600 dark:text-slate-300 font-medium mb-1">
                       رقم جوال المدير العام لاستقبال التقارير المالية اليومية
                     </label>
                     <input
@@ -927,16 +943,16 @@ export const QuickSendModal: React.FC = () => {
                       onChange={(e) =>
                         updateMessagingGatewayConfig({ ownerReportPhone: e.target.value })
                       }
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono"
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white font-mono"
                     />
                   </div>
                 </div>
 
-                <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
-                  <h4 className="text-xs font-bold text-cyan-400">
+                <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-2xs space-y-3">
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-white">
                     خيارات تضمين تفاصيل الفاتورة والتوقيع
                   </h4>
-                  <label className="flex items-center gap-2.5 text-xs text-slate-200 cursor-pointer">
+                  <label className="flex items-center gap-2.5 text-xs text-slate-700 dark:text-slate-200 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={messagingGatewayConfig.autoIncludeInvoiceItems}
@@ -945,12 +961,12 @@ export const QuickSendModal: React.FC = () => {
                           autoIncludeInvoiceItems: e.target.checked,
                         })
                       }
-                      className="rounded border-slate-600 text-emerald-500"
+                      className="rounded border-slate-300 text-slate-900"
                     />
                     <span>إدراج جدول الأصناف والكميات داخل رسالة الفاتورة تلقائياً</span>
                   </label>
 
-                  <label className="flex items-center gap-2.5 text-xs text-slate-200 cursor-pointer">
+                  <label className="flex items-center gap-2.5 text-xs text-slate-700 dark:text-slate-200 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={messagingGatewayConfig.autoIncludeWarrantyTerms}
@@ -959,13 +975,13 @@ export const QuickSendModal: React.FC = () => {
                           autoIncludeWarrantyTerms: e.target.checked,
                         })
                       }
-                      className="rounded border-slate-600 text-emerald-500"
+                      className="rounded border-slate-300 text-slate-900"
                     />
                     <span>إدراج الرقم التسلسلي (S/N) وفترة الضمان للألواح والبطاريات والإلكترونيات</span>
                   </label>
 
                   <div>
-                    <label className="block text-xs text-slate-300 mb-1">
+                    <label className="block text-xs text-slate-600 dark:text-slate-300 font-medium mb-1">
                       التوقيع الرسمي في أسفل رسائل الواتساب والـ SMS
                     </label>
                     <input
@@ -974,7 +990,7 @@ export const QuickSendModal: React.FC = () => {
                       onChange={(e) =>
                         updateMessagingGatewayConfig({ customSignatureAr: e.target.value })
                       }
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white"
                     />
                   </div>
                 </div>

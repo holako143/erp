@@ -91,6 +91,7 @@ export const HardwareLockModal: React.FC = () => {
     <div
       dir={language === 'ar' ? 'rtl' : 'ltr'}
       data-testid="hardware-lock-modal"
+      data-mandatory-lock="true"
       className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md text-slate-100 overflow-y-auto flex items-center justify-center p-4 sm:p-6 select-none"
     >
       <div className="w-full max-w-4xl bg-slate-900 border-2 border-rose-500/60 rounded-3xl shadow-2xl overflow-hidden">

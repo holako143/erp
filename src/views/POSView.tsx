@@ -1519,16 +1519,23 @@ export const POSView: React.FC = () => {
           SOLAR ENERGY, HYBRID INVERTER & BATTERY BANK SIZING CALCULATOR MODAL
       ==================================================================== */}
       {isSolarCalcOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-md shadow-xl border border-slate-300 w-full max-w-3xl overflow-hidden">
-            <div className="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Sun className="w-5 h-5 text-teal-400" />
+        <div
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setIsSolarCalcOpen(false);
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4"
+        >
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-3xl overflow-hidden">
+            <div className="px-6 py-4 bg-slate-50/90 border-b border-slate-200/80 text-slate-900 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                  <Sun className="w-5 h-5" />
+                </div>
                 <div>
-                  <h3 className="font-bold text-sm">
+                  <h3 className="font-bold text-sm text-slate-900">
                     الحاسبة الهندسية لمنظومات الطاقة الشمسية والبطاريات والإنفرترات
                   </h3>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-slate-500">
                     حساب تلقائي لقدرة الإنفرتر الهجين، سعة بنك البطاريات (LiFePO4 / Gel)، وعدد الألواح الشمسية مع الإدراج المباشر للفاتورة
                   </p>
                 </div>
@@ -1536,7 +1543,7 @@ export const POSView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setIsSolarCalcOpen(false)}
-                className="text-slate-400 hover:text-white font-bold text-base cursor-pointer"
+                className="w-8 h-8 rounded-full border border-slate-200/80 bg-white hover:bg-slate-100 text-slate-500 hover:text-slate-900 flex items-center justify-center font-bold text-sm cursor-pointer transition"
               >
                 ✕
               </button>
@@ -1749,19 +1756,24 @@ export const POSView: React.FC = () => {
           PROFESSIONAL CHECKOUT & PAYMENT SETTLEMENT MODAL
       ==================================================================== */}
       {isCheckoutModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/65 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden">
-            {/* Executive Dark Header */}
-            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+        <div
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setIsCheckoutModalOpen(false);
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/65 backdrop-blur-xs p-4"
+        >
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-lg overflow-hidden">
+            {/* Lumina POS Light Header */}
+            <div className="px-6 py-4 bg-slate-50/90 border-b border-slate-200/80 text-slate-900 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
                   <CreditCard className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-sm sm:text-base">
+                  <h3 className="font-bold text-sm sm:text-base text-slate-900">
                     طريقة الدفع وإتمام العملية
                   </h3>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-slate-500">
                     {warrantyCustomerName.trim() ||
                       customers.find((c) => c.id === selectedCustomerId)?.nameAr ||
                       'عميل مبيعات نقدية'}{' '}
@@ -1772,7 +1784,7 @@ export const POSView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setIsCheckoutModalOpen(false)}
-                className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center font-bold transition cursor-pointer"
+                className="w-8 h-8 rounded-full border border-slate-200/80 bg-white hover:bg-slate-100 text-slate-500 hover:text-slate-900 flex items-center justify-center font-bold transition cursor-pointer"
               >
                 ✕
               </button>
@@ -2135,17 +2147,27 @@ export const POSView: React.FC = () => {
           MULTI-TEMPLATE RECEIPT & A4 INVOICE PREVIEW MODAL
       ==================================================================== */}
       {isReceiptModalOpen && completedInvoice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-4">
-          <div className="bg-slate-100 rounded-md shadow-xl border border-slate-300 w-full max-w-4xl max-h-[92vh] overflow-hidden flex flex-col">
-            {/* Top Template Switcher Toolbar */}
-            <div className="px-5 py-3.5 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <span className="font-bold text-sm">
-                  معاينة وطباعة الفاتورة وشهادة الضمان ({completedInvoice.invoiceNumber})
-                </span>
-                <p className="text-[11px] text-slate-400">
-                  اختر القالب المناسب للطباعة (حراري 80mm شهادة ضمان أو فاتورة ضريبية رسمية A4)
-                </p>
+        <div
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setIsReceiptModalOpen(false);
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-4"
+        >
+          <div className="bg-slate-50 rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-4xl max-h-[92vh] overflow-hidden flex flex-col">
+            {/* Top Template Switcher Toolbar (Lumina POS Theme) */}
+            <div className="px-6 py-4 bg-white border-b border-slate-200/80 text-slate-900 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                  <Printer className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="font-bold text-sm text-slate-900">
+                    معاينة وطباعة الفاتورة وشهادة الضمان ({completedInvoice.invoiceNumber})
+                  </span>
+                  <p className="text-[11px] text-slate-500">
+                    اختر القالب المناسب للطباعة (حراري 80mm شهادة ضمان أو فاتورة ضريبية رسمية A4)
+                  </p>
+                </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
@@ -2168,15 +2190,15 @@ export const POSView: React.FC = () => {
                         setSelectedA4Override(opt.tpl as StandardInvoiceTemplateType);
                       }
                     }}
-                    className={`px-2.5 py-1 rounded-sm font-bold cursor-pointer transition ${
+                    className={`px-3 py-1.5 rounded-full border font-bold cursor-pointer transition ${
                       (receiptViewMode === 'thermal' &&
                         (selectedThermalOverride || invoiceTemplateSettings.thermalTemplate) ===
                           opt.tpl) ||
                       (receiptViewMode === 'a4' &&
                         (selectedA4Override || invoiceTemplateSettings.standardTemplate) ===
                           opt.tpl)
-                        ? 'bg-teal-500 text-slate-950'
-                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
+                        : 'bg-white text-slate-600 border-slate-200/80 hover:border-slate-300 hover:bg-slate-50'
                     }`}
                   >
                     {opt.label}
@@ -2291,59 +2313,66 @@ export const POSView: React.FC = () => {
           KITCHEN DISPLAY SCREEN (KDS) MODAL FOR RESTAURANTS
       ==================================================================== */}
       {isKDSModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-4">
-          <div className="bg-slate-900 text-white rounded-md shadow-xl border border-slate-700 w-full max-w-4xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <ChefHat className="w-5 h-5 text-amber-400" />
-                <h3 className="font-bold text-base">
+        <div
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setIsKDSModalOpen(false);
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-4"
+        >
+          <div className="bg-white text-slate-900 rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-4xl overflow-hidden">
+            <div className="px-6 py-4 bg-slate-50/90 border-b border-slate-200/80 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                  <ChefHat className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-base text-slate-900">
                   شاشة المطبخ التفاعلية (Kitchen Display System - KDS)
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setIsKDSModalOpen(false)}
-                className="text-slate-400 hover:text-white font-bold text-lg cursor-pointer"
+                className="w-8 h-8 rounded-full border border-slate-200/80 bg-white hover:bg-slate-100 text-slate-500 hover:text-slate-900 flex items-center justify-center font-bold text-sm cursor-pointer transition"
               >
                 ✕
               </button>
             </div>
 
-            <div className="p-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 max-h-[75vh] overflow-y-auto">
+            <div className="p-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 max-h-[75vh] overflow-y-auto bg-slate-50/50">
               {kitchenTickets.map((ticket) => (
                 <div
                   key={ticket.id}
-                  className={`rounded-md border p-4 flex flex-col justify-between ${
+                  className={`rounded-2xl border p-4 flex flex-col justify-between bg-white shadow-2xs ${
                     ticket.status === 'PREPARING'
-                      ? 'bg-amber-950/40 border-amber-500/50'
+                      ? 'border-amber-300 ring-1 ring-amber-100'
                       : ticket.status === 'READY'
-                      ? 'bg-emerald-950/40 border-emerald-500/50'
-                      : 'bg-slate-800/50 border-slate-700 opacity-75'
+                      ? 'border-emerald-300 ring-1 ring-emerald-100'
+                      : 'border-slate-200 opacity-75'
                   }`}
                 >
                   <div>
-                    <div className="flex items-center justify-between border-b border-white/10 pb-2 mb-3">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-3">
                       <div>
-                        <span className="font-mono font-bold text-sm text-amber-300">
+                        <span className="font-mono font-bold text-sm text-amber-700">
                           {ticket.kotNumber}
                         </span>
-                        <div className="text-xs font-bold text-white mt-0.5">
+                        <div className="text-xs font-bold text-slate-900 mt-0.5">
                           طاولة: {ticket.tableNumber || 'سفري'} · {ticket.orderType}
                         </div>
                       </div>
-                      <span className="text-[10px] font-mono bg-white/10 px-2 py-0.5 rounded-xs flex items-center gap-1">
+                      <span className="text-[10px] font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full flex items-center gap-1">
                         <Clock className="w-3 h-3" /> {ticket.createdAt}
                       </span>
                     </div>
 
                     <div className="space-y-2 mb-4">
                       {ticket.items.map((it, i) => (
-                        <div key={i} className="text-xs bg-black/20 p-2 rounded-sm">
-                          <div className="font-bold text-white">
+                        <div key={i} className="text-xs bg-slate-50 border border-slate-200/60 p-2 rounded-xl">
+                          <div className="font-bold text-slate-900">
                             {it.qty} × {it.name}
                           </div>
                           {it.notes && (
-                            <div className="text-[10px] text-amber-300 mt-0.5">
+                            <div className="text-[10px] text-amber-700 mt-0.5">
                               ملاحظة: {it.notes}
                             </div>
                           )}
@@ -2356,7 +2385,7 @@ export const POSView: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => advanceKitchenTicket(ticket.id)}
-                      className={`w-full py-2 rounded-sm text-xs font-bold transition cursor-pointer ${
+                      className={`w-full py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
                         ticket.status === 'PREPARING'
                           ? 'bg-amber-600 hover:bg-amber-500 text-white'
                           : 'bg-emerald-600 hover:bg-emerald-500 text-white'
@@ -2367,7 +2396,7 @@ export const POSView: React.FC = () => {
                         : 'تم التقديم للطاولة (SERVED)'}
                     </button>
                   ) : (
-                    <div className="text-center text-xs font-bold text-emerald-400 flex items-center justify-center gap-1">
+                    <div className="text-center text-xs font-bold text-emerald-700 flex items-center justify-center gap-1">
                       <CheckCircle2 className="w-4 h-4" /> تم تقديم الطلب بنجاح
                     </div>
                   )}
@@ -2380,16 +2409,24 @@ export const POSView: React.FC = () => {
 
       {/* Close & Reconcile Shift Modal (Z-Report) */}
       {isCloseShiftModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-xl shadow-xl border border-slate-300 w-full max-w-md overflow-hidden">
-            <div className="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Lock className="w-4 h-4 text-emerald-400" />
+        <div
+          data-testid="pos-close-shift-modal-backdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setIsCloseShiftModalOpen(false);
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4"
+        >
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-md overflow-hidden">
+            <div className="px-5 py-4 bg-slate-50/90 border-b border-slate-200/80 text-slate-900 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                  <Lock className="w-4 h-4" />
+                </div>
                 <div>
-                  <h3 className="font-bold text-sm">
+                  <h3 className="font-bold text-sm text-slate-900">
                     إغلاق وتسليم وردية الكاشير (Z-Report)
                   </h3>
-                  <p className="text-[10px] text-slate-400">
+                  <p className="text-[10px] text-slate-500">
                     الكاشير: {currentShift.cashierName} • بداية الوردية: {currentShift.startTime}
                   </p>
                 </div>
@@ -2397,7 +2434,7 @@ export const POSView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setIsCloseShiftModalOpen(false)}
-                className="text-slate-400 hover:text-white font-bold text-base cursor-pointer"
+                className="w-8 h-8 rounded-full border border-slate-200/80 bg-white hover:bg-slate-100 text-slate-500 hover:text-slate-900 flex items-center justify-center font-bold text-sm cursor-pointer transition"
               >
                 ✕
               </button>

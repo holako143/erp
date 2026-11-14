@@ -69,7 +69,15 @@ export const CommandPalette: React.FC = () => {
   const ArrowIcon = direction === 'rtl' ? ArrowLeft : ArrowRight;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+    <div
+      data-testid="command-palette-backdrop"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) {
+          setIsCommandPaletteOpen(false);
+        }
+      }}
+      className="fixed inset-0 z-50 flex items-start justify-center pt-20 bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+    >
       <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden flex flex-col">
         {/* Input Header */}
         <div className="px-4 py-3 border-b border-slate-200 flex items-center gap-3">

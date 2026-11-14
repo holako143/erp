@@ -115,42 +115,58 @@ export const PurchasingView: React.FC = () => {
   const landedResults = allocateLandedCost(sampleLandedItems, totalExtraCosts, allocationMethod);
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-            <ShoppingCart className="w-6 h-6 text-teal-600" />
-            <span>{language === 'ar' ? 'المشتريات وسلسلة التوريد' : 'Purchasing & Procurement'}</span>
-          </h1>
-          <p className="text-xs text-slate-500 mt-1">
-            {language === 'ar'
-              ? 'أوامر الشراء، اعتمادات التوريد، فواتير الموردين، وتوزيع تكاليف الشحن والجمارك (Landed Cost)'
-              : 'Purchase orders, vendor bills, receiving workflows, and landed cost distribution'}
-          </p>
+    <div className="space-y-4">
+      {/* Header (Unified Lumina POS Theme) */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
+            <ShoppingCart className="w-5 h-5" />
+          </div>
+          <div>
+            <h1 className="text-base font-bold text-slate-900 tracking-tight">
+              {language === 'ar' ? 'المشتريات وسلسلة التوريد' : 'Purchasing & Procurement'}
+            </h1>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {language === 'ar'
+                ? 'أوامر الشراء، اعتمادات التوريد، فواتير الموردين، وتوزيع تكاليف الشحن والجمارك (Landed Cost)'
+                : 'Purchase orders, vendor bills, receiving workflows, and landed cost distribution'}
+            </p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* Sub tabs */}
-          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs font-bold text-slate-700">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Sub tabs (POS Rounded-Full Pills) */}
+          <div className="flex items-center gap-1.5 text-xs">
             <button
               type="button"
               onClick={() => setActiveTab('orders')}
-              className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${activeTab === 'orders' ? 'bg-white text-teal-700 shadow-2xs' : 'hover:text-slate-900'}`}
+              className={`px-3.5 py-1.5 rounded-full border transition cursor-pointer ${
+                activeTab === 'orders'
+                  ? 'bg-slate-900 text-white border-slate-900 font-semibold shadow-2xs'
+                  : 'bg-white text-slate-600 border-slate-200/80 hover:border-slate-300 font-medium'
+              }`}
             >
               {language === 'ar' ? 'أوامر الشراء' : 'Purchase Orders'}
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('suppliers')}
-              className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${activeTab === 'suppliers' ? 'bg-white text-teal-700 shadow-2xs' : 'hover:text-slate-900'}`}
+              className={`px-3.5 py-1.5 rounded-full border transition cursor-pointer ${
+                activeTab === 'suppliers'
+                  ? 'bg-slate-900 text-white border-slate-900 font-semibold shadow-2xs'
+                  : 'bg-white text-slate-600 border-slate-200/80 hover:border-slate-300 font-medium'
+              }`}
             >
               {language === 'ar' ? 'سجل الموردين' : 'Suppliers'}
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('landedCost')}
-              className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${activeTab === 'landedCost' ? 'bg-white text-teal-700 shadow-2xs' : 'hover:text-slate-900'}`}
+              className={`px-3.5 py-1.5 rounded-full border transition cursor-pointer ${
+                activeTab === 'landedCost'
+                  ? 'bg-slate-900 text-white border-slate-900 font-semibold shadow-2xs'
+                  : 'bg-white text-slate-600 border-slate-200/80 hover:border-slate-300 font-medium'
+              }`}
             >
               {language === 'ar' ? 'حاسبة التكاليف الإضافية' : 'Landed Costs'}
             </button>
@@ -159,7 +175,7 @@ export const PurchasingView: React.FC = () => {
           <button
             type="button"
             onClick={() => setIsNewPOModalOpen(true)}
-            className="bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold px-3.5 py-2.5 rounded-xl shadow-xs transition flex items-center gap-2 cursor-pointer"
+            className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-2 rounded-full shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>{language === 'ar' ? 'أمر شراء جديد (PO)' : 'New Purchase Order'}</span>
@@ -556,16 +572,21 @@ export const PurchasingView: React.FC = () => {
 
       {/* New Purchase Order Modal */}
       {isNewPOModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in fade-in duration-150">
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setIsNewPOModalOpen(false);
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4"
+        >
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-lg overflow-hidden animate-in fade-in duration-150">
+            <div className="px-6 py-4 bg-slate-50/90 border-b border-slate-200/80 flex items-center justify-between">
               <h3 className="font-bold text-base text-slate-900">
                 {language === 'ar' ? 'إصدار أمر شراء رسمي جديد (PO)' : 'Issue New Purchase Order'}
               </h3>
               <button
                 type="button"
                 onClick={() => setIsNewPOModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 font-bold text-lg"
+                className="w-8 h-8 rounded-full border border-slate-200/80 bg-white hover:bg-slate-100 text-slate-500 hover:text-slate-900 flex items-center justify-center font-bold text-sm cursor-pointer transition"
               >
                 ✕
               </button>

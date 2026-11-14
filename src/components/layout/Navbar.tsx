@@ -25,6 +25,13 @@ import {
 import { SystemNotificationCenterModal } from '../common/SystemNotificationCenterModal';
 import { generateSystemNotifications } from '../../core/notificationsEngine';
 import {
+  GlobalPopoverId,
+  derivePopoverFlags,
+  toggleExclusivePopover,
+  closeAllPopovers,
+  evaluateGlobalClickOutside,
+} from '../../core/globalPopoverManager';
+import {
   HASEB_SCALE_PRESETS,
   DEFAULT_FONT_SCALE,
   DEFAULT_WINDOW_SCALE,
@@ -117,6 +124,29 @@ export const HASEB_FONTS_LIST = [
 
 export type HasebFontId = (typeof HASEB_FONTS_LIST)[number]['id'];
 
+export interface NavbarOutsideDismissalInput {
+  isNotificationsOpen: boolean;
+  isProfileMenuOpen: boolean;
+  clickedInsideNotifications: boolean;
+  clickedInsideProfileMenu: boolean;
+}
+
+export function evaluateNavbarOutsideClickDismissal(input: NavbarOutsideDismissalInput): {
+  nextNotificationsOpen: boolean;
+  nextProfileMenuOpen: boolean;
+} {
+  return {
+    nextNotificationsOpen:
+      input.isNotificationsOpen && !input.clickedInsideNotifications
+        ? false
+        : input.isNotificationsOpen,
+    nextProfileMenuOpen:
+      input.isProfileMenuOpen && !input.clickedInsideProfileMenu
+        ? false
+        : input.isProfileMenuOpen,
+  };
+}
+
 export const Navbar: React.FC = () => {
   const {
     isAuthenticated,
@@ -125,6 +155,7 @@ export const Navbar: React.FC = () => {
     currency,
     setCurrency,
     t,
+    isCommandPaletteOpen,
     setIsCommandPaletteOpen,
     currentAccount,
     activeTab,
@@ -142,11 +173,37 @@ export const Navbar: React.FC = () => {
     masterSystemConfig,
     whatsappAccounts,
     setIsStandaloneKeygenOpen,
+    isLanPortalOpen,
     openLanPortal,
+    closeLanPortal,
+    quickSendModalState,
+    closeQuickSendModal,
   } = useERP();
 
-  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [activePopover, setActivePopover] = useState<GlobalPopoverId>('NONE');
+  const popoverFlags = derivePopoverFlags(activePopover);
+  const isNotificationsOpen = popoverFlags.isNotificationsOpen;
+  const isProfileMenuOpen = popoverFlags.isProfileMenuOpen;
+
+  const setIsNotificationsOpen = (next: boolean | ((prev: boolean) => boolean)) => {
+    setActivePopover((prev) => {
+      const currentBool = prev === 'NOTIFICATIONS';
+      const resolved = typeof next === 'function' ? next(currentBool) : next;
+      return resolved ? 'NOTIFICATIONS' : prev === 'NOTIFICATIONS' ? 'NONE' : prev;
+    });
+  };
+
+  const setIsProfileMenuOpen = (next: boolean | ((prev: boolean) => boolean)) => {
+    setActivePopover((prev) => {
+      const currentBool = prev === 'PROFILE_SETTINGS';
+      const resolved = typeof next === 'function' ? next(currentBool) : next;
+      return resolved ? 'PROFILE_SETTINGS' : prev === 'PROFILE_SETTINGS' ? 'NONE' : prev;
+    });
+  };
+
+  const notificationsContainerRef = useRef<HTMLDivElement | null>(null);
+  const profileContainerRef = useRef<HTMLDivElement | null>(null);
+
   const [uiFont, setUiFont] = useState<HasebFontId>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('haseb_ui_font') as HasebFontId | null;
@@ -209,33 +266,61 @@ export const Navbar: React.FC = () => {
     }
   }, [fontScalePercent, windowScalePercent]);
 
+  // If any global modal (Command Palette, LAN Portal, Quick Send Modal) opens, automatically close Navbar popovers
+  useEffect(() => {
+    if (isCommandPaletteOpen || isLanPortalOpen || quickSendModalState.isOpen) {
+      setActivePopover(closeAllPopovers());
+    }
+  }, [isCommandPaletteOpen, isLanPortalOpen, quickSendModalState.isOpen]);
+
+  // Global Click-Outside & Escape Handler for all Navigation Bar Popovers/Dropdowns
+  useEffect(() => {
+    if (activePopover === 'NONE') return;
+
+    const handlePointerDownOutside = (event: MouseEvent | TouchEvent) => {
+      const targetNode = event.target as Node | null;
+      if (!targetNode) return;
+
+      const clickedInsideNotifications = Boolean(
+        notificationsContainerRef.current && notificationsContainerRef.current.contains(targetNode)
+      );
+      const clickedInsideProfileMenu = Boolean(
+        profileContainerRef.current && profileContainerRef.current.contains(targetNode)
+      );
+
+      const clickedInsideActiveContent =
+        (activePopover === 'NOTIFICATIONS' && clickedInsideNotifications) ||
+        (activePopover === 'PROFILE_SETTINGS' && clickedInsideProfileMenu);
+
+      const evalResult = evaluateGlobalClickOutside({
+        activePopover,
+        clickedInsidePopoverContent: clickedInsideActiveContent,
+        clickedTriggerPopoverId: null,
+      });
+
+      if (evalResult.didClose) {
+        setActivePopover(evalResult.nextPopover);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setActivePopover(closeAllPopovers());
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDownOutside);
+    document.addEventListener('touchstart', handlePointerDownOutside);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDownOutside);
+      document.removeEventListener('touchstart', handlePointerDownOutside);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [activePopover]);
+
   const [clickTimestamps, setClickTimestamps] = useState<number[]>([]);
   const clickTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  if (!isAuthenticated) {
-    return null;
-  }
-
-  const handleSettingsRapidClick = () => {
-    const now = Date.now();
-    const recentClicks = [...clickTimestamps.filter((ts) => now - ts < 2500), now];
-    setClickTimestamps(recentClicks);
-
-    if (clickTimeoutRef.current) {
-      clearTimeout(clickTimeoutRef.current);
-    }
-
-    if (recentClicks.length >= 7) {
-      setClickTimestamps([]);
-      setIsProfileMenuOpen(false);
-      setIsStandaloneKeygenOpen(true);
-    } else {
-      clickTimeoutRef.current = setTimeout(() => {
-        setIsProfileMenuOpen(false);
-        setActiveTab('settings');
-      }, 300);
-    }
-  };
 
   const systemNotifications = useMemo(() => {
     return generateSystemNotifications({
@@ -263,6 +348,31 @@ export const Navbar: React.FC = () => {
     interBranchTransfers,
   ]);
 
+  if (!isAuthenticated) {
+    return null;
+  }
+
+  const handleSettingsRapidClick = () => {
+    const now = Date.now();
+    const recentClicks = [...clickTimestamps.filter((ts) => now - ts < 2500), now];
+    setClickTimestamps(recentClicks);
+
+    if (clickTimeoutRef.current) {
+      clearTimeout(clickTimeoutRef.current);
+    }
+
+    if (recentClicks.length >= 7) {
+      setClickTimestamps([]);
+      setIsProfileMenuOpen(false);
+      setIsStandaloneKeygenOpen(true);
+    } else {
+      clickTimeoutRef.current = setTimeout(() => {
+        setIsProfileMenuOpen(false);
+        setActiveTab('settings');
+      }, 300);
+    }
+  };
+
   const totalAlertsCount = systemNotifications.length;
   const connectedWaCount = whatsappAccounts.filter((a) => a.session.status === 'CONNECTED').length;
 
@@ -276,7 +386,7 @@ export const Navbar: React.FC = () => {
     accounting: { ar: 'المحاسبة', en: 'Accounting' },
     reportsAndAI: { ar: 'التقارير', en: 'Reports' },
     dashboard: { ar: 'الرئيسية', en: 'Dashboard' },
-    communications: { ar: 'واتساب', en: 'WhatsApp' },
+    communications: { ar: 'خدمات التواصل', en: 'Communications' },
     settings: { ar: 'الإعدادات', en: 'Settings' },
     security: { ar: 'الأمان', en: 'Security' },
   };
@@ -288,21 +398,39 @@ export const Navbar: React.FC = () => {
     ? 'نقطة البيع'
     : 'POS';
 
+  const rawAccountName = language === 'ar' ? currentAccount.nameAr : currentAccount.name;
+  const cleanAccountName = rawAccountName.replace(/\s*\(.*?\)\s*/g, '').trim() || rawAccountName;
+  const accountWords = cleanAccountName
+    .replace(/^م\.\s*|^Eng\.\s*/i, '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const accountInitials =
+    accountWords.length >= 2
+      ? `${accountWords[0][0]}${accountWords[1][0]}`
+      : cleanAccountName.slice(0, 2).toUpperCase();
+
   return (
     <header
-      className={`h-14 border-b px-5 flex items-center justify-between shrink-0 z-30 transition-colors duration-200 ${
+      className={`h-14 border-b px-5 flex items-center justify-between shrink-0 z-30 transition-colors duration-200 relative ${
         isDark
-          ? 'bg-[#0B111E]/95 backdrop-blur-xs border-slate-800/90 text-slate-100'
+          ? 'bg-[#0B111E] border-slate-800/90 text-slate-100'
           : isSand
-          ? 'bg-[#fbf8f2]/95 backdrop-blur-xs border-[#dfd3be] text-stone-900'
-          : 'bg-white/95 backdrop-blur-xs border-slate-200/70 text-slate-900'
+          ? 'bg-[#fbf8f2] border-[#dfd3be] text-stone-900'
+          : 'bg-white border-slate-200/70 text-slate-900'
       }`}
     >
       {/* Right: Brand Identity & Active Module Badge */}
       <div className="flex items-center gap-3 shrink-0">
         <div
           data-testid="haseb-brand-identity"
-          onClick={() => setActiveTab('pos')}
+          onClick={() => {
+            setActivePopover(closeAllPopovers());
+            closeLanPortal();
+            closeQuickSendModal();
+            setIsCommandPaletteOpen(false);
+            setActiveTab('pos');
+          }}
           className="flex items-center gap-2.5 cursor-pointer group"
         >
           <div className="w-8 h-8 rounded-xl bg-slate-900 flex items-center justify-center text-white font-bold text-sm shadow-xs">
@@ -323,7 +451,12 @@ export const Navbar: React.FC = () => {
       <div className="flex-1 max-w-xl mx-6">
         <button
           type="button"
-          onClick={() => setIsCommandPaletteOpen(true)}
+          onClick={() => {
+            setActivePopover(closeAllPopovers());
+            closeLanPortal();
+            closeQuickSendModal();
+            setIsCommandPaletteOpen(true);
+          }}
           className={`relative w-full flex items-center justify-between border rounded-full py-2 pr-9 pl-16 text-xs transition-all cursor-pointer ${
             isDark
               ? 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
@@ -350,72 +483,100 @@ export const Navbar: React.FC = () => {
         </button>
       </div>
 
-      {/* Left: Connected Status, Cashier & Membership Hub, and Close Shift Action */}
+      {/* Left: Notifications Bell (Instead of 'متصل'), Logged-in Membership Capsule, and Close Shift Action */}
       <div className="flex items-center gap-2.5 shrink-0 relative">
-        {/* Connected Status Pill (Opens Desktop & LAN Portal) */}
-        <button
-          type="button"
-          data-testid="navbar-lan-portal-btn"
-          onClick={openLanPortal}
-          title={
-            language === 'ar'
-              ? 'متصل — تشغيل كبرنامج سطح مكتب للويندوز وربط أجهزة الشبكة (LAN)'
-              : 'Online — Windows Desktop App & Multi-Device LAN Hub'
-          }
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-medium hover:bg-emerald-100/80 transition cursor-pointer"
-        >
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-          <span>{language === 'ar' ? 'متصل' : 'Online'}</span>
-        </button>
-
-        {/* Cashier & Shift Capsule (Opens Unified Membership, Themes, Fonts, Scale & Settings Menu) */}
-        <div className="relative">
+        {/* System Notifications Bell Button (Anchored Downward Dropdown) */}
+        <div ref={notificationsContainerRef} className="relative">
           <button
             type="button"
-            data-testid="navbar-profile-dropdown-trigger"
+            data-testid="navbar-notifications-btn"
+            aria-expanded={isNotificationsOpen}
             onClick={() => {
-              setIsProfileMenuOpen(!isProfileMenuOpen);
-              setIsNotificationsOpen(false);
+              closeLanPortal();
+              closeQuickSendModal();
+              setIsCommandPaletteOpen(false);
+              setActivePopover((prev) => toggleExclusivePopover(prev, 'NOTIFICATIONS'));
             }}
             title={
               language === 'ar'
-                ? 'العضوية، المظهر والخطوط، الحجم، الإعدادات، والتنبيهات'
-                : 'Membership, Appearance, Fonts, Scale & Settings'
+                ? `مركز الإشعارات والتنبيهات التشغيلية (${totalAlertsCount})`
+                : `System Notifications (${totalAlertsCount})`
+            }
+            className={`relative flex items-center justify-center w-9 h-9 rounded-full border transition cursor-pointer ${
+              isNotificationsOpen
+                ? 'bg-slate-900 border-slate-900 text-white shadow-2xs'
+                : isDark
+                ? 'bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800'
+                : 'bg-slate-50 hover:bg-slate-100 border-slate-200/80 text-slate-700'
+            }`}
+          >
+            <Bell className="w-4 h-4" />
+            {totalAlertsCount > 0 && (
+              <span className="absolute -top-1 -end-1 px-1 min-w-4 h-4 rounded-full bg-rose-600 text-white text-[10px] font-mono font-bold flex items-center justify-center shadow-2xs">
+                {totalAlertsCount}
+              </span>
+            )}
+          </button>
+
+          {isNotificationsOpen && (
+            <SystemNotificationCenterModal
+              isOpen={isNotificationsOpen}
+              onClose={() => setActivePopover(closeAllPopovers())}
+            />
+          )}
+        </div>
+
+        {/* Logged-In Membership & Shift Capsule (Opens Unified Membership, Themes, Fonts, Scale & Settings Menu) */}
+        <div ref={profileContainerRef} className="relative">
+          <button
+            type="button"
+            data-testid="navbar-profile-dropdown-trigger"
+            aria-expanded={isProfileMenuOpen}
+            onClick={() => {
+              closeLanPortal();
+              closeQuickSendModal();
+              setIsCommandPaletteOpen(false);
+              setActivePopover((prev) => toggleExclusivePopover(prev, 'PROFILE_SETTINGS'));
+            }}
+            title={
+              language === 'ar'
+                ? `العضوية الحالية: ${currentAccount.nameAr} — المظهر والخطوط والحجم والإعدادات`
+                : `Current Account: ${currentAccount.name} — Appearance, Fonts, Scale & Settings`
             }
             className={`flex items-center gap-2 pl-2.5 pr-1 py-1 rounded-full border transition cursor-pointer ${
-              isDark
+              isProfileMenuOpen
+                ? isDark
+                  ? 'bg-slate-800 border-blue-500 text-white'
+                  : 'bg-slate-100 border-slate-300 text-slate-900'
+                : isDark
                 ? 'bg-slate-900 border-slate-700 text-slate-100 hover:bg-slate-800'
                 : 'border-slate-200/80 bg-slate-50 hover:bg-slate-100 text-slate-700'
             }`}
           >
             <div
               data-testid="navbar-theme-picker-btn"
-              className="w-6 h-6 rounded-full bg-slate-900 text-white flex items-center justify-center text-[10px] font-bold"
+              className="w-6 h-6 rounded-full bg-slate-900 text-white flex items-center justify-center text-[10px] font-bold shrink-0"
             >
-              زع
+              {accountInitials}
             </div>
             <div className="text-[11px] leading-none flex items-center gap-1.5">
-              <span className="font-semibold text-slate-700 dark:text-slate-200">
-                {language === 'ar' ? 'زياد العتيبي' : currentShift?.cashierName || 'Ziyad Al-Otaibi'}
+              <span
+                data-testid="navbar-logged-in-account-name"
+                className="font-semibold text-slate-700 dark:text-slate-200 max-w-[160px] truncate"
+              >
+                {cleanAccountName}
               </span>
               <span className="text-slate-300">•</span>
               <span className="text-slate-500 font-mono" dir="ltr">
-                #1042
+                @{currentAccount.username}
               </span>
             </div>
           </button>
 
-          {isNotificationsOpen && (
-            <SystemNotificationCenterModal
-              isOpen={isNotificationsOpen}
-              onClose={() => setIsNotificationsOpen(false)}
-            />
-          )}
-
           {isProfileMenuOpen && (
             <div
               data-testid="navbar-profile-dropdown-menu"
-              className={`absolute top-11 left-0 w-88 sm:w-[420px] max-w-[calc(100vw-1.5rem)] max-h-[85vh] overflow-y-auto overflow-x-hidden rounded-2xl border shadow-2xl p-3.5 z-50 text-xs ${
+              className={`absolute top-11 left-0 w-88 sm:w-[420px] max-w-[calc(100vw-1.5rem)] max-h-[calc(100vh-4.75rem)] overflow-y-auto overflow-x-hidden rounded-2xl border shadow-2xl p-3.5 z-50 text-xs ${
                 isDark
                   ? 'bg-[#0f172a] border-slate-700 text-slate-100'
                   : 'bg-white border-slate-200 text-slate-800'
@@ -430,7 +591,7 @@ export const Navbar: React.FC = () => {
                   }`}
                 >
                   <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-black shrink-0 shadow-xs">
+                    <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black shrink-0 shadow-xs">
                       <UserAvatarIcon className="w-4.5 h-4.5" />
                     </div>
                     <div className="min-w-0 flex-1">
@@ -438,7 +599,7 @@ export const Navbar: React.FC = () => {
                         {language === 'ar' ? currentAccount.nameAr : currentAccount.name}
                       </div>
                       <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate mt-0.5">
-                        {currentAccount.role}
+                        {currentAccount.role} • @{currentAccount.username}
                       </div>
                     </div>
                   </div>
@@ -557,7 +718,7 @@ export const Navbar: React.FC = () => {
                   </button>
                 </div>
 
-                {/* Windows Desktop & LAN + WhatsApp & Notifications Quick Launch Rows */}
+                {/* Windows Desktop & LAN + Communication Services Quick Launch Row */}
                 <div className="grid grid-cols-2 gap-1.5 mb-2">
                   <button
                     type="button"
@@ -574,7 +735,7 @@ export const Navbar: React.FC = () => {
                   >
                     <span className="flex items-center gap-1.5 truncate">
                       <MessageSquare className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                      <span className="truncate">{language === 'ar' ? 'محطة واتساب' : 'WhatsApp'}</span>
+                      <span className="truncate">{language === 'ar' ? 'خدمات التواصل' : 'Communications'}</span>
                     </span>
                     <span className="px-1.5 py-0.5 rounded bg-emerald-600/15 text-emerald-700 font-mono text-[10px] shrink-0">
                       {connectedWaCount}/{whatsappAccounts.length}
@@ -583,10 +744,10 @@ export const Navbar: React.FC = () => {
 
                   <button
                     type="button"
-                    data-testid="navbar-notifications-btn"
+                    data-testid="navbar-lan-portal-btn"
                     onClick={() => {
                       setIsProfileMenuOpen(false);
-                      setIsNotificationsOpen(true);
+                      openLanPortal();
                     }}
                     className={`min-w-0 overflow-hidden flex items-center justify-between px-3 py-2 rounded-xl border font-bold transition cursor-pointer ${
                       isDark
@@ -595,39 +756,14 @@ export const Navbar: React.FC = () => {
                     }`}
                   >
                     <span className="flex items-center gap-1.5 truncate">
-                      <Bell className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                      <span className="truncate">{language === 'ar' ? 'التنبيهات' : 'Alerts'}</span>
+                      <MonitorSmartphone className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                      <span className="truncate">{language === 'ar' ? 'سطح المكتب والشبكة' : 'Desktop & LAN'}</span>
                     </span>
-                    <span className="px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-600 font-mono text-[10px] shrink-0">
-                      {totalAlertsCount}
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-mono text-[10px] shrink-0">
+                      متصل
                     </span>
                   </button>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsProfileMenuOpen(false);
-                    openLanPortal();
-                  }}
-                  className={`w-full mb-3 px-3 py-2.5 rounded-xl border font-bold transition flex items-center justify-between gap-2 cursor-pointer ${
-                    isDark
-                      ? 'bg-blue-950/50 border-blue-800/70 text-blue-200 hover:bg-blue-900/60'
-                      : 'bg-blue-50/80 border-blue-200 text-blue-900 hover:bg-blue-100/80'
-                  }`}
-                >
-                  <span className="flex items-center gap-2 min-w-0 truncate">
-                    <MonitorSmartphone className="w-4 h-4 text-blue-600 shrink-0" />
-                    <span className="truncate">
-                      {language === 'ar'
-                        ? 'برنامج ويندوز المكتبي والربط عبر الشبكة (LAN)'
-                        : 'Windows Desktop App & LAN Network Hub'}
-                    </span>
-                  </span>
-                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-600 text-white shrink-0">
-                    فتح
-                  </span>
-                </button>
 
                 {/* Part C: Integrated Theme Studio (5 Non-Green Eye-Comfort Themes) */}
                 <div
@@ -957,7 +1093,10 @@ export const Navbar: React.FC = () => {
         {/* Quiet Close Shift Action */}
         <button
           type="button"
+          data-testid="navbar-close-shift-btn"
           onClick={() => {
+            setIsNotificationsOpen(false);
+            setIsProfileMenuOpen(false);
             setActiveTab('pos');
             setTimeout(() => {
               window.dispatchEvent(new CustomEvent('haseb-open-close-shift-modal'));

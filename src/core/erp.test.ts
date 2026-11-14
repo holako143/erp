@@ -2655,3 +2655,158 @@ test('Track 30: Workspace Layout Engine scales tabs (+ / -) and resizes/maximize
   assert.equal(cycleSplitPaneMode('BALANCED', 'PREV'), 'MAXIMIZE_SECONDARY');
 });
 
+test('Track 31: Sidebar displays Communications (خدمات التواصل) in both Sector Mode and Full Suite Mode', async () => {
+  const { shouldDisplaySidebarMenuItem, SECTOR_MODE_ALLOWED_ITEMS } = await import(
+    '../components/layout/Sidebar'
+  );
+  assert.ok((SECTOR_MODE_ALLOWED_ITEMS as readonly string[]).includes('communications'));
+  assert.equal(
+    shouldDisplaySidebarMenuItem({ id: 'communications', label: 'خدمات التواصل' }, true, () => false),
+    true
+  );
+  assert.equal(
+    shouldDisplaySidebarMenuItem({ id: 'communications', label: 'خدمات التواصل' }, false, () => false),
+    true
+  );
+});
+
+test('Track 32: Navbar outside-click dismissal closes open Notifications and Profile/Settings popovers', async () => {
+  const { evaluateNavbarOutsideClickDismissal } = await import(
+    '../components/layout/Navbar'
+  );
+
+  // Clicking outside notifications when notifications is open -> closes notifications
+  const res1 = evaluateNavbarOutsideClickDismissal({
+    isNotificationsOpen: true,
+    isProfileMenuOpen: false,
+    clickedInsideNotifications: false,
+    clickedInsideProfileMenu: false,
+  });
+  assert.equal(res1.nextNotificationsOpen, false);
+  assert.equal(res1.nextProfileMenuOpen, false);
+
+  // Clicking inside notifications when notifications is open -> stays open
+  const res2 = evaluateNavbarOutsideClickDismissal({
+    isNotificationsOpen: true,
+    isProfileMenuOpen: false,
+    clickedInsideNotifications: true,
+    clickedInsideProfileMenu: false,
+  });
+  assert.equal(res2.nextNotificationsOpen, true);
+
+  // Clicking outside profile menu when profile menu is open -> closes profile menu
+  const res3 = evaluateNavbarOutsideClickDismissal({
+    isNotificationsOpen: false,
+    isProfileMenuOpen: true,
+    clickedInsideNotifications: false,
+    clickedInsideProfileMenu: false,
+  });
+  assert.equal(res3.nextProfileMenuOpen, false);
+});
+
+test('Track 33: Global Popover Manager enforces mutual exclusion across all popovers/modals and closes on outside click', async () => {
+  const {
+    derivePopoverFlags,
+    openExclusivePopover,
+    toggleExclusivePopover,
+    closeAllPopovers,
+    evaluateGlobalClickOutside,
+  } = await import('./globalPopoverManager');
+  const { generateSystemNotifications } = await import('./notificationsEngine');
+  const {
+    SEED_PRODUCTS,
+    SEED_CUSTOMERS,
+    SEED_SALES_INVOICES,
+  } = await import('../data/seedData');
+
+  // 1. Opening Notifications sets only isNotificationsOpen = true
+  const p1 = openExclusivePopover('NONE', 'NOTIFICATIONS');
+  const flags1 = derivePopoverFlags(p1);
+  assert.equal(flags1.isNotificationsOpen, true);
+  assert.equal(flags1.isProfileMenuOpen, false);
+  assert.equal(flags1.isCommandPaletteOpen, false);
+
+  // 2. Toggling Profile/Settings while Notifications is open automatically closes Notifications and opens Profile/Settings
+  const p2 = toggleExclusivePopover(p1, 'PROFILE_SETTINGS');
+  const flags2 = derivePopoverFlags(p2);
+  assert.equal(flags2.isNotificationsOpen, false);
+  assert.equal(flags2.isProfileMenuOpen, true);
+
+  // 3. Clicking outside any active popover closes it ('NONE')
+  const outsideEval = evaluateGlobalClickOutside({
+    activePopover: 'PROFILE_SETTINGS',
+    clickedInsidePopoverContent: false,
+    clickedTriggerPopoverId: null,
+  });
+  assert.equal(outsideEval.nextPopover, 'NONE');
+  assert.equal(outsideEval.didClose, true);
+
+  // 4. Clicking inside active popover content keeps it open
+  const insideEval = evaluateGlobalClickOutside({
+    activePopover: 'NOTIFICATIONS',
+    clickedInsidePopoverContent: true,
+    clickedTriggerPopoverId: null,
+  });
+  assert.equal(insideEval.nextPopover, 'NOTIFICATIONS');
+  assert.equal(insideEval.didClose, false);
+
+  // 5. closeAllPopovers resets to NONE
+  assert.equal(closeAllPopovers(), 'NONE');
+
+  // 6. generateSystemNotifications surfaces all active operational alerts for the dropdown
+  const alerts = generateSystemNotifications({
+    products: SEED_PRODUCTS,
+    customers: SEED_CUSTOMERS,
+    salesInvoices: SEED_SALES_INVOICES,
+    warrantyTickets: [
+      {
+        id: 'rma-test-1',
+        tenantId: 'ten-1',
+        ticketNumber: 'RMA-2026-001',
+        serialNumber: 'SN-DEYE-001',
+        productId: 'prd-sol-inv-8k',
+        productName: 'إنفرتر هجين Deye 8kW',
+        sku: 'SOL-INV-DEYE8K',
+        customerName: 'عميل صيانة',
+        customerPhone: '+967 771 445 880',
+        purchaseDate: '2026-01-10',
+        warrantyMonths: 24,
+        warrantyExpiryDate: '2028-01-10',
+        isUnderWarranty: true,
+        faultDescription: 'فحص دوري',
+        technicianReport: 'سليم',
+        sparePartsUsed: 'لا يوجد',
+        sparePartsCost: 0,
+        laborFee: 0,
+        totalCustomerCharge: 0,
+        status: 'READY',
+        receivedAt: '2026-11-01',
+        expectedDeliveryDate: '2026-11-03',
+      },
+    ],
+    holdBills: [],
+    currentShift: {
+      id: 'shift-test-1',
+      tenantId: 'ten-1',
+      cashierId: 'usr-1',
+      cashierName: 'م. طارق المنصور',
+      branchId: 'br-1',
+      startTime: '08:00 AM',
+      startingCash: 1000,
+      cashSales: 4000,
+      cardSales: 0,
+      totalSales: 4000,
+      expectedCash: 5000,
+      status: 'OPEN',
+    },
+    currency: 'YER',
+    lastBackupTimestamp: null,
+    pendingTransfersCount: 1,
+  });
+  assert.ok(alerts.length >= 4);
+  assert.ok(alerts.some((a) => a.category === 'DEBT_OVERDUE'));
+  assert.ok(alerts.some((a) => a.category === 'MAINTENANCE_RMA'));
+  assert.ok(alerts.some((a) => a.category === 'CASH_DRAWER'));
+  assert.ok(alerts.some((a) => a.category === 'SYSTEM_BACKUP'));
+});
+

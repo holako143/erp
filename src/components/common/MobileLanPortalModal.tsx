@@ -283,25 +283,30 @@ export const MobileLanPortalModal: React.FC = () => {
   return (
     <div
       data-testid="mobile-lan-portal-modal"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) {
+          closeLanPortal();
+        }
+      }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm animate-fadeIn"
     >
-      <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[92vh]">
-        {/* Header — Royal Sapphire & Cobalt (Zero Green) */}
-        <div className="px-6 py-4 bg-gradient-to-r from-[#090d16] via-[#172554] to-[#1e1b4b] text-white flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-blue-500/20 text-blue-300 rounded-xl border border-blue-400/30">
-              <Monitor className="w-6 h-6" />
+      <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-200/90 dark:border-slate-800 overflow-hidden flex flex-col max-h-[92vh] text-slate-800 dark:text-slate-100">
+        {/* Lumina POS-Style Header */}
+        <div className="px-5 py-4 bg-slate-50/90 dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 bg-slate-900 text-white rounded-xl flex items-center justify-center shrink-0 shadow-2xs">
+              <Monitor className="w-5 h-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-lg font-black tracking-tight">
+                <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white tracking-tight">
                   مركز سطح المكتب للويندوز والشبكة المحلية (Windows Desktop & Multi-Device LAN)
                 </h3>
-                <span className="px-2.5 py-0.5 rounded-md text-[10px] font-black bg-blue-500 text-white shadow-sm">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/80 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800">
                   مزامنة لحظية متعددة الأجهزة ({syncLatencyMs}ms)
                 </span>
               </div>
-              <p className="text-xs text-blue-200 mt-0.5">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
                 تشغيل «حاسب» كبرنامج ويندوز مكتبي مستقل + الدخول الفوري من أي جوال أو تابلت أو كمبيوتر على نفس الشبكة بدون إنترنت
               </p>
             </div>
@@ -311,25 +316,25 @@ export const MobileLanPortalModal: React.FC = () => {
             type="button"
             data-testid="btn-close-lan-modal"
             onClick={closeLanPortal}
-            className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition cursor-pointer"
+            className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition cursor-pointer shrink-0"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Sub-Tabs Nav */}
-        <div className="px-6 bg-slate-100 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 flex gap-1.5 overflow-x-auto text-xs font-bold">
+        {/* POS-Style Rounded-Full Sub-Tabs Nav */}
+        <div className="px-5 py-2.5 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 flex flex-wrap gap-1.5 text-xs shrink-0">
           <button
             type="button"
             data-testid="tab-lan-qr"
             onClick={() => setActiveSubTab('QR_LINK')}
-            className={`py-3 px-3.5 border-b-2 transition flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+            className={`px-3.5 py-1.5 rounded-full border transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
               activeSubTab === 'QR_LINK'
-                ? 'border-blue-600 text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-900 rounded-t-lg'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
+                ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
             }`}
           >
-            <Wifi className="w-4 h-4 text-blue-600" />
+            <Wifi className="w-3.5 h-3.5" />
             <span>الشبكة المحلية وربط الأجهزة (LAN & QR)</span>
           </button>
 
@@ -337,41 +342,41 @@ export const MobileLanPortalModal: React.FC = () => {
             type="button"
             data-testid="tab-local-sqlite-db"
             onClick={() => setActiveSubTab('LOCAL_SQLITE_DB')}
-            className={`py-3 px-3.5 border-b-2 transition flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+            className={`px-3.5 py-1.5 rounded-full border transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
               activeSubTab === 'LOCAL_SQLITE_DB'
-                ? 'border-blue-600 text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-900 rounded-t-lg'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
+                ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
             }`}
           >
-            <Database className="w-4 h-4 text-blue-600" />
-            <span>قاعدة البيانات المحلية (SQLite WAL — بدون سحابة)</span>
+            <Database className="w-3.5 h-3.5" />
+            <span>قاعدة البيانات المحلية (SQLite WAL)</span>
           </button>
 
           <button
             type="button"
             data-testid="tab-windows-desktop"
             onClick={() => setActiveSubTab('WINDOWS_DESKTOP')}
-            className={`py-3 px-3.5 border-b-2 transition flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+            className={`px-3.5 py-1.5 rounded-full border transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
               activeSubTab === 'WINDOWS_DESKTOP'
-                ? 'border-blue-600 text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-900 rounded-t-lg'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
+                ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
             }`}
           >
-            <Monitor className="w-4 h-4 text-indigo-600" />
-            <span>برنامج سطح المكتب للويندوز (Windows App)</span>
+            <Monitor className="w-3.5 h-3.5" />
+            <span>برنامج سطح المكتب للويندوز</span>
           </button>
 
           <button
             type="button"
             data-testid="tab-lan-workspaces"
             onClick={() => setActiveSubTab('WORKSPACES')}
-            className={`py-3 px-3.5 border-b-2 transition flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+            className={`px-3.5 py-1.5 rounded-full border transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
               activeSubTab === 'WORKSPACES'
-                ? 'border-blue-600 text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-900 rounded-t-lg'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
+                ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
             }`}
           >
-            <SlidersHorizontal className="w-4 h-4 text-sky-600" />
+            <SlidersHorizontal className="w-3.5 h-3.5" />
             <span>واجهات الجوال والأجهزة الفرعية</span>
           </button>
 
@@ -379,13 +384,13 @@ export const MobileLanPortalModal: React.FC = () => {
             type="button"
             data-testid="tab-lan-stock-count"
             onClick={() => setActiveSubTab('STOCK_COUNT')}
-            className={`py-3 px-3.5 border-b-2 transition flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+            className={`px-3.5 py-1.5 rounded-full border transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
               activeSubTab === 'STOCK_COUNT'
-                ? 'border-blue-600 text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-900 rounded-t-lg'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
+                ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
             }`}
           >
-            <PackageCheck className="w-4 h-4 text-amber-600" />
+            <PackageCheck className="w-3.5 h-3.5" />
             <span>الجرد الفوري بالجوال</span>
           </button>
 
@@ -393,19 +398,19 @@ export const MobileLanPortalModal: React.FC = () => {
             type="button"
             data-testid="tab-lan-firewall"
             onClick={() => setActiveSubTab('FIREWALL')}
-            className={`py-3 px-3.5 border-b-2 transition flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+            className={`px-3.5 py-1.5 rounded-full border transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
               activeSubTab === 'FIREWALL'
-                ? 'border-blue-600 text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-900 rounded-t-lg'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
+                ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
             }`}
           >
-            <Server className="w-4 h-4 text-indigo-600" />
+            <Server className="w-3.5 h-3.5" />
             <span>تهيئة الشبكة وجدار الحماية</span>
           </button>
         </div>
 
         {/* Body Content */}
-        <div className="p-6 overflow-y-auto space-y-6">
+        <div className="p-5 overflow-y-auto space-y-5 bg-[#F8FAFC] dark:bg-slate-950">
           {desktopInstallFeedback && (
             <div className="p-3.5 rounded-xl bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200 text-xs font-bold flex items-center gap-2.5">
               <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
@@ -598,25 +603,25 @@ export const MobileLanPortalModal: React.FC = () => {
           {/* TAB 1B: 100% LOCAL EMBEDDED SQLITE WAL RELATIONAL DATABASE ENGINE */}
           {activeSubTab === 'LOCAL_SQLITE_DB' && (
             <div data-testid="local-sqlite-studio-panel" className="space-y-5">
-              {/* Top Architecture Banner */}
-              <div className="p-4 rounded-2xl bg-slate-900 text-white border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              {/* Top Architecture Banner (Lumina POS Theme) */}
+              <div className="p-4 rounded-2xl bg-slate-50 text-slate-900 border border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-start gap-3">
-                  <div className="p-2.5 rounded-xl bg-blue-500/20 text-blue-400 border border-blue-400/30 shrink-0">
-                    <Database className="w-6 h-6" />
+                  <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                    <Database className="w-5 h-5" />
                   </div>
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h4 className="text-sm font-black text-white">
+                      <h4 className="text-sm font-bold text-slate-900">
                         {sqliteDiag?.engineName || 'SQLite 3 Native Local WAL Engine (بدون سحابة 100%)'}
                       </h4>
-                      <span className="px-2 py-0.5 rounded bg-blue-600 text-white font-mono text-[10px] font-bold">
+                      <span className="px-2 py-0.5 rounded-full bg-blue-50 border border-blue-200 text-blue-700 font-mono text-[10px] font-bold">
                         PRAGMA journal_mode = {sqliteDiag?.journalMode || 'WAL'}
                       </span>
                     </div>
-                    <p className="text-xs text-slate-300 mt-1">
+                    <p className="text-xs text-slate-600 mt-1">
                       تعمل قاعدة البيانات العلائقية محلياً بالكامل على جهازك (بدون أي ارتباط سحابي)، وتخدم برنامج الويندوز والمتصفح وجميع الجوالات والكمبيوترات المتصلة بالشبكة المحلية في نفس اللحظة.
                     </p>
-                    <div className="text-[11px] font-mono text-sky-400 mt-1" dir="ltr">
+                    <div className="text-[11px] font-mono text-blue-700 mt-1" dir="ltr">
                       File: {sqliteDiag?.databaseFilePath || '.data/haseb_enterprise.sqlite'} ({sqliteDiag?.fileSizeKb || 64} KB)
                     </div>
                   </div>
@@ -628,7 +633,7 @@ export const MobileLanPortalModal: React.FC = () => {
                     data-testid="btn-optimize-local-sqlite"
                     disabled={isOptimizingDb}
                     onClick={handleOptimizeLocalSqlite}
-                    className="px-3.5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
+                    className="px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${isOptimizingDb ? 'animate-spin' : ''}`} />
                     <span>تحسين وضغط WAL</span>
@@ -637,9 +642,9 @@ export const MobileLanPortalModal: React.FC = () => {
                     href="/api/v1/local-db/download-sqlite"
                     download
                     data-testid="btn-download-local-sqlite-file"
-                    className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
+                    className="px-3.5 py-2.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-200/80 text-slate-700 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
                   >
-                    <HardDrive className="w-3.5 h-3.5 text-sky-400" />
+                    <HardDrive className="w-3.5 h-3.5 text-blue-600" />
                     <span>تنزيل ملف (.sqlite)</span>
                   </a>
                 </div>
@@ -817,13 +822,13 @@ export const MobileLanPortalModal: React.FC = () => {
                 </div>
               </div>
 
-              <div className="p-5 rounded-2xl bg-slate-900 text-white space-y-4 border border-slate-800">
+              <div className="p-5 rounded-2xl bg-slate-50 text-slate-900 space-y-4 border border-slate-200/80">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <h4 className="text-sm font-black text-white">
+                    <h4 className="text-sm font-bold text-slate-900">
                       تنزيل أداة التشغيل المكتبي للويندوز (Haseb_Windows_Desktop_App.bat)
                     </h4>
-                    <p className="text-xs text-slate-300 mt-1">
+                    <p className="text-xs text-slate-600 mt-1">
                       تقوم الأداة بإنشاء أيقونة «حاسب ERP» على سطح المكتب، فتح منفذ الشبكة 3000 في جدار حماية الويندوز، وتشغيل النظام كبرنامج مكتبي مستقل بنقرة واحدة.
                     </p>
                   </div>
@@ -831,7 +836,7 @@ export const MobileLanPortalModal: React.FC = () => {
                     href="/api/v1/desktop/windows-launcher.bat"
                     download="Haseb_Windows_Desktop_App.bat"
                     data-testid="link-download-windows-bat"
-                    className="px-5 py-3 bg-blue-600 hover:bg-blue-500 text-white font-black rounded-xl text-xs transition flex items-center justify-center gap-2 shrink-0 shadow-lg cursor-pointer"
+                    className="px-5 py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-2 shrink-0 shadow-2xs cursor-pointer"
                   >
                     <Download className="w-4 h-4" />
                     <span>تنزيل مشغل الويندوز (.BAT)</span>

@@ -90,11 +90,11 @@ interface NotificationEngineInput {
  * Pure function that evaluates the operational state of the entire ERP and returns structured notifications
  */
 export function generateSystemNotifications({
-  products,
-  customers,
-  salesInvoices,
-  warrantyTickets,
-  holdBills,
+  products = [],
+  customers = [],
+  salesInvoices = [],
+  warrantyTickets = [],
+  holdBills = [],
   currentShift,
   currency,
   lastBackupTimestamp,
@@ -125,21 +125,36 @@ export function generateSystemNotifications({
     });
   }
 
-  // 2. LOW STOCK THRESHOLD ALERTS (أصناف بلغت حد إعادة الطلب) - WARNING
-  const lowStockProducts = products.filter((p) => p.stockQty > 0 && p.stockQty <= p.reorderPoint);
-  if (lowStockProducts.length > 0) {
-    const sampleNames = lowStockProducts.slice(0, 3).map((p) => p.nameAr || p.name).join('، ');
+  // 2. LOW STOCK THRESHOLD ALERTS (أصناف بلغت أو قاربت حد إعادة الطلب) - WARNING
+  const strictLowStockProducts = products.filter(
+    (p) => p.stockQty > 0 && p.stockQty <= p.reorderPoint
+  );
+  const approachingLowStockProducts =
+    strictLowStockProducts.length > 0
+      ? strictLowStockProducts
+      : products.filter(
+          (p) => p.stockQty > 0 && p.stockQty <= Math.max((p.reorderPoint || 10) * 2.5, 30)
+        );
+
+  if (approachingLowStockProducts.length > 0) {
+    const sampleNames = approachingLowStockProducts
+      .slice(0, 3)
+      .map((p) => `${p.nameAr || p.name} (${p.stockQty})`)
+      .join('، ');
     notifications.push({
-      id: `alert-low-stock-${lowStockProducts.length}`,
+      id: `alert-low-stock-${approachingLowStockProducts.length}`,
       category: 'LOW_STOCK',
       severity: 'warning',
-      titleAr: `أصناف بلغت حد إعادة الطلب (${lowStockProducts.length} صنف)`,
-      titleEn: `Low Stock Reorder Threshold (${lowStockProducts.length} items)`,
-      messageAr: `وصلت كمية ${lowStockProducts.length} صنف إلى الحد الأدنى لإعادة الطلب، منها: (${sampleNames}). يرجى تأمين الكميات.`,
-      messageEn: `${lowStockProducts.length} items have reached or breached their minimum reorder point, including: (${sampleNames}).`,
+      titleAr:
+        strictLowStockProducts.length > 0
+          ? `أصناف بلغت حد إعادة الطلب (${strictLowStockProducts.length} صنف)`
+          : `متابعة مستويات المخزون وإعادة الطلب (${approachingLowStockProducts.length} صنف)`,
+      titleEn: `Low Stock Reorder Threshold (${approachingLowStockProducts.length} items)`,
+      messageAr: `يوجد ${approachingLowStockProducts.length} صنف تتطلب متابعة التوريد وإعادة الطلب، أبرزها: (${sampleNames}). يرجى تأمين الكميات لضمان استمرارية المبيعات.`,
+      messageEn: `${approachingLowStockProducts.length} items have reached or approached their reorder threshold, including: (${sampleNames}).`,
       timestamp: nowIso,
       isRead: false,
-      count: lowStockProducts.length,
+      count: approachingLowStockProducts.length,
       actionType: 'INVENTORY',
       actionLabelAr: 'عرض الأصناف بالمخزون ↗',
       actionLabelEn: 'View Low Stock Inventory ↗',
@@ -150,7 +165,8 @@ export function generateSystemNotifications({
   const overCreditCustomers = customers.filter(
     (c) => (c.balance || 0) > (c.creditLimit && c.creditLimit > 0 ? c.creditLimit : 50000)
   );
-  const totalReceivables = customers.reduce((sum, c) => sum + (c.balance > 0 ? c.balance : 0), 0);
+  const debtorCustomers = customers.filter((c) => (c.balance || 0) > 0);
+  const totalReceivables = debtorCustomers.reduce((sum, c) => sum + (c.balance || 0), 0);
 
   if (overCreditCustomers.length > 0) {
     const topDebtor = overCreditCustomers[0];
@@ -169,17 +185,24 @@ export function generateSystemNotifications({
       actionLabelAr: 'كشف المديونيات وإرسال تذكير ↗',
       actionLabelEn: 'Open Debt Ledger & Remind ↗',
     });
-  } else if (totalReceivables > 100000) {
+  }
+
+  if (totalReceivables > 0) {
+    const sampleDebtors = debtorCustomers
+      .slice(0, 2)
+      .map((c) => c.nameAr || c.name)
+      .join('، ');
     notifications.push({
       id: `alert-total-receivables`,
       category: 'DEBT_OVERDUE',
       severity: 'warning',
-      titleAr: `إجمالي المديونيات المستحقة للتحصيل`,
-      titleEn: `Outstanding Receivables for Collection`,
-      messageAr: `يوجد إجمالي مديونيات مستحقة على العملاء بقيمة ${totalReceivables.toLocaleString()} ${currency}. تحصيل المبالغ يعزز سيولة الصندوق.`,
+      titleAr: `مديونيات عملاء مستحقة للتحصيل (${debtorCustomers.length} عميل)`,
+      titleEn: `Outstanding Customer Receivables (${debtorCustomers.length} customers)`,
+      messageAr: `إجمالي الذمم المدينة المستحقة للتحصيل يبلغ ${totalReceivables.toLocaleString()} ${currency} موزعة على ${debtorCustomers.length} عميل (${sampleDebtors}). تحصيل الدفعات يعزز سيولة الصندوق.`,
       messageEn: `Total outstanding customer receivables stand at ${totalReceivables.toLocaleString()} ${currency}.`,
       timestamp: nowIso,
       isRead: false,
+      count: debtorCustomers.length,
       actionType: 'DEBTS',
       actionLabelAr: 'كشف مديونيات العملاء ↗',
       actionLabelEn: 'View Receivables ↗',
@@ -189,7 +212,7 @@ export function generateSystemNotifications({
   // 4. MAINTENANCE & WARRANTY TICKETS (تذكيرات الصيانة والضمان ومواعيد التسليم)
   const readyTickets = warrantyTickets.filter((w) => w.status === 'READY');
   const inProgressTickets = warrantyTickets.filter(
-    (w) => w.status !== 'DELIVERED' && w.status !== 'REJECTED'
+    (w) => w.status !== 'DELIVERED' && w.status !== 'REJECTED' && w.status !== 'READY'
   );
 
   if (readyTickets.length > 0) {
@@ -199,7 +222,7 @@ export function generateSystemNotifications({
       severity: 'info',
       titleAr: `أجهزة مكتملة الصيانة جاهزة للتسليم (${readyTickets.length} تذكرة)`,
       titleEn: `RMA Devices Ready for Delivery (${readyTickets.length} tickets)`,
-      messageAr: `يوجد ${readyTickets.length} أجهزة تم الانتهاء من صيانتها واختبارها بنجاح وهي بانتظار استلام العملاء أو إرسال إشعار جاهزية.`,
+      messageAr: `يوجد ${readyTickets.length} أجهزة تم الانتهاء من صيانتها واختبارها بنجاح وهي بانتظار استلام العملاء أو إرسال إشعار جاهزية عبر واتساب.`,
       messageEn: `${readyTickets.length} warranty maintenance devices are repaired and awaiting customer pickup or delivery.`,
       timestamp: nowIso,
       isRead: false,
@@ -210,14 +233,14 @@ export function generateSystemNotifications({
     });
   }
 
-  if (inProgressTickets.length > 5) {
+  if (inProgressTickets.length > 0) {
     notifications.push({
       id: `alert-rma-in-progress-${inProgressTickets.length}`,
       category: 'MAINTENANCE_RMA',
       severity: 'warning',
-      titleAr: `تراكم أجهزة قيد الصيانة (${inProgressTickets.length} جهاز)`,
+      titleAr: `أجهزة تحت الفحص والصيانة بالضمان (${inProgressTickets.length} جهاز)`,
       titleEn: `Active Warranty Tickets In Progress (${inProgressTickets.length} devices)`,
-      messageAr: `يوجد ${inProgressTickets.length} جهاز قيد الفحص والإصلاح في قسم الضمان. يرجى متابعة الورشة لتفادي التأخير.`,
+      messageAr: `يوجد ${inProgressTickets.length} جهاز قيد الفحص الفني والإصلاح في مركز الضمان والصيانة. يرجى متابعة حالة قطع الغيار ومواعيد التسليم.`,
       messageEn: `${inProgressTickets.length} devices are undergoing diagnostics and repairs.`,
       timestamp: nowIso,
       isRead: false,
@@ -231,7 +254,8 @@ export function generateSystemNotifications({
   // 5. SYSTEM BACKUP & DATA INTEGRITY (حفظ نسخ احتياطية للنظام وتنبيهات الأمان)
   let needsBackup = true;
   if (lastBackupTimestamp) {
-    const hoursSinceLastBackup = (now.getTime() - new Date(lastBackupTimestamp).getTime()) / (1000 * 60 * 60);
+    const hoursSinceLastBackup =
+      (now.getTime() - new Date(lastBackupTimestamp).getTime()) / (1000 * 60 * 60);
     if (hoursSinceLastBackup < 24) {
       needsBackup = false;
     }
@@ -244,8 +268,10 @@ export function generateSystemNotifications({
       severity: 'critical',
       titleAr: 'تنبيه أمان: مطلوب حفظ نسخة احتياطية للنظام',
       titleEn: 'Security Notice: System Backup Required',
-      messageAr: 'لم يتم حفظ نسخة احتياطية مشفرة لقاعدة البيانات اليوم. قم بتنزيل نسخة احتياطية الآن لحماية بيانات المعاملات والمحاسبة.',
-      messageEn: 'No encrypted system snapshot has been exported recently. Download a secure backup now to safeguard financial records.',
+      messageAr:
+        'لم يتم حفظ نسخة احتياطية مشفرة لقاعدة البيانات اليوم. قم بتنزيل نسخة احتياطية الآن لحماية بيانات المعاملات والمحاسبة.',
+      messageEn:
+        'No encrypted system snapshot has been exported recently. Download a secure backup now to safeguard financial records.',
       timestamp: nowIso,
       isRead: false,
       actionType: 'BACKUP',
@@ -259,7 +285,9 @@ export function generateSystemNotifications({
       severity: 'success',
       titleAr: 'النسخ الاحتياطي للنظام محدث ومؤمن',
       titleEn: 'System Backup Up-to-Date & Secured',
-      messageAr: `تم حفظ نسخة احتياطية مشفرة بنجاح في ${new Date(lastBackupTimestamp!).toLocaleTimeString('ar-SA')}. قاعدة البيانات مؤمنة.`,
+      messageAr: `تم حفظ نسخة احتياطية مشفرة بنجاح في ${new Date(
+        lastBackupTimestamp!
+      ).toLocaleTimeString('ar-SA')}. قاعدة البيانات مؤمنة بالكامل.`,
       messageEn: 'Encrypted system database backup is valid and up-to-date.',
       timestamp: lastBackupTimestamp!,
       isRead: true,
@@ -289,21 +317,28 @@ export function generateSystemNotifications({
     });
   }
 
-  // 7. CASH DRAWER & SHIFT BALANCE (تنبيهات نقدية درج الصندوق)
-  const cashInDrawer = currentShift.expectedCash || 0;
-  if (cashInDrawer > 1500000 && currency === 'YER') {
+  // 7. CASH DRAWER & SHIFT BALANCE (تنبيهات نقدية درج الصندوق وحالة الوردية النشطة)
+  const cashInDrawer = currentShift?.expectedCash || 0;
+  if (cashInDrawer > 0) {
+    const isHighCash =
+      (currency === 'YER' && cashInDrawer > 1500000) ||
+      (currency !== 'YER' && cashInDrawer > 25000);
     notifications.push({
       id: 'alert-cash-drawer-threshold',
       category: 'CASH_DRAWER',
-      severity: 'warning',
-      titleAr: `تنبيه سقف النقدية بدرج الكاشير (${cashInDrawer.toLocaleString()} ${currency})`,
-      titleEn: `Cash Drawer Balance Alert (${cashInDrawer.toLocaleString()} ${currency})`,
-      messageAr: `تجاوزت السيولة النقدية بدرج الكاشير سقف الأمان (${cashInDrawer.toLocaleString()} ${currency}). يُنصح بتوريد دفعة إلى الخزينة الرئيسية.`,
-      messageEn: `Cash in drawer has reached high liquidity levels. Consider transferring an amount to the central treasury.`,
+      severity: isHighCash ? 'warning' : 'info',
+      titleAr: isHighCash
+        ? `تنبيه سقف النقدية بدرج الكاشير (${cashInDrawer.toLocaleString()} ${currency})`
+        : `سيولة وردية الكاشير النشطة (${cashInDrawer.toLocaleString()} ${currency})`,
+      titleEn: `Cash Drawer Balance (${cashInDrawer.toLocaleString()} ${currency})`,
+      messageAr: isHighCash
+        ? `تجاوزت السيولة النقدية بدرج الكاشير سقف الأمان (${cashInDrawer.toLocaleString()} ${currency}). يُنصح بتوريد دفعة إلى الخزينة الرئيسية.`
+        : `الرصيد النقدي المتوقع في درج الكاشير للوردية الحالية يبلغ ${cashInDrawer.toLocaleString()} ${currency} (${salesInvoices.length} فاتورة مسجلة).`,
+      messageEn: `Current shift expected cash in drawer is ${cashInDrawer.toLocaleString()} ${currency}.`,
       timestamp: nowIso,
       isRead: false,
       actionType: 'POS',
-      actionLabelAr: 'إغلاق الوردية أو التوريد ↗',
+      actionLabelAr: 'مراجعة صندوق الوردية ↗',
       actionLabelEn: 'Manage Shift Cash ↗',
     });
   }

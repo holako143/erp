@@ -58,14 +58,14 @@
     letter-spacing: -0.01em;
   }
 
-  /* Anti-Collision & Resizable Tab Architecture */
+  /* Anti-Collision & Resizable Tab Architecture (Lumina Pill Tabs) */
   .erp-resizable-tab,
   [data-testid^="subtab-"],
   [data-testid^="sales-tab-"],
   [data-testid^="acc-tab-"] {
-    padding-top: var(--erp-tab-py, 0.45rem) !important;
-    padding-bottom: var(--erp-tab-py, 0.45rem) !important;
-    padding-inline: var(--erp-tab-px, 0.85rem) !important;
+    padding-top: var(--erp-tab-py, 0.42rem) !important;
+    padding-bottom: var(--erp-tab-py, 0.42rem) !important;
+    padding-inline: var(--erp-tab-px, 0.95rem) !important;
     font-size: var(--erp-tab-font-size, 0.78rem) !important;
     min-height: var(--erp-tab-min-h, 34px);
     white-space: nowrap;
@@ -76,16 +76,25 @@
   aside[data-testid="desktop-sidebar"]:not(.w-17) {
     width: calc(196px * var(--erp-tab-scale, 1)) !important;
   }
-  aside[data-testid="desktop-sidebar"] [data-testid^="nav-"] {
+  aside[data-testid="desktop-sidebar"].w-17 {
+    width: 64px !important;
+    min-width: 64px !important;
+    max-width: 64px !important;
+  }
+  aside[data-testid="desktop-sidebar"]:not(.w-17) [data-testid^="nav-"] {
     padding-top: calc(0.5rem * var(--erp-tab-scale, 1));
     padding-bottom: calc(0.5rem * var(--erp-tab-scale, 1));
   }
   main table th,
   main table td {
-    padding-top: calc(0.6rem * var(--erp-window-scale, 1.05));
-    padding-bottom: calc(0.6rem * var(--erp-window-scale, 1.05));
-    padding-inline: calc(0.85rem * var(--erp-window-scale, 1.05));
+    padding-top: calc(0.65rem * var(--erp-window-scale, 1.05));
+    padding-bottom: calc(0.65rem * var(--erp-window-scale, 1.05));
+    padding-inline: calc(0.9rem * var(--erp-window-scale, 1.05));
     vertical-align: middle;
+  }
+  main table thead th {
+    font-size: 0.75rem;
+    letter-spacing: -0.01em;
   }
 
   /* ============================================================================

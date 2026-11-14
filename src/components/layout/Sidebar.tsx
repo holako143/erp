@@ -65,11 +65,13 @@ export const SECTOR_MODE_ALLOWED_ITEMS = [
   'sales',
   'accounting',
   'reportsAndAI',
+  'communications',
   'POS',
   'Inventory',
   'Sales',
   'Accounting',
   'ReportsAndAI',
+  'Communications',
 ] as const;
 
 export function shouldDisplaySidebarMenuItem(
@@ -85,10 +87,10 @@ export function shouldDisplaySidebarMenuItem(
     ) {
       return false;
     }
-    return allowedModuleIds.includes(item.id);
+    return allowedModuleIds.includes(item.id) || item.id === 'communications';
   }
 
-  return hasAccess(item.id);
+  return hasAccess(item.id) || item.id === 'communications';
 }
 
 export function Sidebar() {
@@ -105,6 +107,7 @@ export function Sidebar() {
     getVisibleModules,
     uiTheme,
     masterSystemConfig,
+    whatsappAccounts,
   } = useERP();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [sidebarTabScale, setSidebarTabScale] = useState<number>(() => getSavedTabScalePercent());
@@ -130,8 +133,11 @@ export function Sidebar() {
 
   const lowStockCount = products.filter((p) => p.stockQty <= p.reorderPoint).length;
   const pendingPOCount = purchaseOrders.filter((po) => po.status === 'PENDING_APPROVAL').length;
+  const connectedWhatsAppCount = whatsappAccounts.filter(
+    (acc) => acc.session.status === 'CONNECTED'
+  ).length;
 
-  // Master menu definition array with distinct, domain-accurate professional icons (Zero Green)
+  // Master menu definition array with distinct, domain-accurate professional icons
   const rawMenuItems: SidebarMenuItem[] = [
     {
       id: 'dashboard',
@@ -155,7 +161,7 @@ export function Sidebar() {
       subtitle: language === 'ar' ? 'الأصناف والسيريال والمستودع' : 'Stock, Serials & WMS',
       icon: Boxes,
       iconColorClass: 'text-slate-400',
-      count: null,
+      count: lowStockCount > 0 ? lowStockCount : null,
     },
     {
       id: 'sales',
@@ -183,11 +189,11 @@ export function Sidebar() {
     },
     {
       id: 'communications',
-      label: language === 'ar' ? 'الواتساب والرسائل (USB)' : 'WhatsApp & SMS Hub',
-      subtitle: language === 'ar' ? 'محادثات فورية وإرسال سريع' : 'Live Multi-Account Hub',
+      label: language === 'ar' ? 'خدمات التواصل' : 'Communications',
+      subtitle: language === 'ar' ? 'محطة واتساب والرسائل الفورية' : 'WhatsApp & Instant Messaging',
       icon: MessageSquare,
-      iconColorClass: 'text-blue-600 dark:text-blue-400',
-      count: null,
+      iconColorClass: 'text-emerald-600 dark:text-emerald-400',
+      count: connectedWhatsAppCount > 0 ? connectedWhatsAppCount : null,
     },
     {
       id: 'barcodeEngine',
@@ -270,7 +276,7 @@ export function Sidebar() {
     },
   ];
 
-  const allowedModuleIds = getVisibleModules();
+  const allowedModuleIds = Array.from(new Set([...getVisibleModules(), 'communications']));
 
   const visibleMenuItems: SidebarMenuItem[] = masterSystemConfig.sectorModeEnabled
     ? allowedModuleIds
@@ -299,11 +305,12 @@ export function Sidebar() {
 
   return (
     <>
-      {/* Desktop Sidebar (lg and up) - Lumina Quiet Luxury Navigation Rail */}
+      {/* Desktop Sidebar (lg and up) - Lumina Quiet Luxury Navigation Rail (Collapsible to Icons-Only) */}
       <aside
         data-testid="desktop-sidebar"
-        className={`hidden lg:flex flex-col justify-between shrink-0 h-full overflow-hidden select-none border-e p-3 z-20 transition-all duration-200 ${
-          isSidebarCollapsed ? 'w-17' : 'w-48'
+        data-collapsed={isSidebarCollapsed ? 'true' : 'false'}
+        className={`hidden lg:flex flex-col justify-between shrink-0 h-full overflow-hidden select-none border-e z-20 transition-all duration-200 ${
+          isSidebarCollapsed ? 'w-17 items-center px-2 py-3' : 'w-48 p-3'
         } ${
           isRoyalRail
             ? 'bg-[#0E1329] text-slate-200 border-[#1C2447]'
@@ -314,21 +321,56 @@ export function Sidebar() {
             : 'bg-white text-slate-800 border-slate-200/70'
         }`}
       >
-        <div className="space-y-1 overflow-y-auto min-h-0">
+        <div className={`space-y-1 overflow-y-auto min-h-0 w-full ${isSidebarCollapsed ? 'flex flex-col items-center' : ''}`}>
+          {/* Top Mini Header with Collapse / Expand Action */}
+          <div
+            className={`flex items-center mb-1.5 pb-1.5 border-b border-slate-100 dark:border-slate-800/80 w-full ${
+              isSidebarCollapsed ? 'justify-center' : 'justify-between px-1.5'
+            }`}
+          >
+            {!isSidebarCollapsed && (
+              <span className="text-[10px] font-bold tracking-wider uppercase text-slate-400">
+                {language === 'ar' ? 'القائمة الرئيسية' : 'Navigation'}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              title={
+                isSidebarCollapsed
+                  ? language === 'ar'
+                    ? 'توسيع القائمة الجانبية (إظهار النصوص)'
+                    : 'Expand Sidebar'
+                  : language === 'ar'
+                  ? 'تصغير القائمة (أيقونات فقط)'
+                  : 'Collapse to Icons'
+              }
+              className={`p-1.5 rounded-lg transition cursor-pointer ${
+                isDarkRail
+                  ? 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  : 'text-slate-400 hover:text-slate-800 hover:bg-slate-100'
+              }`}
+            >
+              <CollapseIcon className="w-4 h-4 shrink-0" />
+            </button>
+          </div>
+
           {visibleMenuItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
+            const isCommItem = item.id === 'communications';
             return (
               <button
                 key={item.id}
                 type="button"
                 data-testid={`nav-${item.id}`}
                 onClick={() => setActiveTab(item.id)}
-                title={isSidebarCollapsed ? item.label : undefined}
-                className={`relative w-full flex items-center rounded-xl text-[12px] transition-all cursor-pointer group ${
+                title={isSidebarCollapsed ? item.label : item.subtitle || item.label}
+                aria-label={item.label}
+                className={`relative flex items-center rounded-xl text-[12px] transition-all cursor-pointer group ${
                   isSidebarCollapsed
-                    ? 'justify-center py-2.5 px-0'
-                    : 'gap-2.5 px-3 py-2'
+                    ? 'w-10 h-10 justify-center p-0 mx-auto'
+                    : 'w-full gap-2.5 px-3 py-2'
                 } ${
                   isActive
                     ? isRoyalRail
@@ -347,11 +389,13 @@ export function Sidebar() {
                   className={`w-4 h-4 shrink-0 ${
                     isActive
                       ? 'text-white'
+                      : isCommItem
+                      ? 'text-emerald-600 dark:text-emerald-400'
                       : isDarkRail
                       ? 'text-slate-400'
                       : 'text-slate-400 group-hover:text-slate-700'
                   }`}
-                  strokeWidth={isActive ? 2.1 : 1.75}
+                  strokeWidth={isActive ? 2.1 : 1.85}
                 />
                 {!isSidebarCollapsed && <span className="truncate">{item.label}</span>}
 
@@ -360,22 +404,32 @@ export function Sidebar() {
                     className={`ms-auto px-1.5 py-0.5 rounded-md font-mono text-[10px] font-bold tabular-nums ${
                       isActive
                         ? 'bg-white/20 text-white'
+                        : isCommItem
+                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80'
                         : 'bg-amber-500/15 text-amber-600 border border-amber-500/30'
                     }`}
                   >
                     {item.count}
                   </span>
                 )}
+
+                {isSidebarCollapsed && item.count !== null && (
+                  <span
+                    className={`absolute -top-0.5 -end-0.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-slate-900 ${
+                      isCommItem ? 'bg-emerald-500' : 'bg-amber-500'
+                    }`}
+                  />
+                )}
               </button>
             );
           })}
         </div>
 
-        {/* Bottom Branch & Warehouse Info Card + Subtle Scale Controls */}
-        <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
+        {/* Bottom Branch & Warehouse Info Card + Scale & Collapse Controls */}
+        <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 space-y-1.5 w-full">
           {!isSidebarCollapsed && (
             <div
-              className={`px-3 py-2.5 rounded-xl border text-[11px] space-y-1 ${
+              className={`px-3 py-2 rounded-xl border text-[11px] space-y-1 ${
                 isDarkRail
                   ? 'bg-slate-900/70 border-slate-800 text-slate-300'
                   : 'bg-slate-50 border-slate-200/60'
@@ -396,41 +450,79 @@ export function Sidebar() {
             </div>
           )}
 
-          {/* Hidden/Subtle Tab Scale & Collapse Controls for programmatic & power-user access */}
+          {/* Compact Tab Scale Controls */}
           {!isSidebarCollapsed && (
             <div
               data-testid="sidebar-tab-scale-controls"
-              className="hidden"
+              className={`flex items-center justify-between px-2.5 py-1.5 rounded-xl border text-[10px] ${
+                isDarkRail
+                  ? 'bg-slate-900/60 border-slate-800 text-slate-400'
+                  : 'bg-slate-50/70 border-slate-200/60 text-slate-500'
+              }`}
             >
-              <button
-                type="button"
-                data-testid="sidebar-tab-scale-dec"
-                disabled={sidebarTabScale <= TAB_SCALE_MIN}
-                onClick={() => handleStepSidebarTabScale('DEC')}
-              >
-                <Minus className="w-3 h-3" />
-              </button>
-              <span data-testid="sidebar-tab-scale-value" dir="ltr">
-                {sidebarTabScale}%
-              </span>
-              <button
-                type="button"
-                data-testid="sidebar-tab-scale-inc"
-                disabled={sidebarTabScale >= TAB_SCALE_MAX}
-                onClick={() => handleStepSidebarTabScale('INC')}
-              >
-                <Plus className="w-3 h-3" />
-              </button>
+              <span className="font-semibold">{language === 'ar' ? 'حجم التبويبات' : 'Tab Size'}</span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  data-testid="sidebar-tab-scale-dec"
+                  disabled={sidebarTabScale <= TAB_SCALE_MIN}
+                  onClick={() => handleStepSidebarTabScale('DEC')}
+                  className="w-5 h-5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 disabled:opacity-40 cursor-pointer"
+                  title={language === 'ar' ? 'تصغير التبويبات' : 'Shrink Tabs'}
+                >
+                  <Minus className="w-2.5 h-2.5" />
+                </button>
+                <span
+                  data-testid="sidebar-tab-scale-value"
+                  dir="ltr"
+                  className="font-mono font-bold text-[10px] min-w-[34px] text-center text-slate-700 dark:text-slate-200"
+                >
+                  {sidebarTabScale}%
+                </span>
+                <button
+                  type="button"
+                  data-testid="sidebar-tab-scale-inc"
+                  disabled={sidebarTabScale >= TAB_SCALE_MAX}
+                  onClick={() => handleStepSidebarTabScale('INC')}
+                  className="w-5 h-5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 disabled:opacity-40 cursor-pointer"
+                  title={language === 'ar' ? 'تكبير التبويبات' : 'Enlarge Tabs'}
+                >
+                  <Plus className="w-2.5 h-2.5" />
+                </button>
+              </div>
             </div>
           )}
 
+          {/* Sidebar Collapse / Expand Toggle Button */}
           <button
             type="button"
             data-testid="toggle-sidebar"
             onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            className="hidden"
+            title={
+              isSidebarCollapsed
+                ? language === 'ar'
+                  ? 'توسيع القائمة الجانبية'
+                  : 'Expand Sidebar'
+                : language === 'ar'
+                ? 'تصغير القائمة (أيقونات فقط بدون نصوص)'
+                : 'Collapse Sidebar (Icons Only)'
+            }
+            className={`flex items-center rounded-xl border text-[11px] font-medium transition cursor-pointer ${
+              isSidebarCollapsed
+                ? 'w-10 h-10 mx-auto justify-center p-0'
+                : 'w-full justify-between px-3 py-1.5'
+            } ${
+              isDarkRail
+                ? 'bg-slate-900/60 border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white'
+                : 'bg-slate-50/80 border-slate-200/70 text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+            }`}
           >
-            <CollapseIcon className="w-4 h-4 shrink-0" />
+            {!isSidebarCollapsed && (
+              <span className="truncate">
+                {language === 'ar' ? 'أيقونات فقط' : 'Icons Only'}
+              </span>
+            )}
+            <CollapseIcon className="w-3.5 h-3.5 shrink-0" />
           </button>
         </div>
       </aside>
@@ -441,7 +533,7 @@ export function Sidebar() {
           { id: 'pos', label: language === 'ar' ? 'نقطة البيع POS' : 'POS', icon: ScanBarcode },
           { id: 'inventory', label: language === 'ar' ? 'المخزون' : 'Inventory', icon: Boxes },
           { id: 'sales', label: language === 'ar' ? 'المبيعات' : 'Sales', icon: Receipt },
-          { id: 'accounting', label: language === 'ar' ? 'المحاسبة' : 'Accounting', icon: Landmark },
+          { id: 'communications', label: language === 'ar' ? 'خدمات التواصل' : 'WhatsApp', icon: MessageSquare },
         ].map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;

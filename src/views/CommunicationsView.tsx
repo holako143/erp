@@ -826,39 +826,36 @@ export const CommunicationsView: React.FC = () => {
   const connectedAccountsCount = whatsappAccounts.filter((a) => a.session.status === 'CONNECTED').length;
 
   return (
-    <div className="space-y-3">
-      {/* Top Banner & Mode Selector */}
-      <div className="bg-gradient-to-r from-slate-900 via-emerald-950 to-slate-900 rounded-2xl p-4 text-white shadow-xl border border-emerald-800/40">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-3">
-              <span className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl border border-emerald-500/30">
-                <Radio className="w-5 h-5 animate-pulse" />
-              </span>
-              <div>
-                <div className="flex items-center gap-2.5 flex-wrap">
-                  <h1 className="text-xl font-black tracking-tight">
-                    منظومة واتساب المتعدد المدمجة ومركز الاتصالات الفوري
-                  </h1>
-                  <span className="px-2.5 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-[11px] font-bold">
-                    يعمل 100% داخل النظام بدون نوافذ خارجية
-                  </span>
-                </div>
-                <p className="text-slate-300 text-xs mt-1 flex items-center gap-3 flex-wrap">
-                  <span>
-                    تعدد حسابات واتساب متزامنة ({connectedAccountsCount}/{whatsappAccounts.length} حسابات متصلة) • تنقل لحظي 0ms بدون إعادة تصوير الباركود
-                  </span>
-                  <span className="text-emerald-400 font-mono font-bold">
-                    • حفظ تلقائي فوري ✓ ({lastAutoSavedAt})
-                  </span>
-                </p>
+    <div className="space-y-4">
+      {/* Lumina POS-Style Header Card for Communications & WhatsApp Hub (خدمات التواصل) */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/70 dark:border-slate-800 shadow-2xs space-y-3">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="w-9 h-9 bg-slate-900 text-white rounded-xl flex items-center justify-center shrink-0 shadow-2xs">
+              <MessageSquare className="w-4 h-4" />
+            </span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 tracking-tight">
+                  خدمات التواصل — منظومة واتساب المتعدد والرسائل الفورية
+                </h1>
+                <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-700 text-[10px] font-semibold">
+                  متصل ومفعل 100% داخل النظام
+                </span>
               </div>
+              <p className="text-slate-500 text-[11px] mt-0.5 flex items-center gap-2 flex-wrap">
+                <span>
+                  حسابات واتساب المتصلة ({connectedAccountsCount}/{whatsappAccounts.length}) • تنقل لحظي بدون إعادة تصوير الباركود
+                </span>
+                <span className="text-emerald-600 font-mono font-semibold">
+                  • حفظ تلقائي ✓ ({lastAutoSavedAt})
+                </span>
+              </p>
             </div>
           </div>
 
-          {/* AI Robot Auto-Responder Toggle + Sub-View Tab Buttons */}
-          <div className="flex items-center flex-wrap gap-2">
-            {/* AI Robot Toggle Button (Inactive by default, changes color when clicked) */}
+          {/* AI Robot Auto-Responder Toggle Pill */}
+          <div className="flex items-center flex-wrap gap-2 shrink-0">
             <button
               type="button"
               data-testid="whatsapp-ai-bot-toggle"
@@ -868,88 +865,99 @@ export const CommunicationsView: React.FC = () => {
                   ? 'الروبوت الذكي مفعّل: يرد تلقائياً على المحادثات ويجلب الفواتير والتقارير اللحظية (انقر للإيقاف)'
                   : 'انقر لتفعيل الروبوت الذكي للرد الفوري والتحكم الكامل بالفواتير والتقارير'
               }
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black transition-all duration-200 cursor-pointer border ${
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all duration-200 cursor-pointer border ${
                 isAiBotEnabled
-                  ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white border-emerald-300 shadow-lg shadow-emerald-500/30 ring-2 ring-emerald-300/60'
-                  : 'bg-slate-800/90 text-slate-300 border-slate-600/80 hover:bg-slate-700 hover:text-white'
+                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                  : 'bg-slate-50 text-slate-700 border-slate-200/80 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700'
               }`}
             >
-              <span
-                className={`p-1 rounded-lg transition-colors ${
-                  isAiBotEnabled
-                    ? 'bg-white/20 text-white'
-                    : 'bg-slate-700 text-slate-400'
-                }`}
-              >
-                <Bot className={`w-4 h-4 ${isAiBotEnabled ? 'animate-bounce' : ''}`} />
-              </span>
+              <Bot className={`w-4 h-4 ${isAiBotEnabled ? 'text-white animate-bounce' : 'text-slate-500'}`} />
               <span>
                 {isAiBotEnabled ? 'الروبوت الذكي: مفعّل ✓' : 'الروبوت الذكي: متوقف'}
               </span>
               <span
-                className={`text-[10px] px-2 py-0.5 rounded-md font-mono font-bold ${
+                className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
                   isAiBotEnabled
-                    ? 'bg-white text-emerald-900'
-                    : 'bg-slate-700 text-slate-400'
+                    ? 'bg-white/20 text-white'
+                    : 'bg-slate-200/80 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
                 }`}
               >
                 {isAiBotEnabled ? `نشط (${aiBotRepliesCount})` : 'OFF'}
               </span>
             </button>
-
-            <div className="flex items-center flex-wrap gap-1 bg-slate-800/80 p-1.5 rounded-xl border border-slate-700/60 backdrop-blur-md">
-              <button
-                type="button"
-                data-testid="comm-tab-whatsapp"
-                onClick={() => setActiveTab('WHATSAPP')}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all duration-200 cursor-pointer ${
-                  activeTab === 'WHATSAPP'
-                    ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/30 ring-1 ring-emerald-400/30'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
-                }`}
-              >
-                <MessageSquare className="w-4 h-4 text-emerald-300" />
-                <span>محطة واتساب والإرسال الفوري</span>
-                <span className="text-[11px] px-2 py-0.5 rounded-md bg-emerald-400 text-emerald-950 font-black">
-                  {whatsappAccounts.length} حسابات
-                </span>
-              </button>
-
-              <button
-                type="button"
-                data-testid="comm-tab-quick-send-log"
-                onClick={() => setActiveTab('QUICK_SEND_LOG')}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all duration-200 cursor-pointer ${
-                  activeTab === 'QUICK_SEND_LOG'
-                    ? 'bg-teal-600 text-white shadow-lg shadow-teal-900/30 ring-1 ring-teal-400/30'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
-                }`}
-              >
-                <Send className="w-4 h-4 text-teal-300" />
-                <span>قوالب الإرسال السريع وسجل الصادر</span>
-                <span className="text-[11px] px-2 py-0.5 rounded-md bg-teal-400/30 text-teal-100 font-mono font-bold">
-                  {outboundMessages.length}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                data-testid="comm-tab-sms-usb"
-                onClick={() => setActiveTab('USB_SMS')}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all duration-200 cursor-pointer ${
-                  activeTab === 'USB_SMS'
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/30 ring-1 ring-indigo-400/30'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
-                }`}
-              >
-                <Smartphone className="w-4 h-4 text-indigo-300" />
-                <span>جسر رسائل SMS الفوري (USB / SIM)</span>
-                <span className="text-[11px] px-2 py-0.5 rounded-md font-bold bg-indigo-500/30 text-indigo-100 font-mono">
-                  {isUsbReady ? `نشط ⚡ (${smsOutboundList.length})` : 'فحص ADB'}
-                </span>
-              </button>
-            </div>
           </div>
+        </div>
+
+        {/* Row 2: POS-Style Rounded-Full Pill Sub-Tabs */}
+        <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+          <button
+            type="button"
+            data-testid="comm-tab-whatsapp"
+            onClick={() => setActiveTab('WHATSAPP')}
+            className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs border transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
+              activeTab === 'WHATSAPP'
+                ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
+            }`}
+          >
+            <MessageSquare className={`w-3.5 h-3.5 ${activeTab === 'WHATSAPP' ? 'text-emerald-400' : 'text-emerald-600'}`} />
+            <span>محطة واتساب والإرسال الفوري</span>
+            <span
+              className={`text-[10px] px-2 py-0.2 rounded-full font-mono font-bold ${
+                activeTab === 'WHATSAPP'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-slate-100 text-slate-600'
+              }`}
+            >
+              {whatsappAccounts.length} حسابات
+            </span>
+          </button>
+
+          <button
+            type="button"
+            data-testid="comm-tab-quick-send-log"
+            onClick={() => setActiveTab('QUICK_SEND_LOG')}
+            className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs border transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
+              activeTab === 'QUICK_SEND_LOG'
+                ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
+            }`}
+          >
+            <Send className="w-3.5 h-3.5" />
+            <span>قوالب الإرسال السريع وسجل الصادر</span>
+            <span
+              className={`text-[10px] px-2 py-0.2 rounded-full font-mono font-bold ${
+                activeTab === 'QUICK_SEND_LOG'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-slate-100 text-slate-600'
+              }`}
+            >
+              {outboundMessages.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            data-testid="comm-tab-sms-usb"
+            onClick={() => setActiveTab('USB_SMS')}
+            className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs border transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
+              activeTab === 'USB_SMS'
+                ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
+            }`}
+          >
+            <Smartphone className="w-3.5 h-3.5" />
+            <span>جسر رسائل SMS الفوري (USB / SIM)</span>
+            <span
+              className={`text-[10px] px-2 py-0.2 rounded-full font-mono font-bold ${
+                activeTab === 'USB_SMS'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-slate-100 text-slate-600'
+              }`}
+            >
+              {isUsbReady ? `نشط ⚡ (${smsOutboundList.length})` : 'فحص ADB'}
+            </span>
+          </button>
         </div>
       </div>
 
@@ -1370,16 +1378,16 @@ export const CommunicationsView: React.FC = () => {
                         </div>
                       </div>
 
-                      <div className="p-4 bg-slate-900 text-white rounded-2xl text-center space-y-1.5 border border-emerald-500/40">
-                        <div className="text-[11px] text-slate-300 flex items-center justify-center gap-1.5">
+                      <div className="p-4 bg-slate-50 text-slate-900 rounded-2xl text-center space-y-1.5 border border-emerald-300">
+                        <div className="text-[11px] text-slate-600 flex items-center justify-center gap-1.5">
                           <span>أدخل كود الربط التالي في إشعار واتساب على هاتفك:</span>
                           {real8DigitCodeSource === 'LIVE_WHATSAPP' && (
-                            <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-300 rounded text-[10px] font-bold">
+                            <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded text-[10px] font-bold">
                               رسمي من خادم واتساب ✓
                             </span>
                           )}
                         </div>
-                        <div className="text-2xl font-black font-mono tracking-widest text-emerald-400">
+                        <div className="text-2xl font-black font-mono tracking-widest text-emerald-700">
                           {generated8DigitCode}
                         </div>
                       </div>
@@ -1948,13 +1956,13 @@ export const CommunicationsView: React.FC = () => {
                     data-testid="wa-slash-shortcuts-popover"
                     className="mx-3 mb-1.5 rounded-2xl bg-white dark:bg-slate-900 border-2 border-emerald-500/40 shadow-2xl overflow-hidden z-30"
                   >
-                    <div className="px-3.5 py-2 bg-slate-900 text-white flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 text-xs font-black">
-                        <span className="px-1.5 py-0.5 rounded bg-emerald-500 text-slate-950 font-mono text-[11px]">
+                    <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200/80 text-slate-900 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 text-xs font-bold">
+                        <span className="px-1.5 py-0.5 rounded bg-slate-900 text-white font-mono text-[11px]">
                           /
                         </span>
                         <span>الاختصارات السريعة للمحادثة (اكتب / في صندوق الكتابة أو اختر للرد الفوري)</span>
-                        <span className="text-[10px] font-mono text-emerald-300 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-500/30">
+                        <span className="text-[10px] font-mono text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
                           {filteredSlashShortcuts.length} اختصار
                         </span>
                       </div>
@@ -1971,7 +1979,7 @@ export const CommunicationsView: React.FC = () => {
                             setScContentInput('');
                             setIsAddingOrEditingShortcut((v) => !v);
                           }}
-                          className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer transition"
+                          className="px-2.5 py-1 rounded-full bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer transition"
                         >
                           <Plus className="w-3 h-3" />
                           <span>{isAddingOrEditingShortcut ? 'إخفاء النموذج' : 'إضافة اختصار جديد'}</span>
@@ -1982,7 +1990,7 @@ export const CommunicationsView: React.FC = () => {
                             setIsSlashMenuOpen(false);
                             setIsAddingOrEditingShortcut(false);
                           }}
-                          className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white cursor-pointer"
+                          className="p-1 rounded-full border border-slate-200/80 bg-white hover:bg-slate-100 text-slate-500 hover:text-slate-900 cursor-pointer"
                           title="إغلاق قائمة الاختصارات"
                         >
                           <X className="w-3.5 h-3.5" />
@@ -2406,22 +2414,22 @@ export const CommunicationsView: React.FC = () => {
       {/* ======================================================== */}
       {activeTab === 'USB_SMS' && (
         <div className="space-y-5" data-testid="usb-sms-bridge-section">
-          {/* Top Fast ERP-to-SMS Action Strip */}
-          <div className="bg-slate-900 text-white rounded-2xl p-4 border border-indigo-500/30 shadow-lg flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          {/* Top Fast ERP-to-SMS Action Strip (Lumina POS Theme) */}
+          <div className="bg-white text-slate-900 rounded-2xl p-4 border border-slate-200/80 shadow-2xs flex flex-col lg:flex-row lg:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 flex items-center justify-center shrink-0">
-                <Zap className="w-5 h-5 text-amber-400" />
+              <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                <Zap className="w-5 h-5" />
               </div>
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-sm font-black text-white">
+                  <h2 className="text-sm font-bold text-slate-900">
                     جسر رسائل SMS الفائق السرعة (0.2ms Direct SIM & USB AT+CMGS Bridge)
                   </h2>
-                  <span className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-[10px] font-mono font-bold">
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-mono font-bold">
                     متصل وجاهز 100% • SIM {usbConnectedDevice.simSlot}
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-300 mt-0.5">
+                <p className="text-[11px] text-slate-500 mt-0.5">
                   مربوط فعلياً بقاعدة بيانات العملاء والفواتير والمديونيات والمخزون والتقارير المالية — يرسل ويوثق الرسائل النصية في 0ms
                 </p>
               </div>
@@ -2826,15 +2834,15 @@ export const CommunicationsView: React.FC = () => {
                 </button>
               </div>
 
-              {/* Diagnostics Terminal Output Viewer */}
+              {/* Diagnostics Terminal Output Viewer (Lumina POS Theme) */}
               {usbDiagnosticsReport && (
-                <div className="bg-slate-950 text-slate-100 rounded-2xl p-4 font-mono text-xs shadow-md border border-slate-800 space-y-2">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                    <div className="flex items-center gap-2 text-indigo-400 font-bold">
-                      <Terminal className="w-4 h-4" />
+                <div className="bg-slate-50 text-slate-800 rounded-2xl p-4 font-mono text-xs shadow-2xs border border-slate-200/80 space-y-2">
+                  <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
+                    <div className="flex items-center gap-2 text-slate-900 font-bold">
+                      <Terminal className="w-4 h-4 text-blue-600" />
                       <span>سجل الفحص العتادي المباشر (USB / AT+CMGS)</span>
                     </div>
-                    <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded font-bold">
+                    <span className="text-[10px] bg-emerald-50 border border-emerald-200 text-emerald-700 px-2 py-0.5 rounded-full font-bold">
                       جاهز 100% ✓
                     </span>
                   </div>
@@ -2842,8 +2850,8 @@ export const CommunicationsView: React.FC = () => {
                   <div className="space-y-1 text-[11px] max-h-40 overflow-y-auto">
                     {usbDiagnosticsReport.diagnosticLogs.map((log: string, index: number) => (
                       <div key={index} className="flex items-start gap-2">
-                        <span className="text-slate-500 select-none">›</span>
-                        <span className={log.includes('OK') || log.includes('جاهز') ? 'text-emerald-400' : 'text-slate-300'}>
+                        <span className="text-slate-400 select-none">›</span>
+                        <span className={log.includes('OK') || log.includes('جاهز') ? 'text-emerald-700 font-bold' : 'text-slate-700'}>
                           {log}
                         </span>
                       </div>

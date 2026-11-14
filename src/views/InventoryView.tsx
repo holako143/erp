@@ -951,24 +951,24 @@ export const InventoryView: React.FC = () => {
         </div>
       )}
 
-      {/* Organized Header Card: Row 1 Title & Primary Actions + Row 2 Sub-Tabs & Utility Actions */}
-      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200/90 dark:border-slate-800 p-4 shadow-2xs space-y-3">
-        {/* Row 1: Full-Width Title & Primary High-Frequency Buttons */}
+      {/* Lumina POS-Style Header Card: Title, Primary Actions & Pill Sub-Tabs */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/70 dark:border-slate-800 p-4 shadow-2xs space-y-3">
+        {/* Row 1: Title & Primary High-Frequency Actions */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <div className="flex-1 min-w-[280px]">
-            <h1 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100 tracking-tight flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-700 dark:text-blue-400 shrink-0">
-                <Package className="w-4 h-4" />
-              </div>
-              <span>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
+              <Package className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 tracking-tight truncate">
                 {language === 'ar'
                   ? 'إدارة المخزون والجرد الفعلي والتصنيف الهندسي (WMS)'
                   : 'Solar, Electronics, Batteries & Smart Screens WMS'}
-              </span>
-            </h1>
-            <p className="text-xs text-slate-500 mt-1 ps-10">
-              تحكم كامل بالأصناف والتصنيفات المخزنية المحددة، تعديل البيانات والأسعار والأرصدة، الجرد الفعلي اللحظي، وتصوير/توليد الباركود والأكواد
-            </p>
+              </h1>
+              <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                تحكم متكامل بالأصناف والتصنيفات الهندسية، الجرد الفعلي اللحظي، وتوليد ومسح الباركود والأكواد
+              </p>
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -977,7 +977,7 @@ export const InventoryView: React.FC = () => {
                 type="button"
                 data-testid="add-product-modal-btn"
                 onClick={handleOpenCreateModal}
-                className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
+                className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold px-4 py-2 rounded-xl transition flex items-center gap-1.5 shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
               >
                 <Plus className="w-3.5 h-3.5 shrink-0" />
                 <span>إضافة صنف جديد</span>
@@ -992,20 +992,20 @@ export const InventoryView: React.FC = () => {
                 setIsFastStockTakeOpen(true);
                 setTimeout(() => fastBarcodeInputRef.current?.focus(), 80);
               }}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
+              className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200/80 text-xs font-semibold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
-              <Zap className="w-3.5 h-3.5 shrink-0" />
-              <span>وضع الجرد السريع بالباركود</span>
+              <Zap className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+              <span>الجرد السريع بالباركود</span>
             </button>
 
             <button
               type="button"
               data-testid="btn-toggle-inventory-mini-dashboard"
               onClick={() => setIsMiniDashboardOpen((prev) => !prev)}
-              className={`text-xs font-bold px-3 py-2 rounded-lg border transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`text-xs font-semibold px-3.5 py-2 rounded-xl border transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${
                 isMiniDashboardOpen
-                  ? 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800'
-                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700'
+                  ? 'bg-slate-100 text-slate-900 border-slate-300/80 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700'
+                  : 'bg-white text-slate-600 border-slate-200/80 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800'
               }`}
             >
               <BarChart3 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
@@ -1014,31 +1014,40 @@ export const InventoryView: React.FC = () => {
           </div>
         </div>
 
-        {/* Row 2: Resizable Sub-Tabs Navigation + Secondary Utility Actions & Workspace Resizer */}
+        {/* Row 2: POS-Style Rounded-Full Pill Sub-Tabs + Utility Actions */}
         <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2.5">
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
             <button
               type="button"
               data-testid="subtab-inventory-items"
               onClick={() => setInventorySubTab('ITEMS')}
-              className={`erp-resizable-tab px-3.5 py-2 rounded-lg font-bold text-xs flex items-center gap-2 border transition cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`erp-resizable-tab px-4 py-1.5 rounded-full text-xs flex items-center gap-2 border transition cursor-pointer whitespace-nowrap shrink-0 ${
                 inventorySubTab === 'ITEMS'
-                  ? 'border-blue-600 bg-blue-600 text-white shadow-2xs'
-                  : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
+                  ? 'border-slate-900 bg-slate-900 text-white font-semibold shadow-2xs'
+                  : 'border-slate-200/80 dark:border-slate-700 bg-white dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
               <Package className="w-3.5 h-3.5 shrink-0" />
-              <span>سجل الأصناف والتحكم بالمخزون ({electronicsProducts.length})</span>
+              <span>سجل الأصناف والتحكم بالمخزون</span>
+              <span
+                className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                  inventorySubTab === 'ITEMS'
+                    ? 'bg-white/20 text-white'
+                    : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                {electronicsProducts.length}
+              </span>
             </button>
 
             <button
               type="button"
               data-testid="subtab-stock-taking"
               onClick={() => setInventorySubTab('STOCK_TAKING')}
-              className={`erp-resizable-tab px-3.5 py-2 rounded-lg font-bold text-xs flex items-center gap-2 border transition cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`erp-resizable-tab px-4 py-1.5 rounded-full text-xs flex items-center gap-2 border transition cursor-pointer whitespace-nowrap shrink-0 ${
                 inventorySubTab === 'STOCK_TAKING'
-                  ? 'border-indigo-600 bg-indigo-600 text-white shadow-2xs'
-                  : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
+                  ? 'border-slate-900 bg-slate-900 text-white font-semibold shadow-2xs'
+                  : 'border-slate-200/80 dark:border-slate-700 bg-white dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
               <ClipboardCheck className="w-3.5 h-3.5 shrink-0" />
@@ -1049,16 +1058,16 @@ export const InventoryView: React.FC = () => {
               type="button"
               data-testid="subtab-branch-transfers"
               onClick={() => setInventorySubTab('BRANCH_TRANSFERS')}
-              className={`erp-resizable-tab px-3.5 py-2 rounded-lg font-bold text-xs flex items-center gap-2 border transition cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`erp-resizable-tab px-4 py-1.5 rounded-full text-xs flex items-center gap-2 border transition cursor-pointer whitespace-nowrap shrink-0 ${
                 inventorySubTab === 'BRANCH_TRANSFERS'
-                  ? 'border-blue-600 bg-blue-600 text-white shadow-2xs'
-                  : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
+                  ? 'border-slate-900 bg-slate-900 text-white font-semibold shadow-2xs'
+                  : 'border-slate-200/80 dark:border-slate-700 bg-white dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
               <Network className="w-3.5 h-3.5 shrink-0" />
-              <span>شبكة الفروع والتحويلات ({branchNodes.length} فروع)</span>
+              <span>شبكة الفروع والتحويلات ({branchNodes.length})</span>
               {interBranchTransfers.length > 0 && (
-                <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-white/20 text-current font-mono">
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/20 text-current font-mono">
                   {interBranchTransfers.length}
                 </span>
               )}
@@ -1070,7 +1079,7 @@ export const InventoryView: React.FC = () => {
               type="button"
               data-testid="inventory-goto-pos-btn"
               onClick={() => setActiveTab('pos')}
-              className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-2.5 py-1.5 rounded-lg transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/80 text-xs font-semibold px-3 py-1.5 rounded-full transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
               <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
               <span>نقطة البيع POS</span>
@@ -1085,7 +1094,7 @@ export const InventoryView: React.FC = () => {
                   category: 'LOW_STOCK_ALERT',
                 })
               }
-              className="bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 text-xs font-bold px-2.5 py-1.5 rounded-lg transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="bg-emerald-50/70 hover:bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-xs font-semibold px-3 py-1.5 rounded-full transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
               <MessageSquare className="w-3.5 h-3.5 shrink-0" />
               <span>إشعار النواقص</span>
@@ -1096,7 +1105,7 @@ export const InventoryView: React.FC = () => {
                 type="button"
                 data-testid="open-bulk-import-btn"
                 onClick={() => setIsBulkModalOpen(true)}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-xs font-semibold px-2.5 py-1.5 rounded-lg transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                className="bg-white hover:bg-slate-50 text-slate-600 border border-slate-200/80 text-xs font-medium px-3 py-1.5 rounded-full transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
               >
                 <Upload className="w-3.5 h-3.5 shrink-0" />
                 <span>استيراد CSV</span>
@@ -1108,9 +1117,9 @@ export const InventoryView: React.FC = () => {
                 type="button"
                 data-testid="export-inventory-csv-btn"
                 onClick={handleExportCSV}
-                className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold px-2.5 py-1.5 rounded-lg transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                className="bg-white hover:bg-slate-50 text-slate-600 border border-slate-200/80 text-xs font-medium px-3 py-1.5 rounded-full transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
               >
-                <FileSpreadsheet className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                <FileSpreadsheet className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                 <span>تصدير CSV</span>
               </button>
             )}
@@ -1125,72 +1134,72 @@ export const InventoryView: React.FC = () => {
         </div>
       </div>
 
-      {/* Interactive Recharts Mini-Dashboard Inside Inventory Screen (لوحة التحكم المصغرة لاتخاذ القرار السريع) */}
+      {/* Interactive Recharts Mini-Dashboard Inside Inventory Screen (Lumina Card Style) */}
       {isMiniDashboardOpen && (
         <div
           data-testid="inventory-mini-dashboard"
-          className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200/90 dark:border-slate-800 p-4 shadow-2xs space-y-4"
+          className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/70 dark:border-slate-800 p-4 shadow-2xs space-y-3.5"
         >
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-600">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center">
                 <TrendingUp className="w-4 h-4" />
               </div>
               <div>
-                <h2 className="text-sm font-black text-slate-900 dark:text-slate-100">
-                  لوحة التحكم المصغرة للمخزون واتخاذ القرار السريع (Interactive Inventory Analytics)
+                <h2 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100">
+                  لوحة التحكم المصغرة للمخزون واتخاذ القرار السريع
                 </h2>
                 <p className="text-[11px] text-slate-500">
-                  تحليل بياني لحظي لأكثر الأصناف طلباً ومعدلات الدوران ومستويات المخزون الحالية مقابل حد إعادة الطلب الآمن
+                  تحليل بياني لحظي لأكثر الأصناف طلباً ومستويات المخزون الحالية مقابل حد إعادة الطلب
                 </p>
               </div>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-              <div className="px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                <div className="text-[10px] text-slate-500 font-bold">إجمالي وحدات المستودع</div>
-                <div className="font-mono font-black text-slate-900 dark:text-white text-sm" dir="ltr">
+              <div className="px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700">
+                <div className="text-[10px] text-slate-500 font-medium">إجمالي الوحدات</div>
+                <div className="font-mono font-bold text-slate-900 dark:text-white text-xs sm:text-sm" dir="ltr">
                   {miniDashboardAnalytics.totalUnitsInStock.toLocaleString()} PCS
                 </div>
               </div>
-              <div className="px-3 py-1.5 rounded-lg bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800">
-                <div className="text-[10px] text-blue-700 dark:text-blue-300 font-bold">قيمة المخزون بالتكلفة</div>
-                <div className="font-mono font-black text-blue-900 dark:text-blue-200 text-sm" dir="ltr">
+              <div className="px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700">
+                <div className="text-[10px] text-slate-500 font-medium">قيمة المخزون بالتكلفة</div>
+                <div className="font-mono font-bold text-slate-900 dark:text-white text-xs sm:text-sm" dir="ltr">
                   {miniDashboardAnalytics.totalInventoryValue.toLocaleString()} {currency}
                 </div>
               </div>
-              <div className="px-3 py-1.5 rounded-lg bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800">
-                <div className="text-[10px] text-indigo-700 dark:text-indigo-300 font-bold">الأعلى طلباً ودوراناً</div>
-                <div className="font-bold text-indigo-950 dark:text-indigo-200 text-xs truncate max-w-[150px]">
+              <div className="px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700">
+                <div className="text-[10px] text-slate-500 font-medium">الأعلى طلباً ودوراناً</div>
+                <div className="font-semibold text-slate-800 dark:text-slate-200 text-xs truncate max-w-[145px]">
                   {miniDashboardAnalytics.topPerformerNameAr}
                 </div>
               </div>
-              <div className="px-3 py-1.5 rounded-lg bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
-                <div className="text-[10px] text-amber-800 dark:text-amber-300 font-bold">تحتاج إعادة طلب</div>
-                <div className="font-mono font-black text-amber-900 dark:text-amber-200 text-sm">
+              <div className="px-3 py-1.5 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800">
+                <div className="text-[10px] text-amber-700 dark:text-amber-300 font-medium">تحتاج إعادة طلب</div>
+                <div className="font-mono font-bold text-amber-800 dark:text-amber-200 text-xs sm:text-sm">
                   {miniDashboardAnalytics.lowStockItemsCount} أصناف
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
             {/* Recharts Chart 1: Top Demanded Items vs Current Stock */}
             {expandedChart !== 'STOCK' && (
               <div
                 data-testid="inventory-chart-top-demanded"
-                className={`p-3.5 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 space-y-2 ${
+                className={`p-3.5 rounded-2xl bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/70 dark:border-slate-800 space-y-2 ${
                   expandedChart === 'DEMAND' ? 'lg:col-span-2' : ''
                 }`}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <h3 className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                     <BarChart3 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                     <span>أكثر الأصناف طلباً ومبيعات مقارنة بالرصيد المتاح</span>
                   </h3>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-[10px] font-bold text-blue-700 bg-blue-100/80 px-2 py-0.5 rounded">
-                      تفاعلي مباشر (Recharts)
+                    <span className="text-[10px] font-medium text-slate-600 bg-white border border-slate-200/70 px-2 py-0.5 rounded-full">
+                      تفاعلي مباشر
                     </span>
                     <button
                       type="button"
@@ -1198,7 +1207,7 @@ export const InventoryView: React.FC = () => {
                       onClick={() =>
                         setExpandedChart((prev) => (prev === 'DEMAND' ? 'BOTH' : 'DEMAND'))
                       }
-                      className="p-1 rounded border border-slate-200 bg-white hover:bg-blue-50 text-slate-600 hover:text-blue-700 cursor-pointer"
+                      className="p-1 rounded-lg border border-slate-200/80 bg-white hover:bg-slate-100 text-slate-600 cursor-pointer"
                       title={expandedChart === 'DEMAND' ? 'استعادة العرض المزدوج' : 'تكبير الرسم البياني'}
                     >
                       {expandedChart === 'DEMAND' ? (
@@ -1209,7 +1218,7 @@ export const InventoryView: React.FC = () => {
                     </button>
                   </div>
                 </div>
-                <div className={`${expandedChart === 'DEMAND' ? 'h-64' : 'h-48'} w-full`} dir="ltr">
+                <div className={`${expandedChart === 'DEMAND' ? 'h-60' : 'h-44'} w-full`} dir="ltr">
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart
                       data={miniDashboardAnalytics.topDemandedItems}
@@ -1218,14 +1227,14 @@ export const InventoryView: React.FC = () => {
                       <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                       <XAxis
                         dataKey="sku"
-                        tick={{ fontSize: 10, fill: '#475569', fontWeight: 700 }}
+                        tick={{ fontSize: 10, fill: '#475569', fontWeight: 600 }}
                       />
                       <YAxis tick={{ fontSize: 10, fill: '#475569' }} />
                       <Tooltip
                         contentStyle={{
                           backgroundColor: '#0f172a',
                           borderColor: '#1e293b',
-                          borderRadius: '8px',
+                          borderRadius: '12px',
                           color: '#f8fafc',
                           fontSize: '11px',
                         }}
@@ -1242,7 +1251,7 @@ export const InventoryView: React.FC = () => {
                         }
                       />
                       <Legend
-                        wrapperStyle={{ fontSize: '11px', fontWeight: 700 }}
+                        wrapperStyle={{ fontSize: '11px', fontWeight: 600 }}
                         formatter={(val) =>
                           val === 'demandedQty'
                             ? 'الطلب والمبيعات'
@@ -1254,16 +1263,16 @@ export const InventoryView: React.FC = () => {
                       <Bar
                         dataKey="demandedQty"
                         name="demandedQty"
-                        fill="#2563eb"
+                        fill="#0f172a"
                         radius={[4, 4, 0, 0]}
-                        barSize={20}
+                        barSize={18}
                       />
                       <Bar
                         dataKey="currentStock"
                         name="currentStock"
-                        fill="#6366f1"
+                        fill="#2563eb"
                         radius={[4, 4, 0, 0]}
-                        barSize={20}
+                        barSize={18}
                       />
                       <Line
                         type="monotone"
@@ -1283,17 +1292,17 @@ export const InventoryView: React.FC = () => {
             {expandedChart !== 'DEMAND' && (
               <div
                 data-testid="inventory-chart-stock-levels"
-                className={`p-3.5 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 space-y-2 ${
+                className={`p-3.5 rounded-2xl bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/70 dark:border-slate-800 space-y-2 ${
                   expandedChart === 'STOCK' ? 'lg:col-span-2' : ''
                 }`}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <h3 className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                     <Package className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
                     <span>مستويات المخزون الحالية مقابل حد إعادة الطلب الآمن</span>
                   </h3>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100/80 px-2 py-0.5 rounded">
+                    <span className="text-[10px] font-medium text-slate-600 bg-white border border-slate-200/70 px-2 py-0.5 rounded-full">
                       انقر على أي عمود لتصفية الصنف
                     </span>
                     <button
@@ -1302,7 +1311,7 @@ export const InventoryView: React.FC = () => {
                       onClick={() =>
                         setExpandedChart((prev) => (prev === 'STOCK' ? 'BOTH' : 'STOCK'))
                       }
-                      className="p-1 rounded border border-slate-200 bg-white hover:bg-indigo-50 text-slate-600 hover:text-indigo-700 cursor-pointer"
+                      className="p-1 rounded-lg border border-slate-200/80 bg-white hover:bg-slate-100 text-slate-600 cursor-pointer"
                       title={expandedChart === 'STOCK' ? 'استعادة العرض المزدوج' : 'تكبير الرسم البياني'}
                     >
                       {expandedChart === 'STOCK' ? (
@@ -1313,75 +1322,75 @@ export const InventoryView: React.FC = () => {
                     </button>
                   </div>
                 </div>
-                <div className={`${expandedChart === 'STOCK' ? 'h-64' : 'h-48'} w-full`} dir="ltr">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={miniDashboardAnalytics.stockLevelsItems}
-                    margin={{ top: 8, right: 12, left: 0, bottom: 4 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis
-                      dataKey="sku"
-                      tick={{ fontSize: 10, fill: '#475569', fontWeight: 700 }}
-                    />
-                    <YAxis tick={{ fontSize: 10, fill: '#475569' }} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: '#0f172a',
-                        borderColor: '#1e293b',
-                        borderRadius: '8px',
-                        color: '#f8fafc',
-                        fontSize: '11px',
-                      }}
-                      formatter={(val: any, name: any) => [
-                        `${val} وحدة`,
-                        name === 'stockQty' ? 'الرصيد الفعلي الحالي' : 'حد إعادة الطلب الآمن',
-                      ]}
-                      labelFormatter={(label: any, payload: any) =>
-                        payload?.[0]?.payload?.nameAr || label
-                      }
-                    />
-                    <Legend
-                      wrapperStyle={{ fontSize: '11px', fontWeight: 700 }}
-                      formatter={(val) =>
-                        val === 'stockQty' ? 'الرصيد الفعلي الحالي' : 'حد إعادة الطلب الآمن'
-                      }
-                    />
-                    <Bar
-                      dataKey="stockQty"
-                      name="stockQty"
-                      radius={[4, 4, 0, 0]}
-                      barSize={22}
-                      onClick={(data: any) => {
-                        if (data?.sku) {
-                          setSearchQuery(String(data.sku));
-                          setInventorySubTab('ITEMS');
-                        }
-                      }}
-                      className="cursor-pointer"
+                <div className={`${expandedChart === 'STOCK' ? 'h-60' : 'h-44'} w-full`} dir="ltr">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={miniDashboardAnalytics.stockLevelsItems}
+                      margin={{ top: 8, right: 12, left: 0, bottom: 4 }}
                     >
-                      {miniDashboardAnalytics.stockLevelsItems.map((entry, index) => (
-                        <Cell
-                          key={`cell-${index}`}
-                          fill={
-                            entry.healthStatus === 'OUT_OF_STOCK'
-                              ? '#e11d48'
-                              : entry.healthStatus === 'REORDER_NOW'
-                              ? '#d97706'
-                              : '#1d4ed8'
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis
+                        dataKey="sku"
+                        tick={{ fontSize: 10, fill: '#475569', fontWeight: 600 }}
+                      />
+                      <YAxis tick={{ fontSize: 10, fill: '#475569' }} />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: '#0f172a',
+                          borderColor: '#1e293b',
+                          borderRadius: '12px',
+                          color: '#f8fafc',
+                          fontSize: '11px',
+                        }}
+                        formatter={(val: any, name: any) => [
+                          `${val} وحدة`,
+                          name === 'stockQty' ? 'الرصيد الفعلي الحالي' : 'حد إعادة الطلب الآمن',
+                        ]}
+                        labelFormatter={(label: any, payload: any) =>
+                          payload?.[0]?.payload?.nameAr || label
+                        }
+                      />
+                      <Legend
+                        wrapperStyle={{ fontSize: '11px', fontWeight: 600 }}
+                        formatter={(val) =>
+                          val === 'stockQty' ? 'الرصيد الفعلي الحالي' : 'حد إعادة الطلب الآمن'
+                        }
+                      />
+                      <Bar
+                        dataKey="stockQty"
+                        name="stockQty"
+                        radius={[4, 4, 0, 0]}
+                        barSize={20}
+                        onClick={(data: any) => {
+                          if (data?.sku) {
+                            setSearchQuery(String(data.sku));
+                            setInventorySubTab('ITEMS');
                           }
-                        />
-                      ))}
-                    </Bar>
-                    <Bar
-                      dataKey="reorderPoint"
-                      name="reorderPoint"
-                      fill="#94a3b8"
-                      radius={[4, 4, 0, 0]}
-                      barSize={14}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
+                        }}
+                        className="cursor-pointer"
+                      >
+                        {miniDashboardAnalytics.stockLevelsItems.map((entry, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={
+                              entry.healthStatus === 'OUT_OF_STOCK'
+                                ? '#e11d48'
+                                : entry.healthStatus === 'REORDER_NOW'
+                                ? '#d97706'
+                                : '#1d4ed8'
+                            }
+                          />
+                        ))}
+                      </Bar>
+                      <Bar
+                        dataKey="reorderPoint"
+                        name="reorderPoint"
+                        fill="#94a3b8"
+                        radius={[4, 4, 0, 0]}
+                        barSize={14}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
                 </div>
               </div>
             )}
@@ -1391,8 +1400,8 @@ export const InventoryView: React.FC = () => {
 
       {inventorySubTab === 'ITEMS' && (
         <>
-          {/* Filter Bar Dedicated to Solar, Inverters, Batteries & Smart Screens */}
-          <div className="bg-white dark:bg-slate-900 p-3.5 rounded-lg border border-slate-200/90 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
+          {/* POS Lumina-Style Search & Pill Filter Bar */}
+          <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200/70 dark:border-slate-800 shadow-2xs flex flex-wrap items-center justify-between gap-3">
             <div className="w-full sm:w-80 flex items-center gap-1.5">
               <div className="flex-1 relative">
                 <input
@@ -1400,7 +1409,7 @@ export const InventoryView: React.FC = () => {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="بحث بالاسم، الكود SKU، أو الباركود..."
-                  className="w-full text-xs p-2 ps-8 bg-slate-50 border border-slate-200 rounded-md outline-hidden focus:border-blue-600"
+                  className="w-full text-xs py-2 ps-8 pe-3 bg-slate-50/80 border border-slate-200/80 rounded-xl outline-hidden focus:bg-white focus:border-blue-600"
                 />
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute start-2.5 top-2.5" />
               </div>
@@ -1412,32 +1421,32 @@ export const InventoryView: React.FC = () => {
                   setIsCameraScannerOpen(true);
                 }}
                 title="مسح الباركود والكود بالكاميرا للبحث عن الصنف أو تدقيقه"
-                className="shrink-0 px-2.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-bold flex items-center gap-1 transition shadow-2xs cursor-pointer group"
+                className="shrink-0 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs cursor-pointer group"
               >
-                <Camera className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                <Camera className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
                 <span className="hidden sm:inline">كاميرا</span>
               </button>
             </div>
 
-            {/* Specialized Engineering Sub-Category Filter Buttons */}
-            <div className="flex flex-wrap items-center gap-1 text-xs">
+            {/* POS-Style Rounded-Full Category Pills */}
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar text-xs">
               {[
-                { id: 'ALL', label: 'كل الأصناف' },
+                { id: 'ALL', label: 'الكل' },
                 { id: 'SOLAR_PANEL', label: 'ألواح شمسية' },
                 { id: 'HYBRID_INVERTER', label: 'إنفرترات هجينة' },
                 { id: 'LITHIUM_BATTERY', label: 'بطاريات ليثيوم وجل' },
-                { id: 'SMART_SCREEN', label: 'شاشات ذكية 4K/OLED' },
-                { id: 'COMPUTING_MOBILE', label: 'أجهزة وحواسيب' },
-                { id: 'SOLAR_ACCESSORY', label: 'قواطع وكابلات طاقة' },
+                { id: 'SMART_SCREEN', label: 'شاشات ذكية 4K' },
+                { id: 'COMPUTING_MOBILE', label: 'حواسيب وتجهيزات' },
+                { id: 'SOLAR_ACCESSORY', label: 'قواطع وكابلات' },
               ].map((sec) => (
                 <button
                   key={sec.id}
                   type="button"
                   onClick={() => setSelectedSubCatFilter(sec.id)}
-                  className={`px-2.5 py-1.5 rounded-md font-semibold transition cursor-pointer ${
+                  className={`px-3.5 py-1.5 rounded-full font-medium transition cursor-pointer whitespace-nowrap shrink-0 ${
                     selectedSubCatFilter === sec.id
-                      ? 'bg-blue-700 text-white'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      ? 'bg-slate-900 text-white font-semibold shadow-2xs'
+                      : 'bg-white text-slate-600 border border-slate-200/80 hover:bg-slate-50'
                   }`}
                 >
                   {sec.label}
@@ -1446,14 +1455,14 @@ export const InventoryView: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-2">
-              <Filter className="w-3.5 h-3.5 text-slate-500" />
+              <Filter className="w-3.5 h-3.5 text-slate-400" />
               <select
                 data-testid="inventory-category-filter-select"
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
-                className="text-xs p-2 bg-slate-50 border border-slate-200 rounded-md outline-hidden font-bold text-slate-700"
+                className="text-xs py-1.5 px-3 bg-slate-50 border border-slate-200/80 rounded-xl outline-hidden font-semibold text-slate-700"
               >
-                <option value="all">جميع التصنيفات المخزنية المحددة</option>
+                <option value="all">جميع التصنيفات المخزنية</option>
                 {electronicsCategories.map((c) => (
                   <option key={c.id} value={c.id}>
                     {language === 'ar' ? c.nameAr : c.name}
@@ -1463,8 +1472,8 @@ export const InventoryView: React.FC = () => {
             </div>
           </div>
 
-          {/* Products Table */}
-          <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
+          {/* Products Table (Lumina Card Surface) */}
+          <div className="bg-white rounded-2xl border border-slate-200/70 shadow-2xs overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-xs text-start">
                 <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
@@ -1768,14 +1777,14 @@ export const InventoryView: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-slate-900 text-white p-4 rounded-xl border border-slate-800 space-y-3">
+          <div className="bg-white text-slate-900 p-4 rounded-2xl border border-slate-200/80 shadow-2xs space-y-3">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
               <div>
-                <h3 className="font-bold text-sm flex items-center gap-2">
-                  <ClipboardCheck className="w-4 h-4 text-blue-400 shrink-0" />
+                <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                  <ClipboardCheck className="w-4 h-4 text-blue-600 shrink-0" />
                   <span>محرك الجرد الفعلي اللحظي والتحكم الكامل بتسوية الفروقات</span>
                 </h3>
-                <p className="text-xs text-slate-300 mt-1">
+                <p className="text-xs text-slate-500 mt-1">
                   تحكم بالعدد الفعلي لكل صنف عبر أزرار (+ / -) أو الإدخال المباشر أو مسح الكاميرا، ثم اعتمد الجرد فردياً أو جماعياً لترحيل قيد التسوية آلياً.
                 </p>
               </div>
@@ -1785,11 +1794,11 @@ export const InventoryView: React.FC = () => {
                   value={stockAuditReason}
                   onChange={(e) => setStockAuditReason(e.target.value)}
                   placeholder="بيان محضر الجرد..."
-                  className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs outline-hidden focus:border-blue-400"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200/80 text-slate-900 text-xs outline-hidden focus:bg-white focus:border-blue-500"
                 />
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800">
+            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
               <button
                 type="button"
                 data-testid="toggle-fast-stock-take-btn"
@@ -1797,10 +1806,10 @@ export const InventoryView: React.FC = () => {
                   setIsFastStockTakeOpen((prev) => !prev);
                   setTimeout(() => fastBarcodeInputRef.current?.focus(), 60);
                 }}
-                className={`px-3.5 py-2 font-bold rounded-lg text-xs flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer whitespace-nowrap shrink-0 ${
+                className={`px-3.5 py-2 font-bold rounded-full text-xs flex items-center justify-center gap-1.5 transition shadow-2xs cursor-pointer whitespace-nowrap shrink-0 border ${
                   isFastStockTakeOpen
-                    ? 'bg-blue-500 text-white ring-2 ring-blue-300'
-                    : 'bg-slate-800 hover:bg-slate-700 text-blue-300 border border-blue-500/40'
+                    ? 'bg-slate-900 text-white border-slate-900'
+                    : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200/80'
                 }`}
               >
                 <Zap className="w-4 h-4 shrink-0" />
@@ -2524,12 +2533,23 @@ export const InventoryView: React.FC = () => {
 
       {/* Add / Edit Product Modal (إضافة صنف طاقة شمسية / إلكترونيات / شاشات جديد) */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/65 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-2xl border border-slate-300 w-full max-w-2xl overflow-hidden my-auto">
-            {/* Modal Header with Trash Icon to Clear All Form Data */}
-            <div className="px-6 py-4 bg-slate-900 text-white border-b border-slate-800 flex items-center justify-between gap-2">
-              <h3 className="font-bold text-sm sm:text-base flex items-center gap-2">
-                <Package className="w-4 h-4 text-blue-400 shrink-0" />
+        <div
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              stopCartonWebcam();
+              setCartonCaptureTarget(null);
+              setIsAddModalOpen(false);
+            }
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/65 backdrop-blur-xs p-4 overflow-y-auto"
+        >
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-2xl overflow-hidden my-auto">
+            {/* Modal Header with Trash Icon to Clear All Form Data (Lumina POS Theme) */}
+            <div className="px-6 py-4 bg-slate-50/90 text-slate-900 border-b border-slate-200/80 flex items-center justify-between gap-2">
+              <h3 className="font-bold text-sm sm:text-base flex items-center gap-2.5 text-slate-900">
+                <span className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                  <Package className="w-4 h-4" />
+                </span>
                 <span>
                   {editingProductId
                     ? 'تعديل بيانات الصنف والتصنيف المخزني المحدد'
@@ -2543,7 +2563,7 @@ export const InventoryView: React.FC = () => {
                   data-testid="btn-clear-add-product-form"
                   onClick={handleClearAddProductForm}
                   title="سلة الحذف: حذف وتفريغ جميع البيانات في قائمة إضافة صنف طاقة شمسية"
-                  className="px-2.5 py-1.5 rounded-lg bg-rose-600/90 hover:bg-rose-500 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-xs cursor-pointer"
+                  className="px-3 py-1.5 rounded-full bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>حذف / تفريغ البيانات</span>
@@ -2555,7 +2575,7 @@ export const InventoryView: React.FC = () => {
                     setCartonCaptureTarget(null);
                     setIsAddModalOpen(false);
                   }}
-                  className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center font-bold cursor-pointer"
+                  className="w-8 h-8 rounded-full border border-slate-200/80 bg-white hover:bg-slate-100 text-slate-500 hover:text-slate-900 flex items-center justify-center font-bold cursor-pointer transition"
                 >
                   ✕
                 </button>
@@ -2595,12 +2615,12 @@ export const InventoryView: React.FC = () => {
               {cartonCaptureTarget && (
                 <div
                   data-testid="carton-camera-scanner-panel"
-                  className="p-4 rounded-xl bg-slate-900 text-white border-2 border-blue-500 space-y-3 shadow-lg"
+                  className="p-4 rounded-2xl bg-slate-50 text-slate-900 border border-blue-300 space-y-3 shadow-xs"
                 >
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                  <div className="flex items-center justify-between border-b border-slate-200/80 pb-2.5">
                     <div className="flex items-center gap-2">
-                      <Camera className="w-4 h-4 text-blue-400" />
-                      <span className="font-bold text-xs text-blue-200">
+                      <Camera className="w-4 h-4 text-blue-600" />
+                      <span className="font-bold text-xs text-slate-900">
                         {cartonCaptureTarget === 'BARCODE'
                           ? 'تصوير الكرتون أو القطعة بالكاميرا لإدخال الباركود (EAN-13)'
                           : 'تصوير الكرتون أو القطعة بالكاميرا لإدخال كود الصنف (SKU / P/N)'}
@@ -2612,7 +2632,7 @@ export const InventoryView: React.FC = () => {
                         stopCartonWebcam();
                         setCartonCaptureTarget(null);
                       }}
-                      className="text-slate-400 hover:text-white cursor-pointer"
+                      className="text-slate-400 hover:text-slate-700 cursor-pointer"
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -3120,7 +3140,7 @@ export const InventoryView: React.FC = () => {
                 rows={5}
                 value={bulkCsvText}
                 onChange={(e) => setBulkCsvText(e.target.value)}
-                className="w-full p-3 rounded-xl bg-slate-900 text-blue-300 font-mono text-[11px] border border-slate-700 outline-hidden"
+                className="w-full p-3 rounded-xl bg-slate-50 text-slate-900 font-mono text-[11px] border border-slate-200/80 focus:bg-white focus:border-slate-900 outline-hidden"
               />
             </div>
 

@@ -230,26 +230,26 @@ export const AccountingView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-5">
-      {/* Organized Header Card: Row 1 Title & Actions + Row 2 Resizable Sub-tabs */}
-      <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200/90 dark:border-slate-800 shadow-2xs space-y-3.5">
+    <div className="space-y-4">
+      {/* Lumina POS-Style Header Card: Title, Primary Actions & Pill Sub-tabs */}
+      <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/70 dark:border-slate-800 shadow-2xs space-y-3">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100 tracking-tight flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-700 dark:text-blue-400 shrink-0">
-                <Calculator className="w-4 h-4" />
-              </div>
-              <span className="truncate">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
+              <Calculator className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 tracking-tight truncate">
                 {language === 'ar'
                   ? 'المحاسبة والمالية ومراكز التكلفة (Double-Entry Engine)'
                   : 'Full Double-Entry Accounting & Cost Center Budgets'}
-              </span>
-            </h1>
-            <p className="text-xs text-slate-500 mt-1 ps-10">
-              {language === 'ar'
-                ? 'شجرة حسابات معيارية، قيود يومية متوازنة، موازنات مراكز التكلفة والانحرافات، وقوائم مالية ختامية فورية'
-                : 'Chart of accounts, balanced journal entries, cost center budget variance, and live financial statements'}
-            </p>
+              </h1>
+              <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                {language === 'ar'
+                  ? 'شجرة حسابات معيارية، قيود يومية متوازنة، موازنات مراكز التكلفة، وقوائم مالية ختامية فورية'
+                  : 'Chart of accounts, balanced journal entries, cost center budget variance, and live financial statements'}
+              </p>
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -259,7 +259,7 @@ export const AccountingView: React.FC = () => {
                 setFormError(null);
                 setIsManualModalOpen(true);
               }}
-              className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
+              className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold px-4 py-2 rounded-xl transition flex items-center gap-1.5 shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
             >
               <Plus className="w-3.5 h-3.5 shrink-0" />
               <span>{language === 'ar' ? 'إنشاء قيد يومية يدوي' : 'New Manual Journal'}</span>
@@ -268,9 +268,9 @@ export const AccountingView: React.FC = () => {
             <button
               type="button"
               onClick={handleExportTrialBalanceCSV}
-              className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200/80 text-xs font-semibold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <FileSpreadsheet className="w-3.5 h-3.5 text-slate-600 shrink-0" />
               <span>{language === 'ar' ? 'تصدير ميزان المراجعة CSV' : 'Export Trial Balance'}</span>
             </button>
 
@@ -283,7 +283,7 @@ export const AccountingView: React.FC = () => {
                   category: 'FINANCIAL_REPORT',
                 })
               }
-              className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="bg-emerald-50/80 hover:bg-emerald-100/80 text-emerald-700 border border-emerald-200/80 text-xs font-semibold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
               <MessageSquare className="w-3.5 h-3.5 shrink-0" />
               <span>{language === 'ar' ? 'إرسال التقرير المالي' : 'Send Report via WhatsApp/SMS'}</span>
@@ -291,16 +291,16 @@ export const AccountingView: React.FC = () => {
           </div>
         </div>
 
-        {/* Row 2: Resizable Accounting Sub-Tabs + Workspace Tab Resizer */}
+        {/* Row 2: POS-Style Rounded-Full Accounting Sub-Tabs + Workspace Tab Resizer */}
         <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-col xl:flex-row xl:items-center justify-between gap-2.5">
-          <div className="flex flex-wrap items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-300">
+          <div className="flex items-center gap-1.5 flex-wrap text-xs">
             <button
               type="button"
               onClick={() => setActiveTab('journal')}
-              className={`erp-resizable-tab px-3 py-1.5 rounded-md whitespace-nowrap shrink-0 transition cursor-pointer ${
+              className={`erp-resizable-tab px-4 py-1.5 rounded-full border whitespace-nowrap shrink-0 transition cursor-pointer ${
                 activeTab === 'journal'
-                  ? 'bg-blue-600 text-white shadow-2xs'
-                  : 'hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
               {language === 'ar' ? 'سجل القيود اليومية' : 'Journal Entries'} ({journalEntries.length})
@@ -309,26 +309,26 @@ export const AccountingView: React.FC = () => {
               type="button"
               data-testid="acc-tab-budgets"
               onClick={() => setActiveTab('budgets')}
-              className={`erp-resizable-tab px-3 py-1.5 rounded-md whitespace-nowrap shrink-0 transition cursor-pointer flex items-center gap-1 ${
+              className={`erp-resizable-tab px-4 py-1.5 rounded-full border whitespace-nowrap shrink-0 transition cursor-pointer flex items-center gap-1.5 ${
                 activeTab === 'budgets'
-                  ? 'bg-blue-600 text-white shadow-2xs'
-                  : 'hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
               <Target className="w-3.5 h-3.5 shrink-0" />
               <span>
                 {language === 'ar'
-                  ? 'الموازنات التقديرية ومراكز التكلفة'
+                  ? 'الموازنات ومراكز التكلفة'
                   : 'Cost Center Budgets'}
               </span>
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('chart')}
-              className={`erp-resizable-tab px-3 py-1.5 rounded-md whitespace-nowrap shrink-0 transition cursor-pointer ${
+              className={`erp-resizable-tab px-4 py-1.5 rounded-full border whitespace-nowrap shrink-0 transition cursor-pointer ${
                 activeTab === 'chart'
-                  ? 'bg-blue-600 text-white shadow-2xs'
-                  : 'hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
               {language === 'ar' ? 'شجرة الحسابات (COA)' : 'Chart of Accounts'} ({chartAccounts.length})
@@ -336,10 +336,10 @@ export const AccountingView: React.FC = () => {
             <button
               type="button"
               onClick={() => setActiveTab('trialBalance')}
-              className={`erp-resizable-tab px-3 py-1.5 rounded-md whitespace-nowrap shrink-0 transition cursor-pointer ${
+              className={`erp-resizable-tab px-4 py-1.5 rounded-full border whitespace-nowrap shrink-0 transition cursor-pointer ${
                 activeTab === 'trialBalance'
-                  ? 'bg-blue-600 text-white shadow-2xs'
-                  : 'hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
               {language === 'ar' ? 'ميزان المراجعة' : 'Trial Balance'}
@@ -347,10 +347,10 @@ export const AccountingView: React.FC = () => {
             <button
               type="button"
               onClick={() => setActiveTab('pnl')}
-              className={`erp-resizable-tab px-3 py-1.5 rounded-md whitespace-nowrap shrink-0 transition cursor-pointer ${
+              className={`erp-resizable-tab px-4 py-1.5 rounded-full border whitespace-nowrap shrink-0 transition cursor-pointer ${
                 activeTab === 'pnl'
-                  ? 'bg-blue-600 text-white shadow-2xs'
-                  : 'hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
               {language === 'ar' ? 'قائمة الدخل (P&L)' : 'Income Statement'}
@@ -358,10 +358,10 @@ export const AccountingView: React.FC = () => {
             <button
               type="button"
               onClick={() => setActiveTab('balanceSheet')}
-              className={`erp-resizable-tab px-3 py-1.5 rounded-md whitespace-nowrap shrink-0 transition cursor-pointer ${
+              className={`erp-resizable-tab px-4 py-1.5 rounded-full border whitespace-nowrap shrink-0 transition cursor-pointer ${
                 activeTab === 'balanceSheet'
-                  ? 'bg-blue-600 text-white shadow-2xs'
-                  : 'hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
               {language === 'ar' ? 'الميزانية العمومية' : 'Balance Sheet'}
@@ -369,10 +369,10 @@ export const AccountingView: React.FC = () => {
             <button
               type="button"
               onClick={() => setActiveTab('vatReturn')}
-              className={`erp-resizable-tab px-3 py-1.5 rounded-md whitespace-nowrap shrink-0 transition cursor-pointer ${
+              className={`erp-resizable-tab px-4 py-1.5 rounded-full border whitespace-nowrap shrink-0 transition cursor-pointer ${
                 activeTab === 'vatReturn'
-                  ? 'bg-blue-600 text-white shadow-2xs'
-                  : 'hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
               {language === 'ar' ? 'الإقرار الضريبي VAT' : 'VAT Return'}
@@ -381,10 +381,10 @@ export const AccountingView: React.FC = () => {
               type="button"
               data-testid="acc-tab-bankAndPdc"
               onClick={() => setActiveTab('bankAndPdc')}
-              className={`erp-resizable-tab px-3 py-1.5 rounded-md whitespace-nowrap shrink-0 transition cursor-pointer flex items-center gap-1 ${
+              className={`erp-resizable-tab px-4 py-1.5 rounded-full border whitespace-nowrap shrink-0 transition cursor-pointer flex items-center gap-1.5 ${
                 activeTab === 'bankAndPdc'
-                  ? 'bg-blue-600 text-white shadow-2xs'
-                  : 'hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
               <Landmark className="w-3.5 h-3.5 shrink-0" />
@@ -396,10 +396,10 @@ export const AccountingView: React.FC = () => {
               type="button"
               data-testid="acc-tab-multiCurrency"
               onClick={() => setActiveTab('multiCurrency')}
-              className={`erp-resizable-tab px-3 py-1.5 rounded-md whitespace-nowrap shrink-0 transition cursor-pointer flex items-center gap-1 ${
+              className={`erp-resizable-tab px-4 py-1.5 rounded-full border whitespace-nowrap shrink-0 transition cursor-pointer flex items-center gap-1.5 ${
                 activeTab === 'multiCurrency'
-                  ? 'bg-blue-600 text-white shadow-2xs'
-                  : 'hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
               <Coins className="w-3.5 h-3.5 shrink-0" />

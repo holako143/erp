@@ -474,13 +474,13 @@ export const SettingsView: React.FC = () => {
       <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-xs space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white flex items-center justify-center font-black shadow-xs">
+            <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black shadow-2xs">
               <Store className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+              <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <span>الإدارة المركزية الموحدة للفروع والمستودعات</span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-bold">
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 font-bold">
                   Enterprise Topology
                 </span>
               </h2>
@@ -610,8 +610,8 @@ export const SettingsView: React.FC = () => {
         </div>
       )}
 
-      {/* Primary Navigation Tabs */}
-      <div className="flex flex-wrap gap-1.5 bg-white dark:bg-slate-900 p-1.5 rounded-xl border border-slate-200/90 dark:border-slate-800">
+      {/* Primary Navigation Tabs (Lumina POS Rounded-Full Pills) */}
+      <div className="flex flex-wrap gap-2 bg-white dark:bg-slate-900 p-2 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs">
         {[
           {
             id: 'central_hub',
@@ -631,7 +631,7 @@ export const SettingsView: React.FC = () => {
           },
           {
             id: 'backup',
-            label: 'النسخ الاحتياطي والأمان السحابي',
+            label: 'النسخ الاحتياطي والأمان المحلي',
             icon: Download,
           },
         ].map((tab) => {
@@ -643,10 +643,10 @@ export const SettingsView: React.FC = () => {
               type="button"
               data-testid={`settings-tab-${tab.id}`}
               onClick={() => setActiveSettingsTab(tab.id as any)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+              className={`flex items-center gap-2 px-4 py-2 rounded-full border text-xs transition cursor-pointer ${
                 isActive
-                  ? 'bg-slate-900 text-white dark:bg-emerald-600 shadow-xs'
-                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  : 'bg-white border-slate-200/80 text-slate-600 hover:border-slate-300 font-medium dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300'
               }`}
             >
               <Icon className="w-4 h-4" />
@@ -654,7 +654,7 @@ export const SettingsView: React.FC = () => {
               {typeof tab.count === 'number' && (
                 <span
                   className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                    isActive ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                    isActive ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
                   }`}
                 >
                   {tab.count}
