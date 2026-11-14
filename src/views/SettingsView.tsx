@@ -74,6 +74,7 @@ export const SettingsView: React.FC = () => {
     activeIndustry,
     masterSystemConfig,
     toggleSectorMode,
+    openOnboarding,
   } = useERP();
 
   // Top-level tabs: central hub, templates, company profile, backup
@@ -129,7 +130,9 @@ export const SettingsView: React.FC = () => {
 
   // Company Profile form state
   const [companyName, setCompanyName] = useState(company.nameAr || currentTenant.legalName);
+  const [companyNameEn, setCompanyNameEn] = useState(company.name || 'Modern Solar & Electronics Corp');
   const [taxNumber, setTaxNumber] = useState(company.taxNumber || '300059281900003');
+  const [companyLogo, setCompanyLogo] = useState<string>(company.logo || '');
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [restoreFeedback, setRestoreFeedback] = useState<string | null>(null);
@@ -269,7 +272,21 @@ export const SettingsView: React.FC = () => {
   // Company Profile handler
   const handleSaveCompany = (e: React.FormEvent) => {
     e.preventDefault();
-    updateCompanyProfile({ nameAr: companyName, name: companyName, taxNumber });
+    updateCompanyProfile({
+      nameAr: companyName,
+      name: companyNameEn || companyName,
+      taxNumber,
+      logo: companyLogo || undefined,
+    });
+    try {
+      if (companyLogo) {
+        localStorage.setItem('haseb_company_custom_logo_v1', companyLogo);
+      } else {
+        localStorage.removeItem('haseb_company_custom_logo_v1');
+      }
+    } catch {
+      // ignore
+    }
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 3000);
   };
@@ -339,9 +356,9 @@ export const SettingsView: React.FC = () => {
   }[] = [
     {
       id: 'thermal_80mm_onyx_pos',
-      titleAr: 'قالب كاشير أونكس برو التجاري — اليمن (Onyx POS 80mm)',
-      descAr: 'تصميم أونكس برو المعتمد لمعارض الطاقة الشمسية والتجارة في اليمن مع تفقيط وباركود Code-128 وQR.',
-      categoryBadge: 'أونكس برو اليمن (الأشهر)',
+      titleAr: 'قالب الكاشير التجاري المعتمد — النموذج اليمني 80mm',
+      descAr: 'تصميم رسمي بشعار وهوية منشأتك الخاصة لمعارض الطاقة الشمسية والتجارة مع تفقيط وباركود وQR.',
+      categoryBadge: 'النموذج اليمني (الأشهر)',
       paperWidth: '80mm',
     },
     {
@@ -396,15 +413,15 @@ export const SettingsView: React.FC = () => {
   }[] = [
     {
       id: 'a4_onyx_yemen',
-      titleAr: 'فاتورة أونكس برو التجارية المعتمدة — اليمن (Onyx Pro Yemen A4)',
-      descAr: 'التصميم الرسمي الأشهر في اليمن بترويسة مزدوجة، تفقيط المبلغ بالحروف، وحسابات بنك الكريمي والتضامن.',
-      badgeAr: 'أونكس برو اليمن (الأشهر)',
+      titleAr: 'الفاتورة التجارية والضريبية المعتمدة — النموذج اليمني الرسمي A4',
+      descAr: 'التصميم الرسمي الأشهر في اليمن بترويسة مزدوجة تحوي شعار وهوية منشأتك، تفقيط المبلغ، والحسابات البنكية.',
+      badgeAr: 'النموذج اليمني (الأشهر)',
     },
     {
       id: 'a4_global_sap_odoo',
-      titleAr: 'الفاتورة التجارية العالمية الموحدة (SAP / Odoo Global B2B A4)',
-      descAr: 'قالب دولي ثنائي اللغة (عربي/إنجليزي) بمعايير SAP وOdoo العالمية مع باركود Code-128 وQR.',
-      badgeAr: 'عالمي SAP / Odoo',
+      titleAr: 'الفاتورة التجارية العالمية الموحدة (International B2B A4)',
+      descAr: 'قالب دولي ثنائي اللغة (عربي/إنجليزي) بشعار منشأتك الخاص مع باركود Code-128 وQR.',
+      badgeAr: 'نموذج دولي موحد',
     },
     {
       id: 'a4_corporate_classic',
@@ -1506,10 +1523,12 @@ export const SettingsView: React.FC = () => {
                 standardTemplate={invoiceTemplateSettings.standardTemplate}
                 settings={invoiceTemplateSettings}
                 companyName={company.nameAr || currentTenant.legalName}
+                companyNameEn={company.name}
+                companyLogo={companyLogo || company.logo}
                 taxNumber={company.taxNumber || '300059281900003'}
-                branchName={currentBranch?.nameAr || 'الفرع الرئيسي'}
-                branchAddress={`${currentBranch?.city || 'الرياض'} - المملكة العربية السعودية`}
-                branchPhone={currentBranch?.phone || '+966 11 000 0000'}
+                branchName={currentBranch?.nameAr || 'المركز الرئيسي - صنعاء'}
+                branchAddress={`${currentBranch?.city || 'صنعاء'}`}
+                branchPhone={currentBranch?.phone || '+967 1 445 880'}
                 currency={currency}
               />
             </div>
@@ -1518,7 +1537,7 @@ export const SettingsView: React.FC = () => {
       )}
 
       {/* ====================================================================
-          TAB 3: COMPANY PROFILE & SECTOR PRESET
+          TAB 3: COMPANY PROFILE, CUSTOM LOGO & SECTOR PRESET
       ==================================================================== */}
       {activeSettingsTab === 'company' && (
         <div className="max-w-4xl space-y-4">
@@ -1526,17 +1545,85 @@ export const SettingsView: React.FC = () => {
             onSubmit={handleSaveCompany}
             className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-4"
           >
-            <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
-              <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                <Building2 className="w-4 h-4 text-emerald-600" />
-                بيانات الهوية الرسمية والترخيص الضريبي (ZATCA)
-              </h3>
-              <p className="text-xs text-slate-400 mt-0.5">
-                تنعكس هذه البيانات تلقائياً في الترويسة ورمز الاستجابة السريع للفوترة الإلكترونية المرحلة الثانية
-              </p>
+            <div className="border-b border-slate-100 dark:border-slate-800 pb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-emerald-600" />
+                  بيانات الهوية الرسمية وشعار المنشأة في الفواتير
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  يظهر شعارك واسم منشأتك الخاص في ترويسة كافة فواتير العملاء وشهادات الضمان والختم الرسمي
+                </p>
+              </div>
+              <button
+                type="button"
+                data-testid="settings-open-welcome-wizard-btn"
+                onClick={openOnboarding}
+                className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer transition"
+              >
+                <span>فتح معالج الترحيب والتهيئة الأولية</span>
+              </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Company Logo Upload Box */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-16 h-16 rounded-2xl bg-white border-2 border-dashed border-slate-300 flex items-center justify-center overflow-hidden shrink-0 shadow-2xs">
+                  {companyLogo ? (
+                    <img
+                      src={companyLogo}
+                      alt="شعار المنشأة"
+                      className="w-full h-full object-contain p-1"
+                    />
+                  ) : (
+                    <Building2 className="w-6 h-6 text-slate-400" />
+                  )}
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-slate-900 dark:text-white">
+                    شعار المؤسسة الرسمي (يظهر في ترويسة جميع قوالب الفواتير A4 والحراري)
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    ارفع صورة شعار شركتك أو معرضك ليظهر في الفواتير بدلاً من أي رمز افتراضي
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <label
+                  data-testid="settings-upload-company-logo"
+                  className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold cursor-pointer transition"
+                >
+                  <span>رفع شعار المنشأة</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        if (typeof reader.result === 'string') {
+                          setCompanyLogo(reader.result);
+                        }
+                      };
+                      reader.readAsDataURL(file);
+                    }}
+                  />
+                </label>
+                {companyLogo && (
+                  <button
+                    type="button"
+                    onClick={() => setCompanyLogo('')}
+                    className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-bold cursor-pointer"
+                  >
+                    إزالة الشعار
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   اسم المنشأة أو الشركة الرسمي (عربي):
@@ -1551,7 +1638,20 @@ export const SettingsView: React.FC = () => {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  الرقم الضريبي الموحد VAT (15 رقماً):
+                  الاسم الإنجليزي في الفاتورة (English Name):
+                </label>
+                <input
+                  type="text"
+                  value={companyNameEn}
+                  onChange={(e) => setCompanyNameEn(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 outline-hidden focus:border-emerald-600"
+                  dir="ltr"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  الرقم الضريبي الموحد VAT:
                 </label>
                 <input
                   type="text"
@@ -1588,11 +1688,11 @@ export const SettingsView: React.FC = () => {
             <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
               {savedSuccess ? (
                 <span className="text-xs font-bold text-emerald-600 flex items-center gap-1">
-                  <CheckCircle2 className="w-4 h-4" /> تم حفظ التعديلات وتحديث الترويسة بنجاح!
+                  <CheckCircle2 className="w-4 h-4" /> تم حفظ التعديلات وتحديث شعار وهوية الفواتير بنجاح!
                 </span>
               ) : (
                 <span className="text-[11px] text-slate-400">
-                  التغييرات تسري فوراً في كامل النظام.
+                  التغييرات تسري فوراً في كامل النظام وجميع قوالب الفواتير.
                 </span>
               )}
 

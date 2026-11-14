@@ -190,3 +190,63 @@ export function resolvePosActiveFieldLabel(
     stepBadge: '↹',
   };
 }
+
+export interface PosCartVisibilityStateInput {
+  cartItemCount: number;
+  isCartPinnedOpen: boolean;
+  isCartManuallyShownWhenEmpty?: boolean;
+}
+
+/**
+ * Evaluates whether the POS Sales Cart drawer should be visible.
+ * - Hidden by default when cart is empty (`cartItemCount === 0`) and not pinned (`!isCartPinnedOpen`).
+ * - Automatically appears immediately when any item is added (`cartItemCount > 0`).
+ * - Can be permanently pinned open (`isCartPinnedOpen === true`) or manually peeked when empty.
+ */
+export function evaluatePosCartVisibility(input: PosCartVisibilityStateInput): {
+  isVisible: boolean;
+  reason: 'HAS_ITEMS' | 'PINNED_OPEN' | 'MANUAL_PEEK' | 'AUTO_HIDDEN_EMPTY';
+} {
+  const count = Math.max(0, Number(input.cartItemCount) || 0);
+  if (count > 0) {
+    return { isVisible: true, reason: 'HAS_ITEMS' };
+  }
+  if (input.isCartPinnedOpen) {
+    return { isVisible: true, reason: 'PINNED_OPEN' };
+  }
+  if (input.isCartManuallyShownWhenEmpty) {
+    return { isVisible: true, reason: 'MANUAL_PEEK' };
+  }
+  return { isVisible: false, reason: 'AUTO_HIDDEN_EMPTY' };
+}
+
+export interface QuickPickerCustomerRecord {
+  id: string;
+  code?: string;
+  name: string;
+  nameAr: string;
+  phone: string;
+  balance?: number;
+  creditLimit?: number;
+}
+
+export const DEFAULT_WALKIN_CUSTOMER_LABEL_AR = 'عميل نقدي عام';
+
+/**
+ * Filters customer list for the fast F8 Beneficiary Customer Picker modal.
+ */
+export function filterPosCustomersForQuickPicker<T extends QuickPickerCustomerRecord>(
+  customers: T[],
+  searchQuery: string
+): T[] {
+  const q = (searchQuery || '').trim().toLowerCase();
+  if (!q) return customers;
+  return customers.filter(
+    (c) =>
+      (c.nameAr || '').toLowerCase().includes(q) ||
+      (c.name || '').toLowerCase().includes(q) ||
+      (c.phone || '').toLowerCase().includes(q) ||
+      (c.code || '').toLowerCase().includes(q)
+  );
+}
+

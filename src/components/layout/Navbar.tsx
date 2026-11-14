@@ -21,6 +21,7 @@ import {
   Maximize2,
   RotateCcw,
   Lock,
+  Sparkles,
 } from 'lucide-react';
 import { SystemNotificationCenterModal } from '../common/SystemNotificationCenterModal';
 import { generateSystemNotifications } from '../../core/notificationsEngine';
@@ -178,6 +179,7 @@ export const Navbar: React.FC = () => {
     closeLanPortal,
     quickSendModalState,
     closeQuickSendModal,
+    openOnboarding,
   } = useERP();
 
   const [activePopover, setActivePopover] = useState<GlobalPopoverId>('NONE');
@@ -834,32 +836,60 @@ export const Navbar: React.FC = () => {
                       </button>
                     </div>
 
-                    {/* Desktop & LAN Full-Width Button */}
-                    <button
-                      type="button"
-                      data-testid="navbar-lan-portal-btn"
-                      onClick={() => {
-                        setIsProfileMenuOpen(false);
-                        openLanPortal();
-                      }}
-                      className={`w-full min-w-0 overflow-hidden flex items-center justify-between px-3 py-2 rounded-xl border font-bold transition cursor-pointer ${
-                        isDark
-                          ? 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-slate-200'
-                          : 'bg-slate-50 border-slate-200/80 hover:bg-slate-100 text-slate-700'
-                      }`}
-                    >
-                      <span className="flex items-center gap-1.5 truncate">
-                        <MonitorSmartphone className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                        <span className="truncate">
-                          {language === 'ar'
-                            ? 'سطح المكتب والشبكة المحلية (LAN)'
-                            : 'Desktop & Local Network (LAN)'}
+                    {/* Desktop & LAN Full-Width Button + First-Run Welcome Wizard Button */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      <button
+                        type="button"
+                        data-testid="navbar-lan-portal-btn"
+                        onClick={() => {
+                          setIsProfileMenuOpen(false);
+                          openLanPortal();
+                        }}
+                        className={`w-full min-w-0 overflow-hidden flex items-center justify-between px-3 py-2 rounded-xl border font-bold transition cursor-pointer ${
+                          isDark
+                            ? 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-slate-200'
+                            : 'bg-slate-50 border-slate-200/80 hover:bg-slate-100 text-slate-700'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1.5 truncate">
+                          <MonitorSmartphone className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                          <span className="truncate">
+                            {language === 'ar'
+                              ? 'الشبكة المحلية (LAN)'
+                              : 'Local Network (LAN)'}
+                          </span>
                         </span>
-                      </span>
-                      <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-mono text-[10px] shrink-0">
-                        متصل
-                      </span>
-                    </button>
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-mono text-[10px] shrink-0">
+                          متصل
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        data-testid="navbar-open-welcome-wizard-btn"
+                        onClick={() => {
+                          setIsProfileMenuOpen(false);
+                          openOnboarding();
+                        }}
+                        className={`w-full min-w-0 overflow-hidden flex items-center justify-between px-3 py-2 rounded-xl border font-bold transition cursor-pointer ${
+                          isDark
+                            ? 'bg-blue-950/60 border-blue-800 hover:bg-blue-900/70 text-blue-200'
+                            : 'bg-blue-50/80 border-blue-200 hover:bg-blue-100/80 text-blue-800'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1.5 truncate">
+                          <Sparkles className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                          <span className="truncate">
+                            {language === 'ar'
+                              ? 'واجهة الترحيب الأولية'
+                              : 'Welcome Wizard'}
+                          </span>
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded bg-blue-600 text-white font-mono text-[9px] shrink-0">
+                          تهيئة
+                        </span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

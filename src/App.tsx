@@ -141,9 +141,16 @@ const MainLayout: React.FC = () => {
           setActiveTab('accounting');
           return;
         }
-        if (e.key === 'F8' && hasModuleAccess('reportsAndAI')) {
+        if (e.key === 'F8') {
           e.preventDefault();
-          setActiveTab('reportsAndAI');
+          if (activeTab !== 'pos') {
+            setActiveTab('pos');
+            setTimeout(() => {
+              window.dispatchEvent(new CustomEvent('haseb-open-pos-customer-picker'));
+            }, 60);
+          } else {
+            window.dispatchEvent(new CustomEvent('haseb-open-pos-customer-picker'));
+          }
           return;
         }
       }
@@ -441,6 +448,24 @@ const MainLayout: React.FC = () => {
                     F7
                   </kbd>
                   <span>{language === 'ar' ? 'المحاسبة' : 'Accounting'}</span>
+                </button>
+                <button
+                  type="button"
+                  data-testid="footer-f8-customer-picker-btn"
+                  onClick={() => {
+                    setActiveTab('pos');
+                    setTimeout(() => {
+                      window.dispatchEvent(new CustomEvent('haseb-open-pos-customer-picker'));
+                    }, 30);
+                  }}
+                  className="flex items-center gap-1.5 hover:text-slate-900 dark:hover:text-white transition cursor-pointer shrink-0"
+                >
+                  <kbd className="px-1.5 py-0.5 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded text-[10px] font-mono font-semibold text-blue-700 dark:text-blue-300">
+                    F8
+                  </kbd>
+                  <span className="font-semibold text-slate-700 dark:text-slate-200">
+                    {language === 'ar' ? 'العميل المستفيد' : 'Select Customer'}
+                  </span>
                 </button>
                 <button
                   type="button"

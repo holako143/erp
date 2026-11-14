@@ -1213,6 +1213,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsAuthenticated(true);
     try {
       sessionStorage.setItem('rlm_erp_auth_session', updatedAccount.username);
+      if (localStorage.getItem('asf_onboarding_completed') === 'false') {
+        setIsOnboardingOpen(true);
+      }
     } catch {
       // Ignore storage errors
     }
@@ -2886,7 +2889,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
         })
         .catch(() => {});
-    }, 5000);
+    }, 2500);
     return () => clearInterval(syncInterval);
   }, []);
 

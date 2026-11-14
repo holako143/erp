@@ -37,6 +37,12 @@ import {
   LayoutGrid,
   LayoutList,
   ShoppingCart,
+  UserCheck,
+  Users,
+  UserPlus,
+  Pin,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { CameraBarcodeScannerModal, ScannedBatchItem } from '../components/common/CameraBarcodeScannerModal';
 import { WorkspaceTabResizerBar } from '../components/common/WorkspaceTabResizerBar';
@@ -64,6 +70,9 @@ import {
   buildOrderedPosFieldIds,
   computeNextPosTabStopIndex,
   resolvePosActiveFieldLabel,
+  evaluatePosCartVisibility,
+  filterPosCustomersForQuickPicker,
+  DEFAULT_WALKIN_CUSTOMER_LABEL_AR,
 } from '../core/posKeyboardNavigation';
 
 export const POSView: React.FC = () => {
@@ -102,6 +111,7 @@ export const POSView: React.FC = () => {
     openQuickSendModal,
     openCrossBranchModal,
     customers,
+    addCustomer,
     setActiveTab,
   } = useERP();
 
@@ -178,10 +188,91 @@ export const POSView: React.FC = () => {
   const [newShiftStartingFloat, setNewShiftStartingFloat] = useState<number>(1500);
   const [posBanner, setPosBanner] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Customer & Warranty Beneficiary State in POS Cart
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>(customers[2]?.id || customers[0]?.id || 'cust-pos-walkin');
-  const [warrantyCustomerName, setWarrantyCustomerName] = useState<string>('');
+  // Customer & Warranty Beneficiary State in POS Cart (Defaults to Walk-in Cash Customer: "عميل نقدي عام")
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('cust-pos-walkin');
+  const [warrantyCustomerName, setWarrantyCustomerName] = useState<string>(DEFAULT_WALKIN_CUSTOMER_LABEL_AR);
   const [warrantyCustomerPhone, setWarrantyCustomerPhone] = useState<string>('');
+
+  // Fast Beneficiary Customer Picker Modal (Triggered by clicking "العميل المستفيد" tab or pressing F8)
+  const [isCustomerPickerOpen, setIsCustomerPickerOpen] = useState<boolean>(false);
+  const [customerSearchQuery, setCustomerSearchQuery] = useState<string>('');
+  const [isQuickAddCustomerOpen, setIsQuickAddCustomerOpen] = useState<boolean>(false);
+  const [quickNewCustomerName, setQuickNewCustomerName] = useState<string>('');
+  const [quickNewCustomerPhone, setQuickNewCustomerPhone] = useState<string>('');
+  const customerSearchInputRef = useRef<HTMLInputElement | null>(null);
+
+  const filteredPickerCustomers = useMemo(
+    () => filterPosCustomersForQuickPicker(customers, customerSearchQuery),
+    [customers, customerSearchQuery]
+  );
+
+  const handleSelectBeneficiaryCustomer = (cust: {
+    id: string;
+    nameAr: string;
+    name?: string;
+    phone?: string;
+  }) => {
+    setSelectedCustomerId(cust.id);
+    setWarrantyCustomerName(cust.nameAr || cust.name || DEFAULT_WALKIN_CUSTOMER_LABEL_AR);
+    setWarrantyCustomerPhone(cust.phone || '');
+    setIsCustomerPickerOpen(false);
+    setCustomerSearchQuery('');
+    setIsQuickAddCustomerOpen(false);
+    showBanner(
+      'success',
+      `تم اختيار العميل المستفيد للفاتورة: ${cust.nameAr || cust.name || DEFAULT_WALKIN_CUSTOMER_LABEL_AR}`
+    );
+  };
+
+  const handleQuickCreateAndSelectCustomer = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanName = quickNewCustomerName.trim();
+    if (!cleanName) return;
+    const cleanPhone = quickNewCustomerPhone.trim() || '+967 770 000 000';
+    addCustomer({
+      tenantId: currentTenant.id,
+      code: `CUST-${Math.floor(1000 + Math.random() * 9000)}`,
+      name: cleanName,
+      nameAr: cleanName,
+      phone: cleanPhone,
+      email: 'customer@haseb.ye',
+      taxNumber: '300000000000003',
+      creditLimit: 500000,
+      balance: 0,
+      loyaltyPoints: 0,
+    });
+    setWarrantyCustomerName(cleanName);
+    setWarrantyCustomerPhone(cleanPhone);
+    setIsCustomerPickerOpen(false);
+    setIsQuickAddCustomerOpen(false);
+    setQuickNewCustomerName('');
+    setQuickNewCustomerPhone('');
+    showBanner('success', `تم تسجيل واختيار العميل الجديد للفاتورة: ${cleanName}`);
+  };
+
+  // Smart POS Cart Auto-Hide / Auto-Show & Permanent Pin State
+  // By default: hidden when cart is empty, immediately shown when an item is added, or permanently pinned open
+  const [isCartPinnedOpen, setIsCartPinnedOpen] = useState<boolean>(false);
+  const [isCartManuallyShownWhenEmpty, setIsCartManuallyShownWhenEmpty] = useState<boolean>(false);
+  const prevCartLenRef = useRef<number>(posCart.length);
+
+  useEffect(() => {
+    // When cart transitions from having items (>0) to empty (0), auto-hide unless pinned
+    if (prevCartLenRef.current > 0 && posCart.length === 0) {
+      setIsCartManuallyShownWhenEmpty(false);
+    }
+    prevCartLenRef.current = posCart.length;
+  }, [posCart.length]);
+
+  const cartVisibility = useMemo(
+    () =>
+      evaluatePosCartVisibility({
+        cartItemCount: posCart.length,
+        isCartPinnedOpen,
+        isCartManuallyShownWhenEmpty,
+      }),
+    [posCart.length, isCartPinnedOpen, isCartManuallyShownWhenEmpty]
+  );
 
   // Cart Discount State (Percent vs Fixed Amount) & Resizable Split-Pane State
   const [discountType, setDiscountType] = useState<'PERCENT' | 'AMOUNT'>('PERCENT');
@@ -579,7 +670,7 @@ export const POSView: React.FC = () => {
 
   const [isPosFilterDrawerOpen, setIsPosFilterDrawerOpen] = useState<boolean>(false);
 
-  // Listen for Navbar Close Shift & Footer F9 triggers
+  // Listen for Navbar Close Shift, Footer F9 Checkout, & F8 Beneficiary Customer Picker triggers
   useEffect(() => {
     const handleOpenCloseShift = () => {
       setActualCashCount(currentShift.expectedCash);
@@ -595,11 +686,20 @@ export const POSView: React.FC = () => {
         setIsCheckoutModalOpen(true);
       }
     };
+    const handleOpenCustomerPicker = () => {
+      setCustomerSearchQuery('');
+      setIsCustomerPickerOpen(true);
+      setTimeout(() => {
+        customerSearchInputRef.current?.focus();
+      }, 40);
+    };
     window.addEventListener('haseb-open-close-shift-modal', handleOpenCloseShift);
     window.addEventListener('haseb-trigger-pos-checkout', handleTriggerCheckout);
+    window.addEventListener('haseb-open-pos-customer-picker', handleOpenCustomerPicker);
     return () => {
       window.removeEventListener('haseb-open-close-shift-modal', handleOpenCloseShift);
       window.removeEventListener('haseb-trigger-pos-checkout', handleTriggerCheckout);
+      window.removeEventListener('haseb-open-pos-customer-picker', handleOpenCustomerPicker);
     };
   }, [currentShift.expectedCash, posCart.length, grandTotal]);
 
@@ -678,8 +778,20 @@ export const POSView: React.FC = () => {
     return language === 'ar' ? p.nameAr : p.name;
   };
 
-  // Fast Keyboard Tab / Shift+Tab / F9 Navigation Handler for POS Data Entry
+  // Fast Keyboard Tab / Shift+Tab / F8 / F9 Navigation Handler for POS Data Entry
   const handlePosWorkspaceKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // F8 opens the fast Beneficiary Customer Picker Modal immediately
+    if (e.key === 'F8') {
+      e.preventDefault();
+      e.stopPropagation();
+      setCustomerSearchQuery('');
+      setIsCustomerPickerOpen((prev) => !prev);
+      setTimeout(() => {
+        customerSearchInputRef.current?.focus();
+      }, 40);
+      return;
+    }
+
     // F9 or Ctrl+Enter opens Checkout Modal immediately if cart has items
     if (
       (e.key === 'F9' || ((e.ctrlKey || e.metaKey) && e.key === 'Enter')) &&
@@ -845,9 +957,9 @@ export const POSView: React.FC = () => {
           </div>
         )}
 
-        {/* Top Row: Barcode Scanner Input + 2-Mode Display Switcher + Filter Toggle Button */}
-        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0">
-          <form onSubmit={handleBarcodeSubmit} className="pos-focus-group relative flex-1 min-w-[200px]">
+        {/* Top Row: Barcode Scanner + Beneficiary Customer Tab (F8) + 2-Mode Display Switcher + Cart Auto-Show/Pin Control */}
+        <div className="flex flex-wrap xl:flex-nowrap items-center gap-2 shrink-0">
+          <form onSubmit={handleBarcodeSubmit} className="pos-focus-group relative flex-1 min-w-[190px]">
             <Barcode className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
@@ -878,6 +990,31 @@ export const POSView: React.FC = () => {
               </kbd>
             </div>
           </form>
+
+          {/* Beneficiary Customer Quick Tab Button (Opens Customer Picker on Click or F8) */}
+          <button
+            type="button"
+            data-testid="pos-top-beneficiary-customer-btn"
+            onClick={() => {
+              setCustomerSearchQuery('');
+              setIsCustomerPickerOpen(true);
+              setTimeout(() => customerSearchInputRef.current?.focus(), 40);
+            }}
+            title="اضغط هنا أو اضغط F8 لاختيار العميل المستفيد من قائمة العملاء"
+            className="px-3 py-1.5 bg-white hover:bg-blue-50/70 border border-slate-200/80 hover:border-blue-400 rounded-xl text-xs font-bold text-slate-800 flex items-center gap-2 transition shadow-2xs shrink-0 cursor-pointer"
+          >
+            <UserCheck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+            <span className="text-slate-400 font-medium hidden sm:inline">العميل المستفيد:</span>
+            <span
+              data-testid="pos-active-beneficiary-label"
+              className="truncate max-w-[120px] sm:max-w-[150px] text-slate-900"
+            >
+              {warrantyCustomerName.trim() || DEFAULT_WALKIN_CUSTOMER_LABEL_AR}
+            </span>
+            <kbd className="px-1.5 py-0.5 text-[10px] font-mono font-bold text-blue-700 bg-blue-50 rounded border border-blue-200/80">
+              F8
+            </kbd>
+          </button>
 
           {/* 2-Mode POS Product Display Toggle: WITH_IMAGES (بصور وبيانات) vs DATA_ONLY (ببيانات فقط) */}
           <div
@@ -925,6 +1062,61 @@ export const POSView: React.FC = () => {
             >
               <LayoutList className="w-3.5 h-3.5" />
               <span>ببيانات فقط</span>
+            </button>
+          </div>
+
+          {/* Smart Cart Visibility & Permanent Pin Controls (Desktop lg+) */}
+          <div className="hidden lg:flex items-center bg-white border border-slate-200/80 rounded-xl p-0.5 shadow-2xs shrink-0">
+            <button
+              type="button"
+              data-testid="pos-toggle-cart-visibility-btn"
+              onClick={() => {
+                if (cartVisibility.isVisible && posCart.length === 0) {
+                  setIsCartPinnedOpen(false);
+                  setIsCartManuallyShownWhenEmpty(false);
+                } else {
+                  setIsCartManuallyShownWhenEmpty((prev) => !prev);
+                }
+              }}
+              title={
+                cartVisibility.isVisible
+                  ? 'السلة ظاهرة حالياً (تختفي تلقائياً عند الفراغ ما لم يتم تثبيتها)'
+                  : 'إظهار سلة المبيعات'
+              }
+              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                cartVisibility.isVisible
+                  ? 'bg-slate-900 text-white'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <ShoppingCart className="w-3.5 h-3.5" />
+              <span>السلة ({posCart.reduce((s, i) => s + i.quantity, 0)})</span>
+            </button>
+            <button
+              type="button"
+              data-testid="pos-pin-cart-btn"
+              onClick={() => {
+                setIsCartPinnedOpen((prev) => {
+                  const next = !prev;
+                  if (!next && posCart.length === 0) {
+                    setIsCartManuallyShownWhenEmpty(false);
+                  }
+                  return next;
+                });
+              }}
+              title={
+                isCartPinnedOpen
+                  ? 'إلغاء تثبيت السلة (لتختفي تلقائياً عندما تكون فارغة)'
+                  : 'تثبيت إظهار السلة بشكل دائم حتى وهي فارغة'
+              }
+              className={`px-2 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1 transition cursor-pointer ${
+                isCartPinnedOpen
+                  ? 'bg-blue-600 text-white'
+                  : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              <Pin className="w-3 h-3" />
+              <span className="hidden xl:inline">{isCartPinnedOpen ? 'مثبتة دائماً' : 'تثبيت دائم'}</span>
             </button>
           </div>
 
@@ -1078,12 +1270,17 @@ export const POSView: React.FC = () => {
           })}
         </div>
 
-        {/* Product Cards Grid (Supports 2 Display Modes: WITH_IMAGES vs DATA_ONLY) */}
+        {/* Product Cards Grid (Expands to more columns when Cart is auto-hidden!) */}
         <div className="flex-1 overflow-y-auto pr-0.5 min-h-0 pb-16 lg:pb-1">
           <div
             data-testid="pos-products-grid"
             data-display-mode={posDisplayMode}
-            className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-2.5 sm:gap-3.5"
+            data-cart-visible={cartVisibility.isVisible ? 'true' : 'false'}
+            className={`grid gap-2.5 sm:gap-3.5 ${
+              cartVisibility.isVisible
+                ? 'grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4'
+                : 'grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5'
+            }`}
           >
             {filteredProducts.map((p) => {
               const [chip1, chip2] = getProductSpecChips(p);
@@ -1153,7 +1350,7 @@ export const POSView: React.FC = () => {
                             const reader = new FileReader();
                             reader.onload = () => {
                               if (typeof reader.result === 'string') {
-                                updateProduct(p.id, { imageUrl: reader.result });
+                                updateProduct({ ...p, imageUrl: reader.result });
                                 showBanner('success', `تم تحديث صورة الصنف: ${p.nameAr}`);
                               }
                             };
@@ -1296,95 +1493,197 @@ export const POSView: React.FC = () => {
       </div>
 
       {/* ====================================================================
-          LEFT AREA: SALES CART & CHECKOUT DRAWER (Lumina Reference)
+          LEFT AREA: SALES CART & CHECKOUT DRAWER
+          - Hidden by default when empty (`posCart.length === 0` and `!isCartPinnedOpen`)
+          - Appears automatically & immediately as soon as any item is added (`posCart.length > 0`)
+          - Can be pinned open permanently (`isCartPinnedOpen`) or hidden when empty
       ==================================================================== */}
       <aside
         data-testid="pos-cart-pane"
+        data-cart-visibility-reason={cartVisibility.reason}
         className={`${
-          mobilePosPane === 'CATALOG' ? 'hidden lg:flex' : 'flex flex-1'
-        } w-full lg:w-[380px] xl:w-[390px] bg-white border-r border-slate-200/70 flex-col justify-between shrink-0 z-20 overflow-hidden`}
+          mobilePosPane === 'CART'
+            ? 'flex flex-1'
+            : cartVisibility.isVisible
+            ? 'hidden lg:flex'
+            : 'hidden'
+        } w-full lg:w-[380px] xl:w-[390px] bg-white border-r border-slate-200/70 flex-col justify-between shrink-0 z-20 overflow-hidden transition-all`}
       >
         {/* Cart Header */}
-        <div className="p-4 border-b border-slate-200/70 space-y-3">
-          <div className="flex items-center justify-between">
+        <div className="p-3.5 sm:p-4 border-b border-slate-200/70 space-y-3">
+          <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-bold text-slate-900">سلة المبيعات</h2>
-              <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[11px] font-mono font-semibold">
+              <span
+                data-testid="pos-cart-items-count-badge"
+                className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[11px] font-mono font-semibold"
+              >
                 {posCart.reduce((s, i) => s + i.quantity, 0)} صنف
               </span>
             </div>
-            <button
-              type="button"
-              onClick={clearPOSCart}
-              className="text-[11px] text-slate-400 hover:text-rose-600 flex items-center gap-1 transition-colors cursor-pointer"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>تفريغ السلة</span>
-            </button>
+
+            <div className="flex items-center gap-1.5">
+              {/* Permanent Pin Toggle Button inside Cart Header */}
+              <button
+                type="button"
+                data-testid="pos-cart-pin-toggle-btn"
+                onClick={() => {
+                  setIsCartPinnedOpen((prev) => {
+                    const next = !prev;
+                    if (!next && posCart.length === 0) {
+                      setIsCartManuallyShownWhenEmpty(false);
+                    }
+                    return next;
+                  });
+                }}
+                title={
+                  isCartPinnedOpen
+                    ? 'السلة مثبتة دائماً (انقر لتفعيل الإخفاء التلقائي عند الفراغ)'
+                    : 'تثبيت السلة لتبقى ظاهرة دائماً حتى وهي فارغة'
+                }
+                className={`px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 border transition cursor-pointer ${
+                  isCartPinnedOpen
+                    ? 'bg-blue-50 text-blue-700 border-blue-200'
+                    : 'bg-slate-50 text-slate-500 border-slate-200/80 hover:text-slate-900'
+                }`}
+              >
+                <Pin className="w-3 h-3" />
+                <span>{isCartPinnedOpen ? 'مثبتة دائماً' : 'تثبيت دائم'}</span>
+              </button>
+
+              {posCart.length > 0 ? (
+                <button
+                  type="button"
+                  data-testid="pos-clear-cart-btn"
+                  onClick={() => {
+                    clearPOSCart();
+                    setIsCartManuallyShownWhenEmpty(false);
+                  }}
+                  className="text-[11px] text-slate-400 hover:text-rose-600 flex items-center gap-1 transition-colors cursor-pointer px-1.5 py-1 rounded-lg hover:bg-rose-50"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>تفريغ</span>
+                </button>
+              ) : (
+                !isCartPinnedOpen && (
+                  <button
+                    type="button"
+                    data-testid="pos-cart-hide-btn"
+                    onClick={() => setIsCartManuallyShownWhenEmpty(false)}
+                    className="text-[11px] text-slate-400 hover:text-slate-700 flex items-center gap-1 transition-colors cursor-pointer px-1.5 py-1 rounded-lg hover:bg-slate-100"
+                  >
+                    <EyeOff className="w-3.5 h-3.5" />
+                    <span>إخفاء</span>
+                  </button>
+                )
+              )}
+            </div>
           </div>
 
-          {/* Customer & Phone Quick Inputs (5-Column Grid matching code_9f7cabf7.html) */}
-          <div className="pos-focus-group grid grid-cols-5 gap-2">
-            <div className="col-span-3">
-              <label className="block text-[10px] text-slate-400 mb-1">العميل المستفيد</label>
-              <div className="relative">
-                <select
-                  data-testid="pos-customer-select"
-                  data-pos-field-id="pos-customer-select"
-                  tabIndex={3}
-                  value={selectedCustomerId}
-                  onFocus={() => setActivePosFieldId('pos-customer-select')}
-                  onChange={(e) => {
-                    const cid = e.target.value;
-                    setSelectedCustomerId(cid);
-                    const found = customers.find((c) => c.id === cid);
-                    if (found) {
-                      setWarrantyCustomerName(language === 'ar' ? found.nameAr : found.name);
-                      setWarrantyCustomerPhone(found.phone);
-                    }
-                  }}
-                  aria-label="اختيار العميل"
-                  className="sr-only"
-                >
-                  {customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {language === 'ar' ? c.nameAr : c.name}
-                    </option>
-                  ))}
-                </select>
+          {/* Beneficiary Customer Tab & Quick Inputs (Click Tab or Press F8 to Open Fast Customer Picker) */}
+          <div className="pos-focus-group bg-slate-50/80 p-2.5 rounded-xl border border-slate-200/80 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                data-testid="pos-cart-beneficiary-tab-btn"
+                onClick={() => {
+                  setCustomerSearchQuery('');
+                  setIsCustomerPickerOpen(true);
+                  setTimeout(() => customerSearchInputRef.current?.focus(), 40);
+                }}
+                className="flex items-center gap-1.5 text-[11px] font-bold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100/80 px-2.5 py-1 rounded-lg border border-blue-200/80 transition cursor-pointer"
+                title="انقر هنا أو اضغط F8 لاختيار العميل المستفيد من قائمة العملاء"
+              >
+                <Users className="w-3.5 h-3.5 text-blue-600" />
+                <span>العميل المستفيد (اختر عميل)</span>
+                <kbd className="px-1 py-0.2 bg-white rounded text-[9px] font-mono text-blue-700 border border-blue-200">
+                  F8
+                </kbd>
+              </button>
+
+              {warrantyCustomerName &&
+                warrantyCustomerName !== DEFAULT_WALKIN_CUSTOMER_LABEL_AR && (
+                  <button
+                    type="button"
+                    data-testid="pos-reset-walkin-customer-btn"
+                    onClick={() => {
+                      setSelectedCustomerId('cust-pos-walkin');
+                      setWarrantyCustomerName(DEFAULT_WALKIN_CUSTOMER_LABEL_AR);
+                      setWarrantyCustomerPhone('');
+                    }}
+                    className="text-[10px] font-semibold text-slate-500 hover:text-slate-900 underline cursor-pointer"
+                  >
+                    إرجاع لعميل نقدي عام
+                  </button>
+                )}
+            </div>
+
+            <div className="grid grid-cols-5 gap-2">
+              <div className="col-span-3">
+                <div className="relative">
+                  <select
+                    data-testid="pos-customer-select"
+                    data-pos-field-id="pos-customer-select"
+                    tabIndex={3}
+                    value={selectedCustomerId}
+                    onFocus={() => setActivePosFieldId('pos-customer-select')}
+                    onChange={(e) => {
+                      const cid = e.target.value;
+                      setSelectedCustomerId(cid);
+                      if (cid === 'cust-pos-walkin') {
+                        setWarrantyCustomerName(DEFAULT_WALKIN_CUSTOMER_LABEL_AR);
+                        setWarrantyCustomerPhone('');
+                        return;
+                      }
+                      const found = customers.find((c) => c.id === cid);
+                      if (found) {
+                        setWarrantyCustomerName(language === 'ar' ? found.nameAr : found.name);
+                        setWarrantyCustomerPhone(found.phone);
+                      }
+                    }}
+                    aria-label="اختيار العميل"
+                    className="sr-only"
+                  >
+                    <option value="cust-pos-walkin">{DEFAULT_WALKIN_CUSTOMER_LABEL_AR}</option>
+                    {customers.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {language === 'ar' ? c.nameAr : c.name}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    data-testid="pos-warranty-name-input"
+                    data-pos-field-id="pos-warranty-name-input"
+                    tabIndex={4}
+                    value={warrantyCustomerName}
+                    onFocus={(e) => {
+                      setActivePosFieldId('pos-warranty-name-input');
+                      e.currentTarget.select();
+                    }}
+                    onChange={(e) => setWarrantyCustomerName(e.target.value)}
+                    placeholder="عميل نقدي عام"
+                    className="w-full bg-white border border-slate-200/90 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-800 placeholder:text-slate-500 focus:border-blue-600 outline-hidden transition-all"
+                  />
+                </div>
+              </div>
+              <div className="col-span-2">
                 <input
                   type="text"
-                  data-testid="pos-warranty-name-input"
-                  data-pos-field-id="pos-warranty-name-input"
-                  tabIndex={4}
-                  value={warrantyCustomerName}
+                  data-testid="pos-warranty-phone-input"
+                  data-pos-field-id="pos-warranty-phone-input"
+                  tabIndex={5}
+                  value={warrantyCustomerPhone}
                   onFocus={(e) => {
-                    setActivePosFieldId('pos-warranty-name-input');
+                    setActivePosFieldId('pos-warranty-phone-input');
                     e.currentTarget.select();
                   }}
-                  onChange={(e) => setWarrantyCustomerName(e.target.value)}
-                  placeholder="عميل نقدي عام"
-                  className="w-full bg-slate-50 border border-slate-200/70 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 placeholder:text-slate-700 focus:bg-white focus:border-blue-600 outline-hidden transition-all"
+                  onChange={(e) => setWarrantyCustomerPhone(e.target.value)}
+                  placeholder="هاتف العميل..."
+                  dir="ltr"
+                  className="w-full bg-white border border-slate-200/90 rounded-xl px-2.5 py-1.5 text-xs font-mono text-slate-700 focus:border-blue-600 outline-hidden transition-all text-left"
                 />
               </div>
-            </div>
-            <div className="col-span-2">
-              <label className="block text-[10px] text-slate-400 mb-1">رقم الهاتف</label>
-              <input
-                type="text"
-                data-testid="pos-warranty-phone-input"
-                data-pos-field-id="pos-warranty-phone-input"
-                tabIndex={5}
-                value={warrantyCustomerPhone}
-                onFocus={(e) => {
-                  setActivePosFieldId('pos-warranty-phone-input');
-                  e.currentTarget.select();
-                }}
-                onChange={(e) => setWarrantyCustomerPhone(e.target.value)}
-                placeholder="+967..."
-                dir="ltr"
-                className="w-full bg-slate-50 border border-slate-200/70 rounded-xl px-2.5 py-1.5 text-xs font-mono text-slate-700 focus:bg-white focus:border-blue-600 outline-hidden transition-all text-left"
-              />
             </div>
           </div>
         </div>
@@ -1980,99 +2279,391 @@ export const POSView: React.FC = () => {
       )}
 
       {/* ====================================================================
-          PROFESSIONAL CHECKOUT & PAYMENT SETTLEMENT MODAL
+          FAST & LIGHTWEIGHT BENEFICIARY CUSTOMER PICKER MODAL (Click Tab or F8)
       ==================================================================== */}
-      {isCheckoutModalOpen && (
+      {isCustomerPickerOpen && (
         <div
+          data-testid="pos-customer-picker-modal"
           onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setIsCheckoutModalOpen(false);
+            if (e.target === e.currentTarget) setIsCustomerPickerOpen(false);
           }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/65 backdrop-blur-xs p-4"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/65 backdrop-blur-xs p-0 sm:p-4"
         >
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-lg overflow-hidden">
-            {/* Lumina POS Light Header */}
-            <div className="px-6 py-4 bg-slate-50/90 border-b border-slate-200/80 text-slate-900 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
-                  <CreditCard className="w-5 h-5" />
+          <div className="bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-lg max-h-[88dvh] flex flex-col overflow-hidden">
+            {/* Header */}
+            <div className="px-4 sm:px-5 py-3.5 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0">
+                  <Users className="w-4 h-4 text-emerald-400" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-sm sm:text-base text-slate-900">
-                    طريقة الدفع وإتمام العملية
-                  </h3>
-                  <p className="text-[11px] text-slate-500">
-                    {warrantyCustomerName.trim() ||
-                      customers.find((c) => c.id === selectedCustomerId)?.nameAr ||
-                      'عميل مبيعات نقدية'}{' '}
-                    • {posCart.reduce((s, i) => s + i.quantity, 0)} قطعة مشمولة بالضمان
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-xs sm:text-sm text-slate-900">
+                      اختيار العميل المستفيد للفاتورة
+                    </h3>
+                    <kbd className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-mono text-[10px] font-bold">
+                      F8
+                    </kbd>
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    ابحث بالاسم أو رقم الجوال لتسجيل الفاتورة والضمان باسم العميل
                   </p>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setIsCheckoutModalOpen(false)}
-                className="w-8 h-8 rounded-full border border-slate-200/80 bg-white hover:bg-slate-100 text-slate-500 hover:text-slate-900 flex items-center justify-center font-bold transition cursor-pointer"
+                data-testid="pos-customer-picker-close-btn"
+                onClick={() => setIsCustomerPickerOpen(false)}
+                className="w-8 h-8 rounded-full border border-slate-200 bg-white hover:bg-slate-100 text-slate-500 hover:text-slate-900 flex items-center justify-center font-bold cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
-            <div className="p-5 space-y-4 text-xs">
-              {/* Financial Summary Banner */}
-              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/90 flex flex-wrap items-center justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="text-[11px] text-slate-500 font-semibold">
+            {/* Search Bar + Quick Add Toggle */}
+            <div className="p-3.5 border-b border-slate-100 space-y-2.5 shrink-0 bg-white">
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    ref={customerSearchInputRef}
+                    type="text"
+                    autoFocus
+                    data-testid="pos-customer-picker-search"
+                    value={customerSearchQuery}
+                    onChange={(e) => setCustomerSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (filteredPickerCustomers.length > 0 && customerSearchQuery.trim()) {
+                          handleSelectBeneficiaryCustomer(filteredPickerCustomers[0]);
+                        } else {
+                          handleSelectBeneficiaryCustomer({
+                            id: 'cust-pos-walkin',
+                            nameAr: DEFAULT_WALKIN_CUSTOMER_LABEL_AR,
+                            phone: '',
+                          });
+                        }
+                      }
+                    }}
+                    placeholder="ابحث باسم العميل، رقم الجوال، أو الكود ثم اضغط Enter..."
+                    className="w-full bg-slate-50 focus:bg-white border border-slate-200 focus:border-blue-600 rounded-xl py-2 pr-9 pl-3 text-xs font-semibold text-slate-900 outline-hidden transition"
+                  />
+                </div>
+                <button
+                  type="button"
+                  data-testid="pos-customer-picker-new-toggle"
+                  onClick={() => setIsQuickAddCustomerOpen((prev) => !prev)}
+                  className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 shrink-0 cursor-pointer transition"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>عميل جديد</span>
+                </button>
+              </div>
+
+              {/* Inline Quick Add Customer Mini-Form */}
+              {isQuickAddCustomerOpen && (
+                <form
+                  onSubmit={handleQuickCreateAndSelectCustomer}
+                  className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs"
+                >
+                  <div className="font-bold text-slate-800">تسجيل عميل جديد واعتماده للفاتورة فوراً:</div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      required
+                      data-testid="pos-quick-new-customer-name"
+                      value={quickNewCustomerName}
+                      onChange={(e) => setQuickNewCustomerName(e.target.value)}
+                      placeholder="اسم العميل الرباعي أو المؤسسة *"
+                      className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 text-xs font-bold text-slate-900 outline-hidden focus:border-blue-600"
+                    />
+                    <input
+                      type="text"
+                      data-testid="pos-quick-new-customer-phone"
+                      value={quickNewCustomerPhone}
+                      onChange={(e) => setQuickNewCustomerPhone(e.target.value)}
+                      placeholder="رقم الجوال (+967...)"
+                      dir="ltr"
+                      className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 text-xs font-mono text-slate-900 outline-hidden focus:border-blue-600"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setIsQuickAddCustomerOpen(false)}
+                      className="px-3 py-1 rounded-lg bg-white border border-slate-200 text-slate-600 font-bold cursor-pointer"
+                    >
+                      إلغاء
+                    </button>
+                    <button
+                      type="submit"
+                      data-testid="pos-quick-new-customer-save-btn"
+                      className="px-3.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold cursor-pointer"
+                    >
+                      حفظ واختيار العميل
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+
+            {/* Customers List */}
+            <div className="p-3 overflow-y-auto space-y-1.5 flex-1">
+              {/* Default Walk-in Cash Customer Option */}
+              <button
+                type="button"
+                data-testid="pos-customer-option-walkin"
+                onClick={() =>
+                  handleSelectBeneficiaryCustomer({
+                    id: 'cust-pos-walkin',
+                    nameAr: DEFAULT_WALKIN_CUSTOMER_LABEL_AR,
+                    phone: '',
+                  })
+                }
+                className={`w-full p-2.5 rounded-xl border text-right transition flex items-center justify-between gap-2 cursor-pointer ${
+                  selectedCustomerId === 'cust-pos-walkin' ||
+                  warrantyCustomerName === DEFAULT_WALKIN_CUSTOMER_LABEL_AR
+                    ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                    : 'bg-slate-50/80 hover:bg-slate-100 text-slate-800 border-slate-200/80'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div
+                    className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${
+                      selectedCustomerId === 'cust-pos-walkin'
+                        ? 'bg-emerald-500 text-white'
+                        : 'bg-white text-slate-700 border border-slate-200'
+                    }`}
+                  >
+                    نقد
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-bold text-xs truncate">
+                      {DEFAULT_WALKIN_CUSTOMER_LABEL_AR} (الافتراضي)
+                    </div>
+                    <div
+                      className={`text-[10px] ${
+                        selectedCustomerId === 'cust-pos-walkin' ? 'text-slate-300' : 'text-slate-500'
+                      }`}
+                    >
+                      مبيعات نقدية فورية مباشرة بدون ذمم آجلة
+                    </div>
+                  </div>
+                </div>
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+                    selectedCustomerId === 'cust-pos-walkin'
+                      ? 'bg-emerald-500/20 text-emerald-300'
+                      : 'bg-emerald-50 text-emerald-700'
+                  }`}
+                >
+                  افتراضي
+                </span>
+              </button>
+
+              {/* Filtered Registered Customers */}
+              {filteredPickerCustomers.map((cust) => {
+                const isSelected =
+                  selectedCustomerId === cust.id &&
+                  warrantyCustomerName !== DEFAULT_WALKIN_CUSTOMER_LABEL_AR;
+                return (
+                  <button
+                    key={cust.id}
+                    type="button"
+                    data-testid={`pos-customer-option-${cust.id}`}
+                    onClick={() => handleSelectBeneficiaryCustomer(cust)}
+                    className={`w-full p-2.5 rounded-xl border text-right transition flex items-center justify-between gap-2 cursor-pointer ${
+                      isSelected
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                        : 'bg-white hover:bg-slate-50 text-slate-800 border-slate-200/80'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${
+                          isSelected
+                            ? 'bg-white/20 text-white'
+                            : 'bg-slate-100 text-slate-700'
+                        }`}
+                      >
+                        {(cust.nameAr || cust.name || 'ع').slice(0, 2)}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-bold text-xs truncate">
+                          {language === 'ar' ? cust.nameAr : cust.name}
+                        </div>
+                        <div
+                          className={`text-[10px] font-mono flex items-center gap-2 ${
+                            isSelected ? 'text-blue-100' : 'text-slate-500'
+                          }`}
+                          dir="ltr"
+                        >
+                          <span>{cust.phone}</span>
+                          {cust.code && <span>• {cust.code}</span>}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-left shrink-0">
+                      <div
+                        className={`text-[10px] font-mono font-bold ${
+                          isSelected
+                            ? 'text-white'
+                            : (cust.balance || 0) > 0
+                            ? 'text-amber-700'
+                            : 'text-emerald-700'
+                        }`}
+                        dir="ltr"
+                      >
+                        {formatCleanNumber(cust.balance || 0)} {currency}
+                      </div>
+                      <div
+                        className={`text-[9px] ${
+                          isSelected ? 'text-blue-100' : 'text-slate-400'
+                        }`}
+                      >
+                        الرصيد الحالي
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+
+              {filteredPickerCustomers.length === 0 && (
+                <div className="py-6 text-center text-xs text-slate-400">
+                  لا يوجد عميل مطابق للبحث &quot;{customerSearchQuery}&quot; — اضغط على &quot;عميل جديد&quot; لإضافته فوراً
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-200/80 flex items-center justify-between text-[11px] text-slate-500 shrink-0">
+              <span>إجمالي العملاء المسجلين: {customers.length} عميل</span>
+              <button
+                type="button"
+                onClick={() => setIsCustomerPickerOpen(false)}
+                className="px-4 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold cursor-pointer"
+              >
+                إغلاق
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================================
+          MOBILE & DESKTOP ERGONOMIC CHECKOUT & PAYMENT SETTLEMENT MODAL
+          (Responsive Bottom-Sheet on Mobile + Sticky Action Footer)
+      ==================================================================== */}
+      {isCheckoutModalOpen && (
+        <div
+          data-testid="pos-checkout-modal-backdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setIsCheckoutModalOpen(false);
+          }}
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/65 backdrop-blur-xs p-0 sm:p-4"
+        >
+          <div
+            data-testid="pos-checkout-modal-card"
+            className="bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-lg max-h-[92dvh] flex flex-col overflow-hidden"
+          >
+            {/* Sticky Header */}
+            <div className="px-4 sm:px-5 py-3.5 bg-slate-50/95 border-b border-slate-200/80 text-slate-900 flex items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                  <CreditCard className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="font-bold text-xs sm:text-sm text-slate-900 truncate">
+                    طريقة الدفع وإتمام العملية
+                  </h3>
+                  <div className="flex items-center gap-1.5 text-[11px] text-slate-500 truncate">
+                    <span className="truncate">
+                      {warrantyCustomerName.trim() || DEFAULT_WALKIN_CUSTOMER_LABEL_AR}
+                    </span>
+                    <span>•</span>
+                    <span>{posCart.reduce((s, i) => s + i.quantity, 0)} أصناف</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  data-testid="pos-checkout-beneficiary-btn"
+                  onClick={() => {
+                    setCustomerSearchQuery('');
+                    setIsCustomerPickerOpen(true);
+                  }}
+                  className="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition"
+                  title="تغيير العميل المستفيد (F8)"
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>تغيير العميل</span>
+                </button>
+                <button
+                  type="button"
+                  data-testid="pos-checkout-close-btn"
+                  onClick={() => setIsCheckoutModalOpen(false)}
+                  className="w-8 h-8 rounded-full border border-slate-200/80 bg-white hover:bg-slate-100 text-slate-500 hover:text-slate-900 flex items-center justify-center font-bold transition cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Scrollable Body */}
+            <div className="p-3.5 sm:p-5 space-y-3.5 text-xs overflow-y-auto flex-1">
+              {/* Compact Financial Summary Strip */}
+              <div className="p-3.5 rounded-2xl bg-slate-900 text-white flex items-center justify-between gap-3 shadow-xs">
+                <div className="space-y-0.5">
+                  <div className="text-[10px] text-slate-300 font-semibold">
                     صافي الفاتورة المستحق للسداد:
                   </div>
-                  <div className="flex items-center gap-3 text-[11px] text-slate-600">
+                  <div className="flex items-center gap-2 text-[10px] text-slate-300">
                     <span>
-                      المجموع الفرعي:{' '}
-                      <strong className="font-mono text-slate-800" dir="ltr">
+                      الفرعي:{' '}
+                      <strong className="font-mono text-white" dir="ltr">
                         {formatCleanNumber(subtotal)}
                       </strong>
                     </span>
                     {couponDiscountAmount > 0 && (
-                      <span className="text-emerald-700 font-bold">
+                      <span className="text-amber-300 font-bold">
                         خصم: -{formatCleanNumber(couponDiscountAmount)}
                       </span>
                     )}
                   </div>
                 </div>
-                <div className="text-end">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
-                    الإجمالي المستحق
-                  </span>
-                  <div
-                    className="text-2xl font-black font-mono tabular-nums text-slate-900 mt-0.5"
-                    dir="ltr"
-                  >
+                <div className="text-left" dir="ltr">
+                  <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-emerald-400">
                     {formatCleanNumber(grandTotal)}{' '}
-                    <span className="text-sm font-bold text-emerald-700">{currency}</span>
+                    <span className="text-xs font-bold text-white">{currency}</span>
                   </div>
                 </div>
               </div>
 
-              {/* Payment Method Cards */}
+              {/* Payment Method Cards (Touch-Ergonomic 3-Col Grid) */}
               <div>
-                <label className="block font-bold text-slate-700 mb-2">
+                <label className="block font-bold text-slate-700 mb-1.5 text-[11px]">
                   اختر وسيلة السداد المعتمدة:
                 </label>
-                <div className="grid grid-cols-3 gap-2.5">
+                <div className="grid grid-cols-3 gap-2">
                   {[
                     {
                       id: 'CASH',
                       titleAr: masterSystemConfig.cashPaymentLabelAr || 'نقداً (كاش)',
-                      subAr: 'تحصيل نقدي بالصندوق',
+                      subAr: 'صندوق الكاشير',
                     },
                     {
                       id: 'CARD',
-                      titleAr: 'بطاقة بنكية / شبكة',
-                      subAr: 'ام فلوس • جوالي • تحويل فوري',
+                      titleAr: 'بطاقة / تحويل',
+                      subAr: 'الكريمي • ام فلوس',
                     },
                     {
                       id: 'SPLIT',
-                      titleAr: 'دفع مختلط / مجزأ',
-                      subAr: 'جزء نقدي + جزء بطاقة',
+                      titleAr: 'دفع مشترك',
+                      subAr: 'نقدي + مصرفي',
                     },
                   ].map((m) => {
                     const isSelected = paymentMethod === m.id;
@@ -2080,6 +2671,7 @@ export const POSView: React.FC = () => {
                       <button
                         key={m.id}
                         type="button"
+                        data-testid={`pos-payment-method-${m.id}`}
                         onClick={() => {
                           setPaymentMethod(m.id as any);
                           if (m.id === 'CASH') {
@@ -2088,20 +2680,20 @@ export const POSView: React.FC = () => {
                             setSplitCashAmount(Math.round((grandTotal / 2) * 100) / 100);
                           }
                         }}
-                        className={`p-3 rounded-xl border text-start transition cursor-pointer flex flex-col justify-between ${
+                        className={`p-2.5 sm:p-3 rounded-xl border text-start transition cursor-pointer flex flex-col justify-between ${
                           isSelected
-                            ? 'bg-slate-900 text-white border-slate-900 shadow-sm ring-2 ring-slate-900/10'
+                            ? 'bg-slate-900 text-white border-slate-900 shadow-xs ring-2 ring-slate-900/10'
                             : 'bg-white border-slate-200 text-slate-800 hover:border-slate-300 hover:bg-slate-50'
                         }`}
                       >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="font-bold text-xs">{m.titleAr}</span>
+                        <div className="flex items-center justify-between gap-1 mb-0.5">
+                          <span className="font-bold text-[11px] sm:text-xs truncate">{m.titleAr}</span>
                           {isSelected && (
-                            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                           )}
                         </div>
                         <span
-                          className={`text-[10px] ${
+                          className={`text-[9px] sm:text-[10px] truncate ${
                             isSelected ? 'text-slate-300' : 'text-slate-500'
                           }`}
                         >
@@ -2113,12 +2705,12 @@ export const POSView: React.FC = () => {
                 </div>
               </div>
 
-              {/* 1. CASH PAYMENT PANEL (With Sleek Minimalist Numerical Input Keypad) */}
+              {/* 1. CASH PAYMENT PANEL */}
               {paymentMethod === 'CASH' && (
-                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3.5">
-                  <div className="flex items-center justify-between">
-                    <label className="font-bold text-slate-800">
-                      المبلغ المستلم من العميل (Amount Received):
+                <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="font-bold text-slate-800 text-[11px]">
+                      المبلغ المستلم من العميل:
                     </label>
                     <button
                       type="button"
@@ -2129,7 +2721,29 @@ export const POSView: React.FC = () => {
                     </button>
                   </div>
 
-                  <div className="relative pos-focus-group p-1 rounded-xl border border-transparent transition-all">
+                  {/* Quick Cash Denomination Chips for Mobile & Touch Speed */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setCashTendered(grandTotal)}
+                      className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-bold text-[10px] shrink-0 cursor-pointer"
+                    >
+                      المبلغ كامل
+                    </button>
+                    {[1000, 5000, 10000, 50000].map((denom) => (
+                      <button
+                        key={denom}
+                        type="button"
+                        onClick={() => setCashTendered((prev) => (prev || 0) + denom)}
+                        className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-mono font-bold text-[10px] shrink-0 cursor-pointer"
+                        dir="ltr"
+                      >
+                        +{formatCleanNumber(denom)}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="relative pos-focus-group rounded-xl">
                     <input
                       type="number"
                       step="any"
@@ -2141,32 +2755,32 @@ export const POSView: React.FC = () => {
                       onFocus={(e) => e.currentTarget.select()}
                       onChange={(e) => setCashTendered(Math.max(0, Number(e.target.value) || 0))}
                       placeholder="0"
-                      className="w-full px-4 py-3 bg-white border-2 border-slate-300 focus:border-slate-900 rounded-xl font-mono tabular-nums font-black text-xl text-slate-900 outline-hidden transition shadow-inner"
+                      className="w-full px-3.5 py-2.5 bg-white border-2 border-slate-300 focus:border-slate-900 rounded-xl font-mono tabular-nums font-black text-lg sm:text-xl text-slate-900 outline-hidden transition"
                       dir="ltr"
                     />
                     <span
-                      className="absolute end-5 top-4.5 text-xs font-mono font-bold text-slate-400"
+                      className="absolute end-4 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-slate-400"
                       dir="ltr"
                     >
                       {currency}
                     </span>
                   </div>
 
-                  {/* Collapsible Sleek Minimalist Numerical Keypad (مطوية افتراضياً وتفتح عند الحاجة) */}
-                  <div className="bg-white rounded-xl border border-slate-200/90 shadow-xs overflow-hidden">
+                  {/* Collapsible Numerical Keypad */}
+                  <div className="bg-white rounded-xl border border-slate-200/90 overflow-hidden">
                     <button
                       type="button"
                       data-testid="pos-checkout-numpad-toggle"
                       aria-expanded={isQuickNumpadOpen}
                       onClick={() => setIsQuickNumpadOpen((prev) => !prev)}
-                      className="w-full px-3 py-2.5 flex items-center justify-between text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
+                      className="w-full px-3 py-2 flex items-center justify-between text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
                     >
-                      <span className="flex items-center gap-2">
-                        <Calculator className="w-4 h-4 text-slate-600" />
+                      <span className="flex items-center gap-1.5">
+                        <Calculator className="w-3.5 h-3.5 text-slate-600" />
                         <span>لوحة الأرقام السريعة (Keypad)</span>
                       </span>
-                      <span className="flex items-center gap-1.5 text-[11px] font-semibold text-blue-600">
-                        <span>{isQuickNumpadOpen ? 'إخفاء اللوحة' : 'توسيع اللوحة للإدخال اللمسي'}</span>
+                      <span className="flex items-center gap-1 text-[11px] font-semibold text-blue-600">
+                        <span>{isQuickNumpadOpen ? 'إخفاء' : 'إظهار اللوحة'}</span>
                         <ChevronDown
                           className={`w-4 h-4 transition-transform duration-200 ${
                             isQuickNumpadOpen ? 'rotate-180' : ''
@@ -2178,14 +2792,14 @@ export const POSView: React.FC = () => {
                     {isQuickNumpadOpen && (
                       <div
                         data-testid="pos-checkout-numpad-grid"
-                        className="p-2.5 pt-2 border-t border-slate-100 grid grid-cols-4 gap-1.5 text-sm font-bold font-mono"
+                        className="p-2 border-t border-slate-100 grid grid-cols-4 gap-1.5 text-sm font-bold font-mono"
                         dir="ltr"
                       >
                         {[
                           '7', '8', '9', 'C',
                           '4', '5', '6', 'Exact',
                           '1', '2', '3', '00',
-                          '0', '.', '+10', '+100',
+                          '0', '.', '+100', '+1000',
                         ].map((key) => {
                           const isClear = key === 'C';
                           const isExact = key === 'Exact';
@@ -2221,7 +2835,7 @@ export const POSView: React.FC = () => {
                                   ? 'bg-emerald-600 hover:bg-emerald-500 text-white font-sans text-xs'
                                   : isPlus
                                   ? 'bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 text-xs'
-                                  : 'bg-slate-50 hover:bg-slate-100 text-slate-900 border border-slate-200 hover:border-slate-300'
+                                  : 'bg-slate-50 hover:bg-slate-100 text-slate-900 border border-slate-200'
                               }`}
                             >
                               {isExact ? 'المبلغ كامل' : key}
@@ -2234,25 +2848,18 @@ export const POSView: React.FC = () => {
 
                   {/* Change Due / Shortage Display */}
                   <div
-                    className={`p-3.5 rounded-xl border flex items-center justify-between font-bold ${
+                    className={`p-3 rounded-xl border flex items-center justify-between font-bold ${
                       cashTendered >= grandTotal
                         ? 'bg-emerald-50/90 border-emerald-200 text-emerald-950'
                         : 'bg-rose-50 border-rose-200 text-rose-950'
                     }`}
                   >
-                    <div>
-                      <span className="text-xs">
-                        {cashTendered >= grandTotal
-                          ? 'الباقي المستحق للعميل (Change Due):'
-                          : 'المبلغ المتبقي للتحصيل (Remaining Due):'}
-                      </span>
-                      <div className="text-[10px] text-slate-500 font-normal mt-0.5 font-sans">
-                        {cashTendered >= grandTotal
-                          ? 'يُعاد هذا المبلغ للعميل نقداً من الدرج'
-                          : 'المبلغ المستلم أقل من الإجمالي المطلوب'}
-                      </div>
-                    </div>
-                    <span className="font-mono tabular-nums text-lg font-black" dir="ltr">
+                    <span className="text-[11px] sm:text-xs">
+                      {cashTendered >= grandTotal
+                        ? 'الباقي المستحق للعميل:'
+                        : 'المبلغ المتبقي للتحصيل:'}
+                    </span>
+                    <span className="font-mono tabular-nums text-base sm:text-lg font-black" dir="ltr">
                       {formatCleanNumber(Math.abs(cashTendered - grandTotal))} {currency}
                     </span>
                   </div>
@@ -2261,18 +2868,18 @@ export const POSView: React.FC = () => {
 
               {/* 2. CARD / ELECTRONIC POS PANEL */}
               {paymentMethod === 'CARD' && (
-                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+                <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2.5">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-800">
-                      مبلغ السداد عبر جهاز الشبكة / البطاقة:
+                    <span className="font-bold text-slate-800 text-[11px]">
+                      مبلغ السداد عبر الشبكة / التحويل المصرفي:
                     </span>
                     <span className="font-mono font-bold text-sm text-emerald-700" dir="ltr">
                       {formatCleanNumber(grandTotal)} {currency}
                     </span>
                   </div>
-                  <div className="pos-focus-group p-1.5 rounded-lg border border-transparent transition-all">
+                  <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                      رقم مرجع العملية / التفويض البنكي (Approval / RRN):
+                      رقم مرجع العملية / الحوالة (Approval / RRN):
                     </label>
                     <input
                       type="text"
@@ -2281,8 +2888,8 @@ export const POSView: React.FC = () => {
                       value={cardReference}
                       onFocus={(e) => e.currentTarget.select()}
                       onChange={(e) => setCardReference(e.target.value)}
-                      placeholder="مثال: RRN-849201 أو رقم الحوالة..."
-                      className="w-full px-3 py-2 bg-white border border-slate-300 focus:border-slate-900 rounded-lg font-mono text-xs font-bold text-slate-900 outline-hidden"
+                      placeholder="مثال: RRN-849201 أو رقم إشعار الكريمي..."
+                      className="w-full px-3 py-2 bg-white border border-slate-300 focus:border-slate-900 rounded-xl font-mono text-xs font-bold text-slate-900 outline-hidden"
                       dir="ltr"
                     />
                   </div>
@@ -2291,15 +2898,15 @@ export const POSView: React.FC = () => {
 
               {/* 3. SPLIT PAYMENT PANEL (Cash + Card) */}
               {paymentMethod === 'SPLIT' && (
-                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="pos-focus-group p-1.5 rounded-lg border border-transparent transition-all">
+                <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2.5">
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
                       <label className="block text-[11px] font-bold text-slate-700 mb-1">
                         الجزء المدفوع نقداً (كاش):
                       </label>
                       <input
                         type="number"
-                        step="0.01"
+                        step="any"
                         min="0"
                         max={grandTotal}
                         autoFocus
@@ -2310,23 +2917,23 @@ export const POSView: React.FC = () => {
                           const val = Math.min(grandTotal, Math.max(0, Number(e.target.value)));
                           setSplitCashAmount(val);
                         }}
-                        className="w-full px-3 py-2 bg-white border border-slate-300 focus:border-slate-900 rounded-lg font-mono tabular-nums font-bold text-sm text-slate-900 outline-hidden"
+                        className="w-full px-3 py-2 bg-white border border-slate-300 focus:border-slate-900 rounded-xl font-mono tabular-nums font-bold text-sm text-slate-900 outline-hidden"
                         dir="ltr"
                       />
                     </div>
-                    <div className="p-1.5">
+                    <div>
                       <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                        الجزء المسدد بالبطاقة / الشبكة:
+                        الجزء المسدد بالبطاقة / التحويل:
                       </label>
                       <div
-                        className="w-full px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg font-mono tabular-nums font-bold text-sm text-emerald-900"
+                        className="w-full px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl font-mono tabular-nums font-bold text-sm text-emerald-900"
                         dir="ltr"
                       >
                         {formatCleanNumber(Math.max(0, grandTotal - splitCashAmount))} {currency}
                       </div>
                     </div>
                   </div>
-                  <div className="pos-focus-group p-1.5 rounded-lg border border-transparent transition-all">
+                  <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">
                       مرجع عملية الشبكة للجزء البنكي (اختياري):
                     </label>
@@ -2336,8 +2943,8 @@ export const POSView: React.FC = () => {
                       value={cardReference}
                       onFocus={(e) => e.currentTarget.select()}
                       onChange={(e) => setCardReference(e.target.value)}
-                      placeholder="رقم إيصال جهاز نقاط البيع..."
-                      className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg font-mono text-xs text-slate-800 outline-hidden"
+                      placeholder="رقم إيصال التحويل أو الشبكة..."
+                      className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-xl font-mono text-xs text-slate-800 outline-hidden"
                       dir="ltr"
                     />
                   </div>
@@ -2345,7 +2952,7 @@ export const POSView: React.FC = () => {
               )}
 
               {/* Optional Invoice / Warranty Note */}
-              <div className="pos-focus-group p-1 rounded-xl border border-transparent transition-all">
+              <div>
                 <input
                   type="text"
                   data-pos-modal-field="checkout-notes"
@@ -2357,37 +2964,37 @@ export const POSView: React.FC = () => {
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white focus:border-slate-900 rounded-xl text-xs text-slate-800 outline-hidden transition"
                 />
               </div>
+            </div>
 
-              {/* Action Buttons */}
-              <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+            {/* Sticky Bottom Action Bar (Always accessible on Mobile & Desktop) */}
+            <div className="p-3 sm:p-4 bg-white border-t border-slate-200/80 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsCheckoutModalOpen(false)}
+                className="order-3 sm:order-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <div className="order-1 sm:order-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsCheckoutModalOpen(false)}
-                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition cursor-pointer"
+                  data-pos-modal-field="checkout-confirm-a4"
+                  onClick={() => handlePerformCheckout(true)}
+                  className="px-3.5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-2xs transition flex items-center justify-center gap-1.5 cursor-pointer"
                 >
-                  إلغاء
+                  <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>إصدار مع شهادة ضمان A4</span>
                 </button>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    data-pos-modal-field="checkout-confirm-a4"
-                    onClick={() => handlePerformCheckout(true)}
-                    className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                    <span>إصدار مع شهادة ضمان A4</span>
-                  </button>
-                  <button
-                    type="button"
-                    data-pos-modal-field="checkout-confirm-standard"
-                    data-testid="pos-confirm-checkout-btn"
-                    onClick={() => handlePerformCheckout(false)}
-                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>تأكيد الدفع وإصدار الفاتورة</span>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  data-pos-modal-field="checkout-confirm-standard"
+                  data-testid="pos-confirm-checkout-btn"
+                  onClick={() => handlePerformCheckout(false)}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span>تأكيد الدفع وإصدار الفاتورة</span>
+                </button>
               </div>
             </div>
           </div>
@@ -2416,17 +3023,17 @@ export const POSView: React.FC = () => {
                     معاينة وطباعة الفاتورة وشهادة الضمان ({completedInvoice.invoiceNumber})
                   </span>
                   <p className="text-[11px] text-slate-500">
-                    اختر القالب المناسب للطباعة (أونكس برو اليمن، عالمي SAP/Odoo، أو حراري 80mm)
+                    تظهر الفاتورة بشعار وهوية منشأتك الخاصة — اختر القالب المناسب للطباعة
                   </p>
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
                 {[
-                  { mode: 'a4', tpl: 'a4_onyx_yemen', label: 'A4 أونكس برو (اليمن)' },
-                  { mode: 'a4', tpl: 'a4_global_sap_odoo', label: 'A4 عالمي SAP / Odoo' },
+                  { mode: 'a4', tpl: 'a4_onyx_yemen', label: 'A4 النموذج اليمني المعتمد' },
+                  { mode: 'a4', tpl: 'a4_global_sap_odoo', label: 'A4 النموذج التجاري الدولي' },
                   { mode: 'a4', tpl: 'a4_warranty_electronics', label: 'A4 شهادة ضمان رسمية' },
-                  { mode: 'thermal', tpl: 'thermal_80mm_onyx_pos', label: 'حراري 80mm أونكس برو' },
+                  { mode: 'thermal', tpl: 'thermal_80mm_onyx_pos', label: 'حراري 80mm النموذج اليمني' },
                   { mode: 'thermal', tpl: 'thermal_80mm_warranty', label: 'حراري 80mm ضمان وسيريال' },
                   { mode: 'thermal', tpl: 'thermal_80mm_standard', label: 'حراري 80mm قياسي' },
                   { mode: 'a4', tpl: 'a4_corporate_classic', label: 'فاتورة A4 مؤسسية' },
@@ -2470,6 +3077,8 @@ export const POSView: React.FC = () => {
                 standardTemplate={selectedA4Override}
                 settings={invoiceTemplateSettings}
                 companyName={company.nameAr || currentTenant.legalName}
+                companyNameEn={company.name}
+                companyLogo={company.logo}
                 taxNumber={company.taxNumber || '300059281900003'}
                 branchName={currentBranch.nameAr}
                 branchAddress={currentBranch.city}

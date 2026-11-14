@@ -332,17 +332,73 @@ app.get('/api/v1/hardware/fingerprint', (_req, res) => {
 });
 
 // 1b-2. Local Area Network (LAN) Discovery & Multi-Device Access Info Endpoint
-app.get('/api/v1/network/info', (_req, res) => {
+app.get('/api/v1/network/info', (req, res) => {
   const nets = os.networkInterfaces();
-  const lanAddresses: string[] = [];
+  const scored: { ip: string; score: number }[] = [];
+
   for (const name of Object.keys(nets)) {
+    const lowerName = name.toLowerCase();
+    // Skip virtual docker/veth/wsl bridges that phones on Wi-Fi cannot reach
+    if (
+      lowerName.startsWith('docker') ||
+      lowerName.startsWith('veth') ||
+      lowerName.startsWith('br-') ||
+      lowerName.startsWith('virbr')
+    ) {
+      continue;
+    }
     for (const net of nets[name] || []) {
       if (net.family === 'IPv4' && !net.internal && net.address) {
-        lanAddresses.push(net.address);
+        if (net.address.startsWith('169.254.')) continue; // skip APIPA
+        let score = 50;
+        if (
+          lowerName.includes('wi-fi') ||
+          lowerName.includes('wlan') ||
+          lowerName.includes('en0') ||
+          lowerName.includes('eth')
+        ) {
+          score -= 20;
+        }
+        if (net.address.startsWith('192.168.')) {
+          score -= 15;
+        } else if (net.address.startsWith('10.')) {
+          score -= 10;
+        } else if (net.address.startsWith('172.17.') || net.address.startsWith('172.18.')) {
+          score += 30;
+        }
+        scored.push({ ip: net.address, score });
       }
     }
   }
+
+  scored.sort((a, b) => a.score - b.score);
+  const lanAddresses = Array.from(new Set(scored.map((s) => s.ip)));
+
+  const forwardedHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || '';
+  const cleanHostOnly = forwardedHost.split(':')[0] || '';
+  const forwardedProto =
+    (req.headers['x-forwarded-proto'] as string) ||
+    (forwardedHost.includes('localhost') || /^\d+\.\d+\.\d+\.\d+/.test(forwardedHost)
+      ? 'http'
+      : 'https');
+  const liveHostUrl = forwardedHost ? `${forwardedProto}://${forwardedHost}` : '';
+
+  // If the user is already accessing via a LAN IP or public/shared domain, include it first
+  if (
+    cleanHostOnly &&
+    cleanHostOnly !== 'localhost' &&
+    cleanHostOnly !== '127.0.0.1' &&
+    !lanAddresses.includes(cleanHostOnly)
+  ) {
+    lanAddresses.unshift(cleanHostOnly);
+  }
+
   const primaryIp = lanAddresses[0] || '127.0.0.1';
+  const primaryLanUrl =
+    liveHostUrl && !liveHostUrl.includes('localhost') && !liveHostUrl.includes('127.0.0.1')
+      ? liveHostUrl
+      : `http://${primaryIp}:${PORT}`;
+
   const sizeKb = memoryStore
     ? Math.max(1, Math.round((Buffer.byteLength(JSON.stringify(memoryStore), 'utf-8') / 1024) * 10) / 10)
     : 0;
@@ -353,7 +409,8 @@ app.get('/api/v1/network/info', (_req, res) => {
       hostname: os.hostname(),
       port: Number(PORT),
       lanAddresses,
-      primaryLanUrl: `http://${primaryIp}:${PORT}`,
+      primaryLanUrl,
+      liveHostUrl,
       platform: `${os.platform()}-${os.arch()}`,
       serverTimestampMs: Date.now(),
       dbRevision,
@@ -1804,6 +1861,9 @@ async function startServer() {
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
+        host: true,
+        allowedHosts: true,
+        cors: true,
         hmr: false,
         ws: false,
         watch: null,

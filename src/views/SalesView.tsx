@@ -574,6 +574,8 @@ export const SalesView: React.FC = () => {
                 thermalTemplate={templateOverrideThermal}
                 settings={invoiceTemplateSettings}
                 companyName={company.nameAr || currentTenant.legalName}
+                companyNameEn={company.name}
+                companyLogo={company.logo}
                 taxNumber={company.taxNumber || '300059281900003'}
                 branchName={currentBranch.nameAr}
                 branchAddress={currentBranch.city}

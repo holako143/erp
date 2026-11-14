@@ -2918,3 +2918,55 @@ test('Track 36: Clean number formatting without .00, Product visual illustration
   assert.equal(qrMatrix[24][0], true);
 });
 
+test('Track 37: POS Cart auto-hide by default, auto-show on item selection, permanent pin, and F8 Beneficiary Customer Quick-Picker', async () => {
+  const {
+    DEFAULT_WALKIN_CUSTOMER_LABEL_AR,
+    evaluatePosCartVisibility,
+    filterPosCustomersForQuickPicker,
+  } = await import('./posKeyboardNavigation');
+  const { numberToArabicWords } = await import('../components/invoices/InvoiceRenderer');
+
+  // 1. Default walk-in customer is 'عميل نقدي عام'
+  assert.equal(DEFAULT_WALKIN_CUSTOMER_LABEL_AR, 'عميل نقدي عام');
+
+  // 2. POS Cart is hidden by default when empty and not pinned
+  const emptyUnpinned = evaluatePosCartVisibility({
+    cartItemCount: 0,
+    isCartPinnedOpen: false,
+  });
+  assert.equal(emptyUnpinned.isVisible, false);
+  assert.equal(emptyUnpinned.reason, 'AUTO_HIDDEN_EMPTY');
+
+  // 3. Selecting any item immediately shows the POS Cart
+  const withItem = evaluatePosCartVisibility({
+    cartItemCount: 1,
+    isCartPinnedOpen: false,
+  });
+  assert.equal(withItem.isVisible, true);
+  assert.equal(withItem.reason, 'HAS_ITEMS');
+
+  // 4. Pinning the cart open keeps it visible even when empty
+  const emptyPinned = evaluatePosCartVisibility({
+    cartItemCount: 0,
+    isCartPinnedOpen: true,
+  });
+  assert.equal(emptyPinned.isVisible, true);
+  assert.equal(emptyPinned.reason, 'PINNED_OPEN');
+
+  // 5. F8 Quick Customer Picker filters customers by nameAr, name, phone, or code
+  const sampleCustomers = [
+    { id: 'c-1', code: 'CUST-101', name: 'Modern Build Co', nameAr: 'شركة البناء الحديث للمقاولات', phone: '+967 771 223 344', balance: 1500 },
+    { id: 'c-2', code: 'CUST-202', name: 'Horizon Solar', nameAr: 'مؤسسة الأفق للطاقة الشمسية', phone: '+967 777 889 900', balance: 0 },
+  ];
+  assert.equal(filterPosCustomersForQuickPicker(sampleCustomers, '').length, 2);
+  assert.equal(filterPosCustomersForQuickPicker(sampleCustomers, 'الأفق').length, 1);
+  assert.equal(filterPosCustomersForQuickPicker(sampleCustomers, '771 223').length, 1);
+  assert.equal(filterPosCustomersForQuickPicker(sampleCustomers, 'CUST-202')[0].id, 'c-2');
+
+  // 6. Arabic Tafqeet converts invoice totals cleanly with currency name
+  const tafqeetStr = numberToArabicWords(1485, 'YER');
+  assert.ok(tafqeetStr.includes('فقط'));
+  assert.ok(tafqeetStr.includes('ريال يمني'));
+  assert.ok(tafqeetStr.includes('لا غير'));
+});
+
