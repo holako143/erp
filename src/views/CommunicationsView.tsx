@@ -277,8 +277,22 @@ export const CommunicationsView: React.FC = () => {
       if (!res.ok) return;
       const data = await res.json();
       if (data?.success && data.snapshot) {
-        setLiveWaSnapshot(data.snapshot);
-        if (typeof data.snapshot.qrExpiresInSec === 'number' && data.snapshot.qrExpiresInSec > 0) {
+        setLiveWaSnapshot((prev) => {
+          if (
+            prev &&
+            prev.status === data.snapshot.status &&
+            prev.qrDataUrl === data.snapshot.qrDataUrl &&
+            prev.connectedPhone === data.snapshot.connectedPhone
+          ) {
+            return prev;
+          }
+          return data.snapshot;
+        });
+        if (
+          whatsappSession.status !== 'CONNECTED' &&
+          typeof data.snapshot.qrExpiresInSec === 'number' &&
+          data.snapshot.qrExpiresInSec > 0
+        ) {
           setQrCountdown(data.snapshot.qrExpiresInSec);
         }
         // Continuously sync real incoming and outgoing WhatsApp messages from Baileys socket
@@ -288,7 +302,9 @@ export const CommunicationsView: React.FC = () => {
         if (data.aiBotStatus) {
           setAiBotRepliesCount((prev) => Math.max(prev, data.aiBotStatus.repliesCount || 0));
           if (data.aiBotStatus.lastActionAr) {
-            setAiBotLastActionAr(data.aiBotStatus.lastActionAr);
+            setAiBotLastActionAr((prev) =>
+              prev === data.aiBotStatus.lastActionAr ? prev : data.aiBotStatus.lastActionAr
+            );
           }
         }
         if (
@@ -419,16 +435,19 @@ export const CommunicationsView: React.FC = () => {
   useEffect(() => {
     fetchLiveWhatsAppQR(false);
 
-    const countdownTimer = setInterval(() => {
-      setQrCountdown((prev) => (prev <= 1 ? 20 : prev - 1));
-    }, 1000);
+    const countdownTimer =
+      whatsappSession.status !== 'CONNECTED'
+        ? setInterval(() => {
+            setQrCountdown((prev) => (prev <= 1 ? 20 : prev - 1));
+          }, 1000)
+        : null;
 
     const pollInterval = setInterval(() => {
       fetchLiveWhatsAppQR(false);
-    }, 2200);
+    }, 4500);
 
     return () => {
-      clearInterval(countdownTimer);
+      if (countdownTimer) clearInterval(countdownTimer);
       clearInterval(pollInterval);
     };
   }, [whatsappSession.status, activeWhatsAppAccountId]);

@@ -145,6 +145,7 @@ export const POSView: React.FC = () => {
 
   // Checkout & Payment Settlement State
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
+  const [isQuickNumpadOpen, setIsQuickNumpadOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'SPLIT'>('CASH');
   const [cashTendered, setCashTendered] = useState<number>(0);
   const [splitCashAmount, setSplitCashAmount] = useState<number>(0);
@@ -579,6 +580,7 @@ export const POSView: React.FC = () => {
         setCashTendered(grandTotal);
         setSplitCashAmount(Math.round((grandTotal / 2) * 100) / 100);
         setCardReference(`RRN-${Math.floor(100000 + Math.random() * 900000)}`);
+        setIsQuickNumpadOpen(false);
         setIsCheckoutModalOpen(true);
       }
     };
@@ -1455,6 +1457,7 @@ export const POSView: React.FC = () => {
                 setCashTendered(grandTotal);
                 setSplitCashAmount(Math.round((grandTotal / 2) * 100) / 100);
                 setCardReference(`RRN-${Math.floor(100000 + Math.random() * 900000)}`);
+                setIsQuickNumpadOpen(false);
                 setIsCheckoutModalOpen(true);
               }}
               className="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold py-3 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 text-sm cursor-pointer disabled:opacity-40"
@@ -1924,61 +1927,84 @@ export const POSView: React.FC = () => {
                     </span>
                   </div>
 
-                  {/* Sleek Minimalist Numerical Keypad */}
-                  <div className="bg-white p-2.5 rounded-xl border border-slate-200/90 shadow-xs space-y-1.5">
-                    <div className="text-[10px] text-slate-400 font-bold px-1 flex items-center justify-between">
-                      <span>لوحة الأرقام السريعة (Keypad):</span>
-                      <span className="font-mono text-[9px] text-slate-500">انقر لإدخال أو تعديل المبلغ</span>
-                    </div>
-                    <div className="grid grid-cols-4 gap-1.5 text-sm font-bold font-mono" dir="ltr">
-                      {[
-                        '7', '8', '9', 'C',
-                        '4', '5', '6', 'Exact',
-                        '1', '2', '3', '00',
-                        '0', '.', '+10', '+100',
-                      ].map((key) => {
-                        const isClear = key === 'C';
-                        const isExact = key === 'Exact';
-                        const isPlus = key.startsWith('+');
-                        return (
-                          <button
-                            key={key}
-                            type="button"
-                            onClick={() => {
-                              if (isClear) {
-                                setCashTendered(0);
-                              } else if (isExact) {
-                                setCashTendered(grandTotal);
-                              } else if (isPlus) {
-                                const addVal = Number(key.replace('+', ''));
-                                setCashTendered((prev) => Math.round((prev + addVal) * 100) / 100);
-                              } else if (key === '.') {
-                                const str = String(cashTendered || '');
-                                if (!str.includes('.')) {
-                                  setCashTendered(Number(`${str || '0'}.`));
+                  {/* Collapsible Sleek Minimalist Numerical Keypad (مطوية افتراضياً وتفتح عند الحاجة) */}
+                  <div className="bg-white rounded-xl border border-slate-200/90 shadow-xs overflow-hidden">
+                    <button
+                      type="button"
+                      data-testid="pos-checkout-numpad-toggle"
+                      aria-expanded={isQuickNumpadOpen}
+                      onClick={() => setIsQuickNumpadOpen((prev) => !prev)}
+                      className="w-full px-3 py-2.5 flex items-center justify-between text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Calculator className="w-4 h-4 text-slate-600" />
+                        <span>لوحة الأرقام السريعة (Keypad)</span>
+                      </span>
+                      <span className="flex items-center gap-1.5 text-[11px] font-semibold text-blue-600">
+                        <span>{isQuickNumpadOpen ? 'إخفاء اللوحة' : 'توسيع اللوحة للإدخال اللمسي'}</span>
+                        <ChevronDown
+                          className={`w-4 h-4 transition-transform duration-200 ${
+                            isQuickNumpadOpen ? 'rotate-180' : ''
+                          }`}
+                        />
+                      </span>
+                    </button>
+
+                    {isQuickNumpadOpen && (
+                      <div
+                        data-testid="pos-checkout-numpad-grid"
+                        className="p-2.5 pt-2 border-t border-slate-100 grid grid-cols-4 gap-1.5 text-sm font-bold font-mono"
+                        dir="ltr"
+                      >
+                        {[
+                          '7', '8', '9', 'C',
+                          '4', '5', '6', 'Exact',
+                          '1', '2', '3', '00',
+                          '0', '.', '+10', '+100',
+                        ].map((key) => {
+                          const isClear = key === 'C';
+                          const isExact = key === 'Exact';
+                          const isPlus = key.startsWith('+');
+                          return (
+                            <button
+                              key={key}
+                              type="button"
+                              onClick={() => {
+                                if (isClear) {
+                                  setCashTendered(0);
+                                } else if (isExact) {
+                                  setCashTendered(grandTotal);
+                                } else if (isPlus) {
+                                  const addVal = Number(key.replace('+', ''));
+                                  setCashTendered((prev) => Math.round((prev + addVal) * 100) / 100);
+                                } else if (key === '.') {
+                                  const str = String(cashTendered || '');
+                                  if (!str.includes('.')) {
+                                    setCashTendered(Number(`${str || '0'}.`));
+                                  }
+                                } else if (key === '00') {
+                                  setCashTendered((prev) => Number(`${prev || ''}00`));
+                                } else {
+                                  const str = cashTendered === 0 ? key : `${cashTendered}${key}`;
+                                  setCashTendered(Number(str) || 0);
                                 }
-                              } else if (key === '00') {
-                                setCashTendered((prev) => Number(`${prev || ''}00`));
-                              } else {
-                                const str = cashTendered === 0 ? key : `${cashTendered}${key}`;
-                                setCashTendered(Number(str) || 0);
-                              }
-                            }}
-                            className={`py-2 rounded-lg transition select-none flex items-center justify-center cursor-pointer ${
-                              isClear
-                                ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200'
-                                : isExact
-                                ? 'bg-emerald-600 hover:bg-emerald-500 text-white font-sans text-xs'
-                                : isPlus
-                                ? 'bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 text-xs'
-                                : 'bg-slate-50 hover:bg-slate-100 text-slate-900 border border-slate-200 hover:border-slate-300'
-                            }`}
-                          >
-                            {isExact ? 'المبلغ كامل' : key}
-                          </button>
-                        );
-                      })}
-                    </div>
+                              }}
+                              className={`py-2 rounded-lg transition select-none flex items-center justify-center cursor-pointer ${
+                                isClear
+                                  ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200'
+                                  : isExact
+                                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white font-sans text-xs'
+                                  : isPlus
+                                  ? 'bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 text-xs'
+                                  : 'bg-slate-50 hover:bg-slate-100 text-slate-900 border border-slate-200 hover:border-slate-300'
+                              }`}
+                            >
+                              {isExact ? 'المبلغ كامل' : key}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
 
                   {/* Change Due / Shortage Display */}

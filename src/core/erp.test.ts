@@ -2810,3 +2810,72 @@ test('Track 33: Global Popover Manager enforces mutual exclusion across all popo
   assert.ok(alerts.some((a) => a.category === 'SYSTEM_BACKUP'));
 });
 
+test('Track 34: Performance Monitor Engine tracks view render times, rolling averages, and bottleneck classification', async () => {
+  const {
+    classifyRenderDuration,
+    recordViewRenderSample,
+    summarizePerformanceMetrics,
+  } = await import('./performanceMonitorEngine');
+
+  assert.equal(classifyRenderDuration(2.4), 'OPTIMAL');
+  assert.equal(classifyRenderDuration(16.6), 'OPTIMAL');
+  assert.equal(classifyRenderDuration(24.0), 'WARNING');
+  assert.equal(classifyRenderDuration(68.5), 'BOTTLENECK');
+
+  let history = {};
+  history = recordViewRenderSample(history, 'pos', 2.0, 'mount', '10:00:00');
+  history = recordViewRenderSample(history, 'pos', 4.0, 'update', '10:00:05');
+  history = recordViewRenderSample(history, 'inventory', 12.5, 'mount', '10:00:10');
+  history = recordViewRenderSample(history, 'security', 62.0, 'mount', '10:00:15');
+
+  const summary = summarizePerformanceMetrics(history, 'pos');
+  assert.equal(summary.activeViewMetric.viewId, 'pos');
+  assert.equal(summary.activeViewMetric.renderCount, 2);
+  assert.equal(summary.activeViewMetric.lastRenderMs, 4.0);
+  assert.equal(summary.activeViewMetric.avgRenderMs, 3.0);
+  assert.equal(summary.activeViewMetric.maxRenderMs, 4.0);
+  assert.equal(summary.activeViewMetric.status, 'OPTIMAL');
+
+  assert.equal(summary.bottleneckCount, 1);
+  assert.equal(summary.overallStatus, 'BOTTLENECK');
+  assert.equal(summary.slowestView?.viewId, 'security');
+  assert.equal(summary.slowestView?.maxRenderMs, 62.0);
+});
+
+test('Track 35: Yemeni Rial (YER) default currency, Yemeni banks in Double-Entry Engine, and stealth-hidden Security tab', async () => {
+  const { DEFAULT_MASTER_SYSTEM_CONFIG } = await import('./systemConfigEngine');
+  const { SEED_COMPANY, SEED_CHART_OF_ACCOUNTS, SEED_JOURNAL_ENTRIES } = await import(
+    '../data/seedData'
+  );
+  const { shouldDisplaySidebarMenuItem } = await import('../components/layout/Sidebar');
+
+  // 1. Default currency is YER across config and seed company
+  assert.equal(DEFAULT_MASTER_SYSTEM_CONFIG.globalDefaultCurrency, 'YER');
+  assert.equal(DEFAULT_MASTER_SYSTEM_CONFIG.globalCountryMode, 'YEMEN');
+  assert.equal(SEED_COMPANY.currency, 'YER');
+
+  // 2. Yemeni banks in Chart of Accounts (1102 & 1103) and Journal Entries
+  const acc1102 = SEED_CHART_OF_ACCOUNTS.find((a) => a.code === '1102');
+  const acc1103 = SEED_CHART_OF_ACCOUNTS.find((a) => a.code === '1103');
+  assert.ok(acc1102);
+  assert.ok(acc1103);
+  assert.ok(acc1102.nameAr.includes('بنك الكريمي'));
+  assert.ok(acc1103.nameAr.includes('بنك التضامن'));
+  assert.ok(!acc1102.nameAr.includes('الراجحي'));
+  assert.ok(!acc1103.nameAr.includes('الإنماء'));
+  assert.ok(
+    SEED_JOURNAL_ENTRIES[0].lines.some(
+      (l) => l.accountNameAr?.includes('بنك الكريمي') || l.accountName.includes('Al-Kuraimi')
+    )
+  );
+
+  // 3. Security tab is hidden from Sidebar in both Sector Mode and Full Suite Mode
+  assert.equal(
+    shouldDisplaySidebarMenuItem({ id: 'security', label: 'الأمان والصلاحيات' }, true, () => true),
+    false
+  );
+  assert.equal(
+    shouldDisplaySidebarMenuItem({ id: 'security', label: 'الأمان والصلاحيات' }, false, () => true),
+    false
+  );
+});

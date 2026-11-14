@@ -71,7 +71,7 @@ export const AccountingView: React.FC = () => {
 
   // Cost Center Expense Allocation Form State
   const [selectedBudgetCC, setSelectedBudgetCC] = useState<string>(
-    costCenterBudgets[0]?.costCenterCode || 'CC-OPS-RYD'
+    costCenterBudgets[0]?.costCenterCode || 'CC-OPS-SAH'
   );
   const [ccExpenseAccCode, setCcExpenseAccCode] = useState<string>('5202');
   const [ccExpenseAmount, setCcExpenseAmount] = useState<number>(15000);
@@ -83,15 +83,15 @@ export const AccountingView: React.FC = () => {
   // PDC Creation Form State
   const [newCheckNumber, setNewCheckNumber] = useState('CHK-880192');
   const [newCheckType, setNewCheckType] = useState<'RECEIVABLE' | 'PAYABLE'>('RECEIVABLE');
-  const [newCheckParty, setNewCheckParty] = useState('شركة الإنماء للمشاريع الهندسية');
-  const [newCheckBank, setNewCheckBank] = useState('مصرف الراجحي');
+  const [newCheckParty, setNewCheckParty] = useState('شركة يمن سولار للمشاريع الهندسية');
+  const [newCheckBank, setNewCheckBank] = useState('بنك الكريمي للتمويل الأصغر الإسلامي');
   const [newCheckAmount, setNewCheckAmount] = useState<number>(19500);
   const [newCheckMaturity, setNewCheckMaturity] = useState('2026-11-25');
 
   // Currency Converter State
   const [convAmount, setConvAmount] = useState<number>(1000);
   const [convFrom, setConvFrom] = useState<Currency>('USD');
-  const [convTo, setConvTo] = useState<Currency>('SAR');
+  const [convTo, setConvTo] = useState<Currency>('YER');
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [expandedJournalId, setExpandedJournalId] = useState<string | null>(
     journalEntries[0]?.id || null
@@ -904,11 +904,11 @@ export const AccountingView: React.FC = () => {
           <div className="text-center border-b border-slate-200 pb-3">
             <h3 className="font-bold text-base text-slate-900 font-sans">
               {language === 'ar'
-                ? 'إقرار ضريبة القيمة المضافة الحي (ZATCA VAT Return)'
+                ? 'إقرار ضريبة القيمة المضافة والزكاة الحي (Tax & VAT Return)'
                 : 'Live VAT Return Tax Summary'}
             </h3>
             <p className="text-slate-500 font-sans">
-              15% Standard Tax Rate • يتحدث تلقائياً مع كل فاتورة مبيعات أو أمر شراء
+              يتحدث تلقائياً مع كل فاتورة مبيعات أو أمر شراء في دفتر الأستاذ العام
             </p>
           </div>
 
@@ -932,8 +932,8 @@ export const AccountingView: React.FC = () => {
             <div className="flex justify-between p-3 bg-violet-50 border border-violet-200 rounded-xl font-sans font-black text-sm text-violet-950">
               <span>
                 {language === 'ar'
-                  ? 'صافي الضريبة الواجب سدادها لهيئة الزكاة والضريبة:'
-                  : 'Net Tax Payable to ZATCA:'}
+                  ? 'صافي الضريبة المستحقة لمصلحة الضرائب والزكاة:'
+                  : 'Net Tax Payable to Tax Authority:'}
               </span>
               <span>
                 {dynamicStatements.netVatPayable.toLocaleString()} {currency}
@@ -1094,7 +1094,7 @@ export const AccountingView: React.FC = () => {
                     `تم تسجيل الشيك المؤجل (${newCheckNumber}) في حافظة الشيكات برسم التحصيل!`
                   );
                 }}
-                className="grid grid-cols-1 sm:grid-cols-6 gap-2.5 bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs items-end"
+                className="grid grid-cols-1 sm:grid-cols-7 gap-2.5 bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs items-end"
               >
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">رقم الشيك</label>
@@ -1104,6 +1104,22 @@ export const AccountingView: React.FC = () => {
                     onChange={(e) => setNewCheckNumber(e.target.value)}
                     className="w-full p-2 bg-white border border-slate-300 rounded-lg font-mono"
                   />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">المصرف / البنك اليمني</label>
+                  <select
+                    data-testid="pdc-bank-select"
+                    value={newCheckBank}
+                    onChange={(e) => setNewCheckBank(e.target.value)}
+                    className="w-full p-2 bg-white border border-slate-300 rounded-lg font-bold"
+                  >
+                    <option value="بنك الكريمي للتمويل الأصغر الإسلامي">بنك الكريمي للتمويل الأصغر الإسلامي</option>
+                    <option value="بنك التضامن الإسلامي الدولي">بنك التضامن الإسلامي الدولي</option>
+                    <option value="بنك اليمن والكويت للتجارة والاستثمار">بنك اليمن والكويت للتجارة والاستثمار</option>
+                    <option value="بنك سبأ الإسلامي">بنك سبأ الإسلامي</option>
+                    <option value="البنك التجاري اليمني">البنك التجاري اليمني</option>
+                    <option value="كاك بنك (بنك التسليف التعاوني والزراعي)">كاك بنك (CAC Bank)</option>
+                  </select>
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">نوع الشيك</label>
@@ -1145,7 +1161,7 @@ export const AccountingView: React.FC = () => {
                 </div>
                 <button
                   type="submit"
-                  className="py-2 px-3 bg-violet-600 hover:bg-violet-500 text-white font-bold rounded-lg cursor-pointer"
+                  className="py-2 px-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg cursor-pointer"
                 >
                   + إدراج الشيك بالحافظة
                 </button>

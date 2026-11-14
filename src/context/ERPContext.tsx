@@ -1020,7 +1020,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (found) return found;
       }
     }
-    return INITIAL_USER_ACCOUNTS[0];
+    return INITIAL_USER_ACCOUNTS.find((u) => u.username === 'admin') || INITIAL_USER_ACCOUNTS[0];
   });
 
   // Multi-Hardware Licensing, 30-Day Trial & Source Code Anti-Theft Protection
@@ -1797,9 +1797,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: 'bs-101',
       tenantId: 'ten-1',
       date: '2026-10-25',
-      reference: 'MADA-POS-8821',
-      description: 'Mada & ApplePay POS Batch Settlement',
-      descriptionAr: 'تسوية مبيعات نقاط البيع (مدى / Apple Pay) - مصرف الراجحي',
+      reference: 'KUR-POS-8821',
+      description: 'Kuraimi M-Floos & POS Batch Settlement',
+      descriptionAr: 'تسوية مبيعات نقاط البيع (خدمة حاسب / ام فلوس) - بنك الكريمي للتمويل الأصغر الإسلامي',
       amount: 42500,
       status: 'MATCHED',
       matchedJournalEntryId: 'je-1',
@@ -1809,8 +1809,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       tenantId: 'ten-1',
       date: '2026-10-27',
       reference: 'WIRE-SUP-409',
-      description: 'Supplier Wire Transfer - Global Industrial',
-      descriptionAr: 'حوالة بنكية صادرة لسداد دفعة الموردين',
+      description: 'Supplier Wire Transfer - Tadhamon Islamic Bank',
+      descriptionAr: 'حوالة بنكية صادرة لسداد دفعة الموردين - بنك التضامن الإسلامي الدولي',
       amount: -18200,
       status: 'MATCHED',
       matchedJournalEntryId: 'je-2',
@@ -1820,8 +1820,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       tenantId: 'ten-1',
       date: '2026-10-29',
       reference: 'BNK-FEE-10',
-      description: 'Corporate Account Maintenance & SWIFT Fee',
-      descriptionAr: 'رسوم وعمولات خدمات بنكية وتحويلات سويفت (غير مسجلة بالدفاتر)',
+      description: 'Corporate Account Maintenance & Transfer Fee - YKB',
+      descriptionAr: 'رسوم وعمولات خدمات مصرفية وتحويلات بنكية - بنك اليمن والكويت (غير مسجلة بالدفاتر)',
       amount: -345,
       status: 'UNRECONCILED',
     },
@@ -1830,8 +1830,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       tenantId: 'ten-1',
       date: '2026-10-30',
       reference: 'DEP-CUST-772',
-      description: 'Direct Customer IBAN Deposit - Al-Madar Contracting',
-      descriptionAr: 'إيداع بنكي مباشر من عميل عبر الآيبان (بانتظار المطابقة)',
+      description: 'Direct Customer Deposit - Al-Kuraimi Islamic Bank',
+      descriptionAr: 'إيداع بنكي مباشر من عميل عبر بنك الكريمي الإسلامي (بانتظار المطابقة)',
       amount: 12800,
       status: 'UNRECONCILED',
     },
@@ -1844,13 +1844,13 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       checkNumber: 'CHK-994021',
       type: 'RECEIVABLE',
       partyName: 'شركة المدار للمقاولات والتطوير',
-      bankName: 'مصرف الراجحي',
+      bankName: 'بنك الكريمي للتمويل الأصغر الإسلامي',
       amount: 28500,
-      currency: 'SAR',
+      currency: 'YER',
       issueDate: '2026-10-10',
       maturityDate: '2026-11-05',
       status: 'UNDER_COLLECTION',
-      notes: 'دفعة مستخلص مشروع التوريد الهيدروليكي',
+      notes: 'دفعة مستخلص مشروع التوريد والطاقة الشمسية',
     },
     {
       id: 'pdc-202',
@@ -1858,9 +1858,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       checkNumber: 'CHK-771209',
       type: 'PAYABLE',
       partyName: 'الشركة الوطنية للتوريدات الصناعية',
-      bankName: 'البنك الأهلي السعودي (SNB)',
+      bankName: 'بنك التضامن الإسلامي الدولي',
       amount: 16400,
-      currency: 'SAR',
+      currency: 'YER',
       issueDate: '2026-10-15',
       maturityDate: '2026-11-12',
       status: 'UNDER_COLLECTION',
@@ -1872,9 +1872,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       checkNumber: 'CHK-552190',
       type: 'RECEIVABLE',
       partyName: 'مؤسسة النخبة للتجارة والإلكترونيات',
-      bankName: 'بنك الرياض',
+      bankName: 'بنك اليمن والكويت للتجارة والاستثمار',
       amount: 14200,
-      currency: 'SAR',
+      currency: 'YER',
       issueDate: '2026-09-20',
       maturityDate: '2026-10-20',
       status: 'CLEARED',
@@ -1952,26 +1952,26 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       tenantId: 'ten-1',
       costCenterId: 'cc-1',
       costCenterCode: 'CC-OPS-RYD',
-      costCenterName: 'Riyadh HQ Operations & Logistics',
-      costCenterNameAr: 'مركز تكلفة العمليات والتشغيل - المقر الرئيسي بالرياض',
+      costCenterName: 'Sanaa HQ Operations & Logistics',
+      costCenterNameAr: 'مركز تكلفة العمليات والتشغيل - المقر الرئيسي بصنعاء',
       branchId: 'br-1',
-      branchNameAr: 'فرع الرياض الرئيسي',
+      branchNameAr: 'المركز الرئيسي - صنعاء',
       fiscalPeriod: '2026-Q4',
       allocatedBudget: 180000,
       committedAmount: 24000,
       baseActualSpent: 118000,
       alertThresholdPercent: 85,
-      notes: 'يشمل مصاريف التشغيل اللوجستي والمستودع المركزي بالرياض',
+      notes: 'يشمل مصاريف التشغيل اللوجستي والمستودع المركزي بصنعاء',
     },
     {
       id: 'ccb-102',
       tenantId: 'ten-1',
       costCenterId: 'cc-2',
       costCenterCode: 'CC-SALES-JED',
-      costCenterName: 'Jeddah Commercial & Showrooms',
-      costCenterNameAr: 'مركز تكلفة المبيعات والمعارض - فرع جدة الغربي',
+      costCenterName: 'Aden Commercial & Showrooms',
+      costCenterNameAr: 'مركز تكلفة المبيعات والمعارض - فرع عدن التجاري',
       branchId: 'br-2',
-      branchNameAr: 'فرع جدة التجاري',
+      branchNameAr: 'فرع عدن التجاري',
       fiscalPeriod: '2026-Q4',
       allocatedBudget: 120000,
       committedAmount: 18500,
@@ -1984,16 +1984,16 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       tenantId: 'ten-1',
       costCenterId: 'cc-3',
       costCenterCode: 'CC-MFG-DMM',
-      costCenterName: 'Dammam Industrial Assembly Line',
-      costCenterNameAr: 'مركز تكلفة خطوط التجميع والصيانة الصناعية - الدمام',
+      costCenterName: 'Taiz Solar & Industrial Assembly Line',
+      costCenterNameAr: 'مركز تكلفة خطوط التجميع والصيانة الهندسية - فرع تعز',
       branchId: 'br-3',
-      branchNameAr: 'فرع الدمام الصناعي',
+      branchNameAr: 'فرع تعز الصناعي',
       fiscalPeriod: '2026-Q4',
       allocatedBudget: 95000,
       committedAmount: 14000,
       baseActualSpent: 86500,
       alertThresholdPercent: 85,
-      notes: 'تجاوز السقف المعتمد بسبب صيانة طارئة للمضخات الهيدروليكية (105.8%)',
+      notes: 'تجاوز السقف المعتمد بسبب صيانة طارئة لمنظومات الطاقة والبطاريات (105.8%)',
     },
     {
       id: 'ccb-104',
@@ -2001,15 +2001,15 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       costCenterId: 'cc-4',
       costCenterCode: 'CC-IT-CLOUD',
       costCenterName: 'Digital Infrastructure & Cloud ERP',
-      costCenterNameAr: 'مركز تكلفة البنية الرقمية والأمن السيبراني',
+      costCenterNameAr: 'مركز تكلفة البنية الرقمية والربط المصرفي (الكريمي / التضامن)',
       branchId: 'br-1',
-      branchNameAr: 'فرع الرياض الرئيسي',
+      branchNameAr: 'المركز الرئيسي - صنعاء',
       fiscalPeriod: '2026-Q4',
       allocatedBudget: 65000,
       committedAmount: 5000,
       baseActualSpent: 32000,
       alertThresholdPercent: 85,
-      notes: 'تراخيص الخوادم السحابية والربط مع بوابة فاتورة ZATCA',
+      notes: 'تراخيص الخوادم والربط المباشر مع بوابات البنوك اليمنية',
     },
   ]);
 
@@ -2595,13 +2595,78 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (Array.isArray(d.warrantyTickets)) setWarrantyTickets(d.warrantyTickets);
     if (Array.isArray(d.salesPipelineDocs)) setSalesPipelineDocs(d.salesPipelineDocs);
     if (Array.isArray(d.chartAccounts) && d.chartAccounts.length >= SEED_CHART_OF_ACCOUNTS.length) {
-      setChartAccounts(d.chartAccounts);
+      setChartAccounts(
+        d.chartAccounts.map((acc: ChartAccount) => {
+          if (acc.code === '1102') {
+            return {
+              ...acc,
+              name: 'Al-Kuraimi Islamic Bank - Main Corporate',
+              nameAr: 'بنك الكريمي للتمويل الأصغر الإسلامي - الحساب الجاري الرئيسي',
+            };
+          }
+          if (acc.code === '1103') {
+            return {
+              ...acc,
+              name: 'Tadhamon International Islamic Bank - Operations',
+              nameAr: 'بنك التضامن الإسلامي الدولي - حساب العمليات والموردين',
+            };
+          }
+          return acc;
+        })
+      );
     }
-    if (Array.isArray(d.journalEntries)) setJournalEntries(d.journalEntries);
-    if (Array.isArray(d.bankStatementLines)) setBankStatementLines(d.bankStatementLines);
-    if (Array.isArray(d.postDatedChecks)) setPostDatedChecks(d.postDatedChecks);
+    if (Array.isArray(d.journalEntries)) {
+      setJournalEntries(
+        d.journalEntries.map((je: JournalEntry) => ({
+          ...je,
+          lines: je.lines.map((line) => ({
+            ...line,
+            accountName: line.accountName.replace(/Al-Rajhi Bank/gi, 'Al-Kuraimi Islamic Bank'),
+            accountNameAr: line.accountNameAr
+              .replace(/مصرف الراجحي/g, 'بنك الكريمي للتمويل الأصغر الإسلامي')
+              .replace(/مصرف الإنماء/g, 'بنك التضامن الإسلامي الدولي'),
+          })),
+        }))
+      );
+    }
+    if (Array.isArray(d.bankStatementLines)) {
+      setBankStatementLines(
+        d.bankStatementLines.map((line: BankStatementLine) => ({
+          ...line,
+          descriptionAr: line.descriptionAr
+            .replace(/مصرف الراجحي/g, 'بنك الكريمي للتمويل الأصغر الإسلامي')
+            .replace(/مدى \/ Apple Pay/g, 'خدمة حاسب / ام فلوس'),
+        }))
+      );
+    }
+    if (Array.isArray(d.postDatedChecks)) {
+      setPostDatedChecks(
+        d.postDatedChecks.map((chk: PostDatedCheck) => ({
+          ...chk,
+          bankName: chk.bankName
+            .replace(/مصرف الراجحي/g, 'بنك الكريمي للتمويل الأصغر الإسلامي')
+            .replace(/البنك الأهلي السعودي \(SNB\)|البنك الأهلي/g, 'بنك التضامن الإسلامي الدولي')
+            .replace(/بنك الرياض/g, 'بنك اليمن والكويت للتجارة والاستثمار'),
+          currency: chk.currency === 'SAR' ? 'YER' : chk.currency,
+        }))
+      );
+    }
     if (Array.isArray(d.exchangeRates)) setExchangeRates(d.exchangeRates);
-    if (Array.isArray(d.costCenterBudgets)) setCostCenterBudgets(d.costCenterBudgets);
+    if (Array.isArray(d.costCenterBudgets)) {
+      setCostCenterBudgets(
+        d.costCenterBudgets.map((cc: CostCenterBudget) => ({
+          ...cc,
+          costCenterNameAr: cc.costCenterNameAr
+            .replace(/بالرياض/g, 'بصنعاء')
+            .replace(/فرع جدة الغربي/g, 'فرع عدن التجاري')
+            .replace(/الدمام/g, 'فرع تعز'),
+          branchNameAr: cc.branchNameAr
+            .replace(/فرع الرياض الرئيسي/g, 'المركز الرئيسي - صنعاء')
+            .replace(/فرع جدة التجاري/g, 'فرع عدن التجاري')
+            .replace(/فرع الدمام الصناعي/g, 'فرع تعز الصناعي'),
+        }))
+      );
+    }
     if (Array.isArray(d.employees)) setEmployees(d.employees);
     if (Array.isArray(d.fixedAssets)) setFixedAssets(d.fixedAssets);
     if (Array.isArray(d.productionOrders)) setProductionOrders(d.productionOrders);
@@ -2625,7 +2690,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setCurrentWarehouse((prev) => d.warehouses.find((w: Warehouse) => w.id === prev.id) || d.warehouses[0]);
     }
     if (d.activeIndustry) setActiveIndustryState(d.activeIndustry);
-    if (d.currency) setCurrencyState(d.currency);
+    if (d.currency && d.yemenCurrencyMigratedV7) {
+      setCurrencyState(d.currency);
+    } else {
+      setCurrencyState('YER');
+    }
     if (d.masterSystemConfig) {
       setMasterSystemConfig((prev) => {
         if (d.masterSystemConfig.sectorMode === undefined) {
@@ -2640,6 +2709,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return {
           ...prev,
           ...d.masterSystemConfig,
+          globalDefaultCurrency: d.yemenCurrencyMigratedV7
+            ? d.masterSystemConfig.globalDefaultCurrency || 'YER'
+            : 'YER',
           visibleModules: { ...prev.visibleModules, ...(d.masterSystemConfig.visibleModules || {}) },
           uiElementsVisibility: {
             ...prev.uiElementsVisibility,
@@ -2647,9 +2719,6 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           },
         };
       });
-      if (d.masterSystemConfig.globalDefaultCurrency && !d.currency) {
-        setCurrencyState(d.masterSystemConfig.globalDefaultCurrency);
-      }
     }
     if (Array.isArray(d.promoCoupons) && d.promoCoupons.length > 0) {
       setPromoCoupons(d.promoCoupons);
@@ -2712,6 +2781,18 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (Array.isArray(d.interBranchTransfers)) {
       setInterBranchTransfers(d.interBranchTransfers);
     }
+    if (Array.isArray(d.userAccounts) && d.userAccounts.length > 0) {
+      setUserAccounts(d.userAccounts);
+      setCurrentAccount((prev) => {
+        const updated = d.userAccounts.find(
+          (u: UserAccount) => u.id === prev.id || u.username === prev.username
+        );
+        return updated || prev;
+      });
+    }
+    if (d.company && typeof d.company === 'object') {
+      setCompany((prev) => ({ ...prev, ...d.company }));
+    }
     if (Array.isArray(d.categories) && d.categories.length > 0) {
       // Merge with SEED_CATEGORIES so all new specific categories are always present
       const existingIds = new Set(d.categories.map((c: Category) => c.id));
@@ -2723,10 +2804,15 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const localRevisionRef = useRef<number>(1);
+  const isSavingRef = useRef<boolean>(false);
+  const lastMutationTsRef = useRef<number>(0);
+  const latestSnapshotRef = useRef<Record<string, any> | null>(null);
+
   // Load persisted state from 0ms LocalStorage cache + Express RAM backend on mount
   useEffect(() => {
     let active = true;
-    const INSTANT_CACHE_KEY = 'haseb_erp_instant_v6_zero_tax';
+    const INSTANT_CACHE_KEY = 'haseb_erp_instant_v7_yemen_banks';
 
     try {
       const cachedRaw = localStorage.getItem(INSTANT_CACHE_KEY);
@@ -2749,6 +2835,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (!active || !json) return;
         setBackendConnected(true);
         if (typeof json.dbRevision === 'number') {
+          localRevisionRef.current = json.dbRevision;
           setDbRevision(json.dbRevision);
         }
         if (json.data) {
@@ -2766,21 +2853,31 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Multi-Device Local Network (LAN) Real-Time State Revision Synchronizer
   // Ensures phones, tablets, and secondary desktop terminals on the network stay in instant sync
+  // without interrupting or overwriting active local mutations
   useEffect(() => {
     const syncInterval = setInterval(() => {
-      if (!isHydratedRef.current) return;
+      if (!isHydratedRef.current || isSavingRef.current) return;
+      if (Date.now() - lastMutationTsRef.current < 2500) return;
+
       fetch('/api/v1/erp/revision')
         .then((r) => (r.ok ? r.json() : null))
         .then((revJson) => {
           if (
             revJson?.success &&
             typeof revJson.dbRevision === 'number' &&
-            revJson.dbRevision > dbRevision
+            revJson.dbRevision > localRevisionRef.current &&
+            !isSavingRef.current &&
+            Date.now() - lastMutationTsRef.current >= 2500
           ) {
             fetch('/api/v1/erp/state')
               .then((res) => (res.ok ? res.json() : null))
               .then((stateJson) => {
-                if (stateJson?.data && stateJson.dbRevision > dbRevision) {
+                if (
+                  stateJson?.data &&
+                  stateJson.dbRevision > localRevisionRef.current &&
+                  !isSavingRef.current
+                ) {
+                  localRevisionRef.current = stateJson.dbRevision;
                   setDbRevision(stateJson.dbRevision);
                   applyHydratedState(stateJson.data);
                 }
@@ -2789,15 +2886,32 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
         })
         .catch(() => {});
-    }, 3500);
+    }, 5000);
     return () => clearInterval(syncInterval);
-  }, [dbRevision]);
+  }, []);
 
-  // Instant 0ms Write-Through LocalStorage + Ultra-Fast 40ms Server RAM Sync
+  // Ensure any pending snapshot is flushed synchronously if tab closes or reloads
+  useEffect(() => {
+    const INSTANT_CACHE_KEY = 'haseb_erp_instant_v7_yemen_banks';
+    const flushOnUnload = () => {
+      if (latestSnapshotRef.current) {
+        try {
+          localStorage.setItem(INSTANT_CACHE_KEY, JSON.stringify(latestSnapshotRef.current));
+        } catch {
+          // ignore quota error
+        }
+      }
+    };
+    window.addEventListener('beforeunload', flushOnUnload);
+    return () => window.removeEventListener('beforeunload', flushOnUnload);
+  }, []);
+
+  // Instant Non-Blocking Write-Through LocalStorage + Server RAM Sync (Zero UI Thread Blocking)
   useEffect(() => {
     if (!isHydratedRef.current) return;
-    const INSTANT_CACHE_KEY = 'haseb_erp_instant_v6_zero_tax';
+    const INSTANT_CACHE_KEY = 'haseb_erp_instant_v7_yemen_banks';
     const stateSnapshot = {
+      yemenCurrencyMigratedV7: true,
       categories,
       products,
       barcodes,
@@ -2828,6 +2942,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       tenants,
       branches,
       warehouses,
+      company,
+      userAccounts,
       activeIndustry: activeIndustryState,
       currency,
       masterSystemConfig,
@@ -2847,23 +2963,30 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       interBranchTransfers,
     };
 
-    // 1. Immediate 0ms Client Write-Through
-    try {
-      localStorage.setItem(INSTANT_CACHE_KEY, JSON.stringify(stateSnapshot));
-      setLastAutoSavedAt(
-        new Date().toLocaleTimeString('ar-SA', {
+    latestSnapshotRef.current = stateSnapshot;
+    lastMutationTsRef.current = Date.now();
+
+    // Coalesce JSON serialization 12ms after state commit so UI paints in 0ms with zero lag
+    const timer = setTimeout(() => {
+      isSavingRef.current = true;
+      let serialized = '';
+      try {
+        serialized = JSON.stringify(stateSnapshot);
+        localStorage.setItem(INSTANT_CACHE_KEY, serialized);
+        const formattedNow = new Date().toLocaleTimeString('ar-SA', {
           hour: '2-digit',
           minute: '2-digit',
-          second: '2-digit',
-        })
-      );
-    } catch {
-      // ignore storage quota limits
-    }
+        });
+        setLastAutoSavedAt((prev) => (prev === formattedNow ? prev : formattedNow));
+      } catch {
+        // ignore storage quota limits
+      }
 
-    // 2. High-Speed 40ms Server RAM + Atomic Disk Sync
-    const timer = setTimeout(() => {
-      const t0 = performance.now();
+      if (!serialized) {
+        isSavingRef.current = false;
+        return;
+      }
+
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       const activeV2Token = localStorage.getItem('asf_v2_signed_token');
       if (activeV2Token) {
@@ -2875,17 +2998,20 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       fetch('/api/v1/erp/state', {
         method: 'POST',
         headers,
-        body: JSON.stringify(stateSnapshot),
+        body: serialized,
       })
         .then((r) => (r.ok ? r.json() : null))
         .then((resp) => {
-          const dt = Math.max(0.2, Math.round((performance.now() - t0) * 10) / 10);
-          setSyncLatencyMs(resp?.latencyMs ?? dt);
-          if (resp?.dbRevision) setDbRevision(resp.dbRevision);
-          setBackendConnected(true);
+          if (typeof resp?.dbRevision === 'number') {
+            localRevisionRef.current = resp.dbRevision;
+          }
+          setBackendConnected((prev) => (prev ? prev : true));
         })
-        .catch(() => {});
-    }, 40);
+        .catch(() => {})
+        .finally(() => {
+          isSavingRef.current = false;
+        });
+    }, 12);
     return () => clearTimeout(timer);
   }, [
     categories,
@@ -2918,6 +3044,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     tenants,
     branches,
     warehouses,
+    company,
+    userAccounts,
     activeIndustryState,
     currency,
     masterSystemConfig,
@@ -6117,37 +6245,43 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }>
   ) => {
     if (!Array.isArray(inboundMessages) || inboundMessages.length === 0) return;
-    setWhatsappAccounts((prev) =>
-      prev.map((acc) => {
-        if (acc.id !== accountId) return acc;
-        let updatedChats = [...acc.chats];
-        let changed = false;
-        for (const inMsg of inboundMessages) {
-          if (!inMsg || !inMsg.id || !inMsg.text) continue;
-          const alreadyExists = updatedChats.some((c) =>
-            c.messages.some((m) => m.id === inMsg.id)
-          );
-          if (!alreadyExists) {
-            const appended = appendMessageToWhatsAppChats(updatedChats, {
-              messageId: inMsg.id,
-              recipientName: inMsg.contactName || inMsg.senderPhone || 'عميل واتساب',
-              recipientPhone: inMsg.senderPhone || '+967770000000',
-              messageText: inMsg.text,
-              sender: inMsg.fromMe ? 'ME' : 'THEM',
-              timestamp: inMsg.timestamp,
-            });
-            updatedChats = appended.updatedChats;
-            changed = true;
-          }
+    setWhatsappAccounts((prev) => {
+      const targetAcc = prev.find((acc) => acc.id === accountId);
+      if (!targetAcc) return prev;
+
+      let updatedChats = [...targetAcc.chats];
+      let changed = false;
+      for (const inMsg of inboundMessages) {
+        if (!inMsg || !inMsg.id || !inMsg.text) continue;
+        const alreadyExists = updatedChats.some((c) =>
+          c.messages.some((m) => m.id === inMsg.id)
+        );
+        if (!alreadyExists) {
+          const appended = appendMessageToWhatsAppChats(updatedChats, {
+            messageId: inMsg.id,
+            recipientName: inMsg.contactName || inMsg.senderPhone || 'عميل واتساب',
+            recipientPhone: inMsg.senderPhone || '+967770000000',
+            messageText: inMsg.text,
+            sender: inMsg.fromMe ? 'ME' : 'THEM',
+            timestamp: inMsg.timestamp,
+          });
+          updatedChats = appended.updatedChats;
+          changed = true;
         }
-        if (!changed) return acc;
-        return {
-          ...acc,
-          lastActiveAt: 'الآن (مزامنة حية)',
-          chats: updatedChats,
-        };
-      })
-    );
+      }
+      // Bail out with the exact same array reference if no new messages arrived
+      if (!changed) return prev;
+
+      return prev.map((acc) =>
+        acc.id === accountId
+          ? {
+              ...acc,
+              lastActiveAt: 'الآن (مزامنة حية)',
+              chats: updatedChats,
+            }
+          : acc
+      );
+    });
   };
 
   // USB Mobile Phone Bridge (SMS via connected device SIM)

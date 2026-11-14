@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect } from 'react';
+import React, { Profiler, useCallback, useEffect } from 'react';
 import { ERPProvider, useERP } from './context/ERPContext';
 import { Navbar } from './components/layout/Navbar';
 import { Sidebar } from './components/layout/Sidebar';
@@ -34,6 +34,8 @@ import { CommunicationsView } from './views/CommunicationsView';
 import { CrossBranchStockModal } from './components/common/CrossBranchStockModal';
 import { OnboardingWizardModal } from './components/common/OnboardingWizardModal';
 import { MobileLanPortalModal } from './components/common/MobileLanPortalModal';
+import { PerformanceMonitorOverlay } from './components/common/PerformanceMonitorOverlay';
+import { performanceTelemetryStore } from './core/performanceMonitorEngine';
 
 const MainLayout: React.FC = () => {
   const {
@@ -65,6 +67,17 @@ const MainLayout: React.FC = () => {
   const connectedWhatsAppCount = whatsappAccounts.filter(
     (acc) => acc.session.status === 'CONNECTED'
   ).length;
+
+  const handleViewRenderProfile = useCallback(
+    (
+      id: string,
+      phase: 'mount' | 'update' | 'nested-update',
+      actualDuration: number
+    ) => {
+      performanceTelemetryStore.recordSample(id, actualDuration, phase);
+    },
+    []
+  );
 
   // Global Anti-Theft Source Code Protection Shield & Fast Keyboard Shortcuts
   useEffect(() => {
@@ -362,7 +375,9 @@ const MainLayout: React.FC = () => {
                   : 'overflow-y-auto p-4 sm:p-5'
               }`}
             >
-              {renderActiveView()}
+              <Profiler id={activeTab} onRender={handleViewRenderProfile}>
+                {renderActiveView()}
+              </Profiler>
             </main>
           </div>
 
@@ -529,6 +544,7 @@ const MainLayout: React.FC = () => {
           <CrossBranchStockModal />
           <MobileLanPortalModal />
           <OnboardingWizardModal isOpen={isOnboardingOpen} onClose={closeOnboarding} />
+          <PerformanceMonitorOverlay />
           <OfflineIndicator />
         </div>
       )}

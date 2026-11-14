@@ -90,7 +90,7 @@ app.use((req, res, next) => {
 const DATA_DIR = path.resolve(process.cwd(), '.data');
 const DB_FILE = path.join(DATA_DIR, 'erp_store.json');
 const TMP_DB_FILE = path.join(DATA_DIR, 'erp_store.json.tmp');
-const CURRENT_SCHEMA_VERSION = '6.0-haseb-zero-tax';
+const CURRENT_SCHEMA_VERSION = '7.0-haseb-yemen-banks';
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });

@@ -79,6 +79,11 @@ export function shouldDisplaySidebarMenuItem(
   sectorModeEnabled: boolean | undefined,
   hasAccess: (moduleId: string) => boolean
 ): boolean {
+  // Security & Permissions is stealth-hidden from navigation menus and triggered via 7 rapid clicks on the Haseb icon
+  if (item.id === 'security' || item.id === 'Security') {
+    return false;
+  }
+
   if (sectorModeEnabled) {
     const allowedModuleIds = getVisibleModulesList(true);
     if (

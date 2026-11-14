@@ -92,13 +92,13 @@ export const HardwareLockModal: React.FC = () => {
       dir={language === 'ar' ? 'rtl' : 'ltr'}
       data-testid="hardware-lock-modal"
       data-mandatory-lock="true"
-      className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md text-slate-100 overflow-y-auto flex items-center justify-center p-4 sm:p-6 select-none"
+      className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-[2px] text-slate-900 overflow-y-auto flex items-center justify-center p-4 sm:p-6 select-none"
     >
-      <div className="w-full max-w-4xl bg-slate-900 border-2 border-rose-500/60 rounded-3xl shadow-2xl overflow-hidden">
-        {/* Top Red Alert Header */}
-        <div className="bg-gradient-to-r from-rose-950 via-rose-900 to-slate-900 px-6 py-5 border-b border-rose-500/40 flex flex-wrap items-center justify-between gap-3">
+      <div className="w-full max-w-4xl bg-white border border-slate-200/90 rounded-3xl shadow-2xl overflow-hidden">
+        {/* Top Header (Unified Lumina POS Light Theme with Rose Security Accent) */}
+        <div className="bg-white px-6 py-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-rose-600/30 border border-rose-400/50 flex items-center justify-center text-rose-300">
+            <div className="w-12 h-12 rounded-2xl bg-rose-600 text-white flex items-center justify-center shadow-2xs shrink-0">
               {protectionState.status === 'CLOCK_TAMPERED' ? (
                 <Clock className="w-6 h-6" />
               ) : (
@@ -109,15 +109,15 @@ export const HardwareLockModal: React.FC = () => {
               <div className="flex items-center gap-2">
                 <span
                   data-testid="lock-status-code-badge"
-                  className="px-2 py-0.5 rounded bg-rose-500/30 border border-rose-400/40 text-rose-200 font-mono text-[10px] font-black"
+                  className="px-2.5 py-0.5 rounded-full bg-rose-50 border border-rose-200 text-rose-700 font-mono text-[10px] font-bold"
                 >
                   {protectionState.status}
                 </span>
-                <span className="text-[11px] font-mono text-rose-300/80">
+                <span className="text-[11px] font-mono text-slate-500">
                   SINGLE-MACHINE HARDWARE CRYPTO LOCK
                 </span>
               </div>
-              <h2 className="text-lg sm:text-xl font-black text-white mt-0.5">
+              <h2 className="text-base sm:text-lg font-bold text-slate-900 mt-0.5">
                 {protectionState.status === 'CLOCK_TAMPERED'
                   ? language === 'ar'
                     ? 'تم إيقاف النظام فوراً: تم رصد تلاعب بإرجاع ساعة وتاريخ الجهاز للخلف!'
@@ -130,7 +130,7 @@ export const HardwareLockModal: React.FC = () => {
                   ? 'تم إقفال النظام: انتهت الفترة التجريبية أو التفعيل — لا يفتح إلا بسريال الجهاز'
                   : 'SYSTEM LOCKED: Trial / License Expired — Single-Device Serial Required'}
               </h2>
-              <p className="text-xs text-rose-200/90 mt-0.5">
+              <p className="text-xs text-slate-500 mt-0.5">
                 {language === 'ar'
                   ? 'نظام التفعيل منفصل تماماً عن النظام المحاسبي. السريال يعمل على جهاز واحد فقط ومرتبط بالقطع الداخلية للجهاز.'
                   : 'Licensing is strictly decoupled from the accounting ERP. Each serial is bound to a single machine’s internal silicon.'}
@@ -152,7 +152,7 @@ export const HardwareLockModal: React.FC = () => {
                   setIsSimulatedClockTampered(false);
                   setSimulatedTamperedComponent('NONE');
                 }}
-                className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
+                className="px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 <span>
@@ -167,7 +167,7 @@ export const HardwareLockModal: React.FC = () => {
               type="button"
               data-testid="open-decoupled-keygen-portal-btn"
               onClick={() => setIsStandaloneKeygenOpen(true)}
-              className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black transition cursor-pointer flex items-center gap-1.5 shadow-lg"
+              className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
             >
               <ExternalLink className="w-3.5 h-3.5" />
               <span>
@@ -185,11 +185,11 @@ export const HardwareLockModal: React.FC = () => {
           {protectionState.status === 'CLOCK_TAMPERED' && (
             <div
               data-testid="clock-tampered-alert-box"
-              className="p-4 rounded-2xl bg-rose-950/80 border border-rose-500/50 text-xs text-rose-200 flex items-center gap-3"
+              className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center gap-3"
             >
-              <Clock className="w-6 h-6 text-rose-400 shrink-0" />
+              <Clock className="w-6 h-6 text-rose-600 shrink-0" />
               <div>
-                <div className="font-black text-sm text-white">
+                <div className="font-bold text-sm text-rose-950">
                   {language === 'ar'
                     ? 'حماية منع التلاعب بالوقت (Monotonic Anti-Rollback Guard):'
                     : 'Monotonic Anti-Rollback Time Guard Triggered:'}
@@ -207,10 +207,10 @@ export const HardwareLockModal: React.FC = () => {
             protectionState.failedHardwareComponents.length > 0 && (
               <div
                 data-testid="failed-hardware-components-box"
-                className="p-4 rounded-2xl bg-rose-950/80 border border-rose-500/50 text-xs text-rose-200 space-y-1.5"
+                className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-800 space-y-1.5"
               >
-                <div className="font-black text-sm text-white flex items-center gap-2">
-                  <AlertOctagon className="w-5 h-5 text-rose-400" />
+                <div className="font-bold text-sm text-rose-950 flex items-center gap-2">
+                  <AlertOctagon className="w-5 h-5 text-rose-600" />
                   <span>
                     {language === 'ar'
                       ? 'تم رصد تغير أو تعطل في القطع الداخلية التالية (توقف فوري للنظام):'
@@ -221,7 +221,7 @@ export const HardwareLockModal: React.FC = () => {
                   {protectionState.failedHardwareComponents.map((comp) => (
                     <span
                       key={comp}
-                      className="px-2.5 py-1 rounded-lg bg-rose-500/30 border border-rose-400/50 text-white font-mono text-xs font-black"
+                      className="px-2.5 py-1 rounded-full bg-white border border-rose-300 text-rose-700 font-mono text-xs font-bold"
                     >
                       ✗ {comp}
                     </span>
@@ -231,15 +231,15 @@ export const HardwareLockModal: React.FC = () => {
             )}
 
           {/* Step 1: 5 Internal Hardware Components Inspection */}
-          <div className="p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-4">
+          <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-4">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-black text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
-                <Fingerprint className="w-4 h-4" />
+              <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                <Fingerprint className="w-4 h-4 text-slate-700" />
                 {language === 'ar'
                   ? 'فحص المطابقة للقطع الداخلية الخمس للجهاز وكود طلب التفعيل'
                   : '5-Component Internal Silicon Verification & Machine Request Code'}
               </span>
-              <span className="text-[10px] font-mono bg-slate-900 px-2.5 py-0.5 rounded text-slate-400 border border-slate-800">
+              <span className="text-[10px] font-mono bg-white px-2.5 py-0.5 rounded-full text-slate-600 border border-slate-200/80 font-bold">
                 SHA/FNV-64 SINGLE-NODE LOCK
               </span>
             </div>
@@ -284,20 +284,20 @@ export const HardwareLockModal: React.FC = () => {
                 return (
                   <div
                     key={item.key}
-                    className={`p-2.5 rounded-xl border ${
+                    className={`p-3 rounded-xl border ${
                       isFailed
-                        ? 'bg-rose-950/70 border-rose-500 text-rose-200'
-                        : 'bg-slate-900/90 border-slate-800 text-slate-200'
+                        ? 'bg-rose-50 border-rose-300 text-rose-900'
+                        : 'bg-white border-slate-200/80 text-slate-900'
                     }`}
                   >
-                    <div className="text-[10px] text-slate-400 flex items-center justify-between">
+                    <div className="text-[10px] text-slate-500 flex items-center justify-between">
                       <span className="flex items-center gap-1">
-                        <Icon className="w-3 h-3 text-amber-400" />
+                        <Icon className="w-3 h-3 text-slate-700" />
                         {item.labelAr}
                       </span>
                       <span
                         className={`font-mono font-bold ${
-                          isFailed ? 'text-rose-400' : 'text-emerald-400'
+                          isFailed ? 'text-rose-600' : 'text-emerald-600'
                         }`}
                       >
                         {isFailed ? 'MISMATCH' : 'OK'}
@@ -310,16 +310,16 @@ export const HardwareLockModal: React.FC = () => {
             </div>
 
             {/* Request Code to Send to Standalone Licensing Server */}
-            <div className="p-4 rounded-xl bg-slate-900 border border-amber-500/30 flex flex-wrap items-center justify-between gap-3">
+            <div className="p-4 rounded-2xl bg-white border border-slate-200/80 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <div className="text-[11px] text-amber-300 font-bold">
+                <div className="text-[11px] text-slate-500 font-bold">
                   {language === 'ar'
                     ? 'كود طلب الجهاز الفريد (يُنسخ ويُدخل في نظام التفعيل المستقل لإصدار السريال):'
                     : 'Unique Machine Request Code (Input into Standalone Licensing Portal):'}
                 </div>
                 <div
                   data-testid="lock-request-code"
-                  className="font-mono text-sm sm:text-base font-black text-white tracking-wider mt-0.5 select-all"
+                  className="font-mono text-sm sm:text-base font-black text-slate-900 tracking-wider mt-0.5 select-all"
                 >
                   {protectionState.machineRequestCode}
                 </div>
@@ -327,7 +327,7 @@ export const HardwareLockModal: React.FC = () => {
               <button
                 type="button"
                 onClick={handleCopyRequestCode}
-                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
+                className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
               >
                 {copiedReq ? (
                   <>
@@ -347,15 +347,15 @@ export const HardwareLockModal: React.FC = () => {
           {/* Step 2: Enter Encrypted Single-Device Serial */}
           <form
             onSubmit={handleActivate}
-            className="p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-4"
+            className="p-5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-4"
           >
             <div className="flex items-center justify-between">
-              <div className="text-xs font-black text-emerald-400 uppercase tracking-wider">
+              <div className="text-xs font-bold text-slate-900">
                 {language === 'ar'
                   ? 'إدخال سيريال التفعيل الرسمي الصادر لهذا الجهاز فقط'
                   : 'Enter Official Single-Machine Activation Serial'}
               </div>
-              <span className="text-[11px] text-slate-400">
+              <span className="text-[11px] text-slate-500">
                 {language === 'ar'
                   ? 'لا يفتح النظام إلا بسريال موقع رقمياً لبصمة هذا الجهاز'
                   : 'Requires valid signature matching this device'}
@@ -365,23 +365,23 @@ export const HardwareLockModal: React.FC = () => {
             {activationError && (
               <div
                 data-testid="activation-error-msg"
-                className="p-3.5 rounded-xl bg-rose-950/90 border border-rose-500/40 text-rose-200 text-xs font-bold flex items-center gap-2"
+                className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold flex items-center gap-2"
               >
-                <AlertOctagon className="w-4 h-4 text-rose-400 shrink-0" />
+                <AlertOctagon className="w-4 h-4 text-rose-600 shrink-0" />
                 <span>{activationError}</span>
               </div>
             )}
 
             <div>
               <div className="relative">
-                <KeyRound className="w-4 h-4 text-emerald-400 absolute top-3.5 start-3.5" />
+                <KeyRound className="w-4 h-4 text-slate-500 absolute top-3.5 start-3.5" />
                 <input
                   type="text"
                   data-testid="activation-serial-input"
                   value={serialInput}
                   onChange={(e) => setSerialInput(e.target.value)}
                   placeholder="RLM-ACT-XXXXXX-XXXX-XXXXXXXX-XXXXXXXX"
-                  className="w-full bg-slate-900 border border-slate-700 focus:border-emerald-500 rounded-xl ps-10 pe-4 py-3 text-xs sm:text-sm font-mono font-bold text-emerald-300 outline-hidden"
+                  className="w-full bg-white border border-slate-200/80 focus:border-slate-900 rounded-xl ps-10 pe-4 py-3 text-xs sm:text-sm font-mono font-bold text-slate-900 outline-hidden"
                   required
                 />
               </div>
@@ -390,7 +390,7 @@ export const HardwareLockModal: React.FC = () => {
             <button
               type="submit"
               data-testid="activate-serial-submit-btn"
-              className="w-full py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs sm:text-sm shadow-lg shadow-emerald-600/25 transition cursor-pointer flex items-center justify-center gap-2"
+              className="w-full py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm shadow-2xs transition cursor-pointer flex items-center justify-center gap-2"
             >
               <Unlock className="w-4 h-4" />
               <span>

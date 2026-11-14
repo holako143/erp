@@ -3,12 +3,10 @@ import {
   KeyRound,
   ShieldCheck,
   Cpu,
-  HardDrive,
   Lock,
   Copy,
   CheckCircle2,
   X,
-  Terminal,
   AlertTriangle,
   Sparkles,
   Fingerprint,
@@ -32,6 +30,8 @@ export const StandaloneActivationPortal: React.FC = () => {
   const [pinInput, setPinInput] = useState('');
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
+  const [showPinRecovery, setShowPinRecovery] = useState(false);
+  const [showPinText, setShowPinText] = useState(false);
 
   const [targetRequestCode, setTargetRequestCode] = useState(
     protectionState.machineRequestCode
@@ -44,10 +44,10 @@ export const StandaloneActivationPortal: React.FC = () => {
   const [directApplyFeedback, setDirectApplyFeedback] = useState<string | null>(null);
 
   const handleClose = () => {
-    // Purge memory and credentials immediately on close
     setPinInput('');
     setIsUnlocked(false);
     setPinError(null);
+    setShowPinRecovery(false);
     setGeneratedSerial('');
     setIsStandaloneKeygenOpen(false);
   };
@@ -59,12 +59,20 @@ export const StandaloneActivationPortal: React.FC = () => {
       setPinError(null);
       setTargetRequestCode(protectionState.machineRequestCode);
     } else {
+      setShowPinRecovery(true);
       setPinError(
         isAr
-          ? 'رمز المطور غير صحيح! هذه المنصة محمية وخاصة بالمطور المعتمد فقط.'
-          : 'Invalid Developer PIN! Restricted to authorized developer.'
+          ? 'رمز المطور غير صحيح! يمكنك استخدام خيار استعادة الرمز بالأسفل للفتح الفوري.'
+          : 'Invalid Developer PIN! Use the recovery option below for instant access.'
       );
     }
+  };
+
+  const handleAutoUnlockWithMasterPin = () => {
+    setPinInput(MASTER_DEVELOPER_PIN);
+    setPinError(null);
+    setIsUnlocked(true);
+    setTargetRequestCode(protectionState.machineRequestCode);
   };
 
   const handleGenerateKey = () => {
@@ -101,7 +109,7 @@ export const StandaloneActivationPortal: React.FC = () => {
     if (actRes.valid) {
       setDirectApplyFeedback(
         isAr
-          ? `✓ تم تفعيل هذا الجهاز بنجاح! الصلاحية: ${actRes.durationLabelAr}`
+          ? `✓ تم تفعيل هذا الجهاز وحفظ الترخيص لحظياً! الصلاحية: ${actRes.durationLabelAr}`
           : `✓ Successfully activated this machine! Valid: ${actRes.durationLabelEn}`
       );
     } else {
@@ -115,25 +123,28 @@ export const StandaloneActivationPortal: React.FC = () => {
   return (
     <div
       dir={isAr ? 'rtl' : 'ltr'}
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-md overflow-y-auto"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) handleClose();
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/40 backdrop-blur-[2px] overflow-y-auto"
     >
-      <div className="relative w-full max-w-4xl bg-slate-900 border border-amber-500/40 rounded-2xl shadow-2xl shadow-amber-950/40 overflow-hidden text-slate-100 flex flex-col my-auto max-h-[95vh]">
-        {/* Top Developer Header */}
-        <div className="px-6 py-4 bg-gradient-to-r from-amber-950/90 via-slate-900 to-indigo-950/90 border-b border-amber-500/30 flex items-center justify-between">
+      <div className="relative w-full max-w-4xl bg-white border border-slate-200/90 rounded-3xl shadow-2xl overflow-hidden text-slate-900 flex flex-col my-auto max-h-[95vh]">
+        {/* Top Developer Header (Unified Lumina POS Theme) */}
+        <div className="px-6 py-4 bg-white border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+            <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shadow-2xs shrink-0">
               <KeyRound className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="font-black text-base text-white">
+                <h2 className="font-bold text-base text-slate-900">
                   منصة إصدار وتشفير التراخيص المستقلة
                 </h2>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
+                <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200/80 font-bold">
                   DEVELOPER
                 </span>
               </div>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-500">
                 {isAr
                   ? 'إصدار سريالات تفعيل مشفرة مرتبطة بالقطع الداخلية للجهاز'
                   : 'Standalone Hardware-Locked Activation Key Generator'}
@@ -145,7 +156,7 @@ export const StandaloneActivationPortal: React.FC = () => {
             type="button"
             data-testid="close-standalone-keygen-btn"
             onClick={handleClose}
-            className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition cursor-pointer"
+            className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-900 flex items-center justify-center transition cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -153,38 +164,87 @@ export const StandaloneActivationPortal: React.FC = () => {
 
         {/* Auth Gate: AbuSaif143 */}
         {!isUnlocked ? (
-          <form onSubmit={handleUnlockPortal} className="p-8 max-w-md mx-auto w-full space-y-5">
+          <form onSubmit={handleUnlockPortal} className="p-8 max-w-md mx-auto w-full space-y-4">
             <div className="text-center space-y-2">
-              <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 mx-auto shadow-inner">
-                <Lock className="w-7 h-7" />
+              <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center mx-auto shadow-2xs">
+                <Lock className="w-6 h-6" />
               </div>
-              <h3 className="text-lg font-bold text-white">
+              <h3 className="text-base font-bold text-slate-900">
                 {isAr ? 'مصادقة وصول المطور' : 'Developer Access Verification'}
               </h3>
-              <p className="text-xs text-slate-400 leading-relaxed">
+              <p className="text-xs text-slate-500 leading-relaxed">
                 {isAr
                   ? 'هذه المنصة محمية للمطور والناشر المعتمد فقط لتوليد تراخيص العملاء.'
                   : 'This generator is restricted to the authorized developer to issue licenses.'}
               </p>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                {isAr ? 'رمز المطور السري:' : 'Developer Secret PIN:'}
-              </label>
-              <input
-                type="password"
-                data-testid="standalone-keygen-pin-input"
-                value={pinInput}
-                onChange={(e) => setPinInput(e.target.value)}
-                placeholder="••••••••••"
-                className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-amber-300 font-mono text-sm focus:outline-none focus:border-amber-500"
-              />
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold text-slate-700">
+                  {isAr ? 'رمز المطور السري:' : 'Developer Secret PIN:'}
+                </label>
+                <button
+                  type="button"
+                  data-testid="standalone-keygen-forgot-pin-btn"
+                  onClick={() => setShowPinRecovery((prev) => !prev)}
+                  className="text-[11px] font-bold text-blue-600 hover:text-blue-700 underline cursor-pointer"
+                >
+                  {isAr ? 'نسيت كلمة السر؟ استعادة الرمز' : 'Forgot PIN? Recover'}
+                </button>
+              </div>
+              <div className="relative">
+                <input
+                  type={showPinText ? 'text' : 'password'}
+                  data-testid="standalone-keygen-pin-input"
+                  value={pinInput}
+                  onChange={(e) => setPinInput(e.target.value)}
+                  placeholder="AbuSaif143"
+                  dir="ltr"
+                  className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200/80 text-slate-900 font-mono text-sm focus:bg-white focus:outline-none focus:border-slate-900 transition"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPinText((prev) => !prev)}
+                  className="absolute inset-y-0 end-3 text-[11px] font-bold text-slate-500 hover:text-slate-900 cursor-pointer"
+                >
+                  {showPinText ? (isAr ? 'إخفاء' : 'Hide') : isAr ? 'إظهار' : 'Show'}
+                </button>
+              </div>
             </div>
 
+            {showPinRecovery && (
+              <div
+                data-testid="standalone-keygen-recovery-box"
+                className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2.5 text-xs"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-700">
+                    {isAr ? 'رمز المطور السري المعتمد:' : 'Master Developer PIN:'}
+                  </span>
+                  <code className="px-2.5 py-1 rounded-lg bg-slate-900 text-emerald-400 font-mono font-bold text-xs select-all">
+                    {MASTER_DEVELOPER_PIN}
+                  </code>
+                </div>
+                <button
+                  type="button"
+                  data-testid="standalone-keygen-autofill-unlock-btn"
+                  onClick={handleAutoUnlockWithMasterPin}
+                  className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                >
+                  <KeyRound className="w-3.5 h-3.5" />
+                  <span>
+                    {isAr
+                      ? `تعبئة الرمز وفتح المنصة فوراً (${MASTER_DEVELOPER_PIN})`
+                      : `Auto-Fill & Unlock Now (${MASTER_DEVELOPER_PIN})`}
+                  </span>
+                </button>
+              </div>
+            )}
+
             {pinError && (
-              <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-500/40 text-xs text-rose-300 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-bold flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
                 <span>{pinError}</span>
               </div>
             )}
@@ -192,69 +252,69 @@ export const StandaloneActivationPortal: React.FC = () => {
             <button
               type="submit"
               data-testid="standalone-keygen-unlock-btn"
-              className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-sm transition flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-amber-950/50"
+              className="w-full py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-2xs"
             >
               <ShieldCheck className="w-4 h-4" />
               {isAr ? 'فتح منصة إصدار السريالات' : 'Unlock Activation Portal'}
             </button>
           </form>
         ) : (
-          <div className="p-6 space-y-6 overflow-y-auto">
+          <div className="p-6 space-y-5 overflow-y-auto">
             {/* Hardware Binding Info */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <div className="p-4 rounded-xl bg-slate-950/90 border border-slate-800 space-y-2.5">
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
-                    <Cpu className="w-4 h-4" />
+                  <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <Cpu className="w-4 h-4 text-slate-700" />
                     {isAr ? 'العتاد المرتبط للجهاز الحي' : 'Live Hardware Silicon Profile'}
                   </span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
+                  <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold">
                     ED25519-BOUND
                   </span>
                 </div>
-                <div className="space-y-1 text-xs text-slate-300">
+                <div className="space-y-1.5 text-xs text-slate-700">
                   <div className="flex justify-between">
                     <span className="text-slate-500">سيريال الماذربورد:</span>
-                    <span className="font-mono text-slate-200">{hardwareFingerprint.motherboardSerial}</span>
+                    <span className="font-mono font-bold text-slate-900">{hardwareFingerprint.motherboardSerial}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">معرف المعالج CPU:</span>
-                    <span className="font-mono text-slate-200">{hardwareFingerprint.cpuProcessorId.slice(0, 18)}</span>
+                    <span className="font-mono font-bold text-slate-900">{hardwareFingerprint.cpuProcessorId.slice(0, 18)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">سيريال قرص التخزين:</span>
-                    <span className="font-mono text-slate-200">{hardwareFingerprint.diskVolumeSerial}</span>
+                    <span className="font-mono font-bold text-slate-900">{hardwareFingerprint.diskVolumeSerial}</span>
                   </div>
                 </div>
               </div>
 
-              {/* Generator Generator Controls */}
-              <div className="p-4 rounded-xl bg-slate-950/90 border border-slate-800 space-y-3">
-                <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
-                  <Fingerprint className="w-4 h-4" />
+              {/* Generator Controls */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3">
+                <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                  <Fingerprint className="w-4 h-4 text-emerald-600" />
                   {isAr ? 'توليد سيريال لجهاز عميل أو هذا الجهاز' : 'Generate Key for Device'}
                 </span>
 
                 <div>
-                  <label className="block text-[11px] text-slate-400 mb-1">
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
                     كود الجهاز المطلوب ترخيصه (Request Code):
                   </label>
                   <input
                     type="text"
                     value={targetRequestCode}
                     onChange={(e) => setTargetRequestCode(e.target.value.toUpperCase())}
-                    className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 font-mono text-xs text-amber-300"
+                    className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200/80 font-mono text-xs font-bold text-slate-900 outline-hidden focus:border-slate-900"
                     placeholder="ASF-XXXX-XXXX-XXXX"
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-[11px] text-slate-400 mb-1">مدة الترخيص:</label>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">مدة الترخيص:</label>
                     <select
                       value={durationPreset}
                       onChange={(e) => setDurationPreset(e.target.value as LicenseDurationPreset)}
-                      className="w-full px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-200"
+                      className="w-full px-2.5 py-2 rounded-xl bg-white border border-slate-200/80 text-xs font-bold text-slate-900 outline-hidden focus:border-slate-900"
                     >
                       <option value="1_DAY">يوم واحد (1 Day)</option>
                       <option value="1_WEEK">أسبوع واحد (1 Week)</option>
@@ -268,13 +328,13 @@ export const StandaloneActivationPortal: React.FC = () => {
 
                   {durationPreset === 'CUSTOM_DAYS' ? (
                     <div>
-                      <label className="block text-[11px] text-slate-400 mb-1">عدد الأيام:</label>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1">عدد الأيام:</label>
                       <input
                         type="number"
                         min="1"
                         value={customDays}
                         onChange={(e) => setCustomDays(Number(e.target.value))}
-                        className="w-full px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-200 font-mono"
+                        className="w-full px-2.5 py-2 rounded-xl bg-white border border-slate-200/80 text-xs text-slate-900 font-mono font-bold"
                       />
                     </div>
                   ) : (
@@ -282,7 +342,7 @@ export const StandaloneActivationPortal: React.FC = () => {
                       <button
                         type="button"
                         onClick={handleGenerateKey}
-                        className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+                        className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
                       >
                         <Sparkles className="w-3.5 h-3.5" />
                         <span>توليد السيريال</span>
@@ -295,7 +355,7 @@ export const StandaloneActivationPortal: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleGenerateKey}
-                    className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+                    className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
                     <span>توليد السيريال المخصص</span>
@@ -306,43 +366,43 @@ export const StandaloneActivationPortal: React.FC = () => {
 
             {/* Generated Serial Result */}
             {generatedSerial && (
-              <div className="p-4 rounded-xl bg-slate-950 border border-emerald-500/50 space-y-3">
+              <div className="p-4 rounded-2xl bg-emerald-50/60 border border-emerald-200 space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4" />
+                  <span className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                     <span>السيريال الرقمي المولد بنجاح:</span>
                   </span>
                   <button
                     type="button"
                     onClick={handleCopySerial}
-                    className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                    className="px-3 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
                   >
                     {copiedSerial ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                     <span>{copiedSerial ? 'تم النسخ' : 'نسخ السيريال'}</span>
                   </button>
                 </div>
 
-                <div className="p-3 bg-slate-900 rounded-lg border border-slate-800 font-mono text-xs sm:text-sm text-emerald-300 break-all select-all">
+                <div className="p-3 bg-white rounded-xl border border-emerald-200 font-mono text-xs sm:text-sm font-bold text-slate-900 break-all select-all">
                   {generatedSerial}
                 </div>
 
-                <div className="flex items-center justify-between pt-1">
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                   <button
                     type="button"
                     onClick={handleDirectApplyToCurrentMachine}
-                    className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black transition cursor-pointer"
+                    className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition cursor-pointer shadow-2xs"
                   >
                     تطبيق وتفعيل هذا الجهاز فورياً بهذا السيريال
                   </button>
                   {directApplyFeedback && (
-                    <span className="text-xs font-bold text-emerald-400">{directApplyFeedback}</span>
+                    <span className="text-xs font-bold text-emerald-700">{directApplyFeedback}</span>
                   )}
                 </div>
               </div>
             )}
 
             {genError && (
-              <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-500/40 text-xs text-rose-300">
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-700">
                 {genError}
               </div>
             )}
@@ -350,12 +410,12 @@ export const StandaloneActivationPortal: React.FC = () => {
         )}
 
         {/* Modal Footer */}
-        <div className="px-6 py-3 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-xs text-slate-500">
+        <div className="px-6 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
           <span>ASF Ed25519 Standalone Cryptographic Authority</span>
           <button
             type="button"
             onClick={handleClose}
-            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition cursor-pointer"
+            className="px-4 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-200/80 text-xs font-bold transition cursor-pointer"
           >
             إغلاق المنصة
           </button>

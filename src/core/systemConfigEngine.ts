@@ -94,8 +94,8 @@ export const DEFAULT_MASTER_SYSTEM_CONFIG: MasterSystemConfig = {
   lockedIndustry: 'electronics',
   sectorMode: 'SOLAR_ELECTRONICS_CORE',
   sectorModeEnabled: true,
-  globalCountryMode: 'GLOBAL',
-  globalDefaultCurrency: 'SAR',
+  globalCountryMode: 'YEMEN',
+  globalDefaultCurrency: 'YER',
   defaultTaxRatePercent: 0,
   enableTaxCalculation: false,
   cardPaymentLabelAr: 'بطاقة بنكية / دفع إلكتروني (POS Card)',
@@ -213,7 +213,7 @@ export function applySectorModePreset(
       manufacturing: false,
       aiInsights: false,
       saasPlatform: false,
-      security: true,
+      security: false,
       settings: true,
       communications: true,
     },
@@ -297,7 +297,7 @@ export function formatCurrencyAmount(
   language: Language = 'ar'
 ): string {
   const safeVal = Number(amount) || 0;
-  const meta = GLOBAL_CURRENCIES_META[currency] || GLOBAL_CURRENCIES_META.SAR;
+  const meta = GLOBAL_CURRENCIES_META[currency] || GLOBAL_CURRENCIES_META.YER;
   const formatted = safeVal.toLocaleString(undefined, {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,

@@ -86,9 +86,9 @@ export const SEED_COMPANY: Company = {
   nameAr: 'شركة النور للتجارة والصناعة القابضة',
   taxNumber: '310948271000003',
   crNumber: '1010892741',
-  currency: 'SAR',
-  address: 'Riyadh, King Fahd Road, Business Gate, Tower 4',
-  phone: '+966 11 489 2200',
+  currency: 'YER',
+  address: 'صنعاء، شارع حدة، برج الأعمال التجاري',
+  phone: '+967 1 489 2200',
   email: 'info@alnoor-erp.com',
 };
 
@@ -1032,8 +1032,8 @@ export const SEED_CHART_OF_ACCOUNTS: ChartAccount[] = [
   { id: 'acc-1000', tenantId: 'tenant-alnoor', code: '1000', name: 'Assets', nameAr: 'الأصول', type: 'ASSET', level: 1, balance: 842500, isDebitNormal: true, isActive: true },
   { id: 'acc-1100', tenantId: 'tenant-alnoor', code: '1100', name: 'Current Assets', nameAr: 'الأصول المتداولة', type: 'ASSET', level: 2, parentId: 'acc-1000', balance: 520000, isDebitNormal: true, isActive: true },
   { id: 'acc-1101', tenantId: 'tenant-alnoor', code: '1101', name: 'Cash on Hand (Vault & POS)', nameAr: 'النقدية بالصندوق والخزينة ونقاط البيع', type: 'ASSET', level: 3, parentId: 'acc-1100', balance: 45000, isDebitNormal: true, isActive: true },
-  { id: 'acc-1102', tenantId: 'tenant-alnoor', code: '1102', name: 'Al-Rajhi Bank - Main Corporate', nameAr: 'مصرف الراجحي - الحساب الجاري الرئيسي', type: 'ASSET', level: 3, parentId: 'acc-1100', balance: 215000, isDebitNormal: true, isActive: true },
-  { id: 'acc-1103', tenantId: 'tenant-alnoor', code: '1103', name: 'Alinma Bank - Operations', nameAr: 'مصرف الإنماء - حساب العمليات والموردين', type: 'ASSET', level: 3, parentId: 'acc-1100', balance: 85000, isDebitNormal: true, isActive: true },
+  { id: 'acc-1102', tenantId: 'tenant-alnoor', code: '1102', name: 'Al-Kuraimi Islamic Bank - Main Corporate', nameAr: 'بنك الكريمي للتمويل الأصغر الإسلامي - الحساب الجاري الرئيسي', type: 'ASSET', level: 3, parentId: 'acc-1100', balance: 215000, isDebitNormal: true, isActive: true },
+  { id: 'acc-1103', tenantId: 'tenant-alnoor', code: '1103', name: 'Tadhamon International Islamic Bank - Operations', nameAr: 'بنك التضامن الإسلامي الدولي - حساب العمليات والموردين', type: 'ASSET', level: 3, parentId: 'acc-1100', balance: 85000, isDebitNormal: true, isActive: true },
   { id: 'acc-1104', tenantId: 'tenant-alnoor', code: '1104', name: 'Merchandise Commercial Inventory', nameAr: 'المخزون السلعي التجاري', type: 'ASSET', level: 3, parentId: 'acc-1100', balance: 0, isDebitNormal: true, isActive: true },
   { id: 'acc-1201', tenantId: 'tenant-alnoor', code: '1201', name: 'Accounts Receivable (Trade Debtors)', nameAr: 'العملاء (الذمم المدينة التجارية)', type: 'ASSET', level: 3, parentId: 'acc-1100', balance: 43700, isDebitNormal: true, isActive: true },
   { id: 'acc-1205', tenantId: 'tenant-alnoor', code: '1205', name: 'VAT Input Tax Recoverable', nameAr: 'ضريبة القيمة المضافة المدخلات (مستردة)', type: 'ASSET', level: 3, parentId: 'acc-1100', balance: 11200, isDebitNormal: true, isActive: true },
@@ -1085,7 +1085,7 @@ export const SEED_JOURNAL_ENTRIES: JournalEntry[] = [
     createdByName: 'Sarah Al-Ghamdi, CPA',
     createdAt: '2026-03-01T08:00:00Z',
     lines: [
-      { id: 'l1', accountId: 'acc-1102', accountCode: '1102', accountName: 'Al-Rajhi Bank', accountNameAr: 'مصرف الراجحي', debit: 250000, credit: 0, memo: 'Capital deposit' },
+      { id: 'l1', accountId: 'acc-1102', accountCode: '1102', accountName: 'Al-Kuraimi Islamic Bank', accountNameAr: 'بنك الكريمي للتمويل الأصغر الإسلامي', debit: 250000, credit: 0, memo: 'Capital deposit' },
       { id: 'l2', accountId: 'acc-1301', accountCode: '1301', accountName: 'Inventory', accountNameAr: 'المخزون', debit: 200000, credit: 0, memo: 'Opening stock evaluation' },
       { id: 'l3', accountId: 'acc-3101', accountCode: '3101', accountName: 'Capital', accountNameAr: 'رأس المال', debit: 0, credit: 400000, memo: 'Paid-in Share Capital' },
       { id: 'l4', accountId: 'acc-3201', accountCode: '3201', accountName: 'Retained Earnings', accountNameAr: 'أرباح مبقاة', debit: 0, credit: 50000, memo: 'Prior year retained profit' },
