@@ -2970,3 +2970,243 @@ test('Track 37: POS Cart auto-hide by default, auto-show on item selection, perm
   assert.ok(tafqeetStr.includes('لا غير'));
 });
 
+test('Track 38: POS & Inventory performance optimization helpers (O(1) Cart Quantity Map & Unit Sum)', async () => {
+  const { buildCartQuantityLookupMap, sumCartItemQuantities } = await import(
+    './posKeyboardNavigation'
+  );
+
+  // Empty cart returns empty map and 0 total units
+  assert.deepEqual(buildCartQuantityLookupMap([]), {});
+  assert.equal(sumCartItemQuantities([]), 0);
+
+  // Aggregates quantities across duplicate or distinct cart items in O(N)
+  const items = [
+    { productId: 'prd-sol-pnl-585', quantity: 4 },
+    { productId: 'prd-sol-inv-8k', quantity: 1 },
+    { productId: 'prd-sol-pnl-585', quantity: 2 },
+  ];
+  const map = buildCartQuantityLookupMap(items);
+  assert.equal(map['prd-sol-pnl-585'], 6);
+  assert.equal(map['prd-sol-inv-8k'], 1);
+  assert.equal(map['non-existent'], undefined);
+  assert.equal(sumCartItemQuantities(items), 7);
+});
+
+test('Track 39: Mobile POS layout metrics support CATALOG, toggleable SPLIT-view, and CART modes cleanly', async () => {
+  const { computeMobilePosLayoutMetrics } = await import('./posKeyboardNavigation');
+
+  const catalogMode = computeMobilePosLayoutMetrics('CATALOG', 0);
+  assert.equal(catalogMode.showCatalogOnMobile, true);
+  assert.equal(catalogMode.showCartOnMobile, false);
+  assert.equal(catalogMode.isSplitViewOnMobile, false);
+  assert.equal(catalogMode.hasItems, false);
+
+  const splitMode = computeMobilePosLayoutMetrics('SPLIT', 3);
+  assert.equal(splitMode.showCatalogOnMobile, true);
+  assert.equal(splitMode.showCartOnMobile, true);
+  assert.equal(splitMode.isSplitViewOnMobile, true);
+  assert.equal(splitMode.cartUnitCount, 3);
+  assert.equal(splitMode.hasItems, true);
+
+  const cartMode = computeMobilePosLayoutMetrics('CART', 5);
+  assert.equal(cartMode.showCatalogOnMobile, false);
+  assert.equal(cartMode.showCartOnMobile, true);
+  assert.equal(cartMode.isSplitViewOnMobile, false);
+  assert.equal(cartMode.cartUnitCount, 5);
+
+  const safeFallback = computeMobilePosLayoutMetrics('INVALID' as any, -2);
+  assert.equal(safeFallback.mode, 'CATALOG');
+  assert.equal(safeFallback.cartUnitCount, 0);
+});
+
+test('Track 40: Unified System Notification Engine connects WhatsApp/POs/Live Events and persists exact unread & dismissed state', async () => {
+  const { generateSystemNotifications, computeNotificationStateSummary } = await import(
+    './notificationsEngine'
+  );
+
+  const raw = generateSystemNotifications({
+    products: [
+      {
+        id: 'p1',
+        sku: 'SOL-1',
+        barcode: '1001',
+        name: 'Solar Panel',
+        nameAr: 'لوح شمسي',
+        categoryId: 'cat-1',
+        costPrice: 100,
+        salePrice: 150,
+        stockQty: 0,
+        reorderPoint: 5,
+        unit: 'PCS',
+      } as any,
+    ],
+    customers: [],
+    salesInvoices: [],
+    warrantyTickets: [],
+    holdBills: [],
+    currentShift: { id: 'sh-1', expectedCash: 5000 } as any,
+    currency: 'YER',
+    whatsappUnreadCount: 4,
+    pendingPurchaseOrdersCount: 2,
+    pendingPurchaseOrdersTotal: 120000,
+    liveEventNotifications: [
+      {
+        id: 'live-inv-1001',
+        category: 'LIVE_EVENTS',
+        severity: 'success',
+        titleAr: 'فاتورة مبيعات جديدة #INV-1001',
+        titleEn: 'New Sales Invoice #INV-1001',
+        messageAr: 'تم إصدار الفاتورة بنجاح',
+        messageEn: 'Invoice issued',
+        timestamp: '2026-11-14T10:00:00.000Z',
+        isRead: false,
+        actionType: 'SALES',
+      },
+    ],
+  });
+
+  assert.ok(raw.some((n) => n.category === 'LIVE_EVENTS' && n.id === 'live-inv-1001'));
+  assert.ok(raw.some((n) => n.category === 'WHATSAPP_INBOX' && n.count === 4));
+  assert.ok(raw.some((n) => n.category === 'PURCHASE_ORDERS' && n.count === 2));
+
+  // Initial unread summary matches raw unread items
+  const initialSummary = computeNotificationStateSummary({
+    rawNotifications: raw,
+    readIds: [],
+    dismissedIds: [],
+  });
+  const initialUnreadCount = initialSummary.unreadCount;
+  assert.ok(initialUnreadCount >= 4);
+
+  // Marking 2 alerts as read decrements unreadCount accurately by 2
+  const firstTwoIds = [raw[0].id, raw[1].id];
+  const afterRead = computeNotificationStateSummary({
+    rawNotifications: raw,
+    readIds: firstTwoIds,
+    dismissedIds: [],
+  });
+  assert.equal(afterRead.unreadCount, initialUnreadCount - 2);
+
+  // Dismissing an item removes it completely from active notification list
+  const afterDismiss = computeNotificationStateSummary({
+    rawNotifications: raw,
+    readIds: firstTwoIds,
+    dismissedIds: [raw[0].id],
+  });
+  assert.equal(afterDismiss.notifications.length, raw.length - 1);
+  assert.ok(!afterDismiss.notifications.some((n) => n.id === raw[0].id));
+});
+
+test('Track 41: Clean production boot, salted password hashing & lockout, single-use hardware serials & anti-clock tampering', async () => {
+  const {
+    generateMachineRequestCode,
+    generateActivationSerial,
+    verifyOneTimeSerialActivation,
+    verifyHardwareComponentIntegrity,
+    evaluateSystemProtectionState,
+    hashUserPassword,
+    verifyUserPassword,
+    evaluatePasswordStrength,
+    evaluateLoginAttemptLockout,
+    computeClockHighWaterIntegrityTag,
+    verifyClockHighWaterIntegrityTag,
+  } = await import('./securityEngine');
+  const { createCleanWhatsAppDefaultAccount } = await import('./communicationsEngine');
+
+  // 1. Clean WhatsApp default account has zero demo chats
+  const cleanWa = createCleanWhatsAppDefaultAccount('منشأة الاختبار');
+  assert.equal(cleanWa.chats.length, 0);
+  assert.equal(cleanWa.session.pushName, 'منشأة الاختبار');
+  assert.equal(cleanWa.session.status, 'PAIRING_QR');
+
+  // 2. Salted password hashing (no plaintext stored) & strength evaluation
+  const hashA = hashUserPassword('Strong#2026', 'admin');
+  const hashB = hashUserPassword('Strong#2026', 'other');
+  assert.ok(hashA.startsWith('HSH-V1-'));
+  assert.ok(!hashA.includes('Strong#2026'));
+  assert.notEqual(hashA, hashB);
+  assert.equal(verifyUserPassword('Strong#2026', hashA, 'admin'), true);
+  assert.equal(verifyUserPassword('wrong', hashA, 'admin'), false);
+  assert.equal(evaluatePasswordStrength('123').level, 'WEAK');
+  assert.equal(evaluatePasswordStrength('Strong#2026').level, 'STRONG');
+
+  // 3. Brute-force lockout after 5 failed attempts (30s cooldown)
+  const now = 1794600000000;
+  let attempts = 0;
+  let lockUntil = 0;
+  for (let i = 1; i <= 4; i++) {
+    const res = evaluateLoginAttemptLockout(attempts, lockUntil, now, 5, 30000);
+    assert.equal(res.isLocked, false);
+    attempts = res.nextFailedCount;
+    lockUntil = res.nextLockUntilMs;
+  }
+  const locked = evaluateLoginAttemptLockout(attempts, lockUntil, now, 5, 30000);
+  assert.equal(locked.isLocked, true);
+  assert.equal(locked.remainingSec, 30);
+  assert.ok(locked.nextLockUntilMs > now);
+
+  // 4. Strict single-use hardware serial activation & multi-component DRM check
+  const hw = {
+    motherboardSerial: 'MB-TEST-1111',
+    cpuProcessorId: 'CPU-TEST-2222',
+    gpuSiliconId: 'GPU-TEST-3333',
+    diskVolumeSerial: 'DISK-TEST-4444',
+    systemUuid: 'UUID-TEST-5555',
+  };
+  const reqCode = generateMachineRequestCode(hw);
+  const serial = generateActivationSerial(reqCode, '1_YEAR', 365, now);
+
+  const firstActivation = verifyOneTimeSerialActivation({
+    serial,
+    currentRequestCode: reqCode,
+    usedSerialTokens: [],
+    nowMs: now,
+  });
+  assert.equal(firstActivation.valid, true);
+  assert.ok(firstActivation.consumptionToken);
+
+  // Re-activating the same serial must fail with ALREADY_USED_ONCE
+  const replayActivation = verifyOneTimeSerialActivation({
+    serial,
+    currentRequestCode: reqCode,
+    usedSerialTokens: [firstActivation.consumptionToken!],
+    nowMs: now,
+  });
+  assert.equal(replayActivation.valid, false);
+  assert.equal(replayActivation.reason, 'ALREADY_USED_ONCE');
+
+  // Changing even 1 component (e.g. disk swap) triggers immediate hardware lock
+  const swappedDiskHw = { ...hw, diskVolumeSerial: 'DISK-SWAPPED-9999' };
+  const hwIntegrity = verifyHardwareComponentIntegrity(hw, swappedDiskHw);
+  assert.equal(hwIntegrity.intact, false);
+  assert.deepEqual(hwIntegrity.failedComponents, ['DISK_NVME']);
+
+  const mismatchedState = evaluateSystemProtectionState({
+    hardware: swappedDiskHw,
+    boundHardware: hw,
+    trialStartedAtMs: now - 86400000,
+    activeSerial: serial,
+    nowMs: now,
+    lastSeenClockMs: now,
+  });
+  assert.equal(mismatchedState.status, 'DEVICE_MISMATCH');
+  assert.equal(mismatchedState.isLocked, true);
+
+  // 5. Anti-clock rollback guard & integrity tag seal
+  const tamperedClockState = evaluateSystemProtectionState({
+    hardware: hw,
+    boundHardware: hw,
+    trialStartedAtMs: now - 86400000,
+    activeSerial: serial,
+    nowMs: now - 3600000, // 1 hour rolled back
+    lastSeenClockMs: now,
+  });
+  assert.equal(tamperedClockState.status, 'CLOCK_TAMPERED');
+  assert.equal(tamperedClockState.isLocked, true);
+
+  const tag = computeClockHighWaterIntegrityTag(now, reqCode);
+  assert.equal(verifyClockHighWaterIntegrityTag(now, tag, reqCode), true);
+  assert.equal(verifyClockHighWaterIntegrityTag(now - 60000, tag, reqCode), false);
+});
+
+

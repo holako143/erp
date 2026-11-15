@@ -1,81 +1,96 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback, Suspense, lazy } from 'react';
 import { useERP } from '../context/ERPContext';
 import {
   CreditCard,
   Barcode,
   Search,
   Trash2,
-  Plus,
-  Minus,
   PauseCircle,
   PlayCircle,
   Printer,
   Lock,
-  Utensils,
-  Cpu,
-  Pill,
-  Scale,
-  ChefHat,
   CheckCircle2,
   Clock,
-  Sun,
-  BatteryCharging,
   Zap,
-  Monitor,
   Calculator,
   ShieldCheck,
   Filter,
   MessageSquare,
   Smartphone,
-  Network,
   Package,
-  Percent,
   Camera,
   ChevronDown,
-  ChevronUp,
   Image as ImageIcon,
   LayoutGrid,
   LayoutList,
   ShoppingCart,
   UserCheck,
   Users,
-  UserPlus,
   Pin,
-  Eye,
   EyeOff,
+  ChefHat,
+  Columns2,
 } from 'lucide-react';
-import { CameraBarcodeScannerModal, ScannedBatchItem } from '../components/common/CameraBarcodeScannerModal';
+import type { ScannedBatchItem } from '../components/common/CameraBarcodeScannerModal';
 import { WorkspaceTabResizerBar } from '../components/common/WorkspaceTabResizerBar';
 import { SplitPaneRatioMode, resolveSplitPaneLayout } from '../core/workspaceLayoutEngine';
+import { HasebBrandLogo } from '../components/common/HasebBrandLogo';
 import {
   SalesInvoice,
   ThermalTemplateType,
   StandardInvoiceTemplateType,
   ElectronicsSubCategory,
+  Product,
 } from '../types/erp';
-import { InvoiceRenderer } from '../components/invoices/InvoiceRenderer';
 import {
   parseWeightedScaleBarcode,
-  generateWeightedScaleBarcode,
   generateUniqueSerialNumber,
 } from '../core/barcodeEngine';
-import {
-  calculateSolarAndBatterySystemSizing,
-  getProductVisualIllustrationUri,
-} from '../core/inventoryEngine';
+import type { SolarSystemSizingOutput } from '../core/inventoryEngine';
 import { formatCleanNumber } from '../core/systemConfigEngine';
 import { composeInvoiceMessageText } from '../core/messagingEngine';
-import { IndustryChameleonPanel } from '../components/common/IndustryChameleonPanel';
 import {
   buildOrderedPosFieldIds,
   computeNextPosTabStopIndex,
   resolvePosActiveFieldLabel,
   evaluatePosCartVisibility,
-  filterPosCustomersForQuickPicker,
+  buildCartQuantityLookupMap,
+  sumCartItemQuantities,
+  computeMobilePosLayoutMetrics,
+  MobilePosViewMode,
   DEFAULT_WALKIN_CUSTOMER_LABEL_AR,
 } from '../core/posKeyboardNavigation';
+import { POSProductCard } from '../components/pos/POSProductCard';
+import { POSCartItemRow } from '../components/pos/POSCartItemRow';
 
-export const POSView: React.FC = () => {
+const CameraBarcodeScannerModal = lazy(() =>
+  import('../components/common/CameraBarcodeScannerModal').then((m) => ({
+    default: m.CameraBarcodeScannerModal,
+  }))
+);
+const InvoiceRenderer = lazy(() =>
+  import('../components/invoices/InvoiceRenderer').then((m) => ({
+    default: m.InvoiceRenderer,
+  }))
+);
+const POSCustomerPickerModal = lazy(() => import('../components/pos/POSCustomerPickerModal'));
+const POSSolarCalculatorModal = lazy(() => import('../components/pos/POSSolarCalculatorModal'));
+
+const POSModalLoadingFallback: React.FC = () => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs">
+    <div className="bg-white rounded-2xl px-6 py-4 shadow-xl border border-slate-200 flex items-center gap-3 text-xs font-bold text-slate-800">
+      <HasebBrandLogo size="sm" />
+      <div className="space-y-1">
+        <div>جاري تجهيز النافذة...</div>
+        <div className="w-24 h-1 rounded-full bg-slate-200 overflow-hidden">
+          <div className="w-12 h-full rounded-full haseb-shimmer-bar" />
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
+export const POSView: React.FC = React.memo(() => {
   const {
     products,
     updateProduct,
@@ -120,46 +135,17 @@ export const POSView: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [barcodeInput, setBarcodeInput] = useState('');
   const [posDisplayMode, setPosDisplayMode] = useState<'WITH_IMAGES' | 'DATA_ONLY'>('WITH_IMAGES');
-  const [mobilePosPane, setMobilePosPane] = useState<'CATALOG' | 'CART'>('CATALOG');
+  const [mobilePosPane, setMobilePosPane] = useState<MobilePosViewMode>('CATALOG');
 
-  // Solar & Battery Engineering Calculator Modal State
+  // Solar & Battery Engineering Calculator Modal State (calculation state lives inside lazy modal)
   const [isSolarCalcOpen, setIsSolarCalcOpen] = useState(false);
-  const [peakLoadWatts, setPeakLoadWatts] = useState<number>(3600);
-  const [autonomyHours, setAutonomyHours] = useState<number>(8);
-  const [systemVoltage, setSystemVoltage] = useState<12 | 24 | 48>(48);
-  const [batteryChemistry, setBatteryChemistry] = useState<'LIFEPO4' | 'TUBULAR_GEL'>('LIFEPO4');
-  const [panelRatingWatts, setPanelRatingWatts] = useState<number>(585);
-  const [peakSunHours, setPeakSunHours] = useState<number>(5.5);
-
-  const solarSizingResult = useMemo(
-    () =>
-      calculateSolarAndBatterySystemSizing({
-        continuousLoadWatts: peakLoadWatts,
-        backupHours: autonomyHours,
-        systemVoltage,
-        batteryType: batteryChemistry,
-        singlePanelWatts: panelRatingWatts,
-        peakSunHours,
-      }),
-    [
-      peakLoadWatts,
-      autonomyHours,
-      systemVoltage,
-      batteryChemistry,
-      panelRatingWatts,
-      peakSunHours,
-    ]
-  );
 
   // Restaurant Mode States
-  const [orderType, setOrderType] = useState<'DINE_IN' | 'TAKEAWAY' | 'DELIVERY' | 'STANDARD'>(
+  const [orderType] = useState<'DINE_IN' | 'TAKEAWAY' | 'DELIVERY' | 'STANDARD'>(
     activeIndustry === 'restaurant' ? 'DINE_IN' : 'STANDARD'
   );
-  const [selectedTable, setSelectedTable] = useState<string>('T-01');
+  const [selectedTable] = useState<string>('T-01');
   const [isKDSModalOpen, setIsKDSModalOpen] = useState(false);
-
-  // Grocery Scale Simulator State
-  const [scaleWeightKg, setScaleWeightKg] = useState<number>(0.75);
 
   // Live Camera Barcode Scanner State
   const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
@@ -188,6 +174,11 @@ export const POSView: React.FC = () => {
   const [newShiftStartingFloat, setNewShiftStartingFloat] = useState<number>(1500);
   const [posBanner, setPosBanner] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  const showBanner = useCallback((type: 'success' | 'error', text: string) => {
+    setPosBanner({ type, text });
+    setTimeout(() => setPosBanner(null), 4000);
+  }, []);
+
   // Customer & Warranty Beneficiary State in POS Cart (Defaults to Walk-in Cash Customer: "عميل نقدي عام")
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('cust-pos-walkin');
   const [warrantyCustomerName, setWarrantyCustomerName] = useState<string>(DEFAULT_WALKIN_CUSTOMER_LABEL_AR);
@@ -195,60 +186,46 @@ export const POSView: React.FC = () => {
 
   // Fast Beneficiary Customer Picker Modal (Triggered by clicking "العميل المستفيد" tab or pressing F8)
   const [isCustomerPickerOpen, setIsCustomerPickerOpen] = useState<boolean>(false);
-  const [customerSearchQuery, setCustomerSearchQuery] = useState<string>('');
-  const [isQuickAddCustomerOpen, setIsQuickAddCustomerOpen] = useState<boolean>(false);
-  const [quickNewCustomerName, setQuickNewCustomerName] = useState<string>('');
-  const [quickNewCustomerPhone, setQuickNewCustomerPhone] = useState<string>('');
-  const customerSearchInputRef = useRef<HTMLInputElement | null>(null);
 
-  const filteredPickerCustomers = useMemo(
-    () => filterPosCustomersForQuickPicker(customers, customerSearchQuery),
-    [customers, customerSearchQuery]
+  const handleSelectBeneficiaryCustomer = useCallback(
+    (cust: {
+      id: string;
+      nameAr: string;
+      name?: string;
+      phone?: string;
+    }) => {
+      setSelectedCustomerId(cust.id);
+      setWarrantyCustomerName(cust.nameAr || cust.name || DEFAULT_WALKIN_CUSTOMER_LABEL_AR);
+      setWarrantyCustomerPhone(cust.phone || '');
+      setIsCustomerPickerOpen(false);
+      showBanner(
+        'success',
+        `تم اختيار العميل المستفيد للفاتورة: ${cust.nameAr || cust.name || DEFAULT_WALKIN_CUSTOMER_LABEL_AR}`
+      );
+    },
+    [showBanner]
   );
 
-  const handleSelectBeneficiaryCustomer = (cust: {
-    id: string;
-    nameAr: string;
-    name?: string;
-    phone?: string;
-  }) => {
-    setSelectedCustomerId(cust.id);
-    setWarrantyCustomerName(cust.nameAr || cust.name || DEFAULT_WALKIN_CUSTOMER_LABEL_AR);
-    setWarrantyCustomerPhone(cust.phone || '');
-    setIsCustomerPickerOpen(false);
-    setCustomerSearchQuery('');
-    setIsQuickAddCustomerOpen(false);
-    showBanner(
-      'success',
-      `تم اختيار العميل المستفيد للفاتورة: ${cust.nameAr || cust.name || DEFAULT_WALKIN_CUSTOMER_LABEL_AR}`
-    );
-  };
-
-  const handleQuickCreateAndSelectCustomer = (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleanName = quickNewCustomerName.trim();
-    if (!cleanName) return;
-    const cleanPhone = quickNewCustomerPhone.trim() || '+967 770 000 000';
-    addCustomer({
-      tenantId: currentTenant.id,
-      code: `CUST-${Math.floor(1000 + Math.random() * 9000)}`,
-      name: cleanName,
-      nameAr: cleanName,
-      phone: cleanPhone,
-      email: 'customer@haseb.ye',
-      taxNumber: '300000000000003',
-      creditLimit: 500000,
-      balance: 0,
-      loyaltyPoints: 0,
-    });
-    setWarrantyCustomerName(cleanName);
-    setWarrantyCustomerPhone(cleanPhone);
-    setIsCustomerPickerOpen(false);
-    setIsQuickAddCustomerOpen(false);
-    setQuickNewCustomerName('');
-    setQuickNewCustomerPhone('');
-    showBanner('success', `تم تسجيل واختيار العميل الجديد للفاتورة: ${cleanName}`);
-  };
+  const handleQuickCreateAndSelectCustomer = useCallback(
+    (cleanName: string, cleanPhone: string) => {
+      addCustomer({
+        code: `CUST-${Math.floor(1000 + Math.random() * 9000)}`,
+        name: cleanName,
+        nameAr: cleanName,
+        phone: cleanPhone,
+        email: '',
+        taxNumber: '',
+        creditLimit: 500000,
+        balance: 0,
+        loyaltyPoints: 0,
+      });
+      setWarrantyCustomerName(cleanName);
+      setWarrantyCustomerPhone(cleanPhone);
+      setIsCustomerPickerOpen(false);
+      showBanner('success', `تم تسجيل واختيار العميل الجديد للفاتورة: ${cleanName}`);
+    },
+    [addCustomer, showBanner]
+  );
 
   // Smart POS Cart Auto-Hide / Auto-Show & Permanent Pin State
   // By default: hidden when cart is empty, immediately shown when an item is added, or permanently pinned open
@@ -279,7 +256,7 @@ export const POSView: React.FC = () => {
   const [discountValue, setDiscountValue] = useState<number | ''>('');
   const [posSplitMode, setPosSplitMode] = useState<SplitPaneRatioMode>('BALANCED');
   const [isDiscountPanelOpen, setIsDiscountPanelOpen] = useState<boolean>(false);
-  const posSplitLayout = resolveSplitPaneLayout(posSplitMode, 'POS');
+  const posSplitLayout = useMemo(() => resolveSplitPaneLayout(posSplitMode, 'POS'), [posSplitMode]);
 
   // High-Speed POS Active Focus & Deterministic Tab Cycling State
   const posContainerRef = useRef<HTMLDivElement | null>(null);
@@ -299,7 +276,7 @@ export const POSView: React.FC = () => {
     [activePosFieldId, language]
   );
 
-  const focusPosFieldById = (fieldId: string) => {
+  const focusPosFieldById = useCallback((fieldId: string) => {
     const root = posContainerRef.current || document;
     const el = root.querySelector(`[data-pos-field-id="${fieldId}"]`) as
       | HTMLInputElement
@@ -317,7 +294,7 @@ export const POSView: React.FC = () => {
       }
       setActivePosFieldId(fieldId);
     }
-  };
+  }, []);
 
   // Auto-focus Barcode Scanner field when POS mounts
   useEffect(() => {
@@ -325,15 +302,24 @@ export const POSView: React.FC = () => {
       focusPosFieldById('pos-barcode-input');
     }, 60);
     return () => clearTimeout(timer);
-  }, []);
+  }, [focusPosFieldById]);
 
-  const showBanner = (type: 'success' | 'error', text: string) => {
-    setPosBanner({ type, text });
-    setTimeout(() => setPosBanner(null), 4000);
-  };
+  // O(1) Cart Lookup & Total Quantities
+  const cartQtyByProductId = useMemo(
+    () => buildCartQuantityLookupMap(posCart),
+    [posCart]
+  );
+  const cartTotalUnits = useMemo(() => sumCartItemQuantities(posCart), [posCart]);
+  const mobilePosLayout = useMemo(
+    () => computeMobilePosLayoutMetrics(mobilePosPane, cartTotalUnits),
+    [mobilePosPane, cartTotalUnits]
+  );
 
   // Cart Totals with Live Discount (Percent or Fixed Amount)
-  const subtotal = posCart.reduce((acc, curr) => acc + curr.quantity * curr.unitPrice, 0);
+  const subtotal = useMemo(
+    () => posCart.reduce((acc, curr) => acc + curr.quantity * curr.unitPrice, 0),
+    [posCart]
+  );
 
   const calculatedDiscountAmount = useMemo(() => {
     if (typeof discountValue !== 'number' || discountValue <= 0 || subtotal <= 0) {
@@ -354,52 +340,172 @@ export const POSView: React.FC = () => {
   const taxAmount = 0;
   const grandTotal = Math.round(netTaxable * 100) / 100;
 
-  // Filtered Products for touch grid - Strictly limited to active industry (no cross-contamination)
-  const filteredProducts = products.filter((p) => {
-    const matchesCat = selectedCategory === 'all' || p.categoryId === selectedCategory;
-    const matchesSubCat =
-      activeIndustry !== 'electronics' ||
-      selectedElectronicsSubCat === 'ALL' ||
-      p.subCategory === selectedElectronicsSubCat ||
-      (selectedElectronicsSubCat === 'LITHIUM_BATTERY' &&
-        (p.subCategory === 'LITHIUM_BATTERY' || p.subCategory === 'GEL_BATTERY'));
-    const matchesInd =
-      activeIndustry === 'general' ||
-      p.industry === activeIndustry ||
-      !p.industry;
-    const matchesSearch =
-      p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.nameAr.includes(searchTerm) ||
-      p.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.barcode.includes(searchTerm);
-    return matchesCat && matchesSubCat && matchesInd && matchesSearch;
-  });
+  // Memoized Filtered Products for touch grid - Strictly limited to active industry
+  const filteredProducts = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    return products.filter((p) => {
+      const matchesCat = selectedCategory === 'all' || p.categoryId === selectedCategory;
+      const matchesSubCat =
+        activeIndustry !== 'electronics' ||
+        selectedElectronicsSubCat === 'ALL' ||
+        p.subCategory === selectedElectronicsSubCat ||
+        (selectedElectronicsSubCat === 'LITHIUM_BATTERY' &&
+          (p.subCategory === 'LITHIUM_BATTERY' || p.subCategory === 'GEL_BATTERY'));
+      const matchesInd =
+        activeIndustry === 'general' ||
+        p.industry === activeIndustry ||
+        !p.industry;
+      const matchesSearch =
+        !q ||
+        p.name.toLowerCase().includes(q) ||
+        p.nameAr.includes(searchTerm) ||
+        p.sku.toLowerCase().includes(q) ||
+        p.barcode.includes(searchTerm);
+      return matchesCat && matchesSubCat && matchesInd && matchesSearch;
+    });
+  }, [products, selectedCategory, activeIndustry, selectedElectronicsSubCat, searchTerm]);
+
+  // Memoized Product Card & Cart Row Callbacks
+  const handleAddProductToCart = useCallback(
+    (product: Product) => {
+      addToPOSCart(product, 1);
+    },
+    [addToPOSCart]
+  );
+
+  const handleUpdateProductImage = useCallback(
+    (product: Product, imageDataUri: string) => {
+      updateProduct({ ...product, imageUrl: imageDataUri });
+      showBanner('success', `تم تحديث صورة الصنف: ${product.nameAr}`);
+    },
+    [updateProduct, showBanner]
+  );
+
+  const handleProbeBranches = useCallback(
+    (sku: string) => {
+      openCrossBranchModal(sku);
+    },
+    [openCrossBranchModal]
+  );
+
+  const handleRemoveCartItem = useCallback(
+    (productId: string) => {
+      removeFromPOSCart(productId);
+    },
+    [removeFromPOSCart]
+  );
+
+  const handleUpdateCartQty = useCallback(
+    (productId: string, newQty: number) => {
+      updatePOSCartQty(productId, newQty);
+    },
+    [updatePOSCartQty]
+  );
+
+  const handleUpdateCartMeta = useCallback(
+    (productId: string, meta: { serialNumber?: string; warrantyMonths?: number }) => {
+      updatePOSCartItemMeta(productId, meta);
+    },
+    [updatePOSCartItemMeta]
+  );
+
+  const handleFocusCartField = useCallback((fieldId: string) => {
+    setActivePosFieldId(fieldId);
+  }, []);
 
   // Fast Barcode Input Handler (Supports GS1 Prefix 21 Weight-Embedded & Prefix 20 Price-Embedded Scale Barcodes)
-  const handleBarcodeSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const raw = barcodeInput.trim();
-    if (!raw) return;
+  const handleBarcodeSubmit = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      const raw = barcodeInput.trim();
+      if (!raw) return;
 
-    const scaleParsed = parseWeightedScaleBarcode(raw);
-    if (scaleParsed.isValid) {
+      const scaleParsed = parseWeightedScaleBarcode(raw);
+      if (scaleParsed.isValid) {
+        const scaleProduct =
+          products.find((p) => p.barcode.includes(scaleParsed.itemPlu)) ||
+          products.find((p) => p.isWeightedScale) ||
+          products.find((p) => p.industry === 'grocery') ||
+          products[0];
+
+        if (scaleProduct) {
+          if (scaleParsed.mode === 'WEIGHT_GRAMS' && scaleParsed.weightKg) {
+            addToPOSCart(
+              scaleProduct,
+              scaleParsed.weightKg,
+              `باركود ميزان إلكتروني (GS1-${scaleParsed.prefix}): ${scaleParsed.weightKg} كجم (${scaleParsed.weightGrams} جم)`
+            );
+            setBarcodeInput('');
+            showBanner(
+              'success',
+              `تم قراءة باركود الوزن (بادئة ${scaleParsed.prefix}): ${scaleProduct.nameAr} — الوزن: ${scaleParsed.weightKg} كجم`
+            );
+            return;
+          } else if (scaleParsed.mode === 'PRICE_HALALAS' && scaleParsed.embeddedPrice) {
+            const calculatedQty =
+              scaleProduct.salePrice > 0
+                ? Number((scaleParsed.embeddedPrice / scaleProduct.salePrice).toFixed(3))
+                : 1;
+            addToPOSCart(
+              scaleProduct,
+              calculatedQty,
+              `باركود ميزان تسعير (GS1-20): السعر المضمن ${scaleParsed.embeddedPrice} ${currency}`
+            );
+            setBarcodeInput('');
+            showBanner(
+              'success',
+              `تم قراءة باركود السعر (بادئة 20): ${scaleProduct.nameAr} — القيمة: ${scaleParsed.embeddedPrice} ${currency} (${calculatedQty} كجم)`
+            );
+            return;
+          }
+        }
+      }
+
+      const matched = products.find(
+        (p) => p.barcode === raw || p.sku.toLowerCase() === raw.toLowerCase()
+      );
+      if (matched) {
+        addToPOSCart(matched, 1);
+        setBarcodeInput('');
+        showBanner('success', `تمت إضافة الصنف: ${matched.nameAr}`);
+      } else {
+        showBanner(
+          'error',
+          language === 'ar'
+            ? 'الباركود غير موجود في قاعدة الأصناف'
+            : 'Barcode not found in catalog'
+        );
+      }
+    },
+    [barcodeInput, products, addToPOSCart, currency, language, showBanner]
+  );
+
+  // Live Camera Barcode Handler (Single Mode)
+  const handleCameraBarcodeScan = useCallback(
+    (scannedCode: string, matchedProduct?: any, qty = 1) => {
+      if (matchedProduct) {
+        addToPOSCart(matchedProduct, qty);
+        showBanner(
+          'success',
+          `تم مسح وإضافة الصنف عبر الكاميرا: ${matchedProduct.nameAr || matchedProduct.name}`
+        );
+        return;
+      }
+
       const scaleProduct =
-        products.find((p) => p.barcode.includes(scaleParsed.itemPlu)) ||
-        products.find((p) => p.isWeightedScale) ||
-        products.find((p) => p.industry === 'grocery') ||
+        products.find((p) => p.isWeightedScale || p.sku.includes('GS1')) ||
         products[0];
-
-      if (scaleProduct) {
-        if (scaleParsed.mode === 'WEIGHT_GRAMS' && scaleParsed.weightKg) {
+      const scaleParsed = parseWeightedScaleBarcode(scannedCode);
+      if (scaleParsed.isValid) {
+        if (scaleParsed.mode === 'WEIGHT_GRAMS') {
           addToPOSCart(
             scaleProduct,
             scaleParsed.weightKg,
-            `باركود ميزان إلكتروني (GS1-${scaleParsed.prefix}): ${scaleParsed.weightKg} كجم (${scaleParsed.weightGrams} جم)`
+            `باركود ميزان إلكتروني (GS1-${scaleParsed.prefix}): ${scaleParsed.weightKg} كجم`
           );
-          setBarcodeInput('');
           showBanner(
             'success',
-            `تم قراءة باركود الوزن (بادئة ${scaleParsed.prefix}): ${scaleProduct.nameAr} — الوزن: ${scaleParsed.weightKg} كجم`
+            `تم قراءة باركود الوزن عبر الكاميرا: ${scaleProduct.nameAr} — ${scaleParsed.weightKg} كجم`
           );
           return;
         } else if (scaleParsed.mode === 'PRICE_HALALAS' && scaleParsed.embeddedPrice) {
@@ -410,186 +516,110 @@ export const POSView: React.FC = () => {
           addToPOSCart(
             scaleProduct,
             calculatedQty,
-            `باركود ميزان تسعير (GS1-20): السعر المضمن ${scaleParsed.embeddedPrice} ${currency}`
+            `باركود ميزان تسعير (GS1-20): ${scaleParsed.embeddedPrice} ${currency}`
           );
-          setBarcodeInput('');
           showBanner(
             'success',
-            `تم قراءة باركود السعر (بادئة 20): ${scaleProduct.nameAr} — القيمة: ${scaleParsed.embeddedPrice} ${currency} (${calculatedQty} كجم)`
+            `تم قراءة باركود السعر عبر الكاميرا: ${scaleProduct.nameAr} — ${scaleParsed.embeddedPrice} ${currency}`
           );
           return;
         }
       }
-    }
 
-    const matched = products.find(
-      (p) => p.barcode === raw || p.sku.toLowerCase() === raw.toLowerCase()
-    );
-    if (matched) {
-      addToPOSCart(matched, 1);
-      setBarcodeInput('');
-      showBanner('success', `تمت إضافة الصنف: ${matched.nameAr}`);
-    } else {
       showBanner(
         'error',
         language === 'ar'
-          ? 'الباركود غير موجود في قاعدة الأصناف'
-          : 'Barcode not found in catalog'
+          ? `الباركود [${scannedCode}] غير مسجل في قاعدة الأصناف`
+          : `Barcode [${scannedCode}] not found in catalog`
       );
-    }
-  };
-
-  // Simulate Weighing an item on Electronic Scale (Generates valid 13-digit GS1 Prefix 21 barcode)
-  const handleSimulateScaleScan = () => {
-    const scaleProduct =
-      products.find((p) => p.isWeightedScale) ||
-      products.find((p) => p.industry === 'grocery') ||
-      products[0];
-    if (!scaleProduct) return;
-    const generatedGs1Code = generateWeightedScaleBarcode('21', '10045', Math.round(scaleWeightKg * 1000));
-    addToPOSCart(
-      scaleProduct,
-      scaleWeightKg,
-      `موزون (${generatedGs1Code}): ${scaleWeightKg} كجم`
-    );
-    setBarcodeInput(generatedGs1Code);
-    showBanner(
-      'success',
-      `تم توليد وقراءة باركود الميزان [${generatedGs1Code}] وإضافة (${scaleProduct.nameAr}) بوزن ${scaleWeightKg} كجم`
-    );
-  };
-
-  // Live Camera Barcode Handler (Single Mode)
-  const handleCameraBarcodeScan = (scannedCode: string, matchedProduct?: any, qty = 1) => {
-    if (matchedProduct) {
-      addToPOSCart(matchedProduct, qty);
-      showBanner(
-        'success',
-        `تم مسح وإضافة الصنف عبر الكاميرا: ${matchedProduct.nameAr || matchedProduct.name}`
-      );
-      return;
-    }
-
-    // Check scale barcode
-    const scaleProduct =
-      products.find((p) => p.isWeightedScale || p.sku.includes('GS1')) ||
-      products[0];
-    const scaleParsed = parseWeightedScaleBarcode(scannedCode);
-    if (scaleParsed.isValid) {
-      if (scaleParsed.mode === 'WEIGHT_GRAMS') {
-        addToPOSCart(
-          scaleProduct,
-          scaleParsed.weightKg,
-          `باركود ميزان إلكتروني (GS1-${scaleParsed.prefix}): ${scaleParsed.weightKg} كجم`
-        );
-        showBanner(
-          'success',
-          `تم قراءة باركود الوزن عبر الكاميرا: ${scaleProduct.nameAr} — ${scaleParsed.weightKg} كجم`
-        );
-        return;
-      } else if (scaleParsed.mode === 'PRICE_HALALAS' && scaleParsed.embeddedPrice) {
-        const calculatedQty =
-          scaleProduct.salePrice > 0
-            ? Number((scaleParsed.embeddedPrice / scaleProduct.salePrice).toFixed(3))
-            : 1;
-        addToPOSCart(
-          scaleProduct,
-          calculatedQty,
-          `باركود ميزان تسعير (GS1-20): ${scaleParsed.embeddedPrice} ${currency}`
-        );
-        showBanner(
-          'success',
-          `تم قراءة باركود السعر عبر الكاميرا: ${scaleProduct.nameAr} — ${scaleParsed.embeddedPrice} ${currency}`
-        );
-        return;
-      }
-    }
-
-    showBanner(
-      'error',
-      language === 'ar'
-        ? `الباركود [${scannedCode}] غير مسجل في قاعدة الأصناف`
-        : `Barcode [${scannedCode}] not found in catalog`
-    );
-  };
+    },
+    [addToPOSCart, currency, language, products, showBanner]
+  );
 
   // Live Camera Batch Barcode Handler (Continuous Mode)
-  const handleCameraBatchScanComplete = (batchItems: ScannedBatchItem[]) => {
-    let count = 0;
-    batchItems.forEach((item) => {
-      if (item.product) {
-        addToPOSCart(item.product, item.quantity);
-        count += item.quantity;
-      }
-    });
-    if (count > 0) {
-      showBanner(
-        'success',
-        language === 'ar'
-          ? `تمت إضافة ${count} قطع بنجاح من المسح المتعدد بالكاميرا`
-          : `Added ${count} items from camera batch scan`
-      );
-    }
-  };
-
-  // Send order to Kitchen Display Screen (KOT)
-  const handleSendToKitchen = () => {
-    if (posCart.length === 0) return;
-    const kot = sendCartToKitchen(
-      selectedTable,
-      orderType === 'STANDARD' ? 'DINE_IN' : orderType
-    );
-    if (kot) {
-      showBanner(
-        'success',
-        `تم إرسال الطلب للمطبخ بنجاح (${kot.kotNumber}) - الطاولة ${selectedTable}`
-      );
-    }
-  };
-
-  // Perform Checkout
-  const handlePerformCheckout = (preferA4Warranty = false) => {
-    try {
-      const inv = checkoutPOS(paymentMethod, selectedCustomerId, {
-        orderType: activeIndustry === 'restaurant' ? orderType : 'STANDARD',
-        tableNumber:
-          activeIndustry === 'restaurant' && orderType === 'DINE_IN'
-            ? selectedTable
-            : undefined,
-        manualDiscountType: calculatedDiscountAmount > 0 ? discountType : undefined,
-        manualDiscountValue:
-          calculatedDiscountAmount > 0 && typeof discountValue === 'number'
-            ? discountValue
-            : undefined,
-        manualDiscountAmount:
-          calculatedDiscountAmount > 0 ? calculatedDiscountAmount : undefined,
-        customerName: warrantyCustomerName.trim() || undefined,
-        customerPhone: warrantyCustomerPhone.trim() || undefined,
-        splitCashAmount: paymentMethod === 'SPLIT' ? splitCashAmount : undefined,
-        cardReference: paymentMethod !== 'CASH' ? cardReference.trim() || undefined : undefined,
-        notes: checkoutNotes.trim() || undefined,
+  const handleCameraBatchScanComplete = useCallback(
+    (batchItems: ScannedBatchItem[]) => {
+      let count = 0;
+      batchItems.forEach((item) => {
+        if (item.product) {
+          addToPOSCart(item.product, item.quantity);
+          count += item.quantity;
+        }
       });
-      setCompletedInvoice(inv);
-      setDiscountValue('');
-      setCheckoutNotes('');
-      setIsCheckoutModalOpen(false);
-      if (preferA4Warranty) {
-        setReceiptViewMode('a4');
-        setSelectedA4Override('a4_warranty_electronics');
-      } else {
-        setReceiptViewMode('thermal');
-        setSelectedThermalOverride(
-          activeIndustry === 'electronics' ? 'thermal_80mm_warranty' : undefined
+      if (count > 0) {
+        showBanner(
+          'success',
+          language === 'ar'
+            ? `تمت إضافة ${count} قطع بنجاح من المسح المتعدد بالكاميرا`
+            : `Added ${count} items from camera batch scan`
         );
       }
-      setIsReceiptModalOpen(true);
-    } catch (err: any) {
-      showBanner('error', err.message || 'Checkout error');
-    }
-  };
+    },
+    [addToPOSCart, language, showBanner]
+  );
+
+  // Perform Checkout
+  const handlePerformCheckout = useCallback(
+    (preferA4Warranty = false) => {
+      try {
+        const inv = checkoutPOS(paymentMethod, selectedCustomerId, {
+          orderType: activeIndustry === 'restaurant' ? orderType : 'STANDARD',
+          tableNumber:
+            activeIndustry === 'restaurant' && orderType === 'DINE_IN'
+              ? selectedTable
+              : undefined,
+          manualDiscountType: calculatedDiscountAmount > 0 ? discountType : undefined,
+          manualDiscountValue:
+            calculatedDiscountAmount > 0 && typeof discountValue === 'number'
+              ? discountValue
+              : undefined,
+          manualDiscountAmount:
+            calculatedDiscountAmount > 0 ? calculatedDiscountAmount : undefined,
+          customerName: warrantyCustomerName.trim() || undefined,
+          customerPhone: warrantyCustomerPhone.trim() || undefined,
+          splitCashAmount: paymentMethod === 'SPLIT' ? splitCashAmount : undefined,
+          cardReference: paymentMethod !== 'CASH' ? cardReference.trim() || undefined : undefined,
+          notes: checkoutNotes.trim() || undefined,
+        });
+        setCompletedInvoice(inv);
+        setDiscountValue('');
+        setCheckoutNotes('');
+        setIsCheckoutModalOpen(false);
+        if (preferA4Warranty) {
+          setReceiptViewMode('a4');
+          setSelectedA4Override('a4_warranty_electronics');
+        } else {
+          setReceiptViewMode('thermal');
+          setSelectedThermalOverride(
+            activeIndustry === 'electronics' ? 'thermal_80mm_warranty' : undefined
+          );
+        }
+        setIsReceiptModalOpen(true);
+      } catch (err: any) {
+        showBanner('error', err.message || 'Checkout error');
+      }
+    },
+    [
+      checkoutPOS,
+      paymentMethod,
+      selectedCustomerId,
+      activeIndustry,
+      orderType,
+      selectedTable,
+      calculatedDiscountAmount,
+      discountType,
+      discountValue,
+      warrantyCustomerName,
+      warrantyCustomerPhone,
+      splitCashAmount,
+      cardReference,
+      checkoutNotes,
+      showBanner,
+    ]
+  );
 
   // Preview Live Warranty Certificate Draft before payment
-  const handlePreviewDraftWarrantyCertificate = () => {
+  const handlePreviewDraftWarrantyCertificate = useCallback(() => {
     if (posCart.length === 0) return;
     const targetCust = customers.find((c) => c.id === selectedCustomerId) || customers[0];
     const resolvedName =
@@ -641,32 +671,38 @@ export const POSView: React.FC = () => {
     setReceiptViewMode('a4');
     setSelectedA4Override('a4_warranty_electronics');
     setIsReceiptModalOpen(true);
-  };
+  }, [
+    posCart,
+    customers,
+    selectedCustomerId,
+    warrantyCustomerName,
+    warrantyCustomerPhone,
+    language,
+    currentTenant.code,
+    currentTenant.id,
+    currentBranch.id,
+    subtotal,
+    calculatedDiscountAmount,
+    discountType,
+    discountValue,
+    currency,
+    taxAmount,
+    grandTotal,
+    paymentMethod,
+    activeIndustry,
+  ]);
 
-  // Auto-generate serials for all items in cart
-  const handleGenerateAllCartSerials = () => {
-    posCart.forEach((item) => {
-      if (!item.serialNumber?.trim()) {
-        updatePOSCartItemMeta(item.productId, {
-          serialNumber: generateUniqueSerialNumber('IMEI', currentTenant.code),
-          warrantyMonths: item.warrantyMonths || 24,
-        });
-      }
-    });
-    showBanner('success', 'تم توليد وتوثيق الأرقام التسلسلية (SN / IMEI) لكافة أصناف السلة');
-  };
-
-  const handleApplySolarKitToCart = () => {
-    const res = addSolarSystemKitToPOSCart(solarSizingResult);
-    setIsSolarCalcOpen(false);
-    showBanner(
-      'success',
-      `تم إدراج منظومة الطاقة الشمسية المتكاملة (${solarSizingResult.recommendedPanelCount} لوح 585W + إنفرتر ${solarSizingResult.recommendedInverterKw}kW + ${solarSizingResult.recommendedBatteryUnits} بطارية) في السلة بقيمة تقديرية ${res.totalAmount.toLocaleString()} ${currency}`
-    );
-  };
-
-  const tablesList = ['T-01', 'T-02', 'T-03', 'T-04', 'T-05', 'T-06', 'T-07', 'T-08'];
-  const quickKitchenNotes = ['بدون بصل', 'زيادة جبن', 'حار سبايسي', 'صوص إضافي', 'تغليف سفري'];
+  const handleApplySolarKitToCart = useCallback(
+    (solarSizingResult: SolarSystemSizingOutput) => {
+      const res = addSolarSystemKitToPOSCart(solarSizingResult);
+      setIsSolarCalcOpen(false);
+      showBanner(
+        'success',
+        `تم إدراج منظومة الطاقة الشمسية المتكاملة (${solarSizingResult.recommendedPanelCount} لوح 585W + إنفرتر ${solarSizingResult.recommendedInverterKw}kW + ${solarSizingResult.recommendedBatteryUnits} بطارية) في السلة بقيمة تقديرية ${res.totalAmount.toLocaleString()} ${currency}`
+      );
+    },
+    [addSolarSystemKitToPOSCart, currency, showBanner]
+  );
 
   const [isPosFilterDrawerOpen, setIsPosFilterDrawerOpen] = useState<boolean>(false);
 
@@ -687,11 +723,7 @@ export const POSView: React.FC = () => {
       }
     };
     const handleOpenCustomerPicker = () => {
-      setCustomerSearchQuery('');
       setIsCustomerPickerOpen(true);
-      setTimeout(() => {
-        customerSearchInputRef.current?.focus();
-      }, 40);
     };
     window.addEventListener('haseb-open-close-shift-modal', handleOpenCloseShift);
     window.addEventListener('haseb-trigger-pos-checkout', handleTriggerCheckout);
@@ -703,46 +735,36 @@ export const POSView: React.FC = () => {
     };
   }, [currentShift.expectedCash, posCart.length, grandTotal]);
 
-  const electronicsSubCategories: {
-    id: ElectronicsSubCategory | 'ALL';
-    labelAr: string;
-    count: number;
-  }[] = [
-    {
-      id: 'ALL',
-      labelAr: 'الكل',
-      count: products.filter((p) => p.industry === 'electronics').length,
-    },
-    {
-      id: 'SOLAR_PANEL',
-      labelAr: 'ألواح طاقة شمسية',
-      count: products.filter((p) => p.subCategory === 'SOLAR_PANEL').length,
-    },
-    {
-      id: 'HYBRID_INVERTER',
-      labelAr: 'إنفرترات هجينة MPPT',
-      count: products.filter((p) => p.subCategory === 'HYBRID_INVERTER').length,
-    },
-    {
-      id: 'LITHIUM_BATTERY',
-      labelAr: 'بطاريات ليثيوم وجل',
-      count: products.filter(
-        (p) => p.subCategory === 'LITHIUM_BATTERY' || p.subCategory === 'GEL_BATTERY'
-      ).length,
-    },
-    {
-      id: 'SMART_SCREEN',
-      labelAr: 'شاشات ذكية 4K',
-      count: products.filter((p) => p.subCategory === 'SMART_SCREEN').length,
-    },
-    {
-      id: 'COMPUTING_MOBILE',
-      labelAr: 'حواسيب وتجهيزات',
-      count: products.filter((p) => p.subCategory === 'COMPUTING_MOBILE').length,
-    },
-  ];
+  const electronicsSubCategories = useMemo(() => {
+    let allCount = 0;
+    let solarPanelCount = 0;
+    let inverterCount = 0;
+    let batteryCount = 0;
+    let screenCount = 0;
+    let computingCount = 0;
 
-  const getProductSpecChips = (p: (typeof products)[number]): [string, string] => {
+    for (let i = 0; i < products.length; i += 1) {
+      const p = products[i];
+      if (p.industry === 'electronics') allCount += 1;
+      if (p.subCategory === 'SOLAR_PANEL') solarPanelCount += 1;
+      else if (p.subCategory === 'HYBRID_INVERTER') inverterCount += 1;
+      else if (p.subCategory === 'LITHIUM_BATTERY' || p.subCategory === 'GEL_BATTERY') {
+        batteryCount += 1;
+      } else if (p.subCategory === 'SMART_SCREEN') screenCount += 1;
+      else if (p.subCategory === 'COMPUTING_MOBILE') computingCount += 1;
+    }
+
+    return [
+      { id: 'ALL' as const, labelAr: 'الكل', count: allCount },
+      { id: 'SOLAR_PANEL' as const, labelAr: 'ألواح طاقة شمسية', count: solarPanelCount },
+      { id: 'HYBRID_INVERTER' as const, labelAr: 'إنفرترات هجينة MPPT', count: inverterCount },
+      { id: 'LITHIUM_BATTERY' as const, labelAr: 'بطاريات ليثيوم وجل', count: batteryCount },
+      { id: 'SMART_SCREEN' as const, labelAr: 'شاشات ذكية 4K', count: screenCount },
+      { id: 'COMPUTING_MOBILE' as const, labelAr: 'حواسيب وتجهيزات', count: computingCount },
+    ];
+  }, [products]);
+
+  const getProductSpecChips = useCallback((p: Product): [string, string] => {
     const skuMap: Record<string, [string, string]> = {
       'SOL-PNL-585W': ['585W N-Type', 'كفاءة 22.6%'],
       'SOL-INV-DEYE8K': ['48V / 8kW', 'WiFi Smart'],
@@ -761,101 +783,112 @@ export const POSView: React.FC = () => {
       : p.batteryCapacitySpec || p.screenSizeSpec || p.uom;
     const chip2 = p.efficiencySpec || p.voltageSpec || 'Original';
     return [chip1, chip2];
-  };
+  }, []);
 
-  const getProductDisplayName = (p: (typeof products)[number]): string => {
-    const cleanTitleMap: Record<string, string> = {
-      'SOL-PNL-585W': 'لوح طاقة شمسية مونو كريستال Jinko Tiger Neo 585W وجهين',
-      'SOL-INV-DEYE8K': 'إنفرتر طاقة شمسية هجين ذكي Deye 8kW Hybrid Dual MPPT',
-      'BAT-LI-48V200': 'بطارية ليثيوم فوسفات الحديد Felicity LiFePO4 48V 200Ah',
-      'SOL-INV-GROW5K': 'إنفرتر طاقة شمسية هجين Growatt 5000ES 5kW 48V',
-      'BAT-GEL-12V200': 'بطارية جل أنبوبية ديب سايكل Ritar 12V 200Ah',
-      'SOL-ACC-DCKIT': 'لوحة حماية وتجميع طاقة شمسية 1000V DC مع قواطع وصواعق',
-    };
-    if (language === 'ar' && cleanTitleMap[p.sku]) {
-      return cleanTitleMap[p.sku];
-    }
-    return language === 'ar' ? p.nameAr : p.name;
-  };
+  const getProductDisplayName = useCallback(
+    (p: Product): string => {
+      const cleanTitleMap: Record<string, string> = {
+        'SOL-PNL-585W': 'لوح طاقة شمسية مونو كريستال Jinko Tiger Neo 585W وجهين',
+        'SOL-INV-DEYE8K': 'إنفرتر طاقة شمسية هجين ذكي Deye 8kW Hybrid Dual MPPT',
+        'BAT-LI-48V200': 'بطارية ليثيوم فوسفات الحديد Felicity LiFePO4 48V 200Ah',
+        'SOL-INV-GROW5K': 'إنفرتر طاقة شمسية هجين Growatt 5000ES 5kW 48V',
+        'BAT-GEL-12V200': 'بطارية جل أنبوبية ديب سايكل Ritar 12V 200Ah',
+        'SOL-ACC-DCKIT': 'لوحة حماية وتجميع طاقة شمسية 1000V DC مع قواطع وصواعق',
+      };
+      if (language === 'ar' && cleanTitleMap[p.sku]) {
+        return cleanTitleMap[p.sku];
+      }
+      return language === 'ar' ? p.nameAr : p.name;
+    },
+    [language]
+  );
 
   // Fast Keyboard Tab / Shift+Tab / F8 / F9 Navigation Handler for POS Data Entry
-  const handlePosWorkspaceKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    // F8 opens the fast Beneficiary Customer Picker Modal immediately
-    if (e.key === 'F8') {
-      e.preventDefault();
-      e.stopPropagation();
-      setCustomerSearchQuery('');
-      setIsCustomerPickerOpen((prev) => !prev);
-      setTimeout(() => {
-        customerSearchInputRef.current?.focus();
-      }, 40);
-      return;
-    }
-
-    // F9 or Ctrl+Enter opens Checkout Modal immediately if cart has items
-    if (
-      (e.key === 'F9' || ((e.ctrlKey || e.metaKey) && e.key === 'Enter')) &&
-      posCart.length > 0 &&
-      !isCheckoutModalOpen
-    ) {
-      e.preventDefault();
-      setPaymentMethod('CASH');
-      setCashTendered(grandTotal);
-      setSplitCashAmount(Math.round((grandTotal / 2) * 100) / 100);
-      setCardReference(`RRN-${Math.floor(100000 + Math.random() * 900000)}`);
-      setIsCheckoutModalOpen(true);
-      return;
-    }
-
-    if (e.key !== 'Tab') return;
-
-    // 1. If a POS modal is open, cycle cleanly through that modal's fields
-    if (isCheckoutModalOpen || isSolarCalcOpen || isCloseShiftModalOpen) {
-      const root = posContainerRef.current;
-      if (!root) return;
-      const modalFields = Array.from(
-        root.querySelectorAll<HTMLElement>('[data-pos-modal-field]:not(:disabled)')
-      ).filter((el) => el.offsetParent !== null);
-      if (modalFields.length > 0) {
+  const handlePosWorkspaceKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      // F8 opens the fast Beneficiary Customer Picker Modal immediately
+      if (e.key === 'F8') {
         e.preventDefault();
-        const activeEl = document.activeElement as HTMLElement | null;
-        const currIdx = activeEl ? modalFields.indexOf(activeEl) : -1;
-        const nextIdx = e.shiftKey
-          ? currIdx <= 0
-            ? modalFields.length - 1
-            : currIdx - 1
-          : (currIdx + 1) % modalFields.length;
-        const target = modalFields[nextIdx];
-        if (target) {
-          target.focus();
-          if ('select' in target && typeof (target as HTMLInputElement).select === 'function') {
-            try {
-              (target as HTMLInputElement).select();
-            } catch {
-              // ignore
+        e.stopPropagation();
+        setIsCustomerPickerOpen((prev) => !prev);
+        return;
+      }
+
+      // F9 or Ctrl+Enter opens Checkout Modal immediately if cart has items
+      if (
+        (e.key === 'F9' || ((e.ctrlKey || e.metaKey) && e.key === 'Enter')) &&
+        posCart.length > 0 &&
+        !isCheckoutModalOpen
+      ) {
+        e.preventDefault();
+        setPaymentMethod('CASH');
+        setCashTendered(grandTotal);
+        setSplitCashAmount(Math.round((grandTotal / 2) * 100) / 100);
+        setCardReference(`RRN-${Math.floor(100000 + Math.random() * 900000)}`);
+        setIsCheckoutModalOpen(true);
+        return;
+      }
+
+      if (e.key !== 'Tab') return;
+
+      // 1. If a POS modal is open, cycle cleanly through that modal's fields
+      if (isCheckoutModalOpen || isSolarCalcOpen || isCloseShiftModalOpen) {
+        const root = posContainerRef.current;
+        if (!root) return;
+        const modalFields = Array.from(
+          root.querySelectorAll<HTMLElement>('[data-pos-modal-field]:not(:disabled)')
+        ).filter((el) => el.offsetParent !== null);
+        if (modalFields.length > 0) {
+          e.preventDefault();
+          const activeEl = document.activeElement as HTMLElement | null;
+          const currIdx = activeEl ? modalFields.indexOf(activeEl) : -1;
+          const nextIdx = e.shiftKey
+            ? currIdx <= 0
+              ? modalFields.length - 1
+              : currIdx - 1
+            : (currIdx + 1) % modalFields.length;
+          const target = modalFields[nextIdx];
+          if (target) {
+            target.focus();
+            if ('select' in target && typeof (target as HTMLInputElement).select === 'function') {
+              try {
+                (target as HTMLInputElement).select();
+              } catch {
+                // ignore
+              }
             }
           }
         }
+        return;
       }
-      return;
-    }
 
-    // 2. Main POS Fast Data-Entry Tab Cycle
-    e.preventDefault();
-    const activeEl = document.activeElement as HTMLElement | null;
-    const currentAttrId =
-      activeEl?.getAttribute('data-pos-field-id') || activePosFieldId || null;
+      // 2. Main POS Fast Data-Entry Tab Cycle
+      e.preventDefault();
+      const activeEl = document.activeElement as HTMLElement | null;
+      const currentAttrId =
+        activeEl?.getAttribute('data-pos-field-id') || activePosFieldId || null;
 
-    const { targetFieldId } = computeNextPosTabStopIndex(
+      const { targetFieldId } = computeNextPosTabStopIndex(
+        orderedPosFieldIds,
+        currentAttrId,
+        e.shiftKey ? 'PREV' : 'NEXT'
+      );
+
+      if (targetFieldId) {
+        focusPosFieldById(targetFieldId);
+      }
+    },
+    [
+      posCart.length,
+      isCheckoutModalOpen,
+      grandTotal,
+      isSolarCalcOpen,
+      isCloseShiftModalOpen,
+      activePosFieldId,
       orderedPosFieldIds,
-      currentAttrId,
-      e.shiftKey ? 'PREV' : 'NEXT'
-    );
-
-    if (targetFieldId) {
-      focusPosFieldById(targetFieldId);
-    }
-  };
+      focusPosFieldById,
+    ]
+  );
 
   return (
     <div
@@ -864,59 +897,18 @@ export const POSView: React.FC = () => {
       className="h-full flex-1 flex flex-col lg:flex-row overflow-hidden relative"
     >
       {/* ====================================================================
-          MOBILE / TABLET TOP SEGMENTED SWITCHER (< lg) — Native POS App Feel
-      ==================================================================== */}
-      <div
-        data-testid="pos-mobile-view-switcher"
-        className="lg:hidden shrink-0 bg-white border-b border-slate-200/80 px-3 py-2 flex items-center justify-between gap-2 z-20"
-      >
-        <div className="grid grid-cols-2 bg-slate-100 p-1 rounded-xl flex-1 gap-1">
-          <button
-            type="button"
-            data-testid="pos-mobile-tab-catalog"
-            onClick={() => setMobilePosPane('CATALOG')}
-            className={`py-1.5 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer ${
-              mobilePosPane === 'CATALOG'
-                ? 'bg-slate-900 text-white shadow-2xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <LayoutGrid className="w-3.5 h-3.5" />
-            <span>المنتجات والأصناف ({filteredProducts.length})</span>
-          </button>
-          <button
-            type="button"
-            data-testid="pos-mobile-tab-cart"
-            onClick={() => setMobilePosPane('CART')}
-            className={`py-1.5 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer ${
-              mobilePosPane === 'CART'
-                ? 'bg-slate-900 text-white shadow-2xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <ShoppingCart className="w-3.5 h-3.5" />
-            <span>السلة والدفع</span>
-            <span
-              className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
-                mobilePosPane === 'CART'
-                  ? 'bg-emerald-500 text-white'
-                  : 'bg-slate-200 text-slate-800'
-              }`}
-            >
-              {posCart.reduce((s, i) => s + i.quantity, 0)}
-            </span>
-          </button>
-        </div>
-      </div>
-
-      {/* ====================================================================
-          CENTER AREA: PRODUCT SHOWCASE & BARCODE SCANNER (Lumina Reference)
+          CENTER AREA: PRODUCT SHOWCASE & BARCODE SCANNER
+          - Supports full CATALOG or SPLIT-VIEW alongside Cart on Mobile (< lg)
       ==================================================================== */}
       <div
         data-testid="pos-catalog-pane"
         className={`${posSplitLayout.primaryColClass} ${
-          mobilePosPane === 'CART' ? 'hidden lg:flex' : 'flex'
-        } flex-1 flex-col min-w-0 p-2.5 sm:p-4 gap-2.5 sm:gap-3.5 overflow-hidden`}
+          mobilePosLayout.isSplitViewOnMobile
+            ? 'flex flex-none h-[46%] lg:h-auto lg:flex-1 border-b border-slate-200/80 lg:border-b-0'
+            : mobilePosLayout.showCatalogOnMobile
+            ? 'flex flex-1'
+            : 'hidden lg:flex flex-1'
+        } flex-col min-w-0 min-h-0 p-2.5 sm:p-4 gap-2 sm:gap-3.5 overflow-hidden`}
       >
         {posBanner && (
           <div
@@ -995,11 +987,7 @@ export const POSView: React.FC = () => {
           <button
             type="button"
             data-testid="pos-top-beneficiary-customer-btn"
-            onClick={() => {
-              setCustomerSearchQuery('');
-              setIsCustomerPickerOpen(true);
-              setTimeout(() => customerSearchInputRef.current?.focus(), 40);
-            }}
+            onClick={() => setIsCustomerPickerOpen(true)}
             title="اضغط هنا أو اضغط F8 لاختيار العميل المستفيد من قائمة العملاء"
             className="px-3 py-1.5 bg-white hover:bg-blue-50/70 border border-slate-200/80 hover:border-blue-400 rounded-xl text-xs font-bold text-slate-800 flex items-center gap-2 transition shadow-2xs shrink-0 cursor-pointer"
           >
@@ -1035,7 +1023,7 @@ export const POSView: React.FC = () => {
               title="عرض الأصناف بصور وبيانات"
               className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer ${
                 posDisplayMode === 'WITH_IMAGES'
-                  ? 'bg-slate-900 text-white shadow-2xs'
+                  ? 'haseb-btn-primary'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
@@ -1056,7 +1044,7 @@ export const POSView: React.FC = () => {
               title="عرض الأصناف ببيانات فقط"
               className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer ${
                 posDisplayMode === 'DATA_ONLY'
-                  ? 'bg-slate-900 text-white shadow-2xs'
+                  ? 'haseb-btn-primary'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
@@ -1085,12 +1073,12 @@ export const POSView: React.FC = () => {
               }
               className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer ${
                 cartVisibility.isVisible
-                  ? 'bg-slate-900 text-white'
+                  ? 'haseb-btn-primary'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               <ShoppingCart className="w-3.5 h-3.5" />
-              <span>السلة ({posCart.reduce((s, i) => s + i.quantity, 0)})</span>
+              <span>السلة ({cartTotalUnits})</span>
             </button>
             <button
               type="button"
@@ -1161,7 +1149,7 @@ export const POSView: React.FC = () => {
               type="button"
               data-testid="btn-open-solar-calculator"
               onClick={() => setIsSolarCalcOpen(true)}
-              className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs flex items-center gap-1.5 cursor-pointer"
+              className="px-2.5 py-1.5 rounded-lg haseb-btn-primary font-semibold text-xs flex items-center gap-1.5 cursor-pointer"
             >
               <Calculator className="w-3.5 h-3.5" />
               <span>حاسبة الطاقة الشمسية</span>
@@ -1250,7 +1238,7 @@ export const POSView: React.FC = () => {
                 onClick={() => setSelectedElectronicsSubCat(sub.id)}
                 className={
                   isSelected
-                    ? 'px-3.5 py-1.5 rounded-full text-xs font-semibold bg-slate-900 text-white shadow-xs flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors'
+                    ? 'px-3.5 py-1.5 rounded-full text-xs font-semibold haseb-nav-active flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors'
                     : 'px-3.5 py-1.5 rounded-full text-xs font-medium bg-white text-slate-600 hover:text-slate-900 border border-slate-200/70 shrink-0 transition-colors cursor-pointer'
                 }
               >
@@ -1271,239 +1259,109 @@ export const POSView: React.FC = () => {
         </div>
 
         {/* Product Cards Grid (Expands to more columns when Cart is auto-hidden!) */}
-        <div className="flex-1 overflow-y-auto pr-0.5 min-h-0 pb-16 lg:pb-1">
+        <div
+          className={`flex-1 overflow-y-auto pr-0.5 min-h-0 ${
+            mobilePosLayout.isSplitViewOnMobile ? 'pb-3 lg:pb-1' : 'pb-28 lg:pb-1'
+          }`}
+        >
           <div
             data-testid="pos-products-grid"
             data-display-mode={posDisplayMode}
             data-cart-visible={cartVisibility.isVisible ? 'true' : 'false'}
             className={`grid gap-2.5 sm:gap-3.5 ${
-              cartVisibility.isVisible
+              filteredProducts.length === 0
+                ? 'grid-cols-1'
+                : cartVisibility.isVisible
                 ? 'grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4'
                 : 'grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5'
             }`}
           >
-            {filteredProducts.map((p) => {
-              const [chip1, chip2] = getProductSpecChips(p);
-              const warrantyMonths = p.warrantyMonths || 12;
-              const warrantyBadgeClass =
-                warrantyMonths >= 100
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200/70'
-                  : warrantyMonths >= 48
-                  ? 'bg-blue-50 text-blue-700 border-blue-200/70'
-                  : warrantyMonths >= 24
-                  ? 'bg-amber-50 text-amber-700 border-amber-200/70'
-                  : 'bg-slate-100 text-slate-600 border-slate-200/70';
-
-              const visualImgSrc = getProductVisualIllustrationUri(p);
-              const inCartItem = posCart.find((ci) => ci.productId === p.id);
-
-              return (
-                <div
-                  key={p.id}
-                  data-testid={`pos-product-card-${p.sku}`}
-                  onClick={() => addToPOSCart(p, 1)}
-                  className={`bg-white rounded-2xl border transition-all cursor-pointer flex flex-col justify-between group shadow-2xs hover:shadow-md select-none overflow-hidden relative ${
-                    inCartItem
-                      ? 'border-blue-600 ring-2 ring-blue-500/15'
-                      : 'border-slate-200/80 hover:border-blue-500/50'
-                  }`}
-                >
-                  {/* Mode 1: WITH_IMAGES — Visual Product Thumbnail Header + Quick Attach Image Action */}
-                  {posDisplayMode === 'WITH_IMAGES' && (
-                    <div className="relative h-28 sm:h-32 w-full bg-slate-50/90 border-b border-slate-100 flex items-center justify-center p-2 overflow-hidden">
-                      <img
-                        src={visualImgSrc}
-                        alt={p.nameAr || p.name}
-                        className="h-full w-full object-contain group-hover:scale-105 transition-transform duration-200"
-                        loading="lazy"
-                      />
-                      {/* Top Overlay Badges */}
-                      <div className="absolute top-2 inset-x-2 flex items-center justify-between gap-1 pointer-events-none">
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[9px] font-bold border shadow-2xs backdrop-blur-xs ${warrantyBadgeClass}`}
-                        >
-                          ضمان {warrantyMonths} شهر
-                        </span>
-                        {inCartItem && (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-blue-600 text-white shadow-xs">
-                            ×{inCartItem.quantity}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Direct Quick Image Upload Button on Product Card */}
-                      <label
-                        data-testid={`pos-card-attach-image-${p.sku}`}
-                        onClick={(e) => e.stopPropagation()}
-                        title="إرفاق أو تغيير صورة الصنف مباشرة"
-                        className="absolute bottom-1.5 left-1.5 w-6 h-6 rounded-lg bg-white/90 hover:bg-slate-900 text-slate-600 hover:text-white border border-slate-200/80 flex items-center justify-center shadow-2xs opacity-85 group-hover:opacity-100 transition cursor-pointer"
-                      >
-                        <Camera className="w-3 h-3" />
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="sr-only"
-                          onChange={(e) => {
-                            e.stopPropagation();
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            const reader = new FileReader();
-                            reader.onload = () => {
-                              if (typeof reader.result === 'string') {
-                                updateProduct({ ...p, imageUrl: reader.result });
-                                showBanner('success', `تم تحديث صورة الصنف: ${p.nameAr}`);
-                              }
-                            };
-                            reader.readAsDataURL(file);
-                          }}
-                        />
-                      </label>
-                    </div>
-                  )}
-
-                  <div className="p-3 sm:p-3.5 flex-1 flex flex-col justify-between">
-                    <div>
-                      <div className="flex items-center justify-between gap-1.5 mb-1.5">
-                        <span
-                          className="text-[10px] font-mono font-semibold text-slate-400 tracking-wide truncate"
-                          dir="ltr"
-                        >
-                          {p.sku}
-                        </span>
-                        {posDisplayMode === 'DATA_ONLY' && (
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-medium border shrink-0 ${warrantyBadgeClass}`}
-                          >
-                            ضمان {warrantyMonths} شهر
-                          </span>
-                        )}
-                      </div>
-
-                      <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 leading-snug mb-2 group-hover:text-blue-600 transition-colors line-clamp-2">
-                        {getProductDisplayName(p)}
-                      </h3>
-
-                      <div className="flex flex-wrap items-center gap-1 text-[10px] text-slate-500 mb-2.5">
-                        <span
-                          className="bg-slate-50 px-1.5 py-0.5 rounded-md border border-slate-100 font-mono truncate max-w-[110px]"
-                          dir="ltr"
-                        >
-                          {chip1}
-                        </span>
-                        <span className="bg-slate-50 px-1.5 py-0.5 rounded-md border border-slate-100 truncate max-w-[110px]">
-                          {chip2}
-                        </span>
-                        <button
-                          type="button"
-                          data-testid={`btn-probe-branches-${p.sku}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openCrossBranchModal(p.sku);
-                          }}
-                          className="sr-only"
-                          title="فحص توفر الصنف في باقي الفروع"
-                        >
-                          فحص الفروع
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="pt-2.5 border-t border-slate-100 flex items-end justify-between gap-1">
-                      <div>
-                        <span className="block text-[9px] sm:text-[10px] text-slate-400">
-                          السعر النقدي
-                        </span>
-                        <span className="text-sm sm:text-base font-black text-slate-900 font-mono" dir="ltr">
-                          {formatCleanNumber(p.salePrice)}{' '}
-                          <span className="text-[10px] font-normal text-slate-400">{currency}</span>
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] text-slate-500">
-                          المتوفر:{' '}
-                          <strong
-                            className={`font-mono ${
-                              p.stockQty <= p.reorderPoint ? 'text-rose-600' : 'text-slate-700'
-                            }`}
-                            dir="ltr"
-                          >
-                            {p.stockQty}
-                          </strong>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            addToPOSCart(p, 1);
-                          }}
-                          className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-slate-100 group-hover:bg-slate-900 text-slate-700 group-hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0"
-                        >
-                          <Plus className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+            {filteredProducts.length === 0 ? (
+              <div
+                data-testid="pos-empty-products-state"
+                className="bg-white rounded-2xl border border-dashed border-slate-300 p-8 sm:p-12 text-center space-y-3 my-4"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-500 flex items-center justify-center mx-auto">
+                  <Package className="w-6 h-6" />
                 </div>
-              );
-            })}
+                <div className="space-y-1">
+                  <h3 className="text-sm font-bold text-slate-900">
+                    {products.length === 0
+                      ? 'لا توجد أصناف مسجلة في المخزون بعد'
+                      : 'لا توجد أصناف مطابقة لنتائج البحث الحالية'}
+                  </h3>
+                  <p className="text-xs text-slate-500 max-w-md mx-auto">
+                    {products.length === 0
+                      ? 'ابدأ بإضافة أصنافك ومنتجاتك في إدارة المخزون لتظهر مباشرة في شاشة البيع السريع.'
+                      : 'جرّب مسح نص البحث أو اختيار التصنيف الشامل لعرض جميع الأصناف المتوفرة.'}
+                  </p>
+                </div>
+                <div className="flex items-center justify-center gap-2 pt-1">
+                  {products.length === 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('inventory')}
+                      className="px-4 py-2 haseb-btn-primary text-white rounded-xl text-xs font-bold cursor-pointer"
+                    >
+                      + الانتقال لإضافة أول صنف بالمخزون
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchTerm('');
+                        setSelectedCategory('all');
+                        setSelectedElectronicsSubCat('ALL');
+                      }}
+                      className="px-4 py-2 haseb-btn-primary text-white rounded-xl text-xs font-bold cursor-pointer"
+                    >
+                      عرض جميع الأصناف
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              filteredProducts.map((p) => {
+                const [chip1, chip2] = getProductSpecChips(p);
+                return (
+                  <POSProductCard
+                    key={p.id}
+                    product={p}
+                    inCartQuantity={cartQtyByProductId[p.id] || 0}
+                    displayMode={posDisplayMode}
+                    currency={currency}
+                    displayName={getProductDisplayName(p)}
+                    chip1={chip1}
+                    chip2={chip2}
+                    onAddToCart={handleAddProductToCart}
+                    onProbeBranches={handleProbeBranches}
+                    onUpdateProductImage={handleUpdateProductImage}
+                  />
+                );
+              })
+            )}
           </div>
         </div>
-
-        {/* Mobile Sticky Quick Cart Summary Bar (Only visible on < lg when viewing Catalog) */}
-        {posCart.length > 0 && (
-          <div
-            data-testid="pos-mobile-sticky-cart-bar"
-            className="lg:hidden shrink-0 bg-slate-900 text-white rounded-2xl p-3 flex items-center justify-between gap-3 shadow-xl border border-slate-800"
-          >
-            <div onClick={() => setMobilePosPane('CART')} className="cursor-pointer">
-              <div className="text-[10px] text-slate-300 font-medium">
-                سلة المبيعات ({posCart.reduce((s, i) => s + i.quantity, 0)} أصناف)
-              </div>
-              <div className="text-base font-black font-mono text-emerald-400" dir="ltr">
-                {formatCleanNumber(grandTotal)} {currency}
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setMobilePosPane('CART')}
-                className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold cursor-pointer"
-              >
-                مراجعة السلة
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setPaymentMethod('CASH');
-                  setCashTendered(grandTotal);
-                  setSplitCashAmount(Math.round((grandTotal / 2) * 100) / 100);
-                  setCardReference(`RRN-${Math.floor(100000 + Math.random() * 900000)}`);
-                  setIsQuickNumpadOpen(false);
-                  setIsCheckoutModalOpen(true);
-                }}
-                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-              >
-                <CreditCard className="w-3.5 h-3.5" />
-                <span>دفع فوري</span>
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* ====================================================================
           LEFT AREA: SALES CART & CHECKOUT DRAWER
-          - Hidden by default when empty (`posCart.length === 0` and `!isCartPinnedOpen`)
-          - Appears automatically & immediately as soon as any item is added (`posCart.length > 0`)
-          - Can be pinned open permanently (`isCartPinnedOpen`) or hidden when empty
+          - Desktop: Hidden by default when empty, pops open as soon as any item is added or pinned
+          - Mobile (< lg): Supports full CART view OR simultaneous SPLIT view
       ==================================================================== */}
       <aside
         data-testid="pos-cart-pane"
         data-cart-visibility-reason={cartVisibility.reason}
+        data-mobile-view-mode={mobilePosPane}
         className={`${
-          mobilePosPane === 'CART'
-            ? 'flex flex-1'
+          mobilePosLayout.isSplitViewOnMobile
+            ? cartVisibility.isVisible
+              ? 'flex flex-none h-[54%] lg:h-auto lg:flex'
+              : 'flex flex-none h-[54%] lg:hidden'
+            : mobilePosLayout.showCartOnMobile
+            ? cartVisibility.isVisible
+              ? 'flex flex-1 lg:flex-none lg:flex'
+              : 'flex flex-1 lg:hidden'
             : cartVisibility.isVisible
             ? 'hidden lg:flex'
             : 'hidden'
@@ -1518,7 +1376,7 @@ export const POSView: React.FC = () => {
                 data-testid="pos-cart-items-count-badge"
                 className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[11px] font-mono font-semibold"
               >
-                {posCart.reduce((s, i) => s + i.quantity, 0)} صنف
+                {cartTotalUnits} صنف
               </span>
             </div>
 
@@ -1586,11 +1444,7 @@ export const POSView: React.FC = () => {
               <button
                 type="button"
                 data-testid="pos-cart-beneficiary-tab-btn"
-                onClick={() => {
-                  setCustomerSearchQuery('');
-                  setIsCustomerPickerOpen(true);
-                  setTimeout(() => customerSearchInputRef.current?.focus(), 40);
-                }}
+                onClick={() => setIsCustomerPickerOpen(true)}
                 className="flex items-center gap-1.5 text-[11px] font-bold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100/80 px-2.5 py-1 rounded-lg border border-blue-200/80 transition cursor-pointer"
                 title="انقر هنا أو اضغط F8 لاختيار العميل المستفيد من قائمة العملاء"
               >
@@ -1699,109 +1553,15 @@ export const POSView: React.FC = () => {
             </div>
           ) : (
             posCart.map((item) => (
-              <div
+              <POSCartItemRow
                 key={item.productId}
-                className="pos-focus-group bg-slate-50/70 rounded-2xl p-3 border border-slate-200/70 space-y-2.5"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <h4 className="text-xs font-semibold text-slate-800 leading-snug">
-                      {item.sku === 'SOL-PNL-585W'
-                        ? 'لوح طاقة شمسية مونو كريستال Jinko Tiger Neo'
-                        : item.productName}
-                    </h4>
-                    <span className="text-[10px] text-slate-400 font-mono block mt-0.5" dir="ltr">
-                      {item.sku} • {formatCleanNumber(item.unitPrice)} {currency}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => removeFromPOSCart(item.productId)}
-                    className="text-slate-400 hover:text-rose-600 p-1 transition-colors cursor-pointer"
-                    title="حذف الصنف من السلة"
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                {/* Quantity Stepper & Line Total */}
-                <div className="flex items-center justify-between pt-1">
-                  <div className="flex items-center bg-white border border-slate-200/80 rounded-xl p-0.5">
-                    <button
-                      type="button"
-                      onClick={() => updatePOSCartQty(item.productId, item.quantity - 1)}
-                      className="w-6 h-6 rounded-lg hover:bg-slate-100 text-slate-600 flex items-center justify-center text-xs font-bold cursor-pointer"
-                    >
-                      -
-                    </button>
-                    <span
-                      className="w-8 text-center text-xs font-mono font-semibold text-slate-800"
-                      dir="ltr"
-                    >
-                      {item.quantity}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => updatePOSCartQty(item.productId, item.quantity + 1)}
-                      className="w-6 h-6 rounded-lg hover:bg-slate-100 text-slate-600 flex items-center justify-center text-xs font-bold cursor-pointer"
-                    >
-                      +
-                    </button>
-                  </div>
-                  <div className="text-left">
-                    <span className="text-sm font-bold text-slate-900 font-mono" dir="ltr">
-                      {formatCleanNumber(item.total)}{' '}
-                      <span className="text-[10px] font-normal text-slate-500">{currency}</span>
-                    </span>
-                  </div>
-                </div>
-
-                {/* Serial & Warranty Bar */}
-                <div className="bg-white rounded-xl p-2 border border-slate-200/60 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                    <span className="text-[10px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md shrink-0">
-                      ضمان {item.warrantyMonths ?? 144} شهر
-                    </span>
-                    <input
-                      type="text"
-                      data-testid={`pos-cart-serial-${item.productId}`}
-                      data-pos-field-id={`pos-cart-serial-${item.productId}`}
-                      value={item.serialNumber || ''}
-                      onFocus={(e) => {
-                        setActivePosFieldId(`pos-cart-serial-${item.productId}`);
-                        e.currentTarget.select();
-                      }}
-                      onChange={(e) =>
-                        updatePOSCartItemMeta(item.productId, { serialNumber: e.target.value })
-                      }
-                      placeholder="S/N أو IMEI..."
-                      dir="ltr"
-                      className="text-[11px] font-mono text-slate-600 bg-transparent border-none outline-hidden w-full text-left"
-                    />
-                    <select
-                      data-testid={`pos-cart-warranty-${item.productId}`}
-                      data-pos-field-id={`pos-cart-warranty-${item.productId}`}
-                      value={item.warrantyMonths ?? 144}
-                      onFocus={() => setActivePosFieldId(`pos-cart-warranty-${item.productId}`)}
-                      onChange={(e) =>
-                        updatePOSCartItemMeta(item.productId, {
-                          warrantyMonths: Number(e.target.value),
-                        })
-                      }
-                      aria-label="مدة الضمان بالشهور"
-                      className="sr-only"
-                    >
-                      <option value={12}>ضمان 12 شهر</option>
-                      <option value={24}>ضمان 24 شهر</option>
-                      <option value={36}>ضمان 36 شهر</option>
-                      <option value={60}>ضمان 60 شهر</option>
-                      <option value={120}>ضمان 120 شهر</option>
-                      <option value={144}>ضمان 144 شهر</option>
-                    </select>
-                  </div>
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                </div>
-              </div>
+                item={item}
+                currency={currency}
+                onRemove={handleRemoveCartItem}
+                onUpdateQty={handleUpdateCartQty}
+                onUpdateMeta={handleUpdateCartMeta}
+                onFocusField={handleFocusCartField}
+              />
             ))
           )}
 
@@ -1828,7 +1588,7 @@ export const POSView: React.FC = () => {
                   }}
                   className={`py-1.5 rounded-lg border text-[11px] font-mono font-medium transition-colors cursor-pointer disabled:opacity-40 ${
                     discountType === 'PERCENT' && discountValue === pct
-                      ? 'bg-slate-900 text-white border-slate-900'
+                      ? 'haseb-btn-primary'
                       : 'bg-white border-slate-200/80 text-slate-600 hover:border-slate-400'
                   }`}
                 >
@@ -1840,7 +1600,7 @@ export const POSView: React.FC = () => {
                 onClick={() => setIsDiscountPanelOpen((prev) => !prev)}
                 className={`py-1.5 rounded-lg border text-[11px] font-medium transition-colors cursor-pointer ${
                   isDiscountPanelOpen
-                    ? 'bg-slate-900 text-white border-slate-900'
+                    ? 'haseb-btn-primary'
                     : 'bg-white border-slate-200/80 text-slate-600 hover:border-slate-400'
                 }`}
               >
@@ -1857,7 +1617,7 @@ export const POSView: React.FC = () => {
                     data-testid="pos-discount-mode-percent"
                     onClick={() => setDiscountType('PERCENT')}
                     className={`px-2 py-0.5 rounded font-semibold cursor-pointer ${
-                      discountType === 'PERCENT' ? 'bg-slate-900 text-white' : 'text-slate-600'
+                      discountType === 'PERCENT' ? 'haseb-btn-primary' : 'text-slate-600'
                     }`}
                   >
                     نسبة (%)
@@ -1867,7 +1627,7 @@ export const POSView: React.FC = () => {
                     data-testid="pos-discount-mode-amount"
                     onClick={() => setDiscountType('AMOUNT')}
                     className={`px-2 py-0.5 rounded font-semibold cursor-pointer ${
-                      discountType === 'AMOUNT' ? 'bg-slate-900 text-white' : 'text-slate-600'
+                      discountType === 'AMOUNT' ? 'haseb-btn-primary' : 'text-slate-600'
                     }`}
                   >
                     مبلغ ({currency})
@@ -1929,9 +1689,13 @@ export const POSView: React.FC = () => {
           </div>
         </div>
 
-        {/* Cart Footer & Totals (Clean integers without .00) */}
-        <div className="p-4 pb-20 lg:pb-4 border-t border-slate-200/70 bg-slate-50/50 space-y-3.5">
-          <div className="space-y-1.5 text-xs">
+        {/* Cart Footer & Totals (Clears Mobile Bottom Dock + Bottom Nav seamlessly) */}
+        <div
+          className={`p-3 sm:p-4 border-t border-slate-200/70 bg-slate-50/50 space-y-2.5 sm:space-y-3.5 ${
+            mobilePosLayout.isSplitViewOnMobile ? 'pb-28 lg:pb-4' : 'pb-32 lg:pb-4'
+          }`}
+        >
+          <div className="space-y-1 text-xs">
             <div className="flex items-center justify-between text-slate-500">
               <span>المجموع الفرعي:</span>
               <span className="font-mono font-medium text-slate-700" dir="ltr">
@@ -1954,11 +1718,11 @@ export const POSView: React.FC = () => {
                 0 {currency}
               </span>
             </div>
-            <div className="pt-2 border-t border-slate-200/70 flex items-baseline justify-between">
+            <div className="pt-1.5 border-t border-slate-200/70 flex items-baseline justify-between">
               <span className="text-sm font-bold text-slate-900">الإجمالي المستحق:</span>
               <span
                 data-testid="pos-grand-total-display"
-                className="text-2xl font-bold text-slate-900 font-mono"
+                className="text-xl sm:text-2xl font-bold text-slate-900 font-mono"
                 dir="ltr"
               >
                 {formatCleanNumber(grandTotal)}{' '}
@@ -1968,7 +1732,7 @@ export const POSView: React.FC = () => {
           </div>
 
           {/* Primary Action Button */}
-          <div className="pt-1">
+          <div className="pt-0.5">
             <button
               type="button"
               data-testid="pos-checkout-btn"
@@ -1983,11 +1747,11 @@ export const POSView: React.FC = () => {
                 setIsQuickNumpadOpen(false);
                 setIsCheckoutModalOpen(true);
               }}
-              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold py-3 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 text-sm cursor-pointer disabled:opacity-40"
+              className="w-full haseb-btn-primary font-semibold py-2.5 sm:py-3 px-4 rounded-xl transition-all flex items-center justify-center gap-2 text-sm cursor-pointer disabled:opacity-40"
             >
               <CreditCard className="w-4 h-4" />
               <span>دفع وإصدار الفاتورة</span>
-              <kbd className="px-1.5 py-0.5 bg-white/15 rounded text-[10px] font-mono font-normal text-slate-200 mr-1">
+              <kbd className="px-1.5 py-0.5 bg-white/15 rounded text-[10px] font-mono font-normal text-white/90 mr-1">
                 F9
               </kbd>
             </button>
@@ -2042,514 +1806,33 @@ export const POSView: React.FC = () => {
       ==================================================================== */}
 
       {/* ====================================================================
-          SOLAR ENERGY, HYBRID INVERTER & BATTERY BANK SIZING CALCULATOR MODAL
+          SOLAR ENERGY, HYBRID INVERTER & BATTERY BANK SIZING CALCULATOR MODAL (LAZY)
       ==================================================================== */}
       {isSolarCalcOpen && (
-        <div
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setIsSolarCalcOpen(false);
-          }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4"
-        >
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-3xl overflow-hidden">
-            <div className="px-6 py-4 bg-slate-50/90 border-b border-slate-200/80 text-slate-900 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
-                  <Sun className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-sm text-slate-900">
-                    الحاسبة الهندسية لمنظومات الطاقة الشمسية والبطاريات والإنفرترات
-                  </h3>
-                  <p className="text-[11px] text-slate-500">
-                    حساب تلقائي لقدرة الإنفرتر الهجين، سعة بنك البطاريات (LiFePO4 / Gel)، وعدد الألواح الشمسية مع الإدراج المباشر للفاتورة
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsSolarCalcOpen(false)}
-                className="w-8 h-8 rounded-full border border-slate-200/80 bg-white hover:bg-slate-100 text-slate-500 hover:text-slate-900 flex items-center justify-center font-bold text-sm cursor-pointer transition"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="p-5 grid grid-cols-1 md:grid-cols-12 gap-5 text-xs">
-              {/* Inputs Column */}
-              <div className="md:col-span-6 space-y-3">
-                <div className="pos-focus-group p-2 rounded-md border border-transparent transition-all">
-                  <label className="block font-bold text-slate-700 mb-1">
-                    إجمالي الأحمال الكهربائية المستمرة (Continuous Load Watts):
-                  </label>
-                  <input
-                    type="number"
-                    autoFocus
-                    data-pos-modal-field="solar-peak-watts"
-                    data-testid="input-solar-peak-watts"
-                    value={peakLoadWatts}
-                    onFocus={(e) => e.currentTarget.select()}
-                    onChange={(e) => setPeakLoadWatts(Math.max(100, Number(e.target.value)))}
-                    className="w-full p-2 bg-slate-50 border border-slate-300 rounded-md font-mono tabular-nums font-bold text-slate-900"
-                    dir="ltr"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div className="pos-focus-group p-2 rounded-md border border-transparent transition-all">
-                    <label className="block font-bold text-slate-700 mb-1">
-                      ساعات التشغيل الاحتياطي (Backup Hours):
-                    </label>
-                    <input
-                      type="number"
-                      data-pos-modal-field="solar-autonomy-hours"
-                      value={autonomyHours}
-                      onFocus={(e) => e.currentTarget.select()}
-                      onChange={(e) => setAutonomyHours(Math.max(1, Number(e.target.value)))}
-                      className="w-full p-2 bg-slate-50 border border-slate-300 rounded-md font-mono tabular-nums font-bold text-slate-900"
-                      dir="ltr"
-                    />
-                  </div>
-                  <div className="p-2">
-                    <label className="block font-bold text-slate-700 mb-1">
-                      الطاقة المطلوبة يومياً (kWh):
-                    </label>
-                    <div
-                      className="w-full p-2 bg-slate-100 border border-slate-200 rounded-md font-mono tabular-nums font-bold text-slate-800"
-                      dir="ltr"
-                    >
-                      {solarSizingResult.dailyEnergyKwh} kWh / Day
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div className="pos-focus-group p-2 rounded-md border border-transparent transition-all">
-                    <label className="block font-bold text-slate-700 mb-1">
-                      جهد منظومة البطاريات (DC Bus):
-                    </label>
-                    <select
-                      data-pos-modal-field="solar-system-voltage"
-                      value={systemVoltage}
-                      onChange={(e) => setSystemVoltage(Number(e.target.value) as 12 | 24 | 48)}
-                      className="w-full p-2 bg-slate-50 border border-slate-300 rounded-md font-bold text-slate-900"
-                    >
-                      <option value={48}>48V DC (منظومات منازل ومشاريع)</option>
-                      <option value={24}>24V DC (منظومات متوسطة)</option>
-                      <option value={12}>12V DC (منظومات صغيرة)</option>
-                    </select>
-                  </div>
-                  <div className="pos-focus-group p-2 rounded-md border border-transparent transition-all">
-                    <label className="block font-bold text-slate-700 mb-1">
-                      نوع البطاريات (Chemistry):
-                    </label>
-                    <select
-                      data-pos-modal-field="solar-battery-chemistry"
-                      value={batteryChemistry}
-                      onChange={(e) =>
-                        setBatteryChemistry(e.target.value as 'LIFEPO4' | 'TUBULAR_GEL')
-                      }
-                      className="w-full p-2 bg-slate-50 border border-slate-300 rounded-md font-bold text-slate-900"
-                    >
-                      <option value="LIFEPO4">ليثيوم LiFePO4 (عمق تفريغ 85%)</option>
-                      <option value="TUBULAR_GEL">بطاريات جل أنبوبية Gel (عمق 55%)</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div className="pos-focus-group p-2 rounded-md border border-transparent transition-all">
-                    <label className="block font-bold text-slate-700 mb-1">
-                      قدرة اللوح الشمسي الواحد (Watts):
-                    </label>
-                    <select
-                      data-pos-modal-field="solar-panel-watts"
-                      value={panelRatingWatts}
-                      onChange={(e) => setPanelRatingWatts(Number(e.target.value))}
-                      className="w-full p-2 bg-slate-50 border border-slate-300 rounded-md font-mono font-bold text-slate-900"
-                    >
-                      <option value={585}>585W Jinko N-Type Bifacial</option>
-                      <option value={550}>550W Mono PERC Half-Cell</option>
-                      <option value={620}>620W Utility Bifacial</option>
-                    </select>
-                  </div>
-                  <div className="pos-focus-group p-2 rounded-md border border-transparent transition-all">
-                    <label className="block font-bold text-slate-700 mb-1">
-                      ساعات الذروة الشمسية (Sun Hours):
-                    </label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      data-pos-modal-field="solar-sun-hours"
-                      value={peakSunHours}
-                      onFocus={(e) => e.currentTarget.select()}
-                      onChange={(e) => setPeakSunHours(Math.max(3, Number(e.target.value)))}
-                      className="w-full p-2 bg-slate-50 border border-slate-300 rounded-md font-mono tabular-nums font-bold text-slate-900"
-                      dir="ltr"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Engineering Output Column */}
-              <div className="md:col-span-6 bg-slate-50 p-4 rounded-md border border-slate-200 flex flex-col justify-between space-y-3">
-                <div>
-                  <h4 className="font-bold text-slate-900 text-xs border-b border-slate-200 pb-2 mb-3">
-                    المواصفات الهندسية المحسوبة للمنظومة:
-                  </h4>
-
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <div className="bg-white p-2.5 rounded-md border border-slate-200">
-                      <div className="text-[10px] text-slate-500">قدرة الإنفرتر الهجين الموصى بها</div>
-                      <div
-                        data-testid="solar-result-inverter-kw"
-                        className="text-base font-bold font-mono tabular-nums text-slate-900 mt-0.5"
-                        dir="ltr"
-                      >
-                        {solarSizingResult.recommendedInverterKw} kW Hybrid
-                      </div>
-                      <div className="text-[10px] text-teal-700 font-semibold truncate">
-                        {solarSizingResult.recommendedInverterModel}
-                      </div>
-                    </div>
-
-                    <div className="bg-white p-2.5 rounded-md border border-slate-200">
-                      <div className="text-[10px] text-slate-500">مصفوفة الألواح الشمسية المطلوبة</div>
-                      <div
-                        data-testid="solar-result-panels-count"
-                        className="text-base font-bold font-mono tabular-nums text-teal-700 mt-0.5"
-                        dir="ltr"
-                      >
-                        {solarSizingResult.recommendedPanelCount} × {panelRatingWatts}W
-                      </div>
-                      <div className="text-[10px] text-slate-600 font-mono tabular-nums" dir="ltr">
-                        Total PV: {solarSizingResult.requiredSolarArrayKwp} kWp
-                      </div>
-                    </div>
-
-                    <div className="bg-white p-2.5 rounded-md border border-slate-200">
-                      <div className="text-[10px] text-slate-500">سعة بنك البطاريات الإجمالية</div>
-                      <div
-                        data-testid="solar-result-battery-kwh"
-                        className="text-base font-bold font-mono tabular-nums text-emerald-700 mt-0.5"
-                        dir="ltr"
-                      >
-                        {solarSizingResult.requiredBatteryStorageKwh} kWh
-                      </div>
-                      <div className="text-[10px] text-slate-600 font-mono tabular-nums" dir="ltr">
-                        {solarSizingResult.requiredBatteryAhAtSystemVoltage} Ah @ {systemVoltage}V
-                      </div>
-                    </div>
-
-                    <div className="bg-white p-2.5 rounded-md border border-slate-200">
-                      <div className="text-[10px] text-slate-500">عدد وحدات البطاريات القياسية</div>
-                      <div className="text-base font-bold font-mono tabular-nums text-slate-900 mt-0.5" dir="ltr">
-                        {solarSizingResult.recommendedBatteryUnits} Units
-                      </div>
-                      <div className="text-[10px] text-slate-600 truncate" dir="ltr">
-                        {solarSizingResult.recommendedBatteryUnitSpec}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsSolarCalcOpen(false)}
-                    className="px-3.5 py-2 rounded-md border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 font-bold cursor-pointer"
-                  >
-                    إغلاق
-                  </button>
-                  <button
-                    type="button"
-                    data-pos-modal-field="solar-apply-btn"
-                    data-testid="btn-apply-solar-kit-pos"
-                    onClick={handleApplySolarKitToCart}
-                    className="px-4 py-2 rounded-md bg-teal-600 hover:bg-teal-500 text-white font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                  >
-                    <Zap className="w-4 h-4" />
-                    <span>إدراج المنظومة الكاملة في سلة المبيعات</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <Suspense fallback={<POSModalLoadingFallback />}>
+          <POSSolarCalculatorModal
+            onApplyKit={handleApplySolarKitToCart}
+            onClose={() => setIsSolarCalcOpen(false)}
+          />
+        </Suspense>
       )}
 
       {/* ====================================================================
-          FAST & LIGHTWEIGHT BENEFICIARY CUSTOMER PICKER MODAL (Click Tab or F8)
+          FAST & LIGHTWEIGHT BENEFICIARY CUSTOMER PICKER MODAL (Click Tab or F8, LAZY)
       ==================================================================== */}
       {isCustomerPickerOpen && (
-        <div
-          data-testid="pos-customer-picker-modal"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setIsCustomerPickerOpen(false);
-          }}
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/65 backdrop-blur-xs p-0 sm:p-4"
-        >
-          <div className="bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-lg max-h-[88dvh] flex flex-col overflow-hidden">
-            {/* Header */}
-            <div className="px-4 sm:px-5 py-3.5 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between gap-2 shrink-0">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0">
-                  <Users className="w-4 h-4 text-emerald-400" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-bold text-xs sm:text-sm text-slate-900">
-                      اختيار العميل المستفيد للفاتورة
-                    </h3>
-                    <kbd className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-mono text-[10px] font-bold">
-                      F8
-                    </kbd>
-                  </div>
-                  <p className="text-[10px] text-slate-500">
-                    ابحث بالاسم أو رقم الجوال لتسجيل الفاتورة والضمان باسم العميل
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                data-testid="pos-customer-picker-close-btn"
-                onClick={() => setIsCustomerPickerOpen(false)}
-                className="w-8 h-8 rounded-full border border-slate-200 bg-white hover:bg-slate-100 text-slate-500 hover:text-slate-900 flex items-center justify-center font-bold cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Search Bar + Quick Add Toggle */}
-            <div className="p-3.5 border-b border-slate-100 space-y-2.5 shrink-0 bg-white">
-              <div className="flex items-center gap-2">
-                <div className="relative flex-1">
-                  <Search className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    ref={customerSearchInputRef}
-                    type="text"
-                    autoFocus
-                    data-testid="pos-customer-picker-search"
-                    value={customerSearchQuery}
-                    onChange={(e) => setCustomerSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        if (filteredPickerCustomers.length > 0 && customerSearchQuery.trim()) {
-                          handleSelectBeneficiaryCustomer(filteredPickerCustomers[0]);
-                        } else {
-                          handleSelectBeneficiaryCustomer({
-                            id: 'cust-pos-walkin',
-                            nameAr: DEFAULT_WALKIN_CUSTOMER_LABEL_AR,
-                            phone: '',
-                          });
-                        }
-                      }
-                    }}
-                    placeholder="ابحث باسم العميل، رقم الجوال، أو الكود ثم اضغط Enter..."
-                    className="w-full bg-slate-50 focus:bg-white border border-slate-200 focus:border-blue-600 rounded-xl py-2 pr-9 pl-3 text-xs font-semibold text-slate-900 outline-hidden transition"
-                  />
-                </div>
-                <button
-                  type="button"
-                  data-testid="pos-customer-picker-new-toggle"
-                  onClick={() => setIsQuickAddCustomerOpen((prev) => !prev)}
-                  className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 shrink-0 cursor-pointer transition"
-                >
-                  <UserPlus className="w-3.5 h-3.5" />
-                  <span>عميل جديد</span>
-                </button>
-              </div>
-
-              {/* Inline Quick Add Customer Mini-Form */}
-              {isQuickAddCustomerOpen && (
-                <form
-                  onSubmit={handleQuickCreateAndSelectCustomer}
-                  className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs"
-                >
-                  <div className="font-bold text-slate-800">تسجيل عميل جديد واعتماده للفاتورة فوراً:</div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <input
-                      type="text"
-                      required
-                      data-testid="pos-quick-new-customer-name"
-                      value={quickNewCustomerName}
-                      onChange={(e) => setQuickNewCustomerName(e.target.value)}
-                      placeholder="اسم العميل الرباعي أو المؤسسة *"
-                      className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 text-xs font-bold text-slate-900 outline-hidden focus:border-blue-600"
-                    />
-                    <input
-                      type="text"
-                      data-testid="pos-quick-new-customer-phone"
-                      value={quickNewCustomerPhone}
-                      onChange={(e) => setQuickNewCustomerPhone(e.target.value)}
-                      placeholder="رقم الجوال (+967...)"
-                      dir="ltr"
-                      className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 text-xs font-mono text-slate-900 outline-hidden focus:border-blue-600"
-                    />
-                  </div>
-                  <div className="flex justify-end gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setIsQuickAddCustomerOpen(false)}
-                      className="px-3 py-1 rounded-lg bg-white border border-slate-200 text-slate-600 font-bold cursor-pointer"
-                    >
-                      إلغاء
-                    </button>
-                    <button
-                      type="submit"
-                      data-testid="pos-quick-new-customer-save-btn"
-                      className="px-3.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold cursor-pointer"
-                    >
-                      حفظ واختيار العميل
-                    </button>
-                  </div>
-                </form>
-              )}
-            </div>
-
-            {/* Customers List */}
-            <div className="p-3 overflow-y-auto space-y-1.5 flex-1">
-              {/* Default Walk-in Cash Customer Option */}
-              <button
-                type="button"
-                data-testid="pos-customer-option-walkin"
-                onClick={() =>
-                  handleSelectBeneficiaryCustomer({
-                    id: 'cust-pos-walkin',
-                    nameAr: DEFAULT_WALKIN_CUSTOMER_LABEL_AR,
-                    phone: '',
-                  })
-                }
-                className={`w-full p-2.5 rounded-xl border text-right transition flex items-center justify-between gap-2 cursor-pointer ${
-                  selectedCustomerId === 'cust-pos-walkin' ||
-                  warrantyCustomerName === DEFAULT_WALKIN_CUSTOMER_LABEL_AR
-                    ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
-                    : 'bg-slate-50/80 hover:bg-slate-100 text-slate-800 border-slate-200/80'
-                }`}
-              >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div
-                    className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${
-                      selectedCustomerId === 'cust-pos-walkin'
-                        ? 'bg-emerald-500 text-white'
-                        : 'bg-white text-slate-700 border border-slate-200'
-                    }`}
-                  >
-                    نقد
-                  </div>
-                  <div className="min-w-0">
-                    <div className="font-bold text-xs truncate">
-                      {DEFAULT_WALKIN_CUSTOMER_LABEL_AR} (الافتراضي)
-                    </div>
-                    <div
-                      className={`text-[10px] ${
-                        selectedCustomerId === 'cust-pos-walkin' ? 'text-slate-300' : 'text-slate-500'
-                      }`}
-                    >
-                      مبيعات نقدية فورية مباشرة بدون ذمم آجلة
-                    </div>
-                  </div>
-                </div>
-                <span
-                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
-                    selectedCustomerId === 'cust-pos-walkin'
-                      ? 'bg-emerald-500/20 text-emerald-300'
-                      : 'bg-emerald-50 text-emerald-700'
-                  }`}
-                >
-                  افتراضي
-                </span>
-              </button>
-
-              {/* Filtered Registered Customers */}
-              {filteredPickerCustomers.map((cust) => {
-                const isSelected =
-                  selectedCustomerId === cust.id &&
-                  warrantyCustomerName !== DEFAULT_WALKIN_CUSTOMER_LABEL_AR;
-                return (
-                  <button
-                    key={cust.id}
-                    type="button"
-                    data-testid={`pos-customer-option-${cust.id}`}
-                    onClick={() => handleSelectBeneficiaryCustomer(cust)}
-                    className={`w-full p-2.5 rounded-xl border text-right transition flex items-center justify-between gap-2 cursor-pointer ${
-                      isSelected
-                        ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                        : 'bg-white hover:bg-slate-50 text-slate-800 border-slate-200/80'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div
-                        className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${
-                          isSelected
-                            ? 'bg-white/20 text-white'
-                            : 'bg-slate-100 text-slate-700'
-                        }`}
-                      >
-                        {(cust.nameAr || cust.name || 'ع').slice(0, 2)}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="font-bold text-xs truncate">
-                          {language === 'ar' ? cust.nameAr : cust.name}
-                        </div>
-                        <div
-                          className={`text-[10px] font-mono flex items-center gap-2 ${
-                            isSelected ? 'text-blue-100' : 'text-slate-500'
-                          }`}
-                          dir="ltr"
-                        >
-                          <span>{cust.phone}</span>
-                          {cust.code && <span>• {cust.code}</span>}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="text-left shrink-0">
-                      <div
-                        className={`text-[10px] font-mono font-bold ${
-                          isSelected
-                            ? 'text-white'
-                            : (cust.balance || 0) > 0
-                            ? 'text-amber-700'
-                            : 'text-emerald-700'
-                        }`}
-                        dir="ltr"
-                      >
-                        {formatCleanNumber(cust.balance || 0)} {currency}
-                      </div>
-                      <div
-                        className={`text-[9px] ${
-                          isSelected ? 'text-blue-100' : 'text-slate-400'
-                        }`}
-                      >
-                        الرصيد الحالي
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-
-              {filteredPickerCustomers.length === 0 && (
-                <div className="py-6 text-center text-xs text-slate-400">
-                  لا يوجد عميل مطابق للبحث &quot;{customerSearchQuery}&quot; — اضغط على &quot;عميل جديد&quot; لإضافته فوراً
-                </div>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-200/80 flex items-center justify-between text-[11px] text-slate-500 shrink-0">
-              <span>إجمالي العملاء المسجلين: {customers.length} عميل</span>
-              <button
-                type="button"
-                onClick={() => setIsCustomerPickerOpen(false)}
-                className="px-4 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold cursor-pointer"
-              >
-                إغلاق
-              </button>
-            </div>
-          </div>
-        </div>
+        <Suspense fallback={<POSModalLoadingFallback />}>
+          <POSCustomerPickerModal
+            customers={customers}
+            selectedCustomerId={selectedCustomerId}
+            warrantyCustomerName={warrantyCustomerName}
+            language={language}
+            currency={currency}
+            onSelectCustomer={handleSelectBeneficiaryCustomer}
+            onQuickCreateCustomer={handleQuickCreateAndSelectCustomer}
+            onClose={() => setIsCustomerPickerOpen(false)}
+          />
+        </Suspense>
       )}
 
       {/* ====================================================================
@@ -2571,8 +1854,8 @@ export const POSView: React.FC = () => {
             {/* Sticky Header */}
             <div className="px-4 sm:px-5 py-3.5 bg-slate-50/95 border-b border-slate-200/80 text-slate-900 flex items-center justify-between gap-2 shrink-0">
               <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
-                  <CreditCard className="w-4 h-4 text-emerald-400" />
+                <div className="w-9 h-9 rounded-xl haseb-card-gradient text-white flex items-center justify-center shrink-0">
+                  <CreditCard className="w-4 h-4 text-white" />
                 </div>
                 <div className="min-w-0">
                   <h3 className="font-bold text-xs sm:text-sm text-slate-900 truncate">
@@ -2583,7 +1866,7 @@ export const POSView: React.FC = () => {
                       {warrantyCustomerName.trim() || DEFAULT_WALKIN_CUSTOMER_LABEL_AR}
                     </span>
                     <span>•</span>
-                    <span>{posCart.reduce((s, i) => s + i.quantity, 0)} أصناف</span>
+                    <span>{cartTotalUnits} أصناف</span>
                   </div>
                 </div>
               </div>
@@ -2592,10 +1875,7 @@ export const POSView: React.FC = () => {
                 <button
                   type="button"
                   data-testid="pos-checkout-beneficiary-btn"
-                  onClick={() => {
-                    setCustomerSearchQuery('');
-                    setIsCustomerPickerOpen(true);
-                  }}
+                  onClick={() => setIsCustomerPickerOpen(true)}
                   className="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition"
                   title="تغيير العميل المستفيد (F8)"
                 >
@@ -2616,12 +1896,12 @@ export const POSView: React.FC = () => {
             {/* Scrollable Body */}
             <div className="p-3.5 sm:p-5 space-y-3.5 text-xs overflow-y-auto flex-1">
               {/* Compact Financial Summary Strip */}
-              <div className="p-3.5 rounded-2xl bg-slate-900 text-white flex items-center justify-between gap-3 shadow-xs">
+              <div className="p-3.5 rounded-2xl haseb-card-gradient text-white flex items-center justify-between gap-3">
                 <div className="space-y-0.5">
-                  <div className="text-[10px] text-slate-300 font-semibold">
+                  <div className="text-[10px] text-white/80 font-semibold">
                     صافي الفاتورة المستحق للسداد:
                   </div>
-                  <div className="flex items-center gap-2 text-[10px] text-slate-300">
+                  <div className="flex items-center gap-2 text-[10px] text-white/85">
                     <span>
                       الفرعي:{' '}
                       <strong className="font-mono text-white" dir="ltr">
@@ -2629,16 +1909,16 @@ export const POSView: React.FC = () => {
                       </strong>
                     </span>
                     {couponDiscountAmount > 0 && (
-                      <span className="text-amber-300 font-bold">
+                      <span className="text-amber-200 font-bold">
                         خصم: -{formatCleanNumber(couponDiscountAmount)}
                       </span>
                     )}
                   </div>
                 </div>
                 <div className="text-left" dir="ltr">
-                  <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-emerald-400">
+                  <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-white">
                     {formatCleanNumber(grandTotal)}{' '}
-                    <span className="text-xs font-bold text-white">{currency}</span>
+                    <span className="text-xs font-bold text-white/85">{currency}</span>
                   </div>
                 </div>
               </div>
@@ -2682,7 +1962,7 @@ export const POSView: React.FC = () => {
                         }}
                         className={`p-2.5 sm:p-3 rounded-xl border text-start transition cursor-pointer flex flex-col justify-between ${
                           isSelected
-                            ? 'bg-slate-900 text-white border-slate-900 shadow-xs ring-2 ring-slate-900/10'
+                            ? 'haseb-nav-active'
                             : 'bg-white border-slate-200 text-slate-800 hover:border-slate-300 hover:bg-slate-50'
                         }`}
                       >
@@ -2980,9 +2260,9 @@ export const POSView: React.FC = () => {
                   type="button"
                   data-pos-modal-field="checkout-confirm-a4"
                   onClick={() => handlePerformCheckout(true)}
-                  className="px-3.5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-2xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="px-3.5 py-2.5 haseb-btn-primary font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
                 >
-                  <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <ShieldCheck className="w-4 h-4 shrink-0" />
                   <span>إصدار مع شهادة ضمان A4</span>
                 </button>
                 <button
@@ -3012,10 +2292,10 @@ export const POSView: React.FC = () => {
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-2 sm:p-4"
         >
           <div className="bg-slate-50 rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-4xl max-h-[92vh] overflow-hidden flex flex-col">
-            {/* Top Template Switcher Toolbar (Lumina POS Theme) */}
+            {/* Top Template Switcher Toolbar */}
             <div className="px-4 sm:px-6 py-4 bg-white border-b border-slate-200/80 text-slate-900 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                <div className="w-10 h-10 rounded-xl haseb-card-gradient text-white flex items-center justify-center shrink-0">
                   <Printer className="w-5 h-5" />
                 </div>
                 <div>
@@ -3030,13 +2310,20 @@ export const POSView: React.FC = () => {
 
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
                 {[
-                  { mode: 'a4', tpl: 'a4_onyx_yemen', label: 'A4 النموذج اليمني المعتمد' },
-                  { mode: 'a4', tpl: 'a4_global_sap_odoo', label: 'A4 النموذج التجاري الدولي' },
-                  { mode: 'a4', tpl: 'a4_warranty_electronics', label: 'A4 شهادة ضمان رسمية' },
-                  { mode: 'thermal', tpl: 'thermal_80mm_onyx_pos', label: 'حراري 80mm النموذج اليمني' },
-                  { mode: 'thermal', tpl: 'thermal_80mm_warranty', label: 'حراري 80mm ضمان وسيريال' },
+                  { mode: 'a4', tpl: 'a4_onyx_yemen', label: 'A4 اليمني المعتمد' },
+                  { mode: 'a4', tpl: 'a4_global_sap_odoo', label: 'A4 التجاري الدولي' },
+                  { mode: 'a4', tpl: 'a4_warranty_electronics', label: 'A4 شهادة ضمان' },
+                  { mode: 'a4', tpl: 'a4_corporate_classic', label: 'A4 مؤسسية' },
+                  { mode: 'a4', tpl: 'a4_modern_blue', label: 'A4 أزرق عصري' },
+                  { mode: 'a4', tpl: 'a4_contracting_specs', label: 'A4 مقاولات' },
+                  { mode: 'a4', tpl: 'a4_medical_pharmacy', label: 'A4 طبي FEFO' },
+                  { mode: 'a4', tpl: 'a4_minimalist_clean', label: 'A4 مينيمل' },
+                  { mode: 'thermal', tpl: 'thermal_80mm_onyx_pos', label: 'حراري 80mm اليمني' },
+                  { mode: 'thermal', tpl: 'thermal_80mm_warranty', label: 'حراري 80mm ضمان' },
                   { mode: 'thermal', tpl: 'thermal_80mm_standard', label: 'حراري 80mm قياسي' },
-                  { mode: 'a4', tpl: 'a4_corporate_classic', label: 'فاتورة A4 مؤسسية' },
+                  { mode: 'thermal', tpl: 'thermal_80mm_modern', label: 'حراري 80mm عصري' },
+                  { mode: 'thermal', tpl: 'thermal_80mm_minimal', label: 'حراري 80mm مينيمل' },
+                  { mode: 'thermal', tpl: 'thermal_80mm_restaurant', label: 'حراري 80mm مطاعم' },
                   { mode: 'thermal', tpl: 'thermal_58mm_compact', label: 'حراري 58mm مضغوط' },
                 ].map((opt) => (
                   <button
@@ -3058,39 +2345,59 @@ export const POSView: React.FC = () => {
                       (receiptViewMode === 'a4' &&
                         (selectedA4Override || invoiceTemplateSettings.standardTemplate) ===
                           opt.tpl)
-                        ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
+                        ? 'haseb-nav-active'
                         : 'bg-white text-slate-600 border-slate-200/80 hover:border-slate-300 hover:bg-slate-50'
                     }`}
                   >
                     {opt.label}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsReceiptModalOpen(false);
+                    setActiveTab('settings');
+                    setTimeout(() => window.dispatchEvent(new CustomEvent('haseb-open-invoice-studio')), 40);
+                  }}
+                  className="px-3 py-1.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 font-bold cursor-pointer transition"
+                >
+                  تخصيص القالب والألوان
+                </button>
               </div>
             </div>
 
-            {/* Scrollable Invoice Renderer */}
+            {/* Scrollable Invoice Renderer (Lazy-loaded) */}
             <div className="flex-1 overflow-y-auto p-3 sm:p-6">
-              <InvoiceRenderer
-                invoice={completedInvoice}
-                mode={receiptViewMode}
-                thermalTemplate={selectedThermalOverride}
-                standardTemplate={selectedA4Override}
-                settings={invoiceTemplateSettings}
-                companyName={company.nameAr || currentTenant.legalName}
-                companyNameEn={company.name}
-                companyLogo={company.logo}
-                taxNumber={company.taxNumber || '300059281900003'}
-                branchName={currentBranch.nameAr}
-                branchAddress={currentBranch.city}
-                branchPhone={currentBranch.phone}
-                currency={currency}
-              />
+              <Suspense
+                fallback={
+                  <div className="py-12 text-center text-xs font-bold text-slate-500">
+                    جاري تحميل معاينة الفاتورة...
+                  </div>
+                }
+              >
+                <InvoiceRenderer
+                  invoice={completedInvoice}
+                  mode={receiptViewMode}
+                  thermalTemplate={selectedThermalOverride}
+                  standardTemplate={selectedA4Override}
+                  settings={invoiceTemplateSettings}
+                  companyName={company.nameAr || currentTenant.legalName}
+                  companyNameEn={company.name}
+                  companyLogo={company.logo}
+                  taxNumber={company.taxNumber || '—'}
+                  branchName={currentBranch.nameAr}
+                  branchAddress={currentBranch.city}
+                  branchPhone={currentBranch.phone}
+                  currency={currency}
+                />
+              </Suspense>
             </div>
 
             {/* Bottom Actions */}
             <div className="p-4 bg-white border-t border-slate-200 flex flex-wrap justify-between items-center gap-2">
               <button
                 type="button"
+                data-testid="pos-receipt-close-btn"
                 onClick={() => setIsReceiptModalOpen(false)}
                 className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-md text-xs transition cursor-pointer"
               >
@@ -3106,7 +2413,7 @@ export const POSView: React.FC = () => {
                       channel: 'WHATSAPP',
                       category: 'INVOICE',
                       recipientName: completedInvoice.customerName,
-                      recipientPhone: matchedCust?.phone || '+967 771 445 880',
+                      recipientPhone: matchedCust?.phone || completedInvoice.customerPhone || '',
                       referenceNumber: completedInvoice.invoiceNumber,
                       messageBody: composeInvoiceMessageText({
                         invoice: completedInvoice,
@@ -3130,7 +2437,7 @@ export const POSView: React.FC = () => {
                       channel: 'SMS',
                       category: 'INVOICE',
                       recipientName: completedInvoice.customerName,
-                      recipientPhone: matchedCust?.phone || '+967 771 445 880',
+                      recipientPhone: matchedCust?.phone || completedInvoice.customerPhone || '',
                       referenceNumber: completedInvoice.invoiceNumber,
                       messageBody: composeInvoiceMessageText({
                         invoice: completedInvoice,
@@ -3161,7 +2468,7 @@ export const POSView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-md text-xs flex items-center gap-2 transition cursor-pointer"
+                  className="px-5 py-2 haseb-btn-primary font-bold rounded-md text-xs flex items-center gap-2 transition cursor-pointer"
                 >
                   <Printer className="w-4 h-4" />
                   <span>طباعة الفاتورة وشهادة الضمان</span>
@@ -3185,7 +2492,7 @@ export const POSView: React.FC = () => {
           <div className="bg-white text-slate-900 rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-4xl overflow-hidden">
             <div className="px-6 py-4 bg-slate-50/90 border-b border-slate-200/80 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                <div className="w-10 h-10 rounded-xl haseb-card-gradient text-white flex items-center justify-center shrink-0">
                   <ChefHat className="w-5 h-5" />
                 </div>
                 <h3 className="font-bold text-base text-slate-900">
@@ -3282,7 +2589,7 @@ export const POSView: React.FC = () => {
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-md overflow-hidden">
             <div className="px-5 py-4 bg-slate-50/90 border-b border-slate-200/80 text-slate-900 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                <div className="w-10 h-10 rounded-xl haseb-card-gradient text-white flex items-center justify-center shrink-0">
                   <Lock className="w-4 h-4" />
                 </div>
                 <div>
@@ -3474,7 +2781,7 @@ export const POSView: React.FC = () => {
                           : 'تم إغلاق وتسليم وردية الكاشير بنجاح (Z-Report)'
                       );
                     }}
-                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg shadow-2xs transition cursor-pointer"
+                    className="px-4 py-2 haseb-btn-primary font-bold rounded-lg transition cursor-pointer"
                   >
                     {autoOpenNewShift
                       ? 'إغلاق الوردية وبدء وردية جديدة'
@@ -3487,17 +2794,110 @@ export const POSView: React.FC = () => {
         </div>
       )}
 
-      {/* Live Camera Barcode & QR Scanner Modal */}
+      {/* ====================================================================
+          MOBILE / TABLET BOTTOM-DOCKED CART & SPLIT-VIEW BAR (< lg)
+          Anchored ergonomically above mobile bottom navigation
+      ==================================================================== */}
+      <div
+        data-testid="pos-mobile-bottom-dock"
+        className="lg:hidden fixed bottom-14 inset-x-0 z-30 px-2.5 py-2 bg-white/95 dark:bg-[#0B111E]/95 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-800 shadow-[0_-8px_24px_-8px_rgba(15,23,42,0.12)] flex items-center justify-between gap-2"
+      >
+        {/* 3-Way Mode Switcher: Catalog | Split-View | Cart */}
+        <div className="grid grid-cols-3 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl gap-1 flex-1 min-w-0">
+          <button
+            type="button"
+            data-testid="pos-mobile-tab-catalog"
+            onClick={() => setMobilePosPane('CATALOG')}
+            className={`min-h-[38px] px-2 py-1 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition cursor-pointer whitespace-nowrap ${
+              mobilePosPane === 'CATALOG'
+                ? 'haseb-nav-active'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+            }`}
+          >
+            <LayoutGrid className="w-3.5 h-3.5 shrink-0" />
+            <span>المنتجات</span>
+          </button>
+
+          <button
+            type="button"
+            data-testid="pos-mobile-tab-split"
+            onClick={() => setMobilePosPane('SPLIT')}
+            className={`min-h-[38px] px-2 py-1 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition cursor-pointer whitespace-nowrap ${
+              mobilePosPane === 'SPLIT'
+                ? 'haseb-nav-active'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+            }`}
+          >
+            <Columns2 className="w-3.5 h-3.5 shrink-0" />
+            <span>تقسيم</span>
+          </button>
+
+          <button
+            type="button"
+            data-testid="pos-mobile-tab-cart"
+            onClick={() => setMobilePosPane('CART')}
+            className={`min-h-[38px] px-2 py-1 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition cursor-pointer whitespace-nowrap ${
+              mobilePosPane === 'CART'
+                ? 'haseb-nav-active'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+            }`}
+          >
+            <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
+            <span>السلة</span>
+            <span
+              data-testid="pos-mobile-dock-cart-badge"
+              className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                mobilePosPane === 'CART'
+                  ? 'bg-white/25 text-white'
+                  : cartTotalUnits > 0
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-slate-200 text-slate-700'
+              }`}
+            >
+              {cartTotalUnits}
+            </span>
+          </button>
+        </div>
+
+        {/* Live Total + Fast Checkout CTA */}
+        <button
+          type="button"
+          data-testid="pos-mobile-dock-checkout-btn"
+          disabled={posCart.length === 0}
+          onClick={() => {
+            if (posCart.length === 0) return;
+            setPaymentMethod('CASH');
+            setCashTendered(grandTotal);
+            setSplitCashAmount(Math.round((grandTotal / 2) * 100) / 100);
+            setCardReference(`RRN-${Math.floor(100000 + Math.random() * 900000)}`);
+            setIsQuickNumpadOpen(false);
+            setIsCheckoutModalOpen(true);
+          }}
+          className="min-h-[40px] px-3 py-1.5 rounded-xl haseb-btn-primary font-bold text-xs flex items-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-45"
+        >
+          <CreditCard className="w-3.5 h-3.5 shrink-0" />
+          <span>{posCart.length > 0 ? formatCleanNumber(grandTotal) : 'دفع'}</span>
+          {posCart.length > 0 && <span className="text-[10px] opacity-90">{currency}</span>}
+        </button>
+      </div>
+
+      {/* Live Camera Barcode & QR Scanner Modal (Lazy-loaded) */}
       {isCameraScannerOpen && (
-        <CameraBarcodeScannerModal
-          isOpen={isCameraScannerOpen}
-          onClose={() => setIsCameraScannerOpen(false)}
-          onScan={handleCameraBarcodeScan}
-          onBatchScanComplete={handleCameraBatchScanComplete}
-          contextMode="POS"
-          title="مسح الباركود والكود بالكاميرا - نقطة البيع"
-        />
+        <Suspense fallback={<POSModalLoadingFallback />}>
+          <CameraBarcodeScannerModal
+            isOpen={isCameraScannerOpen}
+            onClose={() => setIsCameraScannerOpen(false)}
+            onScan={handleCameraBarcodeScan}
+            onBatchScanComplete={handleCameraBatchScanComplete}
+            contextMode="POS"
+            title="مسح الباركود والكود بالكاميرا - نقطة البيع"
+          />
+        </Suspense>
       )}
     </div>
   );
-};
+});
+
+POSView.displayName = 'POSView';
+export default POSView;
+

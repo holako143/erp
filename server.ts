@@ -15,13 +15,11 @@ import { parseStructuredVendorInvoiceText } from './src/core/inventoryEngine';
 import {
   createInitialWhatsAppSession,
   generatePairingQRToken,
-  SEED_WHATSAPP_CHATS,
-  SEED_WHATSAPP_ACCOUNTS,
+  createCleanWhatsAppDefaultAccount,
   createNewWhatsAppAccountInstance,
   appendMessageToWhatsAppChats,
   createDefaultUsbConnectedDevice,
   runUsbAutoDiagnostics,
-  SEED_BRANCH_NODES,
   calculateCrossBranchStockMatrix,
   createInterBranchTransferDocAndJournal,
   generateUniqueWhatsAppMessageId,
@@ -31,11 +29,6 @@ import {
   classifyWhatsAppBotIntent,
   BotIntentCategory,
 } from './src/core/whatsappAiBotEngine';
-import {
-  SEED_PRODUCTS,
-  SEED_CUSTOMERS,
-  SEED_SALES_INVOICES,
-} from './src/data/seedData';
 import {
   ActivationServerManager,
   createOfficialLicenseRecord,
@@ -69,8 +62,7 @@ export const activationAuthority =
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
-// Universal Local Area Network (LAN) CORS & Multi-Device Access Headers
-// Allows any device on the local network (PC, Phone, Tablet, POS Terminal) to access the API seamlessly
+// Universal Local Area Network (LAN) CORS & Safe Security Headers (iframe-friendly)
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -79,6 +71,9 @@ app.use((req, res, next) => {
     'Content-Type, Authorization, x-asf-license-token, x-asf-trial-device'
   );
   res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(self), microphone=()');
   if (req.method === 'OPTIONS') {
     res.status(204).end();
     return;
@@ -90,7 +85,7 @@ app.use((req, res, next) => {
 const DATA_DIR = path.resolve(process.cwd(), '.data');
 const DB_FILE = path.join(DATA_DIR, 'erp_store.json');
 const TMP_DB_FILE = path.join(DATA_DIR, 'erp_store.json.tmp');
-const CURRENT_SCHEMA_VERSION = '7.0-haseb-yemen-banks';
+const CURRENT_SCHEMA_VERSION = '8.0-haseb-clean-production';
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -102,24 +97,33 @@ let memoryStore: Record<string, any> | null = null;
 let dbRevision = 1;
 let isFlushingToDisk = false;
 let pendingFlush = false;
+const sseClients = new Set<express.Response>();
 
-// Initialize Local SQLite WAL Engine & In-Memory Cache on startup
+function broadcastSseRevision(rev: number, reason = 'state_update') {
+  const payload = JSON.stringify({
+    dbRevision: rev,
+    reason,
+    serverTimestampMs: Date.now(),
+  });
+  for (const client of sseClients) {
+    try {
+      client.write(`event: revision\ndata: ${payload}\n\n`);
+    } catch {
+      sseClients.delete(client);
+    }
+  }
+}
+
+// Initialize Local SQLite WAL Engine & In-Memory Cache on startup (Clean Boot without demo records)
 try {
   const sqliteLoaded = localSqliteEngine.loadPrimaryState(CURRENT_SCHEMA_VERSION);
-  if (
-    sqliteLoaded.state &&
-    Array.isArray(sqliteLoaded.state.products) &&
-    sqliteLoaded.state.products.some((p: any) => p.sku === 'SOL-PNL-585W')
-  ) {
+  if (sqliteLoaded.state && typeof sqliteLoaded.state === 'object') {
     memoryStore = sqliteLoaded.state;
     dbRevision = sqliteLoaded.revision;
   } else if (fs.existsSync(DB_FILE)) {
     const raw = fs.readFileSync(DB_FILE, 'utf-8');
     const parsed = JSON.parse(raw);
-    const hasSolarCatalog =
-      Array.isArray(parsed?.products) &&
-      parsed.products.some((p: any) => p.sku === 'SOL-PNL-585W');
-    if (parsed?.schemaVersion === CURRENT_SCHEMA_VERSION && hasSolarCatalog) {
+    if (parsed && parsed.schemaVersion === CURRENT_SCHEMA_VERSION) {
       memoryStore = parsed;
       dbRevision = Number(parsed.dbRevision) || 1;
       localSqliteEngine.savePrimaryStateTransaction(
@@ -131,19 +135,6 @@ try {
       fs.unlinkSync(DB_FILE);
       memoryStore = null;
     }
-  }
-
-  // Ensure initial relational SQL tables (erp_products, erp_sales_invoices, erp_customers, erp_serial_registry) are populated on first boot
-  if (!memoryStore) {
-    localSqliteEngine.savePrimaryStateTransaction(
-      {
-        products: SEED_PRODUCTS,
-        customers: SEED_CUSTOMERS,
-        salesInvoices: SEED_SALES_INVOICES,
-      },
-      CURRENT_SCHEMA_VERSION,
-      1
-    );
   }
 } catch (err) {
   console.error('[Haseb Local SQLite DB] Startup cache init notice:', err);
@@ -194,6 +185,7 @@ function writeServerDB(data: Record<string, any>): number {
     dbRevision,
     lastSyncedAt: new Date().toISOString(),
   };
+  broadcastSseRevision(dbRevision, 'state_commit');
   // Trigger non-blocking atomic SQLite WAL + disk persistence
   flushMemoryStoreToDiskAsync().catch(() => {});
   return dbRevision;
@@ -441,6 +433,16 @@ app.get('/api/v1/hardware/windows-scanner.bat', (_req, res) => {
 
 // 1c-2. Downloadable 1-Click Windows Native Desktop Application Launcher & LAN Firewall Enabler (.bat)
 app.get('/api/v1/desktop/windows-launcher.bat', (_req, res) => {
+  const nets = os.networkInterfaces();
+  const lanIps: string[] = [];
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name] || []) {
+      if (!net.internal && net.family === 'IPv4' && net.address) {
+        lanIps.push(net.address);
+      }
+    }
+  }
+  const lanHintUrl = lanIps[0] ? `http://${lanIps[0]}:${PORT}` : `http://YOUR-PC-LAN-IP:${PORT}`;
   const batContent = [
     '@echo off',
     'chcp 65001 >nul',
@@ -452,7 +454,8 @@ app.get('/api/v1/desktop/windows-launcher.bat', (_req, res) => {
     'echo.',
     'echo [1/3] Enabling Local Area Network (LAN) Access on Windows Firewall (TCP Port 3000)...',
     'netsh advfirewall firewall add rule name="Haseb ERP LAN Server (Port 3000)" dir=in action=allow protocol=TCP localport=3000 >nul 2>&1',
-    'echo       [OK] Port 3000 is open for Phones, Tablets, and Secondary PCs on your Wi-Fi/LAN.',
+    `echo       [OK] Port ${PORT} is open for Phones, Tablets, and Secondary PCs on your Wi-Fi/LAN.`,
+    `echo       [LAN URL] Open from any phone/tablet on same Wi-Fi: ${lanHintUrl}`,
     'echo.',
     'echo [2/3] Creating Native Windows Desktop Shortcut (حاسب ERP)...',
     'powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([Environment]::GetFolderPath(\'Desktop\') + \'\\Haseb ERP - حاسب.lnk\'); $edge = \'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe\'; if (!(Test-Path $edge)) { $edge = \'msedge.exe\' }; $s.TargetPath = $edge; $s.Arguments = \'--app=http://localhost:3000 --start-maximized\'; $s.Description = \'Haseb Enterprise ERP Desktop Application\'; $s.Save()" >nul 2>&1',
@@ -542,6 +545,93 @@ app.post('/api/v1/licensing/activate', (req, res) => {
   res.json(activationResult);
 });
 
+// Persistent DRM Anti-Replay & Monotonic Clock Guard (.data/drm_guard.json)
+const DRM_GUARD_FILE = path.join(DATA_DIR, 'drm_guard.json');
+interface ServerDrmGuardState {
+  usedSerialTokens: string[];
+  maxObservedClockMs: number;
+  boundRequestCode: string | null;
+}
+let serverDrmGuard: ServerDrmGuardState = (() => {
+  try {
+    if (fs.existsSync(DRM_GUARD_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(DRM_GUARD_FILE, 'utf-8'));
+      return {
+        usedSerialTokens: Array.isArray(parsed.usedSerialTokens) ? parsed.usedSerialTokens : [],
+        maxObservedClockMs: Math.max(Number(parsed.maxObservedClockMs) || 0, Date.now()),
+        boundRequestCode: typeof parsed.boundRequestCode === 'string' ? parsed.boundRequestCode : null,
+      };
+    }
+  } catch {
+    // ignore read errors
+  }
+  return {
+    usedSerialTokens: [],
+    maxObservedClockMs: Date.now(),
+    boundRequestCode: null,
+  };
+})();
+
+function saveServerDrmGuard() {
+  try {
+    serverDrmGuard.maxObservedClockMs = Math.max(serverDrmGuard.maxObservedClockMs, Date.now());
+    fs.writeFileSync(DRM_GUARD_FILE, JSON.stringify(serverDrmGuard, null, 2), 'utf-8');
+  } catch {
+    // ignore write error
+  }
+}
+
+app.get('/api/v1/security/drm-status', (_req, res) => {
+  serverDrmGuard.maxObservedClockMs = Math.max(serverDrmGuard.maxObservedClockMs, Date.now());
+  saveServerDrmGuard();
+  res.json({
+    success: true,
+    usedSerialTokens: serverDrmGuard.usedSerialTokens,
+    maxObservedClockMs: serverDrmGuard.maxObservedClockMs,
+    boundRequestCode: serverDrmGuard.boundRequestCode,
+    serverNowMs: Date.now(),
+  });
+});
+
+app.post('/api/v1/security/consume-serial', (req, res) => {
+  const { consumptionToken, requestCode, clientClockMs } = req.body || {};
+  if (!consumptionToken || typeof consumptionToken !== 'string') {
+    res.status(400).json({ success: false, errorCode: 'INVALID_TOKEN' });
+    return;
+  }
+  const now = Date.now();
+  if (
+    typeof clientClockMs === 'number' &&
+    clientClockMs + 120000 < Math.max(serverDrmGuard.maxObservedClockMs, now)
+  ) {
+    res.status(403).json({
+      success: false,
+      errorCode: 'CLOCK_TAMPERED',
+      messageAr: 'تم رفض التفعيل: تم رصد إرجاع ساعة الجهاز للوراء!',
+    });
+    return;
+  }
+  if (serverDrmGuard.usedSerialTokens.includes(consumptionToken)) {
+    res.status(409).json({
+      success: false,
+      errorCode: 'ALREADY_USED_ONCE',
+      messageAr: 'تم استهلاك كود التفعيل هذا مسبقاً على هذا الجهاز ولا يمكن إعادة استخدامه!',
+    });
+    return;
+  }
+  serverDrmGuard.usedSerialTokens = [...serverDrmGuard.usedSerialTokens, consumptionToken];
+  if (requestCode && typeof requestCode === 'string') {
+    serverDrmGuard.boundRequestCode = requestCode;
+  }
+  serverDrmGuard.maxObservedClockMs = Math.max(serverDrmGuard.maxObservedClockMs, now);
+  saveServerDrmGuard();
+  res.json({
+    success: true,
+    usedSerialTokens: serverDrmGuard.usedSerialTokens,
+    maxObservedClockMs: serverDrmGuard.maxObservedClockMs,
+  });
+});
+
 // Licensing: Backend API Security Guard Middleware for Commercial Operations
 // Strictly requires valid license token or verified trial/LAN device state; never allows empty bypass
 function verifyCommercialOperationGuard(req: express.Request, res: express.Response, next: express.NextFunction) {
@@ -608,7 +698,7 @@ function verifyCommercialOperationGuard(req: express.Request, res: express.Respo
   });
 }
 
-// 2a. Ultra-Lightweight 0ms Revision Check for Multi-Device LAN Real-Time Sync
+// 2a. Ultra-Lightweight 0ms Revision Check & Real-Time SSE Stream for Multi-Device LAN Sync
 app.get('/api/v1/erp/revision', (req, res) => {
   localSqliteEngine.recordLanDeviceActivity(
     req.ip || req.socket?.remoteAddress || '127.0.0.1',
@@ -618,6 +708,40 @@ app.get('/api/v1/erp/revision', (req, res) => {
     success: true,
     dbRevision,
     serverTimestampMs: Date.now(),
+  });
+});
+
+app.get('/api/v1/erp/events', (req, res) => {
+  localSqliteEngine.recordLanDeviceActivity(
+    req.ip || req.socket?.remoteAddress || '127.0.0.1',
+    String(req.headers['user-agent'] || '')
+  );
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  res.write(
+    `event: revision\ndata: ${JSON.stringify({
+      dbRevision,
+      reason: 'connected',
+      serverTimestampMs: Date.now(),
+    })}\n\n`
+  );
+
+  sseClients.add(res);
+  const keepAliveTimer = setInterval(() => {
+    try {
+      res.write(`: keep-alive ${Date.now()}\n\n`);
+    } catch {
+      clearInterval(keepAliveTimer);
+      sseClients.delete(res);
+    }
+  }, 20000);
+
+  req.on('close', () => {
+    clearInterval(keepAliveTimer);
+    sseClients.delete(res);
   });
 });
 
@@ -666,6 +790,125 @@ app.get('/api/v1/local-db/download-sqlite', (_req, res) => {
   fs.createReadStream(dbPath).pipe(res);
 });
 
+app.get('/api/v1/local-db/postgres-schema.sql', (_req, res) => {
+  const esc = (v: unknown): string => `'${String(v ?? '').replace(/'/g, "''")}'`;
+  const state = readServerDB() || {};
+  const products: any[] = Array.isArray(state.products) ? state.products : [];
+  const customers: any[] = Array.isArray(state.customers) ? state.customers : [];
+  const invoices: any[] = Array.isArray(state.salesInvoices) ? state.salesInvoices : [];
+  const journals: any[] = Array.isArray(state.journalEntries) ? state.journalEntries : [];
+
+  const lines: string[] = [
+    '-- ============================================================================',
+    '-- Haseb Enterprise ERP — PostgreSQL 18 Production DDL & Live Data Snapshot',
+    `-- Generated At: ${new Date().toISOString()}`,
+    '-- Compatible with: PostgreSQL 18+ (Local Windows Server / LAN Cluster)',
+    '-- ============================================================================',
+    '',
+    'BEGIN;',
+    '',
+    'CREATE TABLE IF NOT EXISTS erp_kv_snapshots (',
+    '  key TEXT PRIMARY KEY,',
+    '  schema_version TEXT NOT NULL,',
+    '  revision BIGINT NOT NULL DEFAULT 1,',
+    '  payload_json JSONB NOT NULL,',
+    '  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
+    ');',
+    '',
+    'CREATE TABLE IF NOT EXISTS erp_products (',
+    '  id TEXT PRIMARY KEY,',
+    '  sku TEXT NOT NULL UNIQUE,',
+    '  barcode TEXT NOT NULL,',
+    '  name_ar TEXT NOT NULL,',
+    '  name_en TEXT NOT NULL,',
+    '  category_id TEXT,',
+    '  cost_price NUMERIC(18, 2) NOT NULL DEFAULT 0,',
+    '  sale_price NUMERIC(18, 2) NOT NULL DEFAULT 0,',
+    '  stock_qty NUMERIC(18, 3) NOT NULL DEFAULT 0,',
+    '  reorder_point NUMERIC(18, 3) NOT NULL DEFAULT 0,',
+    '  warranty_months INTEGER NOT NULL DEFAULT 0,',
+    '  industry TEXT NOT NULL DEFAULT \'solar\',',
+    '  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
+    ');',
+    'CREATE INDEX IF NOT EXISTS idx_pg18_products_barcode ON erp_products(barcode);',
+    '',
+    'CREATE TABLE IF NOT EXISTS erp_customers (',
+    '  id TEXT PRIMARY KEY,',
+    '  code TEXT,',
+    '  name_ar TEXT NOT NULL,',
+    '  phone TEXT,',
+    '  balance NUMERIC(18, 2) NOT NULL DEFAULT 0,',
+    '  credit_limit NUMERIC(18, 2) NOT NULL DEFAULT 0,',
+    '  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
+    ');',
+    '',
+    'CREATE TABLE IF NOT EXISTS erp_sales_invoices (',
+    '  id TEXT PRIMARY KEY,',
+    '  invoice_number TEXT NOT NULL UNIQUE,',
+    '  customer_id TEXT,',
+    '  customer_name TEXT NOT NULL,',
+    '  customer_phone TEXT,',
+    '  branch_id TEXT,',
+    '  date TEXT NOT NULL,',
+    '  subtotal NUMERIC(18, 2) NOT NULL DEFAULT 0,',
+    '  discount_amount NUMERIC(18, 2) NOT NULL DEFAULT 0,',
+    '  tax_amount NUMERIC(18, 2) NOT NULL DEFAULT 0,',
+    '  grand_total NUMERIC(18, 2) NOT NULL DEFAULT 0,',
+    '  paid_amount NUMERIC(18, 2) NOT NULL DEFAULT 0,',
+    '  payment_method TEXT NOT NULL,',
+    '  status TEXT NOT NULL,',
+    '  items_json JSONB NOT NULL DEFAULT \'[]\'::jsonb,',
+    '  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
+    ');',
+    'CREATE INDEX IF NOT EXISTS idx_pg18_invoices_date ON erp_sales_invoices(date);',
+    '',
+    'CREATE TABLE IF NOT EXISTS erp_journal_entries (',
+    '  id TEXT PRIMARY KEY,',
+    '  entry_number TEXT NOT NULL,',
+    '  date TEXT NOT NULL,',
+    '  description_ar TEXT,',
+    '  total_debit NUMERIC(18, 2) NOT NULL DEFAULT 0,',
+    '  total_credit NUMERIC(18, 2) NOT NULL DEFAULT 0,',
+    '  status TEXT NOT NULL,',
+    '  lines_json JSONB NOT NULL DEFAULT \'[]\'::jsonb',
+    ');',
+    '',
+  ];
+
+  for (const p of products) {
+    lines.push(
+      `INSERT INTO erp_products (id, sku, barcode, name_ar, name_en, category_id, cost_price, sale_price, stock_qty, reorder_point, warranty_months, industry) VALUES (${esc(p.id)}, ${esc(p.sku)}, ${esc(p.barcode)}, ${esc(p.nameAr || p.name)}, ${esc(p.name)}, ${esc(p.categoryId || '')}, ${Number(p.costPrice) || 0}, ${Number(p.salePrice) || 0}, ${Number(p.stockQty) || 0}, ${Number(p.reorderPoint) || 0}, ${Math.trunc(Number(p.warrantyMonths) || 0)}, ${esc(p.industry || 'solar')}) ON CONFLICT (id) DO UPDATE SET stock_qty = EXCLUDED.stock_qty, sale_price = EXCLUDED.sale_price, cost_price = EXCLUDED.cost_price, updated_at = NOW();`
+    );
+  }
+
+  for (const c of customers) {
+    lines.push(
+      `INSERT INTO erp_customers (id, code, name_ar, phone, balance, credit_limit) VALUES (${esc(c.id)}, ${esc(c.code || '')}, ${esc(c.nameAr || c.name)}, ${esc(c.phone || '')}, ${Number(c.balance) || 0}, ${Number(c.creditLimit) || 0}) ON CONFLICT (id) DO UPDATE SET balance = EXCLUDED.balance, credit_limit = EXCLUDED.credit_limit, updated_at = NOW();`
+    );
+  }
+
+  for (const inv of invoices) {
+    lines.push(
+      `INSERT INTO erp_sales_invoices (id, invoice_number, customer_id, customer_name, customer_phone, branch_id, date, subtotal, discount_amount, tax_amount, grand_total, paid_amount, payment_method, status, items_json) VALUES (${esc(inv.id)}, ${esc(inv.invoiceNumber)}, ${esc(inv.customerId || '')}, ${esc(inv.customerName)}, ${esc(inv.customerPhone || '')}, ${esc(inv.branchId || '')}, ${esc(inv.date || '')}, ${Number(inv.subtotal) || 0}, ${Number(inv.discountAmount) || 0}, 0, ${Number(inv.grandTotal) || 0}, ${Number(inv.paidAmount) || 0}, ${esc(inv.paymentMethod || 'CASH')}, ${esc(inv.status || 'PAID')}, ${esc(JSON.stringify(inv.items || []))}::jsonb) ON CONFLICT (id) DO NOTHING;`
+    );
+  }
+
+  for (const je of journals) {
+    lines.push(
+      `INSERT INTO erp_journal_entries (id, entry_number, date, description_ar, total_debit, total_credit, status, lines_json) VALUES (${esc(je.id)}, ${esc(je.entryNumber || '')}, ${esc(je.date || '')}, ${esc(je.descriptionAr || je.description || '')}, ${Number(je.totalDebit) || 0}, ${Number(je.totalCredit) || 0}, ${esc(je.status || 'POSTED')}, ${esc(JSON.stringify(je.lines || []))}::jsonb) ON CONFLICT (id) DO NOTHING;`
+    );
+  }
+
+  lines.push('', 'COMMIT;', '');
+
+  res.setHeader('Content-Type', 'application/sql; charset=utf-8');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="Haseb_PostgreSQL18_Schema_${new Date().toISOString().split('T')[0]}.sql"`
+  );
+  res.send(lines.join('\n'));
+});
+
 // 2. Get Persistent ERP State (0ms RAM Read + Local SQLite WAL Backed)
 app.get('/api/v1/erp/state', (req, res) => {
   localSqliteEngine.recordLanDeviceActivity(
@@ -706,10 +949,16 @@ app.post('/api/v1/erp/reset', (_req, res) => {
   try {
     memoryStore = null;
     dbRevision = 1;
+    whatsappAccountsStore = [createCleanWhatsAppDefaultAccount()];
+    activeWhatsAppAccountIdStore = whatsappAccountsStore[0]?.id || 'wa-acc-primary';
+    whatsappChatsStore = [];
+    interBranchTransfersStore = [];
+    localSqliteEngine.clearAllState();
     if (fs.existsSync(DB_FILE)) {
       fs.unlinkSync(DB_FILE);
     }
-    res.json({ success: true, message: 'Server database reset to initial seed' });
+    broadcastSseRevision(dbRevision, 'reset');
+    res.json({ success: true, message: 'Server database reset to clean initial state' });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -718,6 +967,10 @@ app.post('/api/v1/erp/reset', (_req, res) => {
 // 4.1 Reset to Clean Blank Database (Zero items, zero invoices, chart of accounts preserved)
 app.post('/api/v1/erp/reset-blank', (_req, res) => {
   try {
+    whatsappAccountsStore = [createCleanWhatsAppDefaultAccount()];
+    activeWhatsAppAccountIdStore = whatsappAccountsStore[0]?.id || 'wa-acc-primary';
+    whatsappChatsStore = [];
+    interBranchTransfersStore = [];
     memoryStore = {
       products: [],
       salesInvoices: [],
@@ -726,11 +979,17 @@ app.post('/api/v1/erp/reset-blank', (_req, res) => {
       suppliers: [],
       employees: [],
       journalEntries: [],
+      outboundMessages: [],
+      whatsappAccounts: whatsappAccountsStore,
+      activeWhatsAppAccountId: activeWhatsAppAccountIdStore,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      dbRevision: 1,
+      lastSyncedAt: new Date().toISOString(),
     };
     dbRevision = 1;
-    if (fs.existsSync(DB_FILE)) {
-      fs.writeFileSync(DB_FILE, JSON.stringify(memoryStore, null, 2), 'utf-8');
-    }
+    localSqliteEngine.savePrimaryStateTransaction(memoryStore, CURRENT_SCHEMA_VERSION, 1);
+    fs.writeFileSync(DB_FILE, JSON.stringify(memoryStore, null, 2), 'utf-8');
+    broadcastSseRevision(dbRevision, 'reset_blank');
     res.json({ success: true, message: 'Server database initialized to clean blank state' });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
@@ -832,10 +1091,14 @@ app.post('/api/v1/messaging/send', async (req, res) => {
 });
 
 // 4c. WhatsApp Web Live Multi-Account Session Registry & Real Baileys Multi-Device Gateway
-let whatsappAccountsStore = [...SEED_WHATSAPP_ACCOUNTS];
-let activeWhatsAppAccountIdStore = whatsappAccountsStore[0]?.id || 'wa-acc-sales';
+let whatsappAccountsStore =
+  memoryStore && Array.isArray(memoryStore.whatsappAccounts) && memoryStore.whatsappAccounts.length > 0
+    ? memoryStore.whatsappAccounts
+    : [createCleanWhatsAppDefaultAccount(memoryStore?.company?.nameAr || 'منشأتك')];
+let activeWhatsAppAccountIdStore =
+  memoryStore?.activeWhatsAppAccountId || whatsappAccountsStore[0]?.id || 'wa-acc-primary';
 let whatsappSessionStore = createInitialWhatsAppSession();
-let whatsappChatsStore = [...SEED_WHATSAPP_CHATS];
+let whatsappChatsStore: any[] = [];
 
 // WhatsApp AI Auto-Responder Bot State (Strictly disabled by default until user clicks the Robot icon)
 let whatsappAiBotEnabledStore = false;
@@ -848,32 +1111,31 @@ function buildCurrentServerErpSnapshot(overrideSnapshot?: any) {
     companyName:
       overrideSnapshot?.companyName ||
       memoryStore?.company?.nameAr ||
-      'شركة النور للتجارة والطاقة المتجددة',
-    currencySymbol: overrideSnapshot?.currencySymbol || 'ر.س',
-    products:
-      Array.isArray(overrideSnapshot?.products) && overrideSnapshot.products.length > 0
-        ? overrideSnapshot.products
-        : Array.isArray(memoryStore?.products) && memoryStore.products.length > 0
-        ? memoryStore.products
-        : SEED_PRODUCTS,
-    customers:
-      Array.isArray(overrideSnapshot?.customers) && overrideSnapshot.customers.length > 0
-        ? overrideSnapshot.customers
-        : Array.isArray(memoryStore?.customers) && memoryStore.customers.length > 0
-        ? memoryStore.customers
-        : SEED_CUSTOMERS,
-    salesInvoices:
-      Array.isArray(overrideSnapshot?.salesInvoices) && overrideSnapshot.salesInvoices.length > 0
-        ? overrideSnapshot.salesInvoices
-        : Array.isArray(memoryStore?.salesInvoices) && memoryStore.salesInvoices.length > 0
-        ? memoryStore.salesInvoices
-        : SEED_SALES_INVOICES,
-    warrantyTickets:
-      Array.isArray(overrideSnapshot?.warrantyTickets) && overrideSnapshot.warrantyTickets.length > 0
-        ? overrideSnapshot.warrantyTickets
-        : Array.isArray(memoryStore?.warrantyTickets) && memoryStore.warrantyTickets.length > 0
-        ? memoryStore.warrantyTickets
-        : [],
+      'المنشأة المعتمدة',
+    currencySymbol:
+      overrideSnapshot?.currencySymbol ||
+      memoryStore?.company?.currencySymbol ||
+      'ر.ي',
+    products: Array.isArray(overrideSnapshot?.products)
+      ? overrideSnapshot.products
+      : Array.isArray(memoryStore?.products)
+      ? memoryStore.products
+      : [],
+    customers: Array.isArray(overrideSnapshot?.customers)
+      ? overrideSnapshot.customers
+      : Array.isArray(memoryStore?.customers)
+      ? memoryStore.customers
+      : [],
+    salesInvoices: Array.isArray(overrideSnapshot?.salesInvoices)
+      ? overrideSnapshot.salesInvoices
+      : Array.isArray(memoryStore?.salesInvoices)
+      ? memoryStore.salesInvoices
+      : [],
+    warrantyTickets: Array.isArray(overrideSnapshot?.warrantyTickets)
+      ? overrideSnapshot.warrantyTickets
+      : Array.isArray(memoryStore?.warrantyTickets)
+      ? memoryStore.warrantyTickets
+      : [],
   };
 }
 
@@ -897,7 +1159,7 @@ function getBaileysGateway() {
 setTimeout(async () => {
   const gw = await getBaileysGateway();
   if (gw && typeof gw.ensureRealWhatsAppSocket === 'function') {
-    gw.ensureRealWhatsAppSocket('wa-acc-sales').catch(() => {});
+    gw.ensureRealWhatsAppSocket(activeWhatsAppAccountIdStore).catch(() => {});
   }
 }, 500);
 
@@ -940,8 +1202,8 @@ app.get('/api/v1/whatsapp/live-qr', async (req, res) => {
         if (Array.isArray(snapshot.inboundMessages) && snapshot.inboundMessages.length > 0) {
           // Track existing message IDs on initial sync so we only auto-reply to new incoming messages when Bot is active
           for (const inMsg of snapshot.inboundMessages) {
-            const alreadyExists = updatedChats.some((c) =>
-              c.messages.some((m) => m.id === inMsg.id)
+            const alreadyExists = updatedChats.some((c: any) =>
+              c.messages.some((m: any) => m.id === inMsg.id)
             );
             if (!alreadyExists) {
               const appended = appendMessageToWhatsAppChats(updatedChats, {
@@ -1181,8 +1443,12 @@ app.post('/api/v1/whatsapp/pair', (req, res) => {
   whatsappSessionStore = {
     ...whatsappSessionStore,
     status: 'CONNECTED',
-    phoneNumber: phoneNumber || whatsappSessionStore.phoneNumber || '+967 771 445 880',
-    pushName: pushName || whatsappSessionStore.pushName || 'مؤسسة النور للتجارة والطاقة (المبيعات الموحدة)',
+    phoneNumber: phoneNumber || whatsappSessionStore.phoneNumber || '',
+    pushName:
+      pushName ||
+      whatsappSessionStore.pushName ||
+      memoryStore?.company?.nameAr ||
+      'المنشأة المعتمدة',
     pairedAt: new Date().toISOString().replace('T', ' ').slice(0, 16),
     qrCodeData: qr.token,
     pairingUrl: qr.pairingUrl,
@@ -1286,8 +1552,8 @@ app.post('/api/v1/whatsapp/send-chat-message', async (req, res) => {
   const targetAccId = String(accountId || activeWhatsAppAccountIdStore || 'wa-acc-sales');
   const targetAccObj = whatsappAccountsStore.find((a) => a.id === targetAccId);
   let targetChat =
-    targetAccObj?.chats.find((c) => c.id === chatId) ||
-    whatsappChatsStore.find((c) => c.id === chatId);
+    targetAccObj?.chats.find((c: any) => c.id === chatId) ||
+    whatsappChatsStore.find((c: any) => c.id === chatId);
   const resolvedPhone = recipientPhone || targetChat?.contactPhone || targetChat?.normalizedPhone || '';
 
   // Attempt real WhatsApp socket dispatch if this account is paired with a real WhatsApp device
@@ -1330,7 +1596,7 @@ app.post('/api/v1/whatsapp/send-chat-message', async (req, res) => {
     };
     whatsappChatsStore = [targetChat, ...whatsappChatsStore];
   } else if (targetChat) {
-    if (!targetChat.messages.some((m) => m.id === newMsg.id)) {
+    if (!targetChat.messages.some((m: any) => m.id === newMsg.id)) {
       targetChat.messages.push(newMsg);
     }
     targetChat.lastMessage = text || `مرفق: ${attachmentType}`;
@@ -1344,13 +1610,13 @@ app.post('/api/v1/whatsapp/send-chat-message', async (req, res) => {
       ...acc,
       messagesDispatchedCount: acc.messagesDispatchedCount + 1,
       lastActiveAt: 'الآن',
-      chats: acc.chats.map((c) => {
+      chats: acc.chats.map((c: any) => {
         if (c.id !== chatId) return c;
         return {
           ...c,
           lastMessage: text || `مرفق: ${attachmentType}`,
           lastMessageTime: nowTime,
-          messages: c.messages.some((m) => m.id === newMsg.id)
+          messages: c.messages.some((m: any) => m.id === newMsg.id)
             ? c.messages
             : [...c.messages, newMsg],
         };
@@ -1374,8 +1640,8 @@ app.post('/api/v1/whatsapp/send-chat-message', async (req, res) => {
     whatsappUrl: `https://wa.me/${String(targetChat?.normalizedPhone || '').replace(/\D/g, '')}`,
     smsUri: `sms:${targetChat?.normalizedPhone || ''}`,
     sentBy: sentViaRealWhatsApp
-      ? 'مؤسسة النور (إرسال فعلي عبر خادم واتساب الرسمي ✓)'
-      : 'مؤسسة النور (جلسة واتساب المدمجة)',
+      ? `${memoryStore?.company?.nameAr || 'حاسب ERP'} (إرسال فعلي عبر خادم واتساب الرسمي ✓)`
+      : `${memoryStore?.company?.nameAr || 'حاسب ERP'} (جلسة واتساب المدمجة)`,
     sentAt: new Date().toISOString().replace('T', ' ').slice(0, 16),
   };
 
@@ -1527,13 +1793,13 @@ ${smartBot.replyText}`;
       ...acc,
       messagesDispatchedCount: acc.messagesDispatchedCount + 1,
       lastActiveAt: 'الآن (رد آلي ذكي)',
-      chats: acc.chats.map((c) => {
+      chats: acc.chats.map((c: any) => {
         if (c.id !== chatId) return c;
         return {
           ...c,
           lastMessage: finalReplyText,
           lastMessageTime: nowTime,
-          messages: c.messages.some((m) => m.id === botMsg.id)
+          messages: c.messages.some((m: any) => m.id === botMsg.id)
             ? c.messages
             : [...c.messages, botMsg],
         };
@@ -1635,10 +1901,27 @@ app.post('/api/v1/usb/send-sms', (req, res) => {
 // 4e. Cross-Branch LAN & WAN Stock Probe & Inter-Branch Transfer Endpoints
 let interBranchTransfersStore: any[] = [];
 
+function getDynamicBranchNodes(): any[] {
+  const branches: any[] = Array.isArray(memoryStore?.branches) ? memoryStore.branches : [];
+  return branches.map((b, idx) => ({
+    branchId: b.id,
+    branchCode: b.code || `BR-${idx + 1}`,
+    branchNameAr: b.nameAr || b.name || 'الفرع الرئيسي',
+    cityAr: b.city || memoryStore?.company?.city || 'صنعاء',
+    lanIp: b.lanIp || `192.168.1.${10 + idx}`,
+    connectionType: idx === 0 ? 'LAN_LOCAL' : 'WAN_SYNC',
+    status: 'ONLINE',
+    latencyMs: idx === 0 ? 1 : 24,
+    lastHeartbeat: new Date().toISOString().replace('T', ' ').slice(0, 16),
+    managerName: b.managerName || 'مدير الفرع',
+    managerPhone: b.phone || memoryStore?.company?.phone || '',
+  }));
+}
+
 app.get('/api/v1/branches/network', (_req, res) => {
   res.json({
     success: true,
-    nodes: SEED_BRANCH_NODES,
+    nodes: getDynamicBranchNodes(),
     transfers: interBranchTransfersStore,
   });
 });
@@ -1646,14 +1929,15 @@ app.get('/api/v1/branches/network', (_req, res) => {
 app.post('/api/v1/branches/stock-probe', (req, res) => {
   const { sku, currentBranchId } = req.body || {};
   const allProds = memoryStore?.products || [];
+  const resolvedSku = sku || allProds[0]?.sku || '';
   const matrix = calculateCrossBranchStockMatrix({
-    productSku: sku || 'SOL-PNL-585W',
-    currentBranchId: currentBranchId || 'branch-ruh-01',
+    productSku: resolvedSku,
+    currentBranchId: currentBranchId || memoryStore?.branches?.[0]?.id || 'branch-main-01',
     allProducts: allProds,
   });
   res.json({
     success: true,
-    sku,
+    sku: resolvedSku,
     matrix,
     probedAt: new Date().toISOString(),
   });
@@ -1661,17 +1945,31 @@ app.post('/api/v1/branches/stock-probe', (req, res) => {
 
 app.post('/api/v1/branches/transfer-request', (req, res) => {
   const { sourceBranchId, targetBranchId, productSku, requestedQty, urgency, operatorName } = req.body || {};
-  const sourceNode = SEED_BRANCH_NODES.find((n) => n.branchId === sourceBranchId) || SEED_BRANCH_NODES[0];
-  const targetNode = SEED_BRANCH_NODES.find((n) => n.branchId === targetBranchId) || SEED_BRANCH_NODES[1];
-  const allProds = memoryStore?.products || [];
-  const prod = allProds.find((p: any) => p.sku === productSku) || {
-    id: `prod-mock-${Date.now()}`,
-    sku: productSku || 'SOL-PNL-585W',
-    nameAr: 'لوح طاقة شمسية 585W',
-    uom: 'PCS',
-    costPrice: 365,
-    salePrice: 485,
+  const nodes = getDynamicBranchNodes();
+  const fallbackNode = {
+    branchId: sourceBranchId || 'branch-main-01',
+    branchCode: 'BR-1',
+    branchNameAr: 'الفرع الرئيسي',
+    cityAr: 'الرئيسي',
+    lanIp: '127.0.0.1',
+    connectionType: 'LAN_LOCAL',
+    status: 'ONLINE',
+    latencyMs: 1,
+    lastHeartbeat: new Date().toISOString(),
+    managerName: 'مدير الفرع',
+    managerPhone: '',
   };
+  const sourceNode = nodes.find((n) => n.branchId === sourceBranchId) || nodes[0] || fallbackNode;
+  const targetNode = nodes.find((n) => n.branchId === targetBranchId) || nodes[1] || sourceNode;
+  const allProds = memoryStore?.products || [];
+  const prod = allProds.find((p: any) => p.sku === productSku);
+  if (!prod) {
+    res.status(404).json({
+      success: false,
+      messageAr: 'الصنف المطلوب غير موجود في المخزون الفعلي.',
+    });
+    return;
+  }
 
   const { transferDoc, clearingJournal } = createInterBranchTransferDocAndJournal({
     tenantId: 'ten-1',

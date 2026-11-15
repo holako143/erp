@@ -3,46 +3,133 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { Profiler, useCallback, useEffect } from 'react';
+import React, { Profiler, Suspense, lazy, useCallback, useEffect, useMemo } from 'react';
 import { ERPProvider, useERP } from './context/ERPContext';
 import { Navbar } from './components/layout/Navbar';
 import { Sidebar } from './components/layout/Sidebar';
-import { CommandPalette } from './components/layout/CommandPalette';
 import { OfflineIndicator } from './components/layout/PWAInstallBanner';
 import { LoginGate } from './components/security/LoginGate';
 import { HardwareLockModal } from './components/security/HardwareLockModal';
-import { QuickSendModal } from './components/messaging/QuickSendModal';
 import { ShieldAlert, MessageSquare, Send, Zap } from 'lucide-react';
+import { HasebBrandLogo } from './components/common/HasebBrandLogo';
 
-// Views
-import { DashboardView } from './views/DashboardView';
-import { BarcodeEngineView } from './views/BarcodeEngineView';
-import { InventoryView } from './views/InventoryView';
-import { PurchasingView } from './views/PurchasingView';
-import { SalesView } from './views/SalesView';
+// Eager initial view for instant first paint on POS default route
 import { POSView } from './views/POSView';
-import { AccountingView } from './views/AccountingView';
-import { BusinessModulesView } from './views/BusinessModulesView';
-import { AIInsightsView } from './views/AIInsightsView';
-import { ReportsAnalyticsAndAIView } from './views/ReportsAnalyticsAndAIView';
-import { SaaSAdminView } from './views/SaaSAdminView';
-import { SettingsView } from './views/SettingsView';
-import { SecurityCenterView } from './views/SecurityCenterView';
-import { MasterAdminControlView } from './views/MasterAdminControlView';
-import { StandaloneActivationPortal } from './views/StandaloneActivationPortal';
-import { CommunicationsView } from './views/CommunicationsView';
-import { CrossBranchStockModal } from './components/common/CrossBranchStockModal';
-import { OnboardingWizardModal } from './components/common/OnboardingWizardModal';
-import { MobileLanPortalModal } from './components/common/MobileLanPortalModal';
 import { PerformanceMonitorOverlay } from './components/common/PerformanceMonitorOverlay';
 import { performanceTelemetryStore } from './core/performanceMonitorEngine';
+
+// Lazy-loaded Views (Code-Split Chunks)
+const DashboardView = lazy(() =>
+  import('./views/DashboardView').then((m) => ({ default: m.DashboardView }))
+);
+const BarcodeEngineView = lazy(() =>
+  import('./views/BarcodeEngineView').then((m) => ({ default: m.BarcodeEngineView }))
+);
+const InventoryView = lazy(() =>
+  import('./views/InventoryView')
+);
+const PurchasingView = lazy(() =>
+  import('./views/PurchasingView').then((m) => ({ default: m.PurchasingView }))
+);
+const SalesView = lazy(() =>
+  import('./views/SalesView').then((m) => ({ default: m.SalesView }))
+);
+const AccountingView = lazy(() =>
+  import('./views/AccountingView').then((m) => ({ default: m.AccountingView }))
+);
+const BusinessModulesView = lazy(() =>
+  import('./views/BusinessModulesView').then((m) => ({ default: m.BusinessModulesView }))
+);
+const ReportsAnalyticsAndAIView = lazy(() =>
+  import('./views/ReportsAnalyticsAndAIView').then((m) => ({ default: m.ReportsAnalyticsAndAIView }))
+);
+const SaaSAdminView = lazy(() =>
+  import('./views/SaaSAdminView').then((m) => ({ default: m.SaaSAdminView }))
+);
+const SettingsView = lazy(() =>
+  import('./views/SettingsView').then((m) => ({ default: m.SettingsView }))
+);
+const SecurityCenterView = lazy(() =>
+  import('./views/SecurityCenterView').then((m) => ({ default: m.SecurityCenterView }))
+);
+const MasterAdminControlView = lazy(() =>
+  import('./views/MasterAdminControlView').then((m) => ({ default: m.MasterAdminControlView }))
+);
+const StandaloneActivationPortal = lazy(() =>
+  import('./views/StandaloneActivationPortal').then((m) => ({ default: m.StandaloneActivationPortal }))
+);
+const CommunicationsView = lazy(() =>
+  import('./views/CommunicationsView').then((m) => ({ default: m.CommunicationsView }))
+);
+
+// Lazy-loaded Global Modals
+const CommandPalette = lazy(() =>
+  import('./components/layout/CommandPalette').then((m) => ({ default: m.CommandPalette }))
+);
+const QuickSendModal = lazy(() =>
+  import('./components/messaging/QuickSendModal').then((m) => ({ default: m.QuickSendModal }))
+);
+const CrossBranchStockModal = lazy(() =>
+  import('./components/common/CrossBranchStockModal').then((m) => ({ default: m.CrossBranchStockModal }))
+);
+const OnboardingWizardModal = lazy(() =>
+  import('./components/common/OnboardingWizardModal').then((m) => ({ default: m.OnboardingWizardModal }))
+);
+const MobileLanPortalModal = lazy(() =>
+  import('./components/common/MobileLanPortalModal').then((m) => ({ default: m.MobileLanPortalModal }))
+);
+
+const ViewLoadingFallback: React.FC<{
+  language: 'ar' | 'en';
+  uiTheme: 'corporate_slate' | 'swiss_light' | 'haseb_royal' | 'haseb_sand' | 'obsidian_dark';
+}> = React.memo(({ language, uiTheme }) => (
+  <div
+    data-testid="lazy-view-fallback"
+    className="flex flex-col items-center justify-center min-h-[360px] h-full w-full p-6 select-none"
+  >
+    <div
+      className={`relative flex flex-col items-center gap-4 px-8 py-7 rounded-3xl border shadow-lg transition-all ${
+        uiTheme === 'obsidian_dark'
+          ? 'bg-slate-900/90 border-slate-800 text-slate-100'
+          : uiTheme === 'haseb_sand'
+          ? 'bg-[#fbf8f2] border-[#dfd3be] text-stone-900'
+          : 'bg-white/95 border-slate-200/80 text-slate-900'
+      }`}
+    >
+      <div className="relative flex items-center justify-center">
+        <div
+          aria-hidden="true"
+          className="absolute -inset-2.5 rounded-3xl opacity-35 blur-md haseb-card-gradient animate-pulse"
+        />
+        <HasebBrandLogo size="xl" theme={uiTheme} className="relative z-10 shadow-xl" />
+      </div>
+
+      <div className="text-center space-y-1">
+        <div className="text-sm font-black tracking-tight">
+          {language === 'ar' ? 'نظام حاسب المحاسبي المتكامل' : 'Haseb Enterprise ERP'}
+        </div>
+        <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+          {language === 'ar' ? 'جاري تجهيز الواجهة والبيانات...' : 'Preparing module workspace...'}
+        </div>
+      </div>
+
+      <div className="w-44 h-1.5 rounded-full bg-slate-200/80 dark:bg-slate-800 overflow-hidden">
+        <div className="w-20 h-full rounded-full haseb-shimmer-bar" />
+      </div>
+    </div>
+  </div>
+));
+ViewLoadingFallback.displayName = 'ViewLoadingFallback';
 
 const MainLayout: React.FC = () => {
   const {
     activeTab,
     setActiveTab,
     isAuthenticated,
-    login,
+    isTerminalLocked,
+    lockTerminal,
+    idleTimeoutMinutes,
+    currentAccount,
     hasModuleAccess,
     antiTheftShieldEnabled,
     recordBlockedInspectAttempt,
@@ -52,21 +139,22 @@ const MainLayout: React.FC = () => {
     isStandaloneKeygenOpen,
     setIsStandaloneKeygenOpen,
     masterSystemConfig,
-    networkInfo,
     language,
-    syncLatencyMs,
-    protectionState,
     openLanPortal,
+    isOnboardingCompleted,
     isOnboardingOpen,
     closeOnboarding,
     setIsCommandPaletteOpen,
     openQuickSendModal,
     whatsappAccounts,
+    company,
+    currentWarehouse,
   } = useERP();
 
-  const connectedWhatsAppCount = whatsappAccounts.filter(
-    (acc) => acc.session.status === 'CONNECTED'
-  ).length;
+  const connectedWhatsAppCount = useMemo(
+    () => whatsappAccounts.filter((acc) => acc.session.status === 'CONNECTED').length,
+    [whatsappAccounts]
+  );
 
   const handleViewRenderProfile = useCallback(
     (
@@ -94,11 +182,24 @@ const MainLayout: React.FC = () => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toUpperCase();
 
-      // Secret Master Admin Shortcut: Ctrl+Shift+M
+      // Authenticated Master Admin Shortcut: Ctrl+Shift+M (no credential bypass)
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && key === 'M') {
-        e.preventDefault();
-        login('sysadmin', 'RLM-ROOT-9999');
-        setActiveTab('masterAdmin');
+        if (
+          isAuthenticated &&
+          (currentAccount.role === 'SUPER_ADMIN' || currentAccount.role === 'MASTER_SYSTEM_ADMIN')
+        ) {
+          e.preventDefault();
+          setActiveTab('masterAdmin');
+        }
+        return;
+      }
+
+      // Quick Terminal Lock Shortcut: Ctrl+L
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && key === 'L') {
+        if (isAuthenticated && !isTerminalLocked) {
+          e.preventDefault();
+          lockTerminal();
+        }
         return;
       }
 
@@ -264,13 +365,35 @@ const MainLayout: React.FC = () => {
     antiTheftShieldEnabled,
     recordBlockedInspectAttempt,
     isAuthenticated,
+    isTerminalLocked,
+    lockTerminal,
+    currentAccount.role,
     hasModuleAccess,
-    login,
+    activeTab,
     setActiveTab,
     setIsStandaloneKeygenOpen,
   ]);
 
-  const renderActiveView = () => {
+  // Automatic Idle Terminal Lock based on idleTimeoutMinutes
+  useEffect(() => {
+    if (!isAuthenticated || isTerminalLocked || idleTimeoutMinutes <= 0) return;
+    let timeoutId: number;
+    const resetTimer = () => {
+      window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(() => {
+        lockTerminal();
+      }, idleTimeoutMinutes * 60 * 1000);
+    };
+    resetTimer();
+    const events = ['mousemove', 'keydown', 'mousedown', 'touchstart'] as const;
+    events.forEach((ev) => window.addEventListener(ev, resetTimer, { passive: true }));
+    return () => {
+      window.clearTimeout(timeoutId);
+      events.forEach((ev) => window.removeEventListener(ev, resetTimer));
+    };
+  }, [isAuthenticated, isTerminalLocked, idleTimeoutMinutes, lockTerminal]);
+
+  const renderActiveView = useCallback(() => {
     if (activeTab === 'masterAdmin' && hasModuleAccess('masterAdmin')) {
       return <MasterAdminControlView />;
     }
@@ -329,7 +452,33 @@ const MainLayout: React.FC = () => {
       default:
         return <POSView />;
     }
-  };
+  }, [activeTab, hasModuleAccess]);
+
+  const handleOpenFooterCustomerPicker = useCallback(() => {
+    setActiveTab('pos');
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('haseb-open-pos-customer-picker'));
+    }, 30);
+  }, [setActiveTab]);
+
+  const handleTriggerFooterInstantPay = useCallback(() => {
+    setActiveTab('pos');
+    window.dispatchEvent(new CustomEvent('haseb-trigger-pos-checkout'));
+  }, [setActiveTab]);
+
+  const handleOpenFooterQuickSend = useCallback(() => {
+    openQuickSendModal({
+      recipientName: language === 'ar' ? 'عميل مباشر' : 'Direct Customer',
+      recipientPhone: '',
+      channel: 'WHATSAPP',
+      category: 'CUSTOM_OPERATION',
+      referenceNumber: `MSG-${Date.now().toString().slice(-4)}`,
+      messageBody:
+        language === 'ar'
+          ? `مرحباً بكم في ${company.nameAr || 'منشأتنا'}.`
+          : `Welcome to ${company.name || 'our company'}.`,
+    });
+  }, [language, openQuickSendModal, company.nameAr, company.name]);
 
   return (
     <>
@@ -345,13 +494,25 @@ const MainLayout: React.FC = () => {
       )}
 
       {/* Decoupled Standalone Cryptographic Licensing & Keygen Server */}
-      {isStandaloneKeygenOpen && <StandaloneActivationPortal />}
+      {isStandaloneKeygenOpen && (
+        <Suspense fallback={<ViewLoadingFallback language={language} uiTheme={uiTheme} />}>
+          <StandaloneActivationPortal />
+        </Suspense>
+      )}
 
       {/* Mandatory 30-Day Trial, Single-Device Component Lock & Anti-Clock Rollback Gate */}
       <HardwareLockModal />
 
-      {/* Enterprise Login Gateway (Default: admin / admin) — Navbar & navigation hidden when unauthenticated */}
+      {/* Mandatory First-Launch Welcome Wizard OR Encrypted Login / Terminal Unlock Gate */}
       {!isAuthenticated ? (
+        !isOnboardingCompleted ? (
+          <Suspense fallback={<ViewLoadingFallback language={language} uiTheme={uiTheme} />}>
+            <OnboardingWizardModal isOpen isMandatoryFirstRun onClose={closeOnboarding} />
+          </Suspense>
+        ) : (
+          <LoginGate />
+        )
+      ) : isTerminalLocked ? (
         <LoginGate />
       ) : (
         <div
@@ -383,7 +544,9 @@ const MainLayout: React.FC = () => {
               }`}
             >
               <Profiler id={activeTab} onRender={handleViewRenderProfile}>
-                {renderActiveView()}
+                <Suspense fallback={<ViewLoadingFallback language={language} uiTheme={uiTheme} />}>
+                  {renderActiveView()}
+                </Suspense>
               </Profiler>
             </main>
           </div>
@@ -452,12 +615,7 @@ const MainLayout: React.FC = () => {
                 <button
                   type="button"
                   data-testid="footer-f8-customer-picker-btn"
-                  onClick={() => {
-                    setActiveTab('pos');
-                    setTimeout(() => {
-                      window.dispatchEvent(new CustomEvent('haseb-open-pos-customer-picker'));
-                    }, 30);
-                  }}
+                  onClick={handleOpenFooterCustomerPicker}
                   className="flex items-center gap-1.5 hover:text-slate-900 dark:hover:text-white transition cursor-pointer shrink-0"
                 >
                   <kbd className="px-1.5 py-0.5 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded text-[10px] font-mono font-semibold text-blue-700 dark:text-blue-300">
@@ -469,10 +627,7 @@ const MainLayout: React.FC = () => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setActiveTab('pos');
-                    window.dispatchEvent(new CustomEvent('haseb-trigger-pos-checkout'));
-                  }}
+                  onClick={handleTriggerFooterInstantPay}
                   className="flex items-center gap-1.5 cursor-pointer shrink-0"
                 >
                   <kbd className="px-1.5 py-0.5 bg-slate-900 dark:bg-blue-600 rounded text-[10px] font-mono font-semibold text-white">
@@ -524,19 +679,7 @@ const MainLayout: React.FC = () => {
                 <button
                   type="button"
                   data-testid="footer-whatsapp-quick-send-btn"
-                  onClick={() =>
-                    openQuickSendModal({
-                      recipientName: language === 'ar' ? 'عميل مباشر' : 'Direct Customer',
-                      recipientPhone: '+967771234567',
-                      channel: 'WHATSAPP',
-                      category: 'CUSTOM_OPERATION',
-                      referenceNumber: `MSG-${Date.now().toString().slice(-4)}`,
-                      messageBody:
-                        language === 'ar'
-                          ? 'مرحباً بكم في مؤسسة حاسب للطاقة الشمسية والإلكترونيات الحديثة.'
-                          : 'Welcome to Haseb Solar & Modern Electronics.',
-                    })
-                  }
+                  onClick={handleOpenFooterQuickSend}
                   className="flex items-center gap-1 px-2 py-1 rounded-full bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/70 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/70 dark:border-slate-700 text-[10px] font-medium transition cursor-pointer"
                   title={language === 'ar' ? 'إرسال رسالة واتساب فورية' : 'Instant WhatsApp Message'}
                 >
@@ -545,7 +688,11 @@ const MainLayout: React.FC = () => {
                 </button>
 
                 <span className="text-slate-300 dark:text-slate-700">•</span>
-                <span>{language === 'ar' ? 'مستودع الطاقة الرئيسي' : 'Main Solar Warehouse'}</span>
+                <span>
+                  {language === 'ar'
+                    ? currentWarehouse?.nameAr || 'المستودع الرئيسي'
+                    : currentWarehouse?.name || 'Main Warehouse'}
+                </span>
                 <span className="text-slate-300 dark:text-slate-700">•</span>
                 <button
                   type="button"
@@ -557,18 +704,22 @@ const MainLayout: React.FC = () => {
                       : 'Click to open Windows Desktop & LAN Hub'
                   }
                 >
-                  Cloud Sync OK
+                  Local LAN Sync OK
                 </button>
               </div>
             </footer>
           )}
 
           {/* Global Command Palette (Ctrl+K), Omnichannel WhatsApp/SMS Modal, Cross-Branch Probe & Offline PWA Banner */}
-          <CommandPalette />
-          <QuickSendModal />
-          <CrossBranchStockModal />
-          <MobileLanPortalModal />
-          <OnboardingWizardModal isOpen={isOnboardingOpen} onClose={closeOnboarding} />
+          <Suspense fallback={null}>
+            <CommandPalette />
+            <QuickSendModal />
+            <CrossBranchStockModal />
+            <MobileLanPortalModal />
+            {isOnboardingOpen && (
+              <OnboardingWizardModal isOpen={isOnboardingOpen} onClose={closeOnboarding} />
+            )}
+          </Suspense>
           <PerformanceMonitorOverlay />
           <OfflineIndicator />
         </div>

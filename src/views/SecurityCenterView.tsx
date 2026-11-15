@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useERP, ALL_ERP_MODULES } from '../context/ERPContext';
-import { LicenseDurationPreset } from '../core/securityEngine';
+import { LicenseDurationPreset, evaluatePasswordStrength } from '../core/securityEngine';
 import { UserAccount, UserRole } from '../types/erp';
 import {
   ShieldCheck,
@@ -35,9 +35,13 @@ export const SecurityCenterView: React.FC = () => {
     addUserAccount,
     updateUserAccount,
     deleteUserAccount,
-    login,
+    switchUserAccount,
+    changeUserPassword,
     logout,
     hardwareFingerprint,
+    boundHardware,
+    maxObservedClockMs,
+    usedSerialTokens,
     rescanLiveHardware,
     importWindowsWmiSerials,
     protectionState,
@@ -92,6 +96,9 @@ export const SecurityCenterView: React.FC = () => {
   const [wmiInputText, setWmiInputText] = useState('');
   const [wmiNotice, setWmiNotice] = useState<string | null>(null);
   const [copiedPsCmd, setCopiedPsCmd] = useState(false);
+  const [editingPasswordAccountId, setEditingPasswordAccountId] = useState<string | null>(null);
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [passwordChangeNotice, setPasswordChangeNotice] = useState<string | null>(null);
 
   const moduleLabels: Record<string, { ar: string; en: string }> = {
     dashboard: { ar: 'لوحة القيادة التنفيذية', en: 'Executive Dashboard' },
@@ -128,7 +135,7 @@ export const SecurityCenterView: React.FC = () => {
     addUserAccount({
       username: newUsername.trim(),
       password: newPassword.trim(),
-      email: `${newUsername.trim().toLowerCase()}@rlm-erp.sa`,
+      email: `${newUsername.trim().toLowerCase()}@haseb-erp.local`,
       name: newNameEn.trim() || newUsername.trim(),
       nameAr: newNameAr.trim() || newUsername.trim(),
       role: newRole,
@@ -237,10 +244,18 @@ export const SecurityCenterView: React.FC = () => {
       setLicenseFeedback({
         type: 'error',
         text:
-          res.reason === 'DEVICE_MISMATCH'
+          res.reason === 'ALREADY_USED_ONCE'
             ? language === 'ar'
-              ? 'فشل التفعيل: هذا السيريال خاص بجهاز آخر مختلف في الماذربورد والمعالج!'
+              ? 'رفض التفعيل: كود التفعيل هذا تم استخدامه مسبقاً! كل كود يعمل لمرة واحدة فقط على الجهاز.'
+              : 'Rejected: This activation serial was already consumed once on this device!'
+            : res.reason === 'DEVICE_MISMATCH'
+            ? language === 'ar'
+              ? 'فشل التفعيل: هذا السيريال خاص بجهاز آخر مختلف في القطع الداخلية!'
               : 'Activation Failed: Serial is bound to another device!'
+            : res.reason === 'CLOCK_TAMPERED'
+            ? language === 'ar'
+              ? 'رفض أمني: تم اكتشاف إرجاع ساعة الجهاز للخلف!'
+              : 'Security Reject: System clock rollback detected!'
             : language === 'ar'
             ? 'سيريال التفعيل غير صالح أو منتهي الصلاحية!'
             : 'Invalid or expired activation serial!',
@@ -253,7 +268,7 @@ export const SecurityCenterView: React.FC = () => {
       {/* Unified Lumina POS Header Card */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shadow-2xs shrink-0">
+          <div className="w-10 h-10 rounded-xl haseb-card-gradient text-white flex items-center justify-center shadow-2xs shrink-0">
             <ShieldCheck className="w-5 h-5" />
           </div>
           <div>
@@ -314,20 +329,20 @@ export const SecurityCenterView: React.FC = () => {
         {[
           {
             id: 'memberships',
-            labelAr: 'العضويات والصلاحيات (admin / Users)',
-            labelEn: 'Memberships & Permissions',
+            labelAr: 'العضوية السيادية (المدير العام) وإضافة مستخدمين',
+            labelEn: 'General Manager & User Access',
             icon: Users,
           },
           {
             id: 'hardware',
-            labelAr: 'بصمة الهاردوير والفترة التجريبية (30 يوم)',
-            labelEn: 'Hardware Lock & 30-Day Trial',
+            labelAr: 'تراخيص الهاردوير وحماية الساعة',
+            labelEn: 'Hardware Lock & Clock Guard',
             icon: Cpu,
           },
           {
             id: 'keygen',
-            labelAr: 'برنامج المطور لتوليد السيريال (Keygen)',
-            labelEn: 'Developer Serial Keygen',
+            labelAr: 'بوابة التفعيل (كود مرة واحدة)',
+            labelEn: 'Single-Use Activation & Keygen',
             icon: KeyRound,
           },
           {
@@ -345,10 +360,10 @@ export const SecurityCenterView: React.FC = () => {
               type="button"
               data-testid={`sec-tab-${tab.id}`}
               onClick={() => setSubTab(tab.id as any)}
-              className={`px-4 py-2 rounded-full text-xs flex items-center gap-2 transition-colors duration-75 cursor-pointer shrink-0 border ${
+              className={`px-4 py-2 rounded-full text-xs flex items-center gap-2 transition-none cursor-pointer shrink-0 border ${
                 active
-                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
-                  : 'bg-white border-slate-200/80 text-slate-600 hover:border-slate-300 hover:bg-slate-50 font-medium'
+                  ? 'haseb-btn-primary border-transparent text-white font-semibold shadow-2xs'
+                  : 'bg-white border-slate-200/80 text-slate-700 hover:border-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
               <Icon className="w-3.5 h-3.5" />
@@ -419,18 +434,35 @@ export const SecurityCenterView: React.FC = () => {
                               <div className="text-xs text-slate-500 font-mono mt-0.5">
                                 {language === 'ar' ? 'اسم المستخدم:' : 'Username:'}{' '}
                                 <strong className="text-slate-900">{acc.username}</strong> •{' '}
-                                {language === 'ar' ? 'كلمة السر:' : 'Password:'}{' '}
-                                <strong className="text-slate-900">{acc.password}</strong>
+                                {language === 'ar' ? 'كلمة المرور:' : 'Password:'}{' '}
+                                <strong className="text-emerald-700">
+                                  {language === 'ar' ? 'مشفرة بالتوقيع المملح ••••••' : 'Salted Hash ••••••'}
+                                </strong>
                               </div>
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              data-testid={`change-password-btn-${acc.username}`}
+                              onClick={() => {
+                                setEditingPasswordAccountId(
+                                  editingPasswordAccountId === acc.id ? null : acc.id
+                                );
+                                setNewPasswordInput('');
+                                setPasswordChangeNotice(null);
+                              }}
+                              className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-xs font-bold transition cursor-pointer"
+                            >
+                              {language === 'ar' ? 'تغيير كلمة المرور' : 'Change Password'}
+                            </button>
+
                             {!isCurrent && (
                               <button
                                 type="button"
-                                onClick={() => login(acc.username, acc.password)}
-                                className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition cursor-pointer shadow-2xs"
+                                onClick={() => switchUserAccount(acc.id)}
+                                className="px-3.5 py-1.5 rounded-xl haseb-btn-primary text-white text-xs font-bold transition cursor-pointer shadow-2xs"
                               >
                                 {language === 'ar' ? 'التبديل لهذه العضوية' : 'Switch to Account'}
                               </button>
@@ -454,6 +486,48 @@ export const SecurityCenterView: React.FC = () => {
                             )}
                           </div>
                         </div>
+
+                        {editingPasswordAccountId === acc.id && (
+                          <div className="mt-3 p-3 rounded-xl bg-blue-50/70 border border-blue-200 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                            <input
+                              type="password"
+                              value={newPasswordInput}
+                              onChange={(e) => setNewPasswordInput(e.target.value)}
+                              placeholder={
+                                language === 'ar'
+                                  ? 'أدخل كلمة المرور الجديدة (4 أحرف فأكثر)...'
+                                  : 'Enter new password (min 4 chars)...'
+                              }
+                              className="flex-1 bg-white border border-blue-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-900 outline-hidden focus:border-blue-600"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const r = changeUserPassword(acc.id, newPasswordInput);
+                                if (r.success) {
+                                  setEditingPasswordAccountId(null);
+                                  setNewPasswordInput('');
+                                  setPasswordChangeNotice(null);
+                                  triggerInstantSaveFeedback(
+                                    language === 'ar'
+                                      ? `تم تحديث وتشفير كلمة مرور (${acc.nameAr || acc.username})`
+                                      : `Updated encrypted password for ${acc.username}`
+                                  );
+                                } else {
+                                  setPasswordChangeNotice(r.errorAr || 'خطأ');
+                                }
+                              }}
+                              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer shrink-0"
+                            >
+                              {language === 'ar' ? 'حفظ كلمة المرور' : 'Save Password'}
+                            </button>
+                            {passwordChangeNotice && (
+                              <span className="text-[11px] font-bold text-rose-600">
+                                {passwordChangeNotice}
+                              </span>
+                            )}
+                          </div>
+                        )}
 
                         {/* Allowed Modules Toggle Grid */}
                         <div className="mt-3">
@@ -579,13 +653,31 @@ export const SecurityCenterView: React.FC = () => {
                   {language === 'ar' ? 'كلمة المرور (Password):' : 'Login Password:'}
                 </label>
                 <input
-                  type="text"
+                  type="password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full bg-slate-50 border border-slate-200/80 rounded-xl px-3 py-2 text-xs font-mono text-slate-900 outline-hidden focus:bg-white focus:border-slate-900 transition"
+                  className="w-full bg-slate-50 border border-slate-200/80 rounded-xl px-3 py-2 text-xs font-mono text-slate-900 outline-hidden focus:bg-white focus:border-blue-600 transition"
                   required
                 />
+                {newPassword && (
+                  <div className="mt-1.5 flex items-center justify-between text-[10px] font-bold">
+                    <span className="text-slate-500">
+                      {language === 'ar' ? 'القوة:' : 'Strength:'}
+                    </span>
+                    <span
+                      className={
+                        evaluatePasswordStrength(newPassword).score >= 3
+                          ? 'text-emerald-700'
+                          : 'text-amber-700'
+                      }
+                    >
+                      {language === 'ar'
+                        ? evaluatePasswordStrength(newPassword).labelAr
+                        : evaluatePasswordStrength(newPassword).labelEn}
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -705,9 +797,9 @@ export const SecurityCenterView: React.FC = () => {
                   );
                   setTimeout(() => setWmiNotice(null), 3500);
                 }}
-                className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                className="px-3.5 py-2 rounded-xl haseb-btn-primary text-white text-xs font-bold cursor-pointer flex items-center gap-1.5 shadow-2xs"
               >
-                <RefreshCw className="w-3.5 h-3.5 text-emerald-400" />
+                <RefreshCw className="w-3.5 h-3.5 text-emerald-200" />
                 <span>
                   {language === 'ar'
                     ? 'فحص الهاردوير الفعلي الآن'
@@ -808,7 +900,7 @@ export const SecurityCenterView: React.FC = () => {
                   setCopiedCode(true);
                   setTimeout(() => setCopiedCode(false), 2000);
                 }}
-                className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                className="px-4 py-2 rounded-xl haseb-btn-primary text-white text-xs font-bold cursor-pointer flex items-center gap-1.5 shadow-2xs"
               >
                 <Copy className="w-3.5 h-3.5" />
                 <span>
@@ -846,7 +938,7 @@ export const SecurityCenterView: React.FC = () => {
                   <a
                     href="/api/v1/hardware/windows-scanner.bat"
                     download="RLM_Hardware_WMI_Scanner.bat"
-                    className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold transition flex items-center gap-1.5 shadow-2xs"
+                    className="px-3 py-1.5 rounded-xl haseb-btn-primary text-white text-[11px] font-bold flex items-center gap-1.5 shadow-2xs"
                   >
                     <Download className="w-3.5 h-3.5" />
                     <span>
@@ -915,7 +1007,7 @@ export const SecurityCenterView: React.FC = () => {
                       );
                     }
                   }}
-                  className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition cursor-pointer shrink-0"
+                  className="px-4 py-2 rounded-xl haseb-btn-primary text-white text-xs font-bold cursor-pointer shrink-0"
                 >
                   {language === 'ar' ? 'اعتماد سيريالات WMI' : 'Bind WMI Serials'}
                 </button>
@@ -999,14 +1091,74 @@ export const SecurityCenterView: React.FC = () => {
             <div className="space-y-4">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0">
+                  <div className="w-8 h-8 rounded-xl haseb-btn-primary text-white flex items-center justify-center shrink-0">
                     <Clock className="w-4 h-4" />
                   </div>
                   <h3 className="text-sm font-bold text-slate-900">
                     {language === 'ar'
-                      ? 'نظام الفترة التجريبية (30 يوماً) والإقفال التلقائي'
-                      : '30-Day Trial Period & Lockout Control'}
+                      ? 'الفترة التجريبية، القفل الأحادي للجهاز، وحراسة الساعة'
+                      : '30-Day Trial, Hardware Binding & Clock Guard'}
                   </h3>
+                </div>
+              </div>
+
+              {/* Monotonic Clock Seal & Bound Hardware Summary */}
+              <div className="grid grid-cols-2 gap-2 text-[11px]">
+                <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-200/80">
+                  <div className="text-blue-700 font-bold">
+                    {language === 'ar' ? 'الأكواد المستهلكة (مرة واحدة)' : 'Consumed Single-Use Keys'}
+                  </div>
+                  <div data-testid="used-serial-count" className="font-mono font-black text-base text-blue-950 mt-0.5">
+                    {usedSerialTokens.length}
+                  </div>
+                </div>
+                <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200/80">
+                  <div className="text-emerald-700 font-bold">
+                    {language === 'ar' ? 'ختم الساعة التصاعدي' : 'Monotonic Clock Seal'}
+                  </div>
+                  <div className="font-mono font-bold text-[10px] text-emerald-950 mt-1 truncate">
+                    {maxObservedClockMs > 0
+                      ? new Date(maxObservedClockMs).toLocaleString('en-GB')
+                      : 'SEALED'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1.5 text-[10px]">
+                <div className="font-bold text-slate-800">
+                  {language === 'ar'
+                    ? 'مطابقة بصمة الجهاز المربوطة vs البصمة الحية:'
+                    : 'Bound Machine Silicon vs Live Silicon:'}
+                </div>
+                <div className="flex items-center justify-between font-mono">
+                  <span className="text-slate-500">Motherboard:</span>
+                  <span
+                    className={
+                      boundHardware.motherboardSerial === hardwareFingerprint.motherboardSerial
+                        ? 'text-emerald-700 font-bold'
+                        : 'text-rose-600 font-bold'
+                    }
+                  >
+                    {boundHardware.motherboardSerial === hardwareFingerprint.motherboardSerial
+                      ? '✓ MATCH'
+                      : '✗ CHANGED'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between font-mono">
+                  <span className="text-slate-500">CPU / Disk NVMe:</span>
+                  <span
+                    className={
+                      boundHardware.cpuProcessorId === hardwareFingerprint.cpuProcessorId &&
+                      boundHardware.diskVolumeSerial === hardwareFingerprint.diskVolumeSerial
+                        ? 'text-emerald-700 font-bold'
+                        : 'text-rose-600 font-bold'
+                    }
+                  >
+                    {boundHardware.cpuProcessorId === hardwareFingerprint.cpuProcessorId &&
+                    boundHardware.diskVolumeSerial === hardwareFingerprint.diskVolumeSerial
+                      ? '✓ MATCH'
+                      : '✗ CHANGED'}
+                  </span>
                 </div>
               </div>
 
@@ -1172,6 +1324,11 @@ export const SecurityCenterView: React.FC = () => {
                       ? 'حماية ضد إرجاع الوقت (Anti-Clock Rollback): لا يمكن التلاعب بتاريخ الجهاز لتشغيل البرنامج بعد انتهاء التجربة أو التفعيل.'
                       : 'Monotonic Anti-Clock Rollback prevents rolling back system time to bypass expiration.'}
                   </li>
+                  <li>
+                    {language === 'ar'
+                      ? 'كود التفعيل يعمل مرة واحدة فقط على هذا الجهاز — لا يمكن إعادة استخدام نفس الكود بعد تفعيله.'
+                      : 'Strict single-use serial: once consumed on this machine, any reuse of the same code is rejected.'}
+                  </li>
                 </ul>
               </div>
             </div>
@@ -1181,7 +1338,7 @@ export const SecurityCenterView: React.FC = () => {
                 type="button"
                 data-testid="launch-standalone-keygen-btn"
                 onClick={() => setIsStandaloneKeygenOpen(true)}
-                className="flex-1 py-3 px-5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-2xs transition cursor-pointer flex items-center justify-center gap-2"
+                className="flex-1 py-3 px-5 rounded-xl haseb-btn-primary text-white font-bold text-xs shadow-2xs transition cursor-pointer flex items-center justify-center gap-2"
               >
                 <KeyRound className="w-4 h-4" />
                 <span>

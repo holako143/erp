@@ -712,7 +712,7 @@ export const QuickSendModal: React.FC = () => {
                       value={referenceNumber}
                       onChange={(e) => setReferenceNumber(e.target.value)}
                       data-testid="msg-reference-input"
-                      placeholder="INV-2026-1001"
+                      placeholder="INV-0001"
                       className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 rounded-xl pr-9 pl-3 py-2 text-xs text-slate-900 dark:text-white font-mono focus:border-slate-900 focus:bg-white focus:outline-none"
                     />
                   </div>

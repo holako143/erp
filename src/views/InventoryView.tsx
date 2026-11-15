@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback, Suspense, lazy } from 'react';
 import { useERP } from '../context/ERPContext';
 import {
   Package,
@@ -8,7 +8,6 @@ import {
   FileSpreadsheet,
   Upload,
   CheckCircle2,
-  Download,
   MessageSquare,
   Network,
   ArrowRightLeft,
@@ -26,33 +25,16 @@ import {
   ScanLine,
   X,
   BarChart3,
-  TrendingUp,
   Volume2,
   VolumeX,
   Zap,
   AlertTriangle,
-  Maximize2,
-  Minimize2,
   Image as ImageIcon,
 } from 'lucide-react';
-import {
-  ResponsiveContainer,
-  ComposedChart,
-  BarChart,
-  Bar,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  Cell,
-} from 'recharts';
-import { CameraBarcodeScannerModal, ScannedBatchItem } from '../components/common/CameraBarcodeScannerModal';
+import type { ScannedBatchItem } from '../components/common/CameraBarcodeScannerModal';
 import { WorkspaceTabResizerBar } from '../components/common/WorkspaceTabResizerBar';
 import { IndustryType, ElectronicsSubCategory, Product } from '../types/erp';
 import {
-  parseBulkProductsCSV,
   calculateStockAdjustmentVariance,
   SPECIFIC_INVENTORY_CLASSIFICATIONS,
   generateUniqueProductBarcode,
@@ -66,14 +48,35 @@ import {
   PRESET_PRODUCT_ILLUSTRATIONS,
   getProductVisualIllustrationUri,
 } from '../core/inventoryEngine';
+import { InventoryProductRow } from '../components/inventory/InventoryProductRow';
+import { StockTakingRow } from '../components/inventory/StockTakingRow';
+import { HasebBrandLogo } from '../components/common/HasebBrandLogo';
 
-const SAMPLE_BULK_CSV = `SKU,Barcode,NameAr,NameEn,CostPrice,SalePrice,StockQty,UOM,ReorderPoint,Sector
-SOL-600W-TOPCON,6281042009103,لوح طاقة شمسية N-Type بايفيشال 600W,N-Type Bifacial Solar Panel 600W,390,510,80,PCS,15,electronics
-INV-DEYE-12KW,6281042009110,إنفرتر هجين ذكي Deye 12kW 3-Phase MPPT,Deye 12kW 3-Phase Hybrid Inverter,4200,5350,12,PCS,3,electronics
-BAT-LFP-51V-300,6281042009127,بطارية ليثيوم جدارية LiFePO4 51.2V 300Ah 15kWh,LiFePO4 Rack Battery 51.2V 300Ah 15kWh,4850,6200,15,PCS,4,electronics
-SCR-OLED-77-4K,6281042009134,شاشة ذكية 77 بوصة 4K OLED 120Hz WebOS,Smart 77-inch 4K OLED 120Hz TV,3100,4150,10,PCS,3,electronics`;
+const CameraBarcodeScannerModal = lazy(() =>
+  import('../components/common/CameraBarcodeScannerModal').then((m) => ({
+    default: m.CameraBarcodeScannerModal,
+  }))
+);
+const InventoryMiniDashboard = lazy(() => import('../components/inventory/InventoryMiniDashboard'));
+const InventoryBulkImportModal = lazy(
+  () => import('../components/inventory/InventoryBulkImportModal')
+);
 
-export const InventoryView: React.FC = () => {
+const InventoryModalLoadingFallback: React.FC = () => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs">
+    <div className="bg-white rounded-2xl px-6 py-4 shadow-xl border border-slate-200 flex items-center gap-3 text-xs font-bold text-slate-800">
+      <HasebBrandLogo size="sm" />
+      <div className="space-y-1">
+        <div>جاري تجهيز المكون...</div>
+        <div className="w-24 h-1 rounded-full bg-slate-200 overflow-hidden">
+          <div className="w-12 h-full rounded-full haseb-shimmer-bar" />
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
+export const InventoryView: React.FC = React.memo(() => {
   const {
     products,
     addProduct,
@@ -106,7 +109,6 @@ export const InventoryView: React.FC = () => {
 
   // Interactive Recharts Mini-Dashboard State
   const [isMiniDashboardOpen, setIsMiniDashboardOpen] = useState<boolean>(true);
-  const [expandedChart, setExpandedChart] = useState<'BOTH' | 'DEMAND' | 'STOCK'>('BOTH');
 
   // Physical Stock-Taking State (الجرد الفعلي اللحظي) & Fast Stock-Take Mode (الجرد السريع المتتالي)
   const [stockCountsMap, setStockCountsMap] = useState<Record<string, number>>({});
@@ -178,50 +180,56 @@ export const InventoryView: React.FC = () => {
   const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
   const [cameraScannerContext, setCameraScannerContext] = useState<'ITEMS' | 'STOCK_TAKE'>('ITEMS');
 
-  const handleCameraBarcodeScan = (scannedCode: string, matchedProduct?: any, qty = 1) => {
-    if (cameraScannerContext === 'STOCK_TAKE') {
-      if (matchedProduct) {
-        setStockCountsMap((prev) => ({
-          ...prev,
-          [matchedProduct.id]: (prev[matchedProduct.id] ?? matchedProduct.stockQty) + qty,
-        }));
-        setStockTakeBanner(
-          `تم مسح الباركود [${scannedCode}] للصنف (${matchedProduct.nameAr}) وتحديث الرصيد الفعلي للجرد بمقدار +${qty}.`
-        );
+  const handleCameraBarcodeScan = useCallback(
+    (scannedCode: string, matchedProduct?: any, qty = 1) => {
+      if (cameraScannerContext === 'STOCK_TAKE') {
+        if (matchedProduct) {
+          setStockCountsMap((prev) => ({
+            ...prev,
+            [matchedProduct.id]: (prev[matchedProduct.id] ?? matchedProduct.stockQty) + qty,
+          }));
+          setStockTakeBanner(
+            `تم مسح الباركود [${scannedCode}] للصنف (${matchedProduct.nameAr}) وتحديث الرصيد الفعلي للجرد بمقدار +${qty}.`
+          );
+        } else {
+          setStockTakeBanner(`الباركود [${scannedCode}] غير مسجل في قاعدة الأصناف.`);
+        }
       } else {
-        setStockTakeBanner(`الباركود [${scannedCode}] غير مسجل في قاعدة الأصناف.`);
+        if (matchedProduct) {
+          setSearchQuery(matchedProduct.sku || matchedProduct.nameAr);
+        } else {
+          setSearchQuery(scannedCode);
+        }
       }
-    } else {
-      if (matchedProduct) {
-        setSearchQuery(matchedProduct.sku || matchedProduct.nameAr);
-      } else {
-        setSearchQuery(scannedCode);
-      }
-    }
-  };
+    },
+    [cameraScannerContext]
+  );
 
-  const handleCameraBatchScanComplete = (batchItems: ScannedBatchItem[]) => {
-    if (cameraScannerContext === 'STOCK_TAKE') {
-      let count = 0;
-      setStockCountsMap((prev) => {
-        const next = { ...prev };
-        batchItems.forEach((item) => {
-          if (item.product) {
-            next[item.product.id] = (next[item.product.id] ?? item.product.stockQty) + item.quantity;
-            count += item.quantity;
-          }
+  const handleCameraBatchScanComplete = useCallback(
+    (batchItems: ScannedBatchItem[]) => {
+      if (cameraScannerContext === 'STOCK_TAKE') {
+        let count = 0;
+        setStockCountsMap((prev) => {
+          const next = { ...prev };
+          batchItems.forEach((item) => {
+            if (item.product) {
+              next[item.product.id] = (next[item.product.id] ?? item.product.stockQty) + item.quantity;
+              count += item.quantity;
+            }
+          });
+          return next;
         });
-        return next;
-      });
-      if (count > 0) {
-        setStockTakeBanner(`تم تطبيق جرد ${count} قطع بنجاح من المسح المتعدد بالكاميرا على محضر الجرد.`);
+        if (count > 0) {
+          setStockTakeBanner(`تم تطبيق جرد ${count} قطع بنجاح من المسح المتعدد بالكاميرا على محضر الجرد.`);
+        }
+      } else {
+        if (batchItems.length > 0 && batchItems[0].product) {
+          setSearchQuery(batchItems[0].product.sku);
+        }
       }
-    } else {
-      if (batchItems.length > 0 && batchItems[0].product) {
-        setSearchQuery(batchItems[0].product.sku);
-      }
-    }
-  };
+    },
+    [cameraScannerContext]
+  );
 
   const showCostPrice = masterSystemConfig.uiElementsVisibility.showCostPriceInInventory;
   const showExportImport = masterSystemConfig.uiElementsVisibility.showExportImportButtons;
@@ -232,14 +240,15 @@ export const InventoryView: React.FC = () => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
-  const [bulkCsvText, setBulkCsvText] = useState<string>(SAMPLE_BULK_CSV);
-  const [postOpeningJournal, setPostOpeningJournal] = useState<boolean>(true);
   const [importBanner, setImportBanner] = useState<string | null>(null);
   const [productModalError, setProductModalError] = useState<string | null>(null);
   const [productModalNotice, setProductModalNotice] = useState<string | null>(null);
 
-  // Specific Electronics & Solar Categories
-  const electronicsCategories = categories.filter((c) => !c.industry || c.industry === 'electronics');
+  // Specific Electronics & Solar Categories (Memoized)
+  const electronicsCategories = useMemo(
+    () => categories.filter((c) => !c.industry || c.industry === 'electronics'),
+    [categories]
+  );
 
   // Form State for Add / Edit Product
   const [name, setName] = useState('');
@@ -501,44 +510,47 @@ export const InventoryView: React.FC = () => {
     setIsAddModalOpen(true);
   };
 
-  // Open Modal for Editing an Existing Product (تعديل الصنف بالكامل)
-  const handleOpenEditModal = (product: Product) => {
-    setEditingProductId(product.id);
-    setProductModalError(null);
-    setProductModalNotice(null);
-    setCartonCaptureTarget(null);
-    stopCartonWebcam();
+  // Open Modal for Editing an Existing Product (تعديل الصنف بالكامل) - Memoized for InventoryProductRow
+  const handleOpenEditModal = useCallback(
+    (product: Product) => {
+      setEditingProductId(product.id);
+      setProductModalError(null);
+      setProductModalNotice(null);
+      setCartonCaptureTarget(null);
+      stopCartonWebcam();
 
-    setName(product.name);
-    setNameAr(product.nameAr);
-    setSku(product.sku);
-    setBarcode(product.barcode);
+      setName(product.name);
+      setNameAr(product.nameAr);
+      setSku(product.sku);
+      setBarcode(product.barcode);
 
-    // Resolve specific categoryId
-    const matchedSpec = SPECIFIC_INVENTORY_CLASSIFICATIONS.find(
-      (c) => c.categoryId === product.categoryId || c.subCategory === product.subCategory
-    );
-    setCategoryId(
-      product.categoryId && product.categoryId !== 'cat-electronics'
-        ? product.categoryId
-        : matchedSpec?.categoryId || electronicsCategories[0]?.id || 'cat-solar-panels'
-    );
-    setSubCategory((product.subCategory as ElectronicsSubCategory) || matchedSpec?.subCategory || 'SOLAR_PANEL');
-    setUom(product.uom || 'PCS');
-    setCostPrice(product.costPrice);
-    setSalePrice(product.salePrice);
-    setStockQty(product.stockQty);
-    setReorderPoint(product.reorderPoint || 5);
-    setBinLocation(product.binLocation || 'ZA-01-S1-B01');
-    setWarrantyMonths(product.warrantyMonths ?? 24);
-    setPowerRatingWatts(product.powerRatingWatts ?? 0);
-    setBatteryCapacitySpec(product.batteryCapacitySpec || '');
-    setVoltageSpec(product.voltageSpec || '');
-    setScreenSizeSpec(product.screenSizeSpec || '');
-    setProductImageUrl(product.imageUrl || '');
-    setProductIndustry(product.industry || 'electronics');
-    setIsAddModalOpen(true);
-  };
+      // Resolve specific categoryId
+      const matchedSpec = SPECIFIC_INVENTORY_CLASSIFICATIONS.find(
+        (c) => c.categoryId === product.categoryId || c.subCategory === product.subCategory
+      );
+      setCategoryId(
+        product.categoryId && product.categoryId !== 'cat-electronics'
+          ? product.categoryId
+          : matchedSpec?.categoryId || electronicsCategories[0]?.id || 'cat-solar-panels'
+      );
+      setSubCategory((product.subCategory as ElectronicsSubCategory) || matchedSpec?.subCategory || 'SOLAR_PANEL');
+      setUom(product.uom || 'PCS');
+      setCostPrice(product.costPrice);
+      setSalePrice(product.salePrice);
+      setStockQty(product.stockQty);
+      setReorderPoint(product.reorderPoint || 5);
+      setBinLocation(product.binLocation || 'ZA-01-S1-B01');
+      setWarrantyMonths(product.warrantyMonths ?? 24);
+      setPowerRatingWatts(product.powerRatingWatts ?? 0);
+      setBatteryCapacitySpec(product.batteryCapacitySpec || '');
+      setVoltageSpec(product.voltageSpec || '');
+      setScreenSizeSpec(product.screenSizeSpec || '');
+      setProductImageUrl(product.imageUrl || '');
+      setProductIndustry(product.industry || 'electronics');
+      setIsAddModalOpen(true);
+    },
+    [electronicsCategories]
+  );
 
   // Handle Category Selection Change -> Synchronize SubCategory & Default Warranty
   const handleSelectSpecificCategory = (selectedCatId: string) => {
@@ -575,90 +587,139 @@ export const InventoryView: React.FC = () => {
     setTimeout(() => setProductModalNotice(null), 3500);
   };
 
-  const liveBulkPreview = parseBulkProductsCSV(
-    bulkCsvText,
-    currentTenant.id,
-    currentWarehouse.id,
-    electronicsCategories[0]?.id || 'cat-solar-panels',
-    'electronics'
+  // Filtered Products dedicated to Electronics, Solar Energy, Batteries, Inverters & Smart Screens (Memoized)
+  const electronicsProducts = useMemo(
+    () => products.filter((p) => !p.industry || p.industry === 'electronics'),
+    [products]
   );
 
-  // Filtered Products dedicated to Electronics, Solar Energy, Batteries, Inverters & Smart Screens
-  const electronicsProducts = products.filter(
-    (p) => !p.industry || p.industry === 'electronics'
-  );
-
-  const filteredProducts = electronicsProducts.filter((p) => {
-    const matchesSearch =
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.nameAr.includes(searchQuery) ||
-      p.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.barcode.includes(searchQuery);
-
+  const filteredProducts = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
     const specForCat = SPECIFIC_INVENTORY_CLASSIFICATIONS.find(
       (c) => c.categoryId === selectedCategory
     );
-    const matchesCategory =
-      selectedCategory === 'all' ||
-      p.categoryId === selectedCategory ||
-      Boolean(specForCat && p.subCategory === specForCat.subCategory);
+    return electronicsProducts.filter((p) => {
+      const matchesSearch =
+        !q ||
+        p.name.toLowerCase().includes(q) ||
+        p.nameAr.includes(searchQuery) ||
+        p.sku.toLowerCase().includes(q) ||
+        p.barcode.includes(searchQuery);
 
-    const matchesSubCat =
-      selectedSubCatFilter === 'ALL' ||
-      p.subCategory === selectedSubCatFilter ||
-      (selectedSubCatFilter === 'LITHIUM_BATTERY' &&
-        (p.subCategory === 'LITHIUM_BATTERY' || p.subCategory === 'GEL_BATTERY'));
-    return matchesSearch && matchesCategory && matchesSubCat;
-  });
+      const matchesCategory =
+        selectedCategory === 'all' ||
+        p.categoryId === selectedCategory ||
+        Boolean(specForCat && p.subCategory === specForCat.subCategory);
 
-  // Inline Quick Stock Adjustment (+1 / -1) in Inventory Table
-  const handleQuickStockStep = (product: Product, delta: number) => {
-    const nextQty = Math.max(0, product.stockQty + delta);
-    updateProduct({
-      ...product,
-      stockQty: nextQty,
+      const matchesSubCat =
+        selectedSubCatFilter === 'ALL' ||
+        p.subCategory === selectedSubCatFilter ||
+        (selectedSubCatFilter === 'LITHIUM_BATTERY' &&
+          (p.subCategory === 'LITHIUM_BATTERY' || p.subCategory === 'GEL_BATTERY'));
+      return matchesSearch && matchesCategory && matchesSubCat;
     });
-    setImportBanner(
-      `تم تحديث رصيد المخزون للصنف (${product.nameAr}) إلى ${nextQty} ${product.uom}.`
-    );
-    setTimeout(() => setImportBanner(null), 3500);
-  };
+  }, [electronicsProducts, searchQuery, selectedCategory, selectedSubCatFilter]);
 
-  const handleCommitSingleStockTake = (product: typeof products[0]) => {
-    const countedQty = stockCountsMap[product.id] ?? product.stockQty;
-    const variance = calculateStockAdjustmentVariance(
-      product.id,
-      product.stockQty,
-      countedQty,
-      product.costPrice
-    );
-    updateProduct({
-      ...product,
-      stockQty: countedQty,
-    });
-    if (variance.journalLines.length > 0) {
-      addManualJournalEntry({
-        description: `${stockAuditReason} — الصنف: ${product.nameAr} (${product.sku}) | الفرق: ${variance.varianceQty > 0 ? '+' : ''}${variance.varianceQty}`,
-        lines: variance.journalLines.map((l) => ({
-          accountId: l.accountId,
-          debit: l.debit,
-          credit: l.credit,
-          memo: l.memo,
-        })),
+  // Inline Quick Stock Adjustment (+1 / -1) in Inventory Table (Memoized)
+  const handleQuickStockStep = useCallback(
+    (product: Product, delta: number) => {
+      const nextQty = Math.max(0, product.stockQty + delta);
+      updateProduct({
+        ...product,
+        stockQty: nextQty,
       });
-    }
-    setStockTakeBanner(
-      `✓ تم اعتماد الجرد الفعلي للصنف (${product.nameAr}): الرصيد الجديد ${countedQty} ${product.uom} (${
-        variance.varianceQty === 0
-          ? 'مطابق تماماً للدفاتر'
-          : `${variance.adjustmentType === 'SURPLUS' ? 'فائض +' : 'عجز '}${variance.varianceQty} بقيمة ${formatCurrency(variance.varianceValue)} وتم ترحيل قيد التسوية المحاسبي آلياً`
-      })`
-    );
-    setTimeout(() => setStockTakeBanner(null), 6000);
-  };
+      setImportBanner(
+        `تم تحديث رصيد المخزون للصنف (${product.nameAr}) إلى ${nextQty} ${product.uom}.`
+      );
+      setTimeout(() => setImportBanner(null), 3500);
+    },
+    [updateProduct]
+  );
+
+  const handleGoToStockTake = useCallback((p: Product) => {
+    setStockCountsMap((prev) => ({
+      ...prev,
+      [p.id]: prev[p.id] ?? p.stockQty,
+    }));
+    setInventorySubTab('STOCK_TAKING');
+  }, []);
+
+  const handleSellInPos = useCallback(
+    (p: Product) => {
+      addToPOSCart(p, 1);
+      setActiveTab('pos');
+    },
+    [addToPOSCart, setActiveTab]
+  );
+
+  const handleProbeCrossBranch = useCallback(
+    (skuCode: string) => {
+      openCrossBranchModal(skuCode);
+    },
+    [openCrossBranchModal]
+  );
+
+  const handleDeleteProduct = useCallback(
+    (p: Product) => {
+      deleteProduct(p.id);
+      setImportBanner(`تم حذف الصنف (${p.nameAr} — ${p.sku}) من سجل المخزون.`);
+      setTimeout(() => setImportBanner(null), 4000);
+    },
+    [deleteProduct]
+  );
+
+  const handleStepStockCount = useCallback((p: Product, delta: number) => {
+    setStockCountsMap((prev) => ({
+      ...prev,
+      [p.id]: Math.max(0, (prev[p.id] ?? p.stockQty) + delta),
+    }));
+  }, []);
+
+  const handleSetStockCount = useCallback((productId: string, nextCount: number) => {
+    setStockCountsMap((prev) => ({
+      ...prev,
+      [productId]: nextCount,
+    }));
+  }, []);
+
+  const handleCommitSingleStockTake = useCallback(
+    (product: Product) => {
+      const countedQty = stockCountsMap[product.id] ?? product.stockQty;
+      const variance = calculateStockAdjustmentVariance(
+        product.id,
+        product.stockQty,
+        countedQty,
+        product.costPrice
+      );
+      updateProduct({
+        ...product,
+        stockQty: countedQty,
+      });
+      if (variance.journalLines.length > 0) {
+        addManualJournalEntry({
+          description: `${stockAuditReason} — الصنف: ${product.nameAr} (${product.sku}) | الفرق: ${variance.varianceQty > 0 ? '+' : ''}${variance.varianceQty}`,
+          lines: variance.journalLines.map((l) => ({
+            accountId: l.accountId,
+            debit: l.debit,
+            credit: l.credit,
+            memo: l.memo,
+          })),
+        });
+      }
+      setStockTakeBanner(
+        `✓ تم اعتماد الجرد الفعلي للصنف (${product.nameAr}): الرصيد الجديد ${countedQty} ${product.uom} (${
+          variance.varianceQty === 0
+            ? 'مطابق تماماً للدفاتر'
+            : `${variance.adjustmentType === 'SURPLUS' ? 'فائض +' : 'عجز '}${variance.varianceQty} بقيمة ${formatCurrency(variance.varianceValue)} وتم ترحيل قيد التسوية المحاسبي آلياً`
+        })`
+      );
+      setTimeout(() => setStockTakeBanner(null), 6000);
+    },
+    [stockCountsMap, updateProduct, addManualJournalEntry, stockAuditReason, formatCurrency]
+  );
 
   // Commit ALL Modified Stock-Take Counts at Once (اعتماد الجرد الكلي لجميع الفروقات دفعة واحدة)
-  const handleCommitAllStockTake = () => {
+  const handleCommitAllStockTake = useCallback(() => {
     let updatedItemsCount = 0;
     let totalSurplusValue = 0;
     let totalDeficitValue = 0;
@@ -701,31 +762,26 @@ export const InventoryView: React.FC = () => {
       );
     }
     setTimeout(() => setStockTakeBanner(null), 6000);
-  };
+  }, [filteredProducts, stockCountsMap, updateProduct, addManualJournalEntry, stockAuditReason, formatCurrency]);
 
-  const handleConfirmBulkImport = () => {
-    const res = importBulkProductsCSV(bulkCsvText, postOpeningJournal);
-    if (res.importedCount > 0) {
-      setIsBulkModalOpen(false);
-      setImportBanner(
-        `تم استيراد ${res.importedCount} أصناف بنجاح وإثبات رصيد افتتاحي بقيمة ${res.totalOpeningValuation.toLocaleString()} ${currency} في الأستاذ العام!`
-      );
-      setTimeout(() => setImportBanner(null), 5000);
-    }
-  };
-
-  const handleCsvFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const content = ev.target?.result;
-      if (typeof content === 'string') {
-        setBulkCsvText(content);
+  const handleConfirmBulkImport = useCallback(
+    (csvTextToImport: string, shouldPostOpeningJournal: boolean) => {
+      const res = importBulkProductsCSV(csvTextToImport, shouldPostOpeningJournal);
+      if (res.importedCount > 0) {
+        setIsBulkModalOpen(false);
+        setImportBanner(
+          `تم استيراد ${res.importedCount} أصناف بنجاح وإثبات رصيد افتتاحي بقيمة ${res.totalOpeningValuation.toLocaleString()} ${currency} في الأستاذ العام!`
+        );
+        setTimeout(() => setImportBanner(null), 5000);
       }
-    };
-    reader.readAsText(file);
-  };
+    },
+    [importBulkProductsCSV, currency]
+  );
+
+  const handleSelectChartSku = useCallback((skuCode: string) => {
+    setSearchQuery(skuCode);
+    setInventorySubTab('ITEMS');
+  }, []);
 
   const handleSaveProduct = (e: React.FormEvent) => {
     e.preventDefault();
@@ -858,7 +914,7 @@ export const InventoryView: React.FC = () => {
     setTimeout(() => setImportBanner(null), 5000);
   };
 
-  const handleExportCSV = () => {
+  const handleExportCSV = useCallback(() => {
     const headers = [
       'SKU',
       'Barcode',
@@ -899,29 +955,36 @@ export const InventoryView: React.FC = () => {
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
-  };
+  }, [filteredProducts, categories, currentTenant.code]);
 
-  // Stock-taking live summary stats
-  const stockTakeSummary = filteredProducts.reduce(
-    (acc, p) => {
-      const counted = stockCountsMap[p.id] ?? p.stockQty;
-      const v = calculateStockAdjustmentVariance(p.id, p.stockQty, counted, p.costPrice);
-      if (v.adjustmentType === 'SURPLUS') {
-        acc.surplusCount += 1;
-        acc.netValueImpact += v.varianceValue;
-      } else if (v.adjustmentType === 'DEFICIT') {
-        acc.deficitCount += 1;
-        acc.netValueImpact -= v.varianceValue;
-      }
-      return acc;
-    },
-    { surplusCount: 0, deficitCount: 0, netValueImpact: 0 }
+  // Stock-taking live summary stats (Memoized)
+  const stockTakeSummary = useMemo(
+    () =>
+      filteredProducts.reduce(
+        (acc, p) => {
+          const counted = stockCountsMap[p.id] ?? p.stockQty;
+          const v = calculateStockAdjustmentVariance(p.id, p.stockQty, counted, p.costPrice);
+          if (v.adjustmentType === 'SURPLUS') {
+            acc.surplusCount += 1;
+            acc.netValueImpact += v.varianceValue;
+          } else if (v.adjustmentType === 'DEFICIT') {
+            acc.deficitCount += 1;
+            acc.netValueImpact -= v.varianceValue;
+          }
+          return acc;
+        },
+        { surplusCount: 0, deficitCount: 0, netValueImpact: 0 }
+      ),
+    [filteredProducts, stockCountsMap]
   );
 
-  // Build Recharts Mini-Dashboard Analytics for Top Demanded Items & Current Stock Levels
-  const miniDashboardAnalytics = buildInventoryMiniDashboardAnalytics(
-    electronicsProducts,
-    salesInvoices
+  // Build Recharts Mini-Dashboard Analytics only when mini-dashboard is open (Memoized)
+  const miniDashboardAnalytics = useMemo(
+    () =>
+      isMiniDashboardOpen
+        ? buildInventoryMiniDashboardAnalytics(electronicsProducts, salesInvoices)
+        : null,
+    [isMiniDashboardOpen, electronicsProducts, salesInvoices]
   );
 
   // Execute Sequential Barcode / SKU Scan in Fast Stock-Take Mode
@@ -1158,268 +1221,21 @@ export const InventoryView: React.FC = () => {
         </div>
       </div>
 
-      {/* Interactive Recharts Mini-Dashboard Inside Inventory Screen (Lumina Card Style) */}
-      {isMiniDashboardOpen && (
-        <div
-          data-testid="inventory-mini-dashboard"
-          className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/70 dark:border-slate-800 p-4 shadow-2xs space-y-3.5"
+      {/* Interactive Recharts Mini-Dashboard Inside Inventory Screen (Lazy-Loaded Code-Split Chunk) */}
+      {isMiniDashboardOpen && miniDashboardAnalytics && (
+        <Suspense
+          fallback={
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/70 p-6 text-center text-xs font-bold text-slate-500">
+              جاري تحميل الرسوم البيانية التحليلية للمخزون...
+            </div>
+          }
         >
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center">
-                <TrendingUp className="w-4 h-4" />
-              </div>
-              <div>
-                <h2 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100">
-                  لوحة التحكم المصغرة للمخزون واتخاذ القرار السريع
-                </h2>
-                <p className="text-[11px] text-slate-500">
-                  تحليل بياني لحظي لأكثر الأصناف طلباً ومستويات المخزون الحالية مقابل حد إعادة الطلب
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-              <div className="px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700">
-                <div className="text-[10px] text-slate-500 font-medium">إجمالي الوحدات</div>
-                <div className="font-mono font-bold text-slate-900 dark:text-white text-xs sm:text-sm" dir="ltr">
-                  {miniDashboardAnalytics.totalUnitsInStock.toLocaleString()} PCS
-                </div>
-              </div>
-              <div className="px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700">
-                <div className="text-[10px] text-slate-500 font-medium">قيمة المخزون بالتكلفة</div>
-                <div className="font-mono font-bold text-slate-900 dark:text-white text-xs sm:text-sm" dir="ltr">
-                  {miniDashboardAnalytics.totalInventoryValue.toLocaleString()} {currency}
-                </div>
-              </div>
-              <div className="px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700">
-                <div className="text-[10px] text-slate-500 font-medium">الأعلى طلباً ودوراناً</div>
-                <div className="font-semibold text-slate-800 dark:text-slate-200 text-xs truncate max-w-[145px]">
-                  {miniDashboardAnalytics.topPerformerNameAr}
-                </div>
-              </div>
-              <div className="px-3 py-1.5 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800">
-                <div className="text-[10px] text-amber-700 dark:text-amber-300 font-medium">تحتاج إعادة طلب</div>
-                <div className="font-mono font-bold text-amber-800 dark:text-amber-200 text-xs sm:text-sm">
-                  {miniDashboardAnalytics.lowStockItemsCount} أصناف
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
-            {/* Recharts Chart 1: Top Demanded Items vs Current Stock */}
-            {expandedChart !== 'STOCK' && (
-              <div
-                data-testid="inventory-chart-top-demanded"
-                className={`p-3.5 rounded-2xl bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/70 dark:border-slate-800 space-y-2 ${
-                  expandedChart === 'DEMAND' ? 'lg:col-span-2' : ''
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                    <BarChart3 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                    <span>أكثر الأصناف طلباً ومبيعات مقارنة بالرصيد المتاح</span>
-                  </h3>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-[10px] font-medium text-slate-600 bg-white border border-slate-200/70 px-2 py-0.5 rounded-full">
-                      تفاعلي مباشر
-                    </span>
-                    <button
-                      type="button"
-                      data-testid="btn-resize-demand-chart"
-                      onClick={() =>
-                        setExpandedChart((prev) => (prev === 'DEMAND' ? 'BOTH' : 'DEMAND'))
-                      }
-                      className="p-1 rounded-lg border border-slate-200/80 bg-white hover:bg-slate-100 text-slate-600 cursor-pointer"
-                      title={expandedChart === 'DEMAND' ? 'استعادة العرض المزدوج' : 'تكبير الرسم البياني'}
-                    >
-                      {expandedChart === 'DEMAND' ? (
-                        <Minimize2 className="w-3 h-3" />
-                      ) : (
-                        <Maximize2 className="w-3 h-3" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-                <div className={`${expandedChart === 'DEMAND' ? 'h-60' : 'h-44'} w-full`} dir="ltr">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart
-                      data={miniDashboardAnalytics.topDemandedItems}
-                      margin={{ top: 8, right: 12, left: 0, bottom: 4 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                      <XAxis
-                        dataKey="sku"
-                        tick={{ fontSize: 10, fill: '#475569', fontWeight: 600 }}
-                      />
-                      <YAxis tick={{ fontSize: 10, fill: '#475569' }} />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: '#0f172a',
-                          borderColor: '#1e293b',
-                          borderRadius: '12px',
-                          color: '#f8fafc',
-                          fontSize: '11px',
-                        }}
-                        formatter={(val: any, name: any) => [
-                          `${val} وحدة`,
-                          name === 'demandedQty'
-                            ? 'الطلب والمبيعات'
-                            : name === 'currentStock'
-                            ? 'الرصيد المتاح'
-                            : 'حد إعادة الطلب',
-                        ]}
-                        labelFormatter={(label: any, payload: any) =>
-                          payload?.[0]?.payload?.nameAr || label
-                        }
-                      />
-                      <Legend
-                        wrapperStyle={{ fontSize: '11px', fontWeight: 600 }}
-                        formatter={(val) =>
-                          val === 'demandedQty'
-                            ? 'الطلب والمبيعات'
-                            : val === 'currentStock'
-                            ? 'الرصيد الفعلي المتاح'
-                            : 'حد الطلب الآمن'
-                        }
-                      />
-                      <Bar
-                        dataKey="demandedQty"
-                        name="demandedQty"
-                        fill="#0f172a"
-                        radius={[4, 4, 0, 0]}
-                        barSize={18}
-                      />
-                      <Bar
-                        dataKey="currentStock"
-                        name="currentStock"
-                        fill="#2563eb"
-                        radius={[4, 4, 0, 0]}
-                        barSize={18}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="reorderPoint"
-                        name="reorderPoint"
-                        stroke="#f59e0b"
-                        strokeWidth={2}
-                        dot={{ r: 3, fill: '#f59e0b' }}
-                      />
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            )}
-
-            {/* Recharts Chart 2: Current Stock Levels vs Reorder Point */}
-            {expandedChart !== 'DEMAND' && (
-              <div
-                data-testid="inventory-chart-stock-levels"
-                className={`p-3.5 rounded-2xl bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/70 dark:border-slate-800 space-y-2 ${
-                  expandedChart === 'STOCK' ? 'lg:col-span-2' : ''
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                    <Package className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                    <span>مستويات المخزون الحالية مقابل حد إعادة الطلب الآمن</span>
-                  </h3>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-[10px] font-medium text-slate-600 bg-white border border-slate-200/70 px-2 py-0.5 rounded-full">
-                      انقر على أي عمود لتصفية الصنف
-                    </span>
-                    <button
-                      type="button"
-                      data-testid="btn-resize-stock-chart"
-                      onClick={() =>
-                        setExpandedChart((prev) => (prev === 'STOCK' ? 'BOTH' : 'STOCK'))
-                      }
-                      className="p-1 rounded-lg border border-slate-200/80 bg-white hover:bg-slate-100 text-slate-600 cursor-pointer"
-                      title={expandedChart === 'STOCK' ? 'استعادة العرض المزدوج' : 'تكبير الرسم البياني'}
-                    >
-                      {expandedChart === 'STOCK' ? (
-                        <Minimize2 className="w-3 h-3" />
-                      ) : (
-                        <Maximize2 className="w-3 h-3" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-                <div className={`${expandedChart === 'STOCK' ? 'h-60' : 'h-44'} w-full`} dir="ltr">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={miniDashboardAnalytics.stockLevelsItems}
-                      margin={{ top: 8, right: 12, left: 0, bottom: 4 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                      <XAxis
-                        dataKey="sku"
-                        tick={{ fontSize: 10, fill: '#475569', fontWeight: 600 }}
-                      />
-                      <YAxis tick={{ fontSize: 10, fill: '#475569' }} />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: '#0f172a',
-                          borderColor: '#1e293b',
-                          borderRadius: '12px',
-                          color: '#f8fafc',
-                          fontSize: '11px',
-                        }}
-                        formatter={(val: any, name: any) => [
-                          `${val} وحدة`,
-                          name === 'stockQty' ? 'الرصيد الفعلي الحالي' : 'حد إعادة الطلب الآمن',
-                        ]}
-                        labelFormatter={(label: any, payload: any) =>
-                          payload?.[0]?.payload?.nameAr || label
-                        }
-                      />
-                      <Legend
-                        wrapperStyle={{ fontSize: '11px', fontWeight: 600 }}
-                        formatter={(val) =>
-                          val === 'stockQty' ? 'الرصيد الفعلي الحالي' : 'حد إعادة الطلب الآمن'
-                        }
-                      />
-                      <Bar
-                        dataKey="stockQty"
-                        name="stockQty"
-                        radius={[4, 4, 0, 0]}
-                        barSize={20}
-                        onClick={(data: any) => {
-                          if (data?.sku) {
-                            setSearchQuery(String(data.sku));
-                            setInventorySubTab('ITEMS');
-                          }
-                        }}
-                        className="cursor-pointer"
-                      >
-                        {miniDashboardAnalytics.stockLevelsItems.map((entry, index) => (
-                          <Cell
-                            key={`cell-${index}`}
-                            fill={
-                              entry.healthStatus === 'OUT_OF_STOCK'
-                                ? '#e11d48'
-                                : entry.healthStatus === 'REORDER_NOW'
-                                ? '#d97706'
-                                : '#1d4ed8'
-                            }
-                          />
-                        ))}
-                      </Bar>
-                      <Bar
-                        dataKey="reorderPoint"
-                        name="reorderPoint"
-                        fill="#94a3b8"
-                        radius={[4, 4, 0, 0]}
-                        barSize={14}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+          <InventoryMiniDashboard
+            analytics={miniDashboardAnalytics}
+            currency={currency}
+            onSelectSkuFilter={handleSelectChartSku}
+          />
+        </Suspense>
       )}
 
       {inventorySubTab === 'ITEMS' && (
@@ -1513,241 +1329,52 @@ export const InventoryView: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredProducts.map((p) => {
-                    const isReorder = p.stockQty <= p.reorderPoint;
-                    const specificClassificationAr = resolveSpecificProductClassificationAr(
-                      p,
-                      categories
-                    );
-                    return (
-                      <tr key={p.id} className="hover:bg-slate-50/70 transition">
-                        <td className="py-3 px-4">
-                          <div className="flex items-start gap-2.5">
-                            <img
-                              src={getProductVisualIllustrationUri(p)}
-                              alt={p.nameAr}
-                              className="w-11 h-11 rounded-xl object-cover border border-slate-200/80 shrink-0 bg-slate-50"
-                            />
-                            <div className="min-w-0">
-                              <div className="font-bold text-slate-900 text-sm">
-                                {language === 'ar' ? p.nameAr : p.name}
-                              </div>
-                              <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-2 mt-0.5">
-                                <span>
-                                  SKU:{' '}
-                                  <span
-                                    className="font-mono tabular-nums text-blue-800 font-bold"
-                                    dir="ltr"
-                                  >
-                                    {p.sku}
-                                  </span>
-                                </span>
-                                <span>·</span>
-                                <span>
-                                  الموقع:{' '}
-                                  <span className="font-mono tabular-nums text-slate-700" dir="ltr">
-                                    {p.binLocation || 'ZA-01'}
-                                  </span>
-                                </span>
-                              </div>
-                            </div>
+                  {filteredProducts.length === 0 ? (
+                    <tr>
+                      <td colSpan={showCostPrice ? 8 : 7} className="py-12 px-4 text-center">
+                        <div className="max-w-sm mx-auto space-y-2.5">
+                          <Package className="w-10 h-10 text-slate-300 mx-auto" />
+                          <div className="text-sm font-bold text-slate-800">
+                            {products.length === 0
+                              ? 'المستودع فارغ — لا توجد أصناف مسجلة بعد'
+                              : 'لا توجد أصناف مطابقة لخيارات البحث'}
                           </div>
-                          {(p.powerRatingWatts ||
-                            p.batteryCapacitySpec ||
-                            p.voltageSpec ||
-                            p.screenSizeSpec) && (
-                            <div className="flex flex-wrap gap-1.5 mt-1.5">
-                              {p.powerRatingWatts && (
-                                <span
-                                  className="text-[10px] font-mono tabular-nums bg-slate-100 text-slate-800 border border-slate-200 px-1.5 py-0.5 rounded-xs font-semibold"
-                                  dir="ltr"
-                                >
-                                  {p.powerRatingWatts >= 1000
-                                    ? `${(p.powerRatingWatts / 1000).toFixed(1).replace('.0', '')} kW`
-                                    : `${p.powerRatingWatts} W`}
-                                </span>
-                              )}
-                              {p.batteryCapacitySpec && (
-                                <span
-                                  className="text-[10px] font-mono tabular-nums bg-blue-50 text-blue-900 border border-blue-200 px-1.5 py-0.5 rounded-xs font-semibold"
-                                  dir="ltr"
-                                >
-                                  {p.batteryCapacitySpec}
-                                </span>
-                              )}
-                              {p.voltageSpec && (
-                                <span
-                                  className="text-[10px] font-mono tabular-nums bg-slate-50 text-slate-700 border border-slate-200 px-1.5 py-0.5 rounded-xs"
-                                  dir="ltr"
-                                >
-                                  {p.voltageSpec}
-                                </span>
-                              )}
-                              {p.screenSizeSpec && (
-                                <span
-                                  className="text-[10px] font-mono tabular-nums bg-sky-50 text-sky-900 border border-sky-200 px-1.5 py-0.5 rounded-xs font-semibold"
-                                  dir="ltr"
-                                >
-                                  {p.screenSizeSpec}
-                                </span>
-                              )}
-                            </div>
+                          <p className="text-xs text-slate-500">
+                            {products.length === 0
+                              ? 'أضف أول صنف الآن أو استورد قائمة الأصناف من ملف CSV للبدء فوراً.'
+                              : 'امسح الفلاتر الحالية لعرض كافة الأصناف المسجلة.'}
+                          </p>
+                          {hasPermission('canCreate') && products.length === 0 && (
+                            <button
+                              type="button"
+                              onClick={handleOpenCreateModal}
+                              className="px-4 py-2 haseb-btn-primary text-white rounded-xl text-xs font-bold cursor-pointer inline-flex items-center gap-1.5"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>إضافة أول صنف للمستودع</span>
+                            </button>
                           )}
-                        </td>
-                        <td className="py-3 px-4">
-                          <span
-                            data-testid={`product-specific-category-${p.sku}`}
-                            className="inline-block bg-blue-50 text-blue-900 border border-blue-200 font-bold px-2.5 py-0.5 rounded-xs text-[11px]"
-                          >
-                            {specificClassificationAr}
-                          </span>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {p.warrantyMonths && (
-                              <span className="text-[10px] bg-indigo-50 text-indigo-900 border border-indigo-200 px-1.5 py-0.5 rounded-xs font-bold">
-                                ضمان{' '}
-                                <span className="font-mono tabular-nums" dir="ltr">
-                                  {p.warrantyMonths}
-                                </span>{' '}
-                                شهر
-                              </span>
-                            )}
-                            {p.hasSerials && (
-                              <span className="text-[10px] bg-slate-100 text-slate-700 border border-slate-200 px-1.5 py-0.5 rounded-xs font-bold">
-                                تتبع S/N
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td
-                          className="py-3 px-4 font-mono tabular-nums font-bold text-slate-800"
-                          dir="ltr"
-                        >
-                          {p.barcode}
-                        </td>
-                        {showCostPrice && (
-                          <td
-                            className="py-3 px-4 text-end font-semibold font-mono tabular-nums text-slate-700"
-                            dir="ltr"
-                          >
-                            {p.costPrice.toLocaleString()} {currency}
-                          </td>
-                        )}
-                        <td
-                          className="py-3 px-4 text-end font-bold font-mono tabular-nums text-slate-900"
-                          dir="ltr"
-                        >
-                          {p.salePrice.toLocaleString()} {currency}
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <div className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-md px-1.5 py-1">
-                            <button
-                              type="button"
-                              data-testid={`quick-stock-dec-${p.sku}`}
-                              onClick={() => handleQuickStockStep(p, -1)}
-                              title="إنقاص الرصيد (-1)"
-                              className="w-5 h-5 rounded bg-white hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200 flex items-center justify-center font-bold transition cursor-pointer"
-                            >
-                              <Minus className="w-3 h-3" />
-                            </button>
-                            <div className="px-1.5 min-w-[3rem] text-center">
-                              <span
-                                className="font-bold font-mono tabular-nums text-sm text-slate-900"
-                                dir="ltr"
-                              >
-                                {p.stockQty}
-                              </span>{' '}
-                              <span className="text-[10px] text-slate-500 font-medium">
-                                {p.uom}
-                              </span>
-                            </div>
-                            <button
-                              type="button"
-                              data-testid={`quick-stock-inc-${p.sku}`}
-                              onClick={() => handleQuickStockStep(p, 1)}
-                              title="زيادة الرصيد (+1)"
-                              className="w-5 h-5 rounded bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 flex items-center justify-center font-bold transition cursor-pointer"
-                            >
-                              <Plus className="w-3 h-3" />
-                            </button>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <span
-                            className={`inline-block px-2 py-0.5 rounded-xs text-[10px] font-bold border ${
-                              isReorder
-                                ? 'bg-amber-50 text-amber-900 border-amber-300'
-                                : 'bg-blue-50 text-blue-900 border-blue-200'
-                            }`}
-                          >
-                            {isReorder ? 'إعادة طلب' : 'متوفر'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <div className="flex flex-wrap items-center justify-center gap-1">
-                            <button
-                              type="button"
-                              data-testid={`edit-product-btn-${p.sku}`}
-                              onClick={() => handleOpenEditModal(p)}
-                              className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
-                              title="تعديل بيانات الصنف، السعر، الكود، الباركود، أو التصنيف المخزني"
-                            >
-                              <Edit3 className="w-3 h-3 text-blue-600" />
-                              <span>تعديل</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setStockCountsMap((prev) => ({
-                                  ...prev,
-                                  [p.id]: prev[p.id] ?? p.stockQty,
-                                }));
-                                setInventorySubTab('STOCK_TAKING');
-                              }}
-                              className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
-                              title="جرد وتسوية الرصيد الفعلي للصنف"
-                            >
-                              <ClipboardCheck className="w-3 h-3 text-indigo-600" />
-                              <span>جرد</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                addToPOSCart(p, 1);
-                                setActiveTab('pos');
-                              }}
-                              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
-                              title="إضافة مباشرة لسلة نقطة البيع والانتقال للكاشير"
-                            >
-                              <ShoppingCart className="w-3 h-3 text-slate-700" />
-                              <span>بيع POS</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => openCrossBranchModal(p.sku)}
-                              className="px-2 py-1 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
-                              title="فحص توفر الصنف في باقي الفروع والشبكة المحلية (LAN)"
-                            >
-                              <Network className="w-3 h-3 text-sky-600" />
-                              <span>الفروع</span>
-                            </button>
-                            <button
-                              type="button"
-                              data-testid={`delete-product-btn-${p.sku}`}
-                              onClick={() => {
-                                deleteProduct(p.id);
-                                setImportBanner(`تم حذف الصنف (${p.nameAr} — ${p.sku}) من سجل المخزون.`);
-                                setTimeout(() => setImportBanner(null), 4000);
-                              }}
-                              className="p-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded text-[11px] font-bold inline-flex items-center transition cursor-pointer"
-                              title="حذف الصنف من المخزون"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredProducts.map((p) => (
+                      <InventoryProductRow
+                        key={p.id}
+                        product={p}
+                        specificClassificationAr={resolveSpecificProductClassificationAr(p, categories)}
+                        currency={currency}
+                        language={language}
+                        showCostPrice={showCostPrice}
+                        onQuickStockStep={handleQuickStockStep}
+                        onOpenEditModal={handleOpenEditModal}
+                        onGoToStockTake={handleGoToStockTake}
+                        onSellInPos={handleSellInPos}
+                        onProbeCrossBranch={handleProbeCrossBranch}
+                        onDeleteProduct={handleDeleteProduct}
+                      />
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -2220,109 +1847,18 @@ export const InventoryView: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredProducts.map((p) => {
-                    const counted = stockCountsMap[p.id] ?? p.stockQty;
-                    const variance = calculateStockAdjustmentVariance(
-                      p.id,
-                      p.stockQty,
-                      counted,
-                      p.costPrice
-                    );
-                    return (
-                      <tr key={p.id} className="hover:bg-slate-50/70 transition">
-                        <td className="py-3 px-4">
-                          <div className="font-bold text-slate-900">{p.nameAr}</div>
-                          <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
-                            <span className="font-mono text-blue-800 font-bold" dir="ltr">
-                              {p.sku}
-                            </span>
-                            <span>·</span>
-                            <span>{resolveSpecificProductClassificationAr(p, categories)}</span>
-                          </div>
-                        </td>
-                        <td
-                          className="py-3 px-4 text-center font-mono font-bold text-slate-700"
-                          dir="ltr"
-                        >
-                          {p.stockQty} {p.uom}
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <div className="inline-flex items-center gap-1">
-                            <button
-                              type="button"
-                              data-testid={`stock-step-dec-${p.sku}`}
-                              onClick={() =>
-                                setStockCountsMap((prev) => ({
-                                  ...prev,
-                                  [p.id]: Math.max(0, (prev[p.id] ?? p.stockQty) - 1),
-                                }))
-                              }
-                              className="w-7 h-7 rounded bg-slate-100 hover:bg-rose-100 text-slate-700 hover:text-rose-800 border border-slate-300 flex items-center justify-center font-bold cursor-pointer"
-                            >
-                              <Minus className="w-3.5 h-3.5" />
-                            </button>
-                            <input
-                              type="number"
-                              min={0}
-                              data-testid={`stock-count-input-${p.sku}`}
-                              value={counted}
-                              onChange={(e) =>
-                                setStockCountsMap((prev) => ({
-                                  ...prev,
-                                  [p.id]: Math.max(0, Number(e.target.value)),
-                                }))
-                              }
-                              className="w-20 text-center font-mono font-bold p-1.5 bg-slate-50 border border-slate-300 rounded-md focus:border-blue-600 outline-hidden"
-                            />
-                            <button
-                              type="button"
-                              data-testid={`stock-step-inc-${p.sku}`}
-                              onClick={() =>
-                                setStockCountsMap((prev) => ({
-                                  ...prev,
-                                  [p.id]: (prev[p.id] ?? p.stockQty) + 1,
-                                }))
-                              }
-                              className="w-7 h-7 rounded bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-800 border border-slate-300 flex items-center justify-center font-bold cursor-pointer"
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 text-center font-mono font-bold" dir="ltr">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[11px] ${
-                              variance.adjustmentType === 'SURPLUS'
-                                ? 'bg-blue-100 text-blue-800'
-                                : variance.adjustmentType === 'DEFICIT'
-                                ? 'bg-rose-100 text-rose-800'
-                                : 'bg-slate-100 text-slate-600'
-                            }`}
-                          >
-                            {variance.varianceQty > 0
-                              ? `+${variance.varianceQty}`
-                              : variance.varianceQty}
-                          </span>
-                        </td>
-                        <td
-                          className="py-3 px-4 text-end font-mono font-bold text-slate-800"
-                          dir="ltr"
-                        >
-                          {formatCurrency(variance.varianceValue)}
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <button
-                            type="button"
-                            data-testid={`commit-stock-take-btn-${p.sku}`}
-                            onClick={() => handleCommitSingleStockTake(p)}
-                            className="px-3 py-1.5 bg-blue-700 hover:bg-blue-600 text-white rounded-md font-bold text-xs transition cursor-pointer"
-                          >
-                            اعتماد الجرد وترحيل القيد
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {filteredProducts.map((p) => (
+                    <StockTakingRow
+                      key={p.id}
+                      product={p}
+                      countedQty={stockCountsMap[p.id] ?? p.stockQty}
+                      specificClassificationAr={resolveSpecificProductClassificationAr(p, categories)}
+                      formatCurrency={formatCurrency}
+                      onStepCount={handleStepStockCount}
+                      onSetCount={handleSetStockCount}
+                      onCommitSingle={handleCommitSingleStockTake}
+                    />
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -3087,7 +2623,7 @@ export const InventoryView: React.FC = () => {
                   <div className="flex items-center gap-1.5">
                     <label
                       data-testid="product-image-upload-label"
-                      className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-[11px] flex items-center gap-1.5 cursor-pointer transition"
+                      className="px-3 py-1.5 rounded-lg haseb-btn-primary text-white font-bold text-[11px] flex items-center gap-1.5 cursor-pointer transition"
                     >
                       <Upload className="w-3.5 h-3.5 text-emerald-400" />
                       <span>رفع صورة من الجهاز</span>
@@ -3200,181 +2736,40 @@ export const InventoryView: React.FC = () => {
         </div>
       )}
 
-      {/* Bulk CSV / Excel Import Wizard Modal */}
+      {/* Bulk CSV / Excel Import Wizard Modal (Lazy-loaded) */}
       {isBulkModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[90vh] overflow-y-auto p-6 space-y-4 text-xs">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2">
-                <Upload className="w-5 h-5 text-indigo-600" />
-                <div>
-                  <h3 className="font-black text-base text-slate-900">
-                    معالج الاستيراد الجماعي للأصناف والأرصدة الافتتاحية (Excel / CSV Wizard)
-                  </h3>
-                  <p className="text-[11px] text-slate-500">
-                    الصق البيانات مباشرة من ملف Excel أو ارفع ملف CSV لتسجيل الأصناف وتوليد الباركود وقيد الرصيد الافتتاحي آلياً
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsBulkModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 font-bold text-lg cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Template & File Upload Controls */}
-            <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setBulkCsvText(SAMPLE_BULK_CSV)}
-                  className="px-3 py-1.5 rounded-lg bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 font-bold transition cursor-pointer flex items-center gap-1.5"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>تحميل نموذج قياسي جاهز (4 أصناف متنوعة)</span>
-                </button>
-                <label className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold transition cursor-pointer flex items-center gap-1.5">
-                  <Upload className="w-3.5 h-3.5" />
-                  <span>رفع ملف .CSV أو .TXT</span>
-                  <input
-                    type="file"
-                    accept=".csv,.txt,.tsv"
-                    onChange={handleCsvFileUpload}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-              <div className="text-[11px] font-mono text-slate-600">
-                الأعمدة: SKU, Barcode, NameAr, NameEn, CostPrice, SalePrice, StockQty, UOM, ReorderPoint, Sector
-              </div>
-            </div>
-
-            {/* Raw CSV Textarea */}
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">
-                بيانات الجدول (يدعم الفاصلة `,` أو اللصق المباشر من خلايا Excel `Tab`):
-              </label>
-              <textarea
-                data-testid="bulk-csv-textarea"
-                rows={5}
-                value={bulkCsvText}
-                onChange={(e) => setBulkCsvText(e.target.value)}
-                className="w-full p-3 rounded-xl bg-slate-50 text-slate-900 font-mono text-[11px] border border-slate-200/80 focus:bg-white focus:border-slate-900 outline-hidden"
-              />
-            </div>
-
-            {/* Live Parsed Preview Table */}
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-bold text-slate-800">
-                  معاينة الأصناف الجاهزة للاستيراد ({liveBulkPreview.validProducts.length} صنف صالح):
-                </span>
-                <div className="flex items-center gap-3 font-mono font-bold">
-                  <span className="text-slate-600">
-                    إجمالي الكميات:{' '}
-                    <strong className="text-slate-900">{liveBulkPreview.totalOpeningQty}</strong>
-                  </span>
-                  <span className="text-blue-700">
-                    إجمالي تقييم المخزون الافتتاحي:{' '}
-                    <strong>
-                      {liveBulkPreview.totalOpeningValuation.toLocaleString()} {currency}
-                    </strong>
-                  </span>
-                </div>
-              </div>
-
-              <div className="max-h-44 overflow-y-auto border border-slate-200 rounded-xl">
-                <table className="w-full text-[11px] text-start">
-                  <thead className="bg-slate-100 text-slate-600 font-bold">
-                    <tr>
-                      <th className="py-2 px-3 text-start">SKU</th>
-                      <th className="py-2 px-3 text-start">الباركود</th>
-                      <th className="py-2 px-3 text-start">اسم الصنف</th>
-                      <th className="py-2 px-3 text-center">القطاع</th>
-                      <th className="py-2 px-3 text-end">التكلفة</th>
-                      <th className="py-2 px-3 text-end">سعر البيع</th>
-                      <th className="py-2 px-3 text-center">الكمية</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {liveBulkPreview.validProducts.map((item, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50">
-                        <td className="py-1.5 px-3 font-mono font-bold text-slate-900">
-                          {item.sku}
-                        </td>
-                        <td className="py-1.5 px-3 font-mono text-indigo-700">{item.barcode}</td>
-                        <td className="py-1.5 px-3 font-bold text-slate-800">{item.nameAr}</td>
-                        <td className="py-1.5 px-3 text-center">{item.industry}</td>
-                        <td className="py-1.5 px-3 text-end font-mono">{item.costPrice}</td>
-                        <td className="py-1.5 px-3 text-end font-mono font-bold">
-                          {item.salePrice}
-                        </td>
-                        <td className="py-1.5 px-3 text-center font-mono font-black text-blue-700">
-                          {item.stockQty} {item.uom}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Auto-Journal Checkbox & Submit */}
-            <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
-              <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={postOpeningJournal}
-                  onChange={(e) => setPostOpeningJournal(e.target.checked)}
-                  className="rounded text-indigo-600 w-4 h-4"
-                />
-                <span>
-                  إصدار وترحيل قيد يومية محاسبي تلقائي بالرصيد الافتتاحي للمخزون (
-                  {liveBulkPreview.totalOpeningValuation.toLocaleString()} {currency})
-                </span>
-              </label>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsBulkModalOpen(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl cursor-pointer"
-                >
-                  إلغاء
-                </button>
-                <button
-                  type="button"
-                  data-testid="confirm-bulk-import-btn"
-                  disabled={liveBulkPreview.validProducts.length === 0}
-                  onClick={handleConfirmBulkImport}
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-black rounded-xl shadow-sm transition disabled:opacity-40 cursor-pointer"
-                >
-                  اعتماد واستيراد الأصناف ({liveBulkPreview.validProducts.length})
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <Suspense fallback={<InventoryModalLoadingFallback />}>
+          <InventoryBulkImportModal
+            tenantId={currentTenant.id}
+            warehouseId={currentWarehouse.id}
+            defaultCategoryId={electronicsCategories[0]?.id || 'cat-solar-panels'}
+            currency={currency}
+            onConfirmImport={handleConfirmBulkImport}
+            onClose={() => setIsBulkModalOpen(false)}
+          />
+        </Suspense>
       )}
 
-      {/* Live Camera Barcode & QR Scanner Modal */}
+      {/* Live Camera Barcode & QR Scanner Modal (Lazy-loaded) */}
       {isCameraScannerOpen && (
-        <CameraBarcodeScannerModal
-          isOpen={isCameraScannerOpen}
-          onClose={() => setIsCameraScannerOpen(false)}
-          onScan={handleCameraBarcodeScan}
-          onBatchScanComplete={handleCameraBatchScanComplete}
-          contextMode={cameraScannerContext === 'STOCK_TAKE' ? 'STOCK_TAKE' : 'INVENTORY'}
-          title={
-            cameraScannerContext === 'STOCK_TAKE'
-              ? 'مسح الباركود بالكاميرا - الجرد الفعلي للمستودع'
-              : 'مسح الباركود والكود بالكاميرا - إدارة المخزون'
-          }
-        />
+        <Suspense fallback={<InventoryModalLoadingFallback />}>
+          <CameraBarcodeScannerModal
+            isOpen={isCameraScannerOpen}
+            onClose={() => setIsCameraScannerOpen(false)}
+            onScan={handleCameraBarcodeScan}
+            onBatchScanComplete={handleCameraBatchScanComplete}
+            contextMode={cameraScannerContext === 'STOCK_TAKE' ? 'STOCK_TAKE' : 'INVENTORY'}
+            title={
+              cameraScannerContext === 'STOCK_TAKE'
+                ? 'مسح الباركود بالكاميرا - الجرد الفعلي للمستودع'
+                : 'مسح الباركود والكود بالكاميرا - إدارة المخزون'
+            }
+          />
+        </Suspense>
       )}
     </div>
   );
-};
+});
+
+InventoryView.displayName = 'InventoryView';
+export default InventoryView;

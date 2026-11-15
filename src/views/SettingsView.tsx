@@ -42,6 +42,7 @@ import {
   FolderTree,
   ListFilter,
   CheckSquare,
+  Database,
 } from 'lucide-react';
 
 export const SettingsView: React.FC = () => {
@@ -57,6 +58,7 @@ export const SettingsView: React.FC = () => {
     salesInvoices,
     invoiceTemplateSettings,
     updateInvoiceTemplateSettings,
+    resetInvoiceTemplateSettings,
     updateCompanyProfile,
     addBranch,
     updateBranch,
@@ -130,17 +132,29 @@ export const SettingsView: React.FC = () => {
 
   // Company Profile form state
   const [companyName, setCompanyName] = useState(company.nameAr || currentTenant.legalName);
-  const [companyNameEn, setCompanyNameEn] = useState(company.name || 'Modern Solar & Electronics Corp');
-  const [taxNumber, setTaxNumber] = useState(company.taxNumber || '300059281900003');
+  const [companyNameEn, setCompanyNameEn] = useState(company.name || '');
+  const [taxNumber, setTaxNumber] = useState(company.taxNumber || '');
   const [companyLogo, setCompanyLogo] = useState<string>(company.logo || '');
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [restoreFeedback, setRestoreFeedback] = useState<string | null>(null);
 
   // Template Studio state
-  const [previewMode, setPreviewMode] = useState<'thermal' | 'a4'>('thermal');
+  const [previewMode, setPreviewMode] = useState<'thermal' | 'a4'>('a4');
+  const [studioMobilePane, setStudioMobilePane] = useState<'editor' | 'preview'>('editor');
+  const [studioSectionOpen, setStudioSectionOpen] = useState<
+    'colors' | 'header' | 'columns' | 'footer' | 'ALL'
+  >('colors');
   const [customHeader, setCustomHeader] = useState(invoiceTemplateSettings.headerTitleAr);
   const [customFooter, setCustomFooter] = useState(invoiceTemplateSettings.footerNoteAr);
+
+  React.useEffect(() => {
+    const handler = () => {
+      setActiveSettingsTab('templates');
+    };
+    window.addEventListener('haseb-open-invoice-studio', handler);
+    return () => window.removeEventListener('haseb-open-invoice-studio', handler);
+  }, []);
 
   // Disaster recovery snapshot state
   const [snapshotPassphrase, setSnapshotPassphrase] = useState('RLM-DEFAULT-RECOVERY-KEY-2026');
@@ -1273,264 +1287,622 @@ export const SettingsView: React.FC = () => {
       )}
 
       {/* ====================================================================
-          TAB 2: INVOICE & WARRANTY STUDIO (6 Thermal + 6 Standard A4)
+          TAB 2: INTERACTIVE INVOICE & WARRANTY STUDIO (7 Thermal + 8 A4 + 21 Controls)
       ==================================================================== */}
       {activeSettingsTab === 'templates' && (
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
-          {/* Controls Column */}
-          <div className="xl:col-span-6 space-y-4">
-            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-between">
-              <div>
-                <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">
-                  نوع المعاينة والطباعة المباشرة
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  اختر بين إيصالات الكاشير الحرارية أو الفواتير الضريبية الرسمية A4
-                </p>
-              </div>
-
-              <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
-                <button
-                  type="button"
-                  onClick={() => setPreviewMode('thermal')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-bold transition cursor-pointer ${
-                    previewMode === 'thermal'
-                      ? 'bg-emerald-600 text-white shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700'
-                  }`}
-                >
-                  إيصال كاشير حراري
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPreviewMode('a4')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-bold transition cursor-pointer ${
-                    previewMode === 'a4'
-                      ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700'
-                  }`}
-                >
-                  فاتورة ضريبية A4
-                </button>
-              </div>
-            </div>
-
-            {/* Thermal Templates */}
-            <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                  <Receipt className="w-4 h-4 text-emerald-600" />
-                  قوالب الفواتير الحرارية لنقاط البيع (6 قوالب احترافية)
-                </h3>
-                <span className="text-[11px] font-mono text-emerald-600 font-bold">
-                  {invoiceTemplateSettings.thermalTemplate}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {thermalTemplatesList.map((tpl) => {
-                  const isSelected = invoiceTemplateSettings.thermalTemplate === tpl.id;
-                  return (
-                    <div
-                      key={tpl.id}
-                      onClick={() => {
-                        updateInvoiceTemplateSettings({ thermalTemplate: tpl.id });
-                        setPreviewMode('thermal');
-                      }}
-                      className={`p-3 rounded-xl border transition cursor-pointer flex flex-col justify-between ${
-                        isSelected
-                          ? 'border-emerald-600 bg-emerald-50/50 dark:bg-emerald-950/30 ring-1 ring-emerald-500/30'
-                          : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 bg-slate-50/40 dark:bg-slate-850'
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-center justify-between gap-1 mb-1">
-                          <span className="font-bold text-xs text-slate-900 dark:text-slate-100">
-                            {tpl.titleAr}
-                          </span>
-                          <span
-                            className={`text-[9px] font-bold px-1.5 py-0.2 rounded font-mono ${
-                              isSelected
-                                ? 'bg-emerald-600 text-white'
-                                : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200'
-                            }`}
-                          >
-                            {tpl.paperWidth}
-                          </span>
-                        </div>
-                        <p className="text-[10px] text-slate-500 leading-relaxed">{tpl.descAr}</p>
-                      </div>
-
-                      <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[10px]">
-                        <span className="text-slate-400">{tpl.categoryBadge}</span>
-                        {isSelected && (
-                          <span className="text-emerald-600 font-bold flex items-center gap-0.5">
-                            <Check className="w-3 h-3" /> مفعّل
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Standard A4 Templates */}
-            <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-indigo-600" />
-                  قوالب الفواتير العادية A4 مع وثائق الضمان (6 قوالب معتمدة)
-                </h3>
-                <span className="text-[11px] font-mono text-indigo-600 font-bold">
-                  {invoiceTemplateSettings.standardTemplate}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {standardTemplatesList.map((tpl) => {
-                  const isSelected = invoiceTemplateSettings.standardTemplate === tpl.id;
-                  return (
-                    <div
-                      key={tpl.id}
-                      onClick={() => {
-                        updateInvoiceTemplateSettings({ standardTemplate: tpl.id });
-                        setPreviewMode('a4');
-                      }}
-                      className={`p-3 rounded-xl border transition cursor-pointer flex flex-col justify-between ${
-                        isSelected
-                          ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/30 ring-1 ring-indigo-500/30'
-                          : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 bg-slate-50/40 dark:bg-slate-850'
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-center justify-between gap-1 mb-1">
-                          <span className="font-bold text-xs text-slate-900 dark:text-slate-100">
-                            {tpl.titleAr}
-                          </span>
-                        </div>
-                        <p className="text-[10px] text-slate-500 leading-relaxed">{tpl.descAr}</p>
-                      </div>
-
-                      <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[10px]">
-                        <span className="px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-bold">
-                          {tpl.badgeAr}
-                        </span>
-                        {isSelected && (
-                          <span className="text-indigo-600 font-bold flex items-center gap-0.5">
-                            <Check className="w-3 h-3" /> مفعّل
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Customization Options */}
-            <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-4">
-              <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                <Sliders className="w-4 h-4 text-emerald-600" />
-                تخصيص مكونات الفاتورة والنصوص والاعتمادات
-              </h3>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                {[
-                  { key: 'showQR', label: 'رمز التحقق والفوترة ZATCA QR' },
-                  { key: 'showBarcode', label: 'الباركود الخطي للتتبع Code-128' },
-                  { key: 'showStampAndSignature', label: 'أختام الاعتماد وتوقيع العميل' },
-                  { key: 'showWarrantyTerms', label: 'شهادة وشروط الضمان المعتمد' },
-                ].map((opt) => (
-                  <label
-                    key={opt.key}
-                    className="flex items-center gap-2 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 cursor-pointer font-bold text-slate-700 dark:text-slate-200"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={(invoiceTemplateSettings as any)[opt.key]}
-                      onChange={(e) =>
-                        updateInvoiceTemplateSettings({ [opt.key]: e.target.checked })
-                      }
-                      className="rounded text-emerald-600"
-                    />
-                    <span>{opt.label}</span>
-                  </label>
-                ))}
-              </div>
-
-              <div className="space-y-3 pt-2">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    عنوان أو ترويسة ترحيبية أعلى الفاتورة (Header Title):
-                  </label>
-                  <input
-                    type="text"
-                    value={customHeader}
-                    onChange={(e) => {
-                      setCustomHeader(e.target.value);
-                      updateInvoiceTemplateSettings({ headerTitleAr: e.target.value });
-                    }}
-                    placeholder="مثال: نسعد بخدمتكم • جميع المبيعات خاضعة للضمان المعتمد"
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 outline-hidden focus:border-emerald-600"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    ملاحظة وسياسة الاستبدال والضمان أسفل الفاتورة (Footer Note):
-                  </label>
-                  <input
-                    type="text"
-                    value={customFooter}
-                    onChange={(e) => {
-                      setCustomFooter(e.target.value);
-                      updateInvoiceTemplateSettings({ footerNoteAr: e.target.value });
-                    }}
-                    placeholder="مثال: البضاعة المباعة تخضع لسياسة الاستبدال خلال 7 أيام بشرط سلامة التغليف وسريان السيريال."
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 outline-hidden focus:border-emerald-600"
-                  />
-                </div>
-              </div>
-            </div>
+        <div className="space-y-4">
+          {/* Mobile Sub-Pane Switcher (Editor vs Live Preview) */}
+          <div className="xl:hidden bg-white dark:bg-slate-900 p-2 rounded-2xl border border-slate-200 dark:border-slate-800 grid grid-cols-2 gap-1.5 sticky top-2 z-20 shadow-sm">
+            <button
+              type="button"
+              data-testid="studio-mobile-editor-btn"
+              onClick={() => setStudioMobilePane('editor')}
+              className={`py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                studioMobilePane === 'editor'
+                  ? 'haseb-btn-primary text-white'
+                  : 'bg-slate-100 text-slate-700'
+              }`}
+            >
+              القوالب وأدوات التخصيص
+            </button>
+            <button
+              type="button"
+              data-testid="studio-mobile-preview-btn"
+              onClick={() => setStudioMobilePane('preview')}
+              className={`py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                studioMobilePane === 'preview'
+                  ? 'haseb-btn-primary text-white'
+                  : 'bg-slate-100 text-slate-700'
+              }`}
+            >
+              المعاينة الحية للفاتورة
+            </button>
           </div>
 
-          {/* Live Preview Column */}
-          <div className="xl:col-span-6 bg-slate-100 dark:bg-slate-950 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3 sticky top-16">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <Eye className="w-4 h-4 text-emerald-600" />
-                <span className="font-bold text-xs text-slate-800 dark:text-slate-200">
-                  المعاينة الحية التفاعلية ({previewMode === 'thermal' ? 'حراري' : 'A4'})
-                </span>
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
+            {/* Controls Column */}
+            <div
+              className={`xl:col-span-6 space-y-4 ${
+                studioMobilePane === 'preview' ? 'hidden xl:block' : 'block'
+              }`}
+            >
+              {/* Mode Switch + Quick Style Presets + Reset */}
+              <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">
+                      استوديو تصميم وتخصيص الفواتير الحية
+                    </h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      تحكم كامل في الألوان، الهوامش، الشعار، العلامة المائية، والأعمدة لجميع القوالب
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                    <button
+                      type="button"
+                      data-testid="studio-mode-thermal-btn"
+                      onClick={() => setPreviewMode('thermal')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        previewMode === 'thermal'
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-300 hover:bg-white'
+                      }`}
+                    >
+                      حراري (7)
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="studio-mode-a4-btn"
+                      onClick={() => setPreviewMode('a4')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        previewMode === 'a4'
+                          ? 'haseb-btn-primary text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-300 hover:bg-white'
+                      }`}
+                    >
+                      رسمي A4 (8)
+                    </button>
+                  </div>
+                </div>
+
+                {/* Quick Style Presets + Reset Button */}
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] font-bold text-slate-500">ثيمات جاهزة:</span>
+                    {[
+                      { label: 'أزرق ملكي', p: '#1e3a8a', s: '#2563eb' },
+                      { label: 'أخضر مصرفي', p: '#065f46', s: '#10b981' },
+                      { label: 'كحلي كلاسيك', p: '#0f172a', s: '#334155' },
+                      { label: 'عنابي دافئ', p: '#7c2d12', s: '#d97706' },
+                    ].map((preset) => (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() =>
+                          updateInvoiceTemplateSettings({
+                            primaryColorHex: preset.p,
+                            secondaryColorHex: preset.s,
+                          })
+                        }
+                        className="px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-white text-[10px] font-bold flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <span
+                          className="w-2.5 h-2.5 rounded-full"
+                          style={{ backgroundColor: preset.p }}
+                        />
+                        <span>{preset.label}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    data-testid="studio-reset-defaults-btn"
+                    onClick={() => {
+                      resetInvoiceTemplateSettings();
+                      setCustomHeader('فاتورة ضريبية ومستند ضمان رسمي');
+                      setCustomFooter('شكراً لتعاملكم معنا • يرجى الاحتفاظ بالفاتورة لخدمات الضمان.');
+                      showBanner('تمت استعادة الإعدادات الافتراضية لقوالب الفواتير بنجاح.');
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>إعادة الافتراضي</span>
+                  </button>
+                </div>
               </div>
 
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                <span>طباعة تجريبية</span>
-              </button>
+              {/* Thermal Templates (7 Templates) */}
+              <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    <Receipt className="w-4 h-4 text-emerald-600" />
+                    قوالب الفواتير الحرارية (7 قوالب احترافية)
+                  </h3>
+                  <span className="text-[11px] font-mono text-emerald-600 font-bold">
+                    {invoiceTemplateSettings.thermalTemplate}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {thermalTemplatesList.map((tpl) => {
+                    const isSelected = invoiceTemplateSettings.thermalTemplate === tpl.id;
+                    return (
+                      <div
+                        key={tpl.id}
+                        data-testid={`studio-tpl-${tpl.id}`}
+                        onClick={() => {
+                          updateInvoiceTemplateSettings({ thermalTemplate: tpl.id });
+                          setPreviewMode('thermal');
+                        }}
+                        className={`p-3 rounded-xl border transition cursor-pointer flex flex-col justify-between ${
+                          isSelected
+                            ? 'border-emerald-600 bg-emerald-50/50 dark:bg-emerald-950/30 ring-1 ring-emerald-500/30'
+                            : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 bg-slate-50/40 dark:bg-slate-850'
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center justify-between gap-1 mb-1">
+                            <span className="font-bold text-xs text-slate-900 dark:text-slate-100">
+                              {tpl.titleAr}
+                            </span>
+                            <span
+                              className={`text-[9px] font-bold px-1.5 py-0.2 rounded font-mono ${
+                                isSelected
+                                  ? 'bg-emerald-600 text-white'
+                                  : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200'
+                              }`}
+                            >
+                              {tpl.paperWidth}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-500 leading-relaxed">{tpl.descAr}</p>
+                        </div>
+
+                        <div className="mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[10px]">
+                          <span className="text-slate-400">{tpl.categoryBadge}</span>
+                          {isSelected && (
+                            <span className="text-emerald-600 font-bold flex items-center gap-0.5">
+                              <Check className="w-3 h-3" /> مفعّل
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Standard A4 Templates (8 Templates) */}
+              <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-blue-600" />
+                    قوالب الفواتير العادية A4 (8 قوالب معتمدة)
+                  </h3>
+                  <span className="text-[11px] font-mono text-blue-600 font-bold">
+                    {invoiceTemplateSettings.standardTemplate}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {standardTemplatesList.map((tpl) => {
+                    const isSelected = invoiceTemplateSettings.standardTemplate === tpl.id;
+                    return (
+                      <div
+                        key={tpl.id}
+                        data-testid={`studio-tpl-${tpl.id}`}
+                        onClick={() => {
+                          updateInvoiceTemplateSettings({ standardTemplate: tpl.id });
+                          setPreviewMode('a4');
+                        }}
+                        className={`p-3 rounded-xl border transition cursor-pointer flex flex-col justify-between ${
+                          isSelected
+                            ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-950/30 ring-1 ring-blue-500/30'
+                            : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 bg-slate-50/40 dark:bg-slate-850'
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center justify-between gap-1 mb-1">
+                            <span className="font-bold text-xs text-slate-900 dark:text-slate-100">
+                              {tpl.titleAr}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-500 leading-relaxed">{tpl.descAr}</p>
+                        </div>
+
+                        <div className="mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[10px]">
+                          <span className="px-1.5 py-0.2 rounded bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-bold">
+                            {tpl.badgeAr}
+                          </span>
+                          {isSelected && (
+                            <span className="text-blue-600 font-bold flex items-center gap-0.5">
+                              <Check className="w-3 h-3" /> مفعّل
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 21 Live Customization Sections (Accordion Panels) */}
+              <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    <Sliders className="w-4 h-4 text-emerald-600" />
+                    تخصيص المكونات والألوان والبيانات (تعديل حي فوري)
+                  </h3>
+                  <div className="flex items-center gap-1">
+                    {(
+                      [
+                        { id: 'colors', label: 'الألوان والخطوط' },
+                        { id: 'header', label: 'الشعار والعلامة' },
+                        { id: 'columns', label: 'الأعمدة والعميل' },
+                        { id: 'footer', label: 'QR والبنوك والتذييل' },
+                      ] as const
+                    ).map((sec) => (
+                      <button
+                        key={sec.id}
+                        type="button"
+                        data-testid={`studio-sec-${sec.id}`}
+                        onClick={() => setStudioSectionOpen(sec.id)}
+                        className={`px-2 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition ${
+                          studioSectionOpen === sec.id
+                            ? 'haseb-btn-primary text-white'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                      >
+                        {sec.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Section 1: Colors, Font Scale & Paper Margins */}
+                {studioSectionOpen === 'colors' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs pt-2">
+                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                      <label className="font-bold text-slate-700 block">اللون الأساسي للفاتورة:</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          data-testid="studio-primary-color-input"
+                          value={invoiceTemplateSettings.primaryColorHex || '#0f172a'}
+                          onChange={(e) =>
+                            updateInvoiceTemplateSettings({ primaryColorHex: e.target.value })
+                          }
+                          className="w-10 h-8 rounded cursor-pointer border border-slate-300"
+                        />
+                        <span className="font-mono text-xs text-slate-600" dir="ltr">
+                          {invoiceTemplateSettings.primaryColorHex || '#0f172a'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                      <label className="font-bold text-slate-700 block">اللون الثانوي والتدرج:</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          data-testid="studio-secondary-color-input"
+                          value={invoiceTemplateSettings.secondaryColorHex || '#2563eb'}
+                          onChange={(e) =>
+                            updateInvoiceTemplateSettings({ secondaryColorHex: e.target.value })
+                          }
+                          className="w-10 h-8 rounded cursor-pointer border border-slate-300"
+                        />
+                        <span className="font-mono text-xs text-slate-600" dir="ltr">
+                          {invoiceTemplateSettings.secondaryColorHex || '#2563eb'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
+                      <label className="font-bold text-slate-700 block">مقياس خط الفاتورة:</label>
+                      <select
+                        data-testid="studio-font-scale-select"
+                        value={invoiceTemplateSettings.fontScale || 'normal'}
+                        onChange={(e) =>
+                          updateInvoiceTemplateSettings({ fontScale: e.target.value as any })
+                        }
+                        className="w-full px-2.5 py-2 rounded-lg border border-slate-300 bg-white font-bold text-xs"
+                      >
+                        <option value="compact">مضغوط (Compact)</option>
+                        <option value="normal">قياسي متوازن (Normal)</option>
+                        <option value="large">كبير وواضح (Large)</option>
+                      </select>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
+                      <label className="font-bold text-slate-700 block">هوامش الورقة (Margin):</label>
+                      <select
+                        data-testid="studio-paper-margin-select"
+                        value={invoiceTemplateSettings.paperMargin || 'normal'}
+                        onChange={(e) =>
+                          updateInvoiceTemplateSettings({ paperMargin: e.target.value as any })
+                        }
+                        className="w-full px-2.5 py-2 rounded-lg border border-slate-300 bg-white font-bold text-xs"
+                      >
+                        <option value="narrow">ضيق لتوفير الورق</option>
+                        <option value="normal">متوازن قياسي</option>
+                        <option value="wide">واسع فاخر</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {/* Section 2: Logo, Header Title & Watermark */}
+                {studioSectionOpen === 'header' && (
+                  <div className="space-y-3 text-xs pt-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <label className="flex items-center gap-2 p-2.5 rounded-lg bg-slate-50 border border-slate-200 cursor-pointer font-bold">
+                        <input
+                          type="checkbox"
+                          checked={invoiceTemplateSettings.showCompanyLogo !== false}
+                          onChange={(e) =>
+                            updateInvoiceTemplateSettings({ showCompanyLogo: e.target.checked })
+                          }
+                        />
+                        <span>إظهار شعار المنشأة</span>
+                      </label>
+                      <label className="flex items-center gap-2 p-2.5 rounded-lg bg-slate-50 border border-slate-200 cursor-pointer font-bold">
+                        <input
+                          type="checkbox"
+                          checked={invoiceTemplateSettings.showCompanyNameEn !== false}
+                          onChange={(e) =>
+                            updateInvoiceTemplateSettings({ showCompanyNameEn: e.target.checked })
+                          }
+                        />
+                        <span>إظهار الاسم الإنجليزي</span>
+                      </label>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="font-bold text-slate-700 block mb-1">حجم الشعار:</label>
+                        <select
+                          value={invoiceTemplateSettings.logoSize || 'md'}
+                          onChange={(e) =>
+                            updateInvoiceTemplateSettings({ logoSize: e.target.value as any })
+                          }
+                          className="w-full px-2.5 py-2 rounded-lg border border-slate-300 bg-white font-bold"
+                        >
+                          <option value="sm">صغير</option>
+                          <option value="md">متوسط</option>
+                          <option value="lg">كبير</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="font-bold text-slate-700 block mb-1">موضع الشعار:</label>
+                        <select
+                          value={invoiceTemplateSettings.logoPosition || 'center'}
+                          onChange={(e) =>
+                            updateInvoiceTemplateSettings({ logoPosition: e.target.value as any })
+                          }
+                          className="w-full px-2.5 py-2 rounded-lg border border-slate-300 bg-white font-bold"
+                        >
+                          <option value="right">يمين الترويسة</option>
+                          <option value="center">منتصف الترويسة</option>
+                          <option value="left">يسار الترويسة</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="font-bold text-slate-700 block mb-1">عنوان الترويسة الإضافي:</label>
+                      <input
+                        type="text"
+                        value={customHeader}
+                        onChange={(e) => {
+                          setCustomHeader(e.target.value);
+                          updateInvoiceTemplateSettings({ headerTitleAr: e.target.value });
+                        }}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs outline-hidden focus:border-blue-600"
+                      />
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                      <label className="flex items-center gap-2 font-bold cursor-pointer">
+                        <input
+                          type="checkbox"
+                          data-testid="studio-watermark-checkbox"
+                          checked={Boolean(invoiceTemplateSettings.showWatermark)}
+                          onChange={(e) =>
+                            updateInvoiceTemplateSettings({ showWatermark: e.target.checked })
+                          }
+                        />
+                        <span>إظهار علامة مائية قطرية (Watermark) على الفاتورة</span>
+                      </label>
+                      {invoiceTemplateSettings.showWatermark && (
+                        <input
+                          type="text"
+                          data-testid="studio-watermark-text-input"
+                          value={invoiceTemplateSettings.watermarkText || ''}
+                          onChange={(e) =>
+                            updateInvoiceTemplateSettings({ watermarkText: e.target.value })
+                          }
+                          placeholder={company.nameAr || 'اكتب نص العلامة المائية...'}
+                          className="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs"
+                        />
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Section 3: Table Columns & Customer Visibility */}
+                {studioSectionOpen === 'columns' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-2">
+                    {[
+                      { key: 'showCustomerPhone', label: 'إظهار رقم هاتف العميل' },
+                      { key: 'showCustomerId', label: 'إظهار رقم ملف العميل ID' },
+                      { key: 'showItemSku', label: 'إظهار عمود كود الصنف SKU' },
+                      { key: 'showItemDiscount', label: 'إظهار عمود الخصم بالجدول' },
+                      { key: 'showItemTax', label: 'إظهار عمود الضريبة بالجدول' },
+                      { key: 'showSerialAndWarranty', label: 'إظهار الرقم التسلسلي والضمان S/N' },
+                    ].map((opt) => (
+                      <label
+                        key={opt.key}
+                        className="flex items-center gap-2 p-2.5 rounded-lg bg-slate-50 border border-slate-200 cursor-pointer font-bold text-slate-700"
+                      >
+                        <input
+                          type="checkbox"
+                          data-testid={`studio-toggle-${opt.key}`}
+                          checked={(invoiceTemplateSettings as any)[opt.key] !== false}
+                          onChange={(e) =>
+                            updateInvoiceTemplateSettings({ [opt.key]: e.target.checked })
+                          }
+                        />
+                        <span>{opt.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+
+                {/* Section 4: Tafqeet, Bank Accounts, QR/Barcode Size & Footer */}
+                {studioSectionOpen === 'footer' && (
+                  <div className="space-y-3 text-xs pt-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {[
+                        { key: 'showTafqeet', label: 'إظهار التفقيط (المبلغ كتابةً)' },
+                        { key: 'showBankAccounts', label: 'إظهار الحسابات المصرفية' },
+                        { key: 'showQR', label: 'رمز التحقق QR Code' },
+                        { key: 'showBarcode', label: 'الباركود الخطي Code-128' },
+                        { key: 'showStampAndSignature', label: 'أختام الاعتماد والتوقيع' },
+                        { key: 'showWarrantyTerms', label: 'شروط الضمان المعتمد' },
+                      ].map((opt) => (
+                        <label
+                          key={opt.key}
+                          className="flex items-center gap-2 p-2.5 rounded-lg bg-slate-50 border border-slate-200 cursor-pointer font-bold text-slate-700"
+                        >
+                          <input
+                            type="checkbox"
+                            data-testid={`studio-toggle-${opt.key}`}
+                            checked={(invoiceTemplateSettings as any)[opt.key] !== false}
+                            onChange={(e) =>
+                              updateInvoiceTemplateSettings({ [opt.key]: e.target.checked })
+                            }
+                          />
+                          <span>{opt.label}</span>
+                        </label>
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200">
+                      <div>
+                        <div className="flex justify-between font-bold mb-1">
+                          <span>حجم رمز QR:</span>
+                          <span className="font-mono">{invoiceTemplateSettings.qrSizePx || 82}px</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={56}
+                          max={120}
+                          value={invoiceTemplateSettings.qrSizePx || 82}
+                          onChange={(e) =>
+                            updateInvoiceTemplateSettings({ qrSizePx: Number(e.target.value) })
+                          }
+                          className="w-full accent-blue-600 cursor-pointer"
+                        />
+                      </div>
+                      <div>
+                        <div className="flex justify-between font-bold mb-1">
+                          <span>عرض الباركود الخطي:</span>
+                          <span className="font-mono">{invoiceTemplateSettings.barcodeWidthPx || 165}px</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={120}
+                          max={240}
+                          value={invoiceTemplateSettings.barcodeWidthPx || 165}
+                          onChange={(e) =>
+                            updateInvoiceTemplateSettings({ barcodeWidthPx: Number(e.target.value) })
+                          }
+                          className="w-full accent-blue-600 cursor-pointer"
+                        />
+                      </div>
+                    </div>
+
+                    {invoiceTemplateSettings.showBankAccounts !== false && (
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">
+                          تفاصيل الحسابات المصرفية الخاصة بك (كل حساب في سطر):
+                        </label>
+                        <textarea
+                          rows={2}
+                          data-testid="studio-bank-details-textarea"
+                          value={invoiceTemplateSettings.customBankDetailsAr || ''}
+                          onChange={(e) =>
+                            updateInvoiceTemplateSettings({ customBankDetailsAr: e.target.value })
+                          }
+                          placeholder="مثال: اسم البنك - رقم الحساب (اكتب حساباتك المصرفية هنا لتظهر في الفواتير)"
+                          className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs outline-hidden focus:border-blue-600"
+                        />
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">
+                        ملاحظة وسياسة الاستبدال أسفل الفاتورة:
+                      </label>
+                      <input
+                        type="text"
+                        value={customFooter}
+                        onChange={(e) => {
+                          setCustomFooter(e.target.value);
+                          updateInvoiceTemplateSettings({ footerNoteAr: e.target.value });
+                        }}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs outline-hidden focus:border-blue-600"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
-            <div className="p-2 sm:p-4 bg-slate-200/60 dark:bg-slate-900/80 rounded-xl overflow-x-auto max-h-[750px] overflow-y-auto">
-              <InvoiceRenderer
-                invoice={sampleInvoice}
-                mode={previewMode}
-                thermalTemplate={invoiceTemplateSettings.thermalTemplate}
-                standardTemplate={invoiceTemplateSettings.standardTemplate}
-                settings={invoiceTemplateSettings}
-                companyName={company.nameAr || currentTenant.legalName}
-                companyNameEn={company.name}
-                companyLogo={companyLogo || company.logo}
-                taxNumber={company.taxNumber || '300059281900003'}
-                branchName={currentBranch?.nameAr || 'المركز الرئيسي - صنعاء'}
-                branchAddress={`${currentBranch?.city || 'صنعاء'}`}
-                branchPhone={currentBranch?.phone || '+967 1 445 880'}
-                currency={currency}
-              />
+            {/* Live Preview Column */}
+            <div
+              className={`xl:col-span-6 bg-slate-100 dark:bg-slate-950 p-3.5 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3 xl:sticky xl:top-16 ${
+                studioMobilePane === 'editor' ? 'hidden xl:block' : 'block'
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <Eye className="w-4 h-4 text-emerald-600" />
+                  <span className="font-bold text-xs text-slate-800 dark:text-slate-200">
+                    المعاينة الحية التفاعلية ({previewMode === 'thermal' ? 'حراري' : 'A4'})
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-3 py-1.5 rounded-lg haseb-btn-primary text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>طباعة تجريبية</span>
+                </button>
+              </div>
+
+              <div className="p-2 sm:p-4 bg-slate-200/60 dark:bg-slate-900/80 rounded-xl overflow-x-auto max-h-[760px] overflow-y-auto">
+                <InvoiceRenderer
+                  invoice={sampleInvoice}
+                  mode={previewMode}
+                  thermalTemplate={invoiceTemplateSettings.thermalTemplate}
+                  standardTemplate={invoiceTemplateSettings.standardTemplate}
+                  settings={invoiceTemplateSettings}
+                  companyName={company.nameAr || currentTenant.legalName}
+                  companyNameEn={company.name}
+                  companyLogo={companyLogo || company.logo}
+                  taxNumber={company.taxNumber || '—'}
+                  branchName={currentBranch?.nameAr || 'الفرع الرئيسي'}
+                  branchAddress={currentBranch?.city || ''}
+                  branchPhone={currentBranch?.phone || company.phone || ''}
+                  currency={currency}
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -1730,29 +2102,29 @@ export const SettingsView: React.FC = () => {
             </div>
           )}
 
-          <div className="p-4 rounded-xl bg-slate-900 text-white border border-slate-800 space-y-3">
+          <div className="p-4 rounded-xl haseb-card-gradient text-white border border-slate-700/40 space-y-3 shadow-xs">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <Lock className="w-4 h-4 text-emerald-400" />
+                <Lock className="w-4 h-4 text-emerald-300" />
                 <span className="text-xs font-bold">
                   تصدير لقطة قاعدة البيانات المشفرة (Export Encrypted Snapshot)
                 </span>
               </div>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-200 border border-emerald-400/30">
                 RLM-STREAM-256 + HMAC
               </span>
             </div>
 
             <div className="space-y-1.5">
-              <label className="block text-[11px] text-slate-300 font-semibold flex items-center gap-1.5">
-                <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+              <label className="block text-[11px] text-slate-200 font-semibold flex items-center gap-1.5">
+                <KeyRound className="w-3.5 h-3.5 text-amber-300" />
                 <span>مفتاح التشفير وفك التشفير الخاص بالمنشأة:</span>
               </label>
               <input
                 type="text"
                 value={snapshotPassphrase}
                 onChange={(e) => setSnapshotPassphrase(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-xs font-mono text-emerald-300 outline-hidden"
+                className="w-full px-3 py-2 rounded-lg bg-slate-950/60 border border-slate-600/60 text-xs font-mono text-emerald-200 outline-hidden"
                 dir="ltr"
               />
             </div>
@@ -1768,14 +2140,26 @@ export const SettingsView: React.FC = () => {
           </div>
 
           <div className="space-y-3 pt-2">
-            <button
-              type="button"
-              onClick={handleExportJSON}
-              className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer"
-            >
-              <Download className="w-4 h-4 text-slate-600 dark:text-slate-300" />
-              تصدير نسخة احتياطية قياسية غير مشفرة (JSON Backup)
-            </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={handleExportJSON}
+                className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer"
+              >
+                <Download className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+                تصدير نسخة احتياطية JSON
+              </button>
+
+              <a
+                href="/api/v1/local-db/postgres-schema.sql"
+                download="Haseb_PostgreSQL18_Schema.sql"
+                data-testid="settings-download-postgres-btn"
+                className="w-full py-2.5 px-4 haseb-btn-primary text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-xs"
+              >
+                <Database className="w-4 h-4 text-emerald-300 shrink-0" />
+                <span>تصدير هيكلة وبيانات PostgreSQL 18 (.sql)</span>
+              </a>
+            </div>
 
             <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-2">
               <div className="text-xs font-bold text-slate-800 dark:text-slate-200">

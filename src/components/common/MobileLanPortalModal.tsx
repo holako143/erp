@@ -183,8 +183,8 @@ export const MobileLanPortalModal: React.FC = () => {
         {/* Sticky Top Header */}
         <div className="px-4 sm:px-6 py-3.5 bg-slate-50/95 border-b border-slate-200/80 text-slate-900 flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
-              <Wifi className="w-5 h-5 text-emerald-400" />
+            <div className="w-10 h-10 rounded-xl haseb-btn-primary text-white flex items-center justify-center shrink-0 shadow-2xs">
+              <Wifi className="w-5 h-5 text-emerald-300" />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
@@ -266,7 +266,7 @@ export const MobileLanPortalModal: React.FC = () => {
 
             {/* Right: URL Copy, Endpoint Switcher & Custom Wi-Fi IP */}
             <div className="lg:col-span-7 flex flex-col justify-between space-y-3">
-              <div className="p-4 rounded-2xl bg-slate-900 text-white space-y-3 shadow-xs">
+              <div className="p-4 rounded-2xl haseb-card-gradient text-white space-y-3 shadow-xs">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1.5">
                     <Globe className="w-3.5 h-3.5" />
@@ -427,15 +427,25 @@ export const MobileLanPortalModal: React.FC = () => {
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <a
                 href="/api/v1/desktop/windows-launcher.bat"
                 download="Haseb_Windows_Desktop_App.bat"
                 data-testid="download-windows-launcher-btn"
-                className="py-2.5 px-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-2xs transition cursor-pointer"
+                className="py-2.5 px-3.5 rounded-xl haseb-btn-primary text-white font-bold text-xs flex items-center justify-center gap-2 shadow-2xs transition cursor-pointer"
               >
-                <Download className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>تنزيل مشغل سطح المكتب ومفعل الشبكة (.bat)</span>
+                <Download className="w-4 h-4 text-emerald-300 shrink-0" />
+                <span>مشغل سطح المكتب والشبكة (.bat)</span>
+              </a>
+
+              <a
+                href="/api/v1/local-db/postgres-schema.sql"
+                download="Haseb_PostgreSQL18_Schema.sql"
+                data-testid="download-postgres-schema-btn"
+                className="py-2.5 px-3.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer"
+              >
+                <Server className="w-4 h-4 text-indigo-600 shrink-0" />
+                <span>هيكلة وبيانات PostgreSQL 18 (.sql)</span>
               </a>
 
               <button
@@ -478,7 +488,7 @@ export const MobileLanPortalModal: React.FC = () => {
           <button
             type="button"
             onClick={closeLanPortal}
-            className="px-5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition cursor-pointer shrink-0"
+            className="px-5 py-2 rounded-xl haseb-btn-primary text-white text-xs font-bold transition cursor-pointer shrink-0"
           >
             إغلاق
           </button>

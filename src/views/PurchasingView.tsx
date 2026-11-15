@@ -214,68 +214,96 @@ export const PurchasingView: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {purchaseOrders.map((po) => {
-                  const isReceived = po.status === 'RECEIVED';
-                  return (
-                    <tr key={po.id} className="hover:bg-slate-50/70 transition">
-                      <td className="py-3 px-4">
-                        <div className="font-bold text-slate-900 font-mono text-sm">{po.poNumber}</div>
-                        <div className="text-[10px] text-slate-400">{po.orderDate}</div>
-                      </td>
-                      <td className="py-3 px-4 font-bold text-slate-800">
-                        {po.supplierName}
-                      </td>
-                      <td className="py-3 px-4">
-                        {po.items.map((item, idx) => (
-                          <div key={idx} className="font-medium text-slate-700">
-                            {item.quantity}x {item.productName} ({item.unitCost} {currency})
-                          </div>
-                        ))}
-                      </td>
-                      <td className="py-3 px-4 text-end font-semibold text-slate-700 font-mono tabular-nums">
-                        {(po.subtotal ?? 0).toLocaleString()} {currency}
-                      </td>
-                      <td className="py-3 px-4 text-end text-slate-500 font-mono tabular-nums">
-                        {(po.taxAmount ?? (po as any).taxTotal ?? 0).toLocaleString()} {currency}
-                      </td>
-                      <td className="py-3 px-4 text-end font-bold text-slate-900 text-sm font-mono tabular-nums">
-                        {(po.total ?? (po as any).grandTotal ?? 0).toLocaleString()} {currency}
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <span
-                          className={`inline-block px-2.5 py-0.5 rounded border text-[11px] font-semibold ${
-                            isReceived
-                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                              : 'bg-blue-50 text-blue-800 border-blue-200'
-                          }`}
+                {purchaseOrders.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="py-12 px-4 text-center">
+                      <div className="max-w-sm mx-auto space-y-2.5">
+                        <ShoppingCart className="w-9 h-9 text-slate-300 mx-auto" />
+                        <div className="text-sm font-bold text-slate-800">
+                          {language === 'ar'
+                            ? 'لا توجد أوامر شراء مسجلة بعد'
+                            : 'No purchase orders recorded yet'}
+                        </div>
+                        <p className="text-xs text-slate-500">
+                          {language === 'ar'
+                            ? 'أنشئ أول أمر شراء لتوريد البضائع وتحديث المستودع والذمم الدائنة تلقائياً.'
+                            : 'Create your first purchase order to receive stock into warehouses.'}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setIsNewPOModalOpen(true)}
+                          className="px-4 py-2 haseb-btn-primary text-white rounded-xl text-xs font-bold cursor-pointer inline-flex items-center gap-1.5"
                         >
-                          {isReceived
-                            ? (language === 'ar' ? 'تم الاستلام والترحيل' : 'Received')
-                            : (language === 'ar' ? 'معتمد وقيد الشحن' : 'Approved')}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        {!isReceived && (
-                          <button
-                            type="button"
-                            data-testid={`btn-receive-po-${po.id}`}
-                            onClick={() => {
-                              const res = approvePurchaseOrder(po.id);
-                              if (res?.success) {
-                                setPurchasingBanner(
-                                  `تم استلام بضاعة أمر الشراء (${po.poNumber}) في المستودع وتحديث ذمة المورد وترحيل القيد المحاسبي (${res.entryNumber}) بنجاح.`
-                                );
-                              }
-                            }}
-                            className="bg-slate-900 hover:bg-slate-800 text-white font-semibold text-[11px] px-2.5 py-1 rounded transition cursor-pointer"
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>{language === 'ar' ? 'إنشاء أول أمر شراء' : 'Create Purchase Order'}</span>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  purchaseOrders.map((po) => {
+                    const isReceived = po.status === 'RECEIVED';
+                    return (
+                      <tr key={po.id} className="hover:bg-slate-50/70 transition">
+                        <td className="py-3 px-4">
+                          <div className="font-bold text-slate-900 font-mono text-sm">{po.poNumber}</div>
+                          <div className="text-[10px] text-slate-400">{po.orderDate}</div>
+                        </td>
+                        <td className="py-3 px-4 font-bold text-slate-800">
+                          {po.supplierName}
+                        </td>
+                        <td className="py-3 px-4">
+                          {po.items.map((item, idx) => (
+                            <div key={idx} className="font-medium text-slate-700">
+                              {item.quantity}x {item.productName} ({item.unitCost} {currency})
+                            </div>
+                          ))}
+                        </td>
+                        <td className="py-3 px-4 text-end font-semibold text-slate-700 font-mono tabular-nums">
+                          {(po.subtotal ?? 0).toLocaleString()} {currency}
+                        </td>
+                        <td className="py-3 px-4 text-end text-slate-500 font-mono tabular-nums">
+                          {(po.taxAmount ?? (po as any).taxTotal ?? 0).toLocaleString()} {currency}
+                        </td>
+                        <td className="py-3 px-4 text-end font-bold text-slate-900 text-sm font-mono tabular-nums">
+                          {(po.total ?? (po as any).grandTotal ?? 0).toLocaleString()} {currency}
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <span
+                            className={`inline-block px-2.5 py-0.5 rounded border text-[11px] font-semibold ${
+                              isReceived
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                : 'bg-blue-50 text-blue-800 border-blue-200'
+                            }`}
                           >
-                            {language === 'ar' ? 'استلام المخزون وترحيل الفاتورة' : 'Receive Goods'}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
+                            {isReceived
+                              ? (language === 'ar' ? 'تم الاستلام والترحيل' : 'Received')
+                              : (language === 'ar' ? 'معتمد وقيد الشحن' : 'Approved')}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          {!isReceived && (
+                            <button
+                              type="button"
+                              data-testid={`btn-receive-po-${po.id}`}
+                              onClick={() => {
+                                const res = approvePurchaseOrder(po.id);
+                                if (res?.success) {
+                                  setPurchasingBanner(
+                                    `تم استلام بضاعة أمر الشراء (${po.poNumber}) في المستودع وتحديث ذمة المورد وترحيل القيد المحاسبي (${res.entryNumber}) بنجاح.`
+                                  );
+                                }
+                              }}
+                              className="haseb-btn-primary text-white font-semibold text-[11px] px-2.5 py-1 rounded transition cursor-pointer"
+                            >
+                              {language === 'ar' ? 'استلام المخزون وترحيل الفاتورة' : 'Receive Goods'}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
@@ -388,9 +416,9 @@ export const PurchasingView: React.FC = () => {
                 addSupplier({
                   name: nameInput.trim(),
                   nameAr: nameInput.trim(),
-                  taxNumber: taxInput?.trim() || '300099112200003',
-                  phone: phoneInput?.trim() || '+966 11 400 9000',
-                  email: 'procurement@vendor.sa',
+                  taxNumber: taxInput?.trim() || '',
+                  phone: phoneInput?.trim() || '',
+                  email: '',
                   paymentTermsDays: 30,
                   balance: 0,
                   creditLimit: 100000,

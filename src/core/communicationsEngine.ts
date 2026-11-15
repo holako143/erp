@@ -408,21 +408,20 @@ export function createNewWhatsAppAccountInstance(params: {
     chats: [
       {
         id: `chat-init-${id}`,
-        contactName: 'شركة البناء الحديث للمقاولات العامة',
-        contactPhone: '+967 771 445 880',
-        normalizedPhone: '+967771445880',
-        lastMessage: `تم تفعيل قناة التواصل (${params.label.trim()}) داخل النظام بنجاح.`,
+        contactName: params.label.trim() || 'إشعارات القناة',
+        contactPhone: params.phoneNumber?.trim() || 'قناة جديدة',
+        normalizedPhone: formattedPhone.replace(/\D/g, ''),
+        lastMessage: `تم تفعيل قناة التواصل (${params.label.trim() || 'واتساب'}) داخل النظام بنجاح.`,
         lastMessageTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         unreadCount: 0,
         isBusiness: true,
-        customerId: 'cust-1',
-        pinned: true,
+        pinned: false,
         messages: [
           {
             id: `msg-init-${id}`,
             chatId: `chat-init-${id}`,
             sender: 'SYSTEM',
-            text: `تم إنشاء وتخصيص (${params.label.trim()} - ${params.departmentAr.trim()}) للعمل المباشر داخل النظام بدون الحاجة لفتح نوافذ خارجية.`,
+            text: `تم إنشاء وتخصيص (${params.label.trim() || 'قناة واتساب'} - ${params.departmentAr.trim() || 'عام'}) للعمل المباشر داخل النظام.`,
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             status: 'READ',
           },
@@ -932,7 +931,7 @@ export function buildGuaranteedInvoiceDispatchPackage(params: {
     `🏢 *${params.companyName}* — فرع ${params.branchName}`,
     `رقم الفاتورة: *${params.invoiceNumber}*`,
     `العميل: *${params.customerName}*`,
-    `الرقم الضريبي: ${params.taxNumber || '300059281900003'}`,
+    ...(params.taxNumber ? [`الرقم الضريبي: ${params.taxNumber}`] : []),
     `────────────────────`,
     `الأصناف: ${params.itemsSummary}`,
     `────────────────────`,
@@ -1318,3 +1317,33 @@ export function composeChatBarQuickDocumentText(params: {
     ].join('\n'),
   };
 }
+
+/**
+ * Creates a clean empty WhatsApp account container ready for live pairing with zero demo chats.
+ */
+export function createCleanWhatsAppDefaultAccount(companyNameAr = 'منشأتك'): WhatsAppAccountInstance {
+  const qr = generatePairingQRToken('wa-acc-primary');
+  return {
+    id: 'wa-acc-primary',
+    accountLabel: 'الحساب الرسمي الرئيسي',
+    departmentAr: 'المبيعات وخدمة العملاء',
+    colorAccent: 'emerald',
+    autoReplyEnabled: false,
+    messagesDispatchedCount: 0,
+    lastActiveAt: 'بانتظار مسح باركود واتساب الرسمي',
+    session: {
+      status: 'PAIRING_QR',
+      phoneNumber: 'بانتظار الربط...',
+      pushName: companyNameAr,
+      batteryLevel: 100,
+      qrCodeData: qr.token,
+      qrExpiresInSec: 20,
+      platform: 'WhatsApp Web Multi-Device Gateway',
+      pairingUrl: qr.pairingUrl,
+      pairingCode8Digit: qr.pairingCode8Digit,
+      qrFullMatrixData: qr.fullUrlMatrixData,
+    },
+    chats: [],
+  };
+}
+

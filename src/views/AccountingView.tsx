@@ -15,6 +15,7 @@ import {
   ArrowRightLeft,
   Target,
   MessageSquare,
+  FileText,
 } from 'lucide-react';
 import {
   generateTrialBalance,
@@ -460,7 +461,34 @@ export const AccountingView: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {journalEntries.map((je) => {
+                {journalEntries.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-12 px-4 text-center">
+                      <div className="max-w-sm mx-auto space-y-2.5">
+                        <FileText className="w-9 h-9 text-slate-300 mx-auto" />
+                        <div className="text-sm font-bold text-slate-800">
+                          {language === 'ar'
+                            ? 'دفتر اليومية العام فارغ — لا توجد قيود مرحلة بعد'
+                            : 'General ledger has no posted journal entries yet'}
+                        </div>
+                        <p className="text-xs text-slate-500">
+                          {language === 'ar'
+                            ? 'يتم إنشاء القيود المحاسبية المزدوجة تلقائياً عند الفوترة أو الشراء، أو يمكنك إنشاء قيد يدوي متوازن الآن.'
+                            : 'Double-entry journals are auto-posted from operations or created manually.'}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setIsManualModalOpen(true)}
+                          className="px-4 py-2 haseb-btn-primary text-white rounded-xl text-xs font-bold cursor-pointer inline-flex items-center gap-1.5"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>{language === 'ar' ? 'إضافة قيد يومية متوازن' : 'New Balanced Entry'}</span>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  journalEntries.map((je) => {
                   const isExpanded = expandedJournalId === je.id;
                   return (
                     <React.Fragment key={je.id}>
@@ -571,7 +599,8 @@ export const AccountingView: React.FC = () => {
                       )}
                     </React.Fragment>
                   );
-                })}
+                })
+                )}
               </tbody>
             </table>
           </div>

@@ -94,9 +94,9 @@ export const PerformanceMonitorOverlay: React.FC = () => {
       ref={containerRef}
       dir={isAr ? 'rtl' : 'ltr'}
       data-testid="perf-monitor-overlay"
-      className="fixed bottom-11 start-4 z-40 select-none print:hidden"
+      className="fixed bottom-[7.25rem] lg:bottom-11 end-2.5 sm:end-4 z-30 select-none print:hidden"
     >
-      {/* Expanded Corner Diagnostic Popover (Unified Lumina POS Light Theme) */}
+      {/* Expanded Corner Diagnostic Popover */}
       {isExpanded && (
         <div
           data-testid="perf-monitor-panel"
@@ -105,7 +105,7 @@ export const PerformanceMonitorOverlay: React.FC = () => {
           {/* Header */}
           <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0">
+              <div className="w-7 h-7 rounded-xl haseb-btn-primary text-white flex items-center justify-center shrink-0">
                 <Gauge className="w-3.5 h-3.5" />
               </div>
               <div>
@@ -224,7 +224,7 @@ export const PerformanceMonitorOverlay: React.FC = () => {
                     }}
                     className={`w-full p-2 rounded-xl border text-start transition cursor-pointer ${
                       isCurrent
-                        ? 'bg-slate-900 text-white border-slate-900'
+                        ? 'haseb-btn-primary text-white border-transparent'
                         : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200/80'
                     }`}
                   >
@@ -305,7 +305,7 @@ export const PerformanceMonitorOverlay: React.FC = () => {
         }
         className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-[11px] shadow-md transition cursor-pointer ${
           isExpanded
-            ? 'bg-slate-900 border-slate-900 text-white'
+            ? 'haseb-btn-primary border-transparent text-white'
             : 'bg-white/95 hover:bg-white border-slate-200/90 text-slate-700'
         }`}
       >

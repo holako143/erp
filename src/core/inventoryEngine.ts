@@ -3,6 +3,8 @@
  * Weighted Average Cost (WAC), Landed Cost Distribution, & Reorder Logic
  */
 
+import type { ElectronicsSubCategory } from '../types/erp';
+
 export interface LandedCostItem {
   productId: string;
   quantity: number;

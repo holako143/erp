@@ -3,7 +3,7 @@
  * Multi-Tenant, Multi-Branch, Multi-Industry, Full-Stack Server Persistence & Gemini AI Integration
  */
 
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Tenant,
   Company,
@@ -76,14 +76,12 @@ import {
 import {
   createInitialWhatsAppSession,
   generatePairingQRToken,
-  SEED_WHATSAPP_CHATS,
-  SEED_WHATSAPP_ACCOUNTS,
+  createCleanWhatsAppDefaultAccount,
   createNewWhatsAppAccountInstance,
   appendMessageToWhatsAppChats,
   generateUniqueWhatsAppMessageId,
   createDefaultUsbConnectedDevice,
   runUsbAutoDiagnostics,
-  SEED_BRANCH_NODES,
   calculateCrossBranchStockMatrix,
   createInterBranchTransferDocAndJournal,
   advanceInterBranchTransferStatus,
@@ -92,10 +90,6 @@ import {
 } from '../core/communicationsEngine';
 import {
   SEED_TENANTS,
-  SEED_COMPANY,
-  SEED_BRANCHES,
-  SEED_WAREHOUSES,
-  SEED_USERS,
   SEED_CATEGORIES,
   SEED_PRODUCTS,
   SEED_BARCODES,
@@ -106,7 +100,6 @@ import {
   SEED_JOURNAL_ENTRIES,
   SEED_SALES_INVOICES,
   SEED_PURCHASE_ORDERS,
-  SEED_POS_SHIFTS,
   SEED_EMPLOYEES,
   SEED_FIXED_ASSETS,
   SEED_BOMS,
@@ -117,7 +110,6 @@ import {
   SEED_CRM_LEADS,
   SEED_ECOMMERCE_ORDERS,
   SEED_WORKFLOW_APPROVALS,
-  SEED_AUDIT_LOGS,
 } from '../data/seedData';
 import { TRANSLATIONS } from '../i18n/translations';
 import {
@@ -159,15 +151,20 @@ import {
   generateMachineRequestCode,
   generateActivationSerial,
   verifyActivationSerial,
+  verifyOneTimeSerialActivation,
+  computeSerialConsumptionToken,
+  computeClockHighWaterIntegrityTag,
+  verifyClockHighWaterIntegrityTag,
   detectRealHardwareFingerprint,
   parseWindowsWmiHardwareInput,
   EncryptedDatabaseSnapshot,
   encryptDatabaseSnapshotJSON,
   decryptDatabaseSnapshotJSON,
+  hashUserPassword,
+  verifyUserPassword,
+  evaluateLoginAttemptLockout,
 } from '../core/securityEngine';
 import {
-  SEED_PROMO_COUPONS,
-  SEED_PROMOTIONAL_OFFERS,
   validateAndCalculateCouponDiscount,
   CouponValidationResult,
 } from '../core/promotionsEngine';
@@ -180,13 +177,21 @@ import {
 } from '../core/systemConfigEngine';
 import {
   DEFAULT_MESSAGING_GATEWAY_CONFIG,
-  SEED_OUTBOUND_MESSAGES,
   buildWhatsAppAndSmsProtocolLinks,
 } from '../core/messagingEngine';
 import {
   IndustryBlueprint,
   getIndustryBlueprint,
 } from '../core/industryBlueprints';
+import {
+  SystemNotification,
+  generateSystemNotifications,
+  computeNotificationStateSummary,
+} from '../core/notificationsEngine';
+import {
+  createDefaultShiftlessState,
+  applySaleToShift,
+} from '../core/posShiftEngine';
 
 export interface QuickSendModalPreset {
   isOpen: boolean;
@@ -237,41 +242,17 @@ export function getVisibleModulesList(
 
 export const INITIAL_USER_ACCOUNTS: UserAccount[] = [
   {
-    id: 'usr-sysadmin-0',
-    tenantId: 'ten-1',
-    username: 'sysadmin',
-    password: 'RLM-ROOT-9999',
-    email: 'root@rlm-global-core.io',
-    name: 'System Sovereign Architect (Hidden Master Admin)',
-    nameAr: 'الإدارة العليا السيادية للنظام (عضوية مخفية بالكامل)',
-    role: 'MASTER_SYSTEM_ADMIN',
-    branchId: 'br-1',
-    isActive: true,
-    isHiddenMasterAdmin: true,
-    allowedModules: [...ALL_ERP_MODULES, 'masterAdmin'],
-    permissions: {
-      canCreate: true,
-      canEdit: true,
-      canDelete: true,
-      canExport: true,
-      canApprove: true,
-      canManageUsers: true,
-      canManageLicense: true,
-    },
-    lastLoginAt: new Date().toISOString(),
-  },
-  {
     id: 'usr-admin-1',
     tenantId: 'ten-1',
     username: 'admin',
-    password: 'admin',
-    email: 'admin@rlm-erp.com',
-    name: 'Eng. Tariq Al-Mansoor (Admin)',
-    nameAr: 'م. طارق المنصور (المدير العام)',
+    password: hashUserPassword('admin', 'admin'),
+    email: 'admin@haseb-erp.local',
+    name: 'General Manager',
+    nameAr: 'المدير العام',
     role: 'SUPER_ADMIN',
-    branchId: 'br-1',
+    branchId: 'branch-main-01',
     isActive: true,
-    allowedModules: [...ALL_ERP_MODULES],
+    allowedModules: [...ALL_ERP_MODULES, 'communications'],
     permissions: {
       canCreate: true,
       canEdit: true,
@@ -283,106 +264,75 @@ export const INITIAL_USER_ACCOUNTS: UserAccount[] = [
     },
     lastLoginAt: new Date().toISOString(),
   },
-  {
-    id: 'usr-acc-2',
-    tenantId: 'ten-1',
-    username: 'accountant',
-    password: '1234',
-    email: 'finance@rlm-erp.sa',
-    name: 'Sarah Al-Otaibi (CPA)',
-    nameAr: 'سارة العتيبي (محاسب مالي أول)',
-    role: 'ACCOUNTANT',
-    branchId: 'br-1',
-    isActive: true,
-    allowedModules: ['dashboard', 'sales', 'purchasing', 'accounting', 'aiInsights'],
-    permissions: {
-      canCreate: true,
-      canEdit: true,
-      canDelete: false,
-      canExport: true,
-      canApprove: true,
-      canManageUsers: false,
-      canManageLicense: false,
-    },
-  },
-  {
-    id: 'usr-cashier-3',
-    tenantId: 'ten-1',
-    username: 'cashier',
-    password: '1234',
-    email: 'pos@rlm-erp.sa',
-    name: 'Fahad Al-Harbi (POS Cashier)',
-    nameAr: 'فهد الحربي (كاشير نقطة البيع)',
-    role: 'CASHIER',
-    branchId: 'br-1',
-    isActive: true,
-    allowedModules: ['dashboard', 'pos', 'sales'],
-    permissions: {
-      canCreate: true,
-      canEdit: false,
-      canDelete: false,
-      canExport: false,
-      canApprove: false,
-      canManageUsers: false,
-      canManageLicense: false,
-    },
-  },
-  {
-    id: 'usr-wh-4',
-    tenantId: 'ten-1',
-    username: 'warehouse',
-    password: '1234',
-    email: 'wms@rlm-erp.sa',
-    name: 'Khaled Al-Zahrani (WMS Lead)',
-    nameAr: 'خالد الزهراني (مدير المستودعات والباركود)',
-    role: 'WAREHOUSE_MANAGER',
-    branchId: 'br-1',
-    isActive: true,
-    allowedModules: ['dashboard', 'barcodeEngine', 'inventory', 'purchasing'],
-    permissions: {
-      canCreate: true,
-      canEdit: true,
-      canDelete: false,
-      canExport: true,
-      canApprove: false,
-      canManageUsers: false,
-      canManageLicense: false,
-    },
-  },
-  {
-    id: 'usr-mgr-5',
-    tenantId: 'ten-1',
-    username: 'manager',
-    password: '1234',
-    email: 'manager@rlm-erp.sa',
-    name: 'Nasser Al-Qahtani (Branch Director)',
-    nameAr: 'ناصر القحطاني (مدير الفرع التنفيذي)',
-    role: 'COMPANY_ADMIN',
-    branchId: 'br-1',
-    isActive: true,
-    allowedModules: [
-      'dashboard',
-      'pos',
-      'barcodeEngine',
-      'inventory',
-      'purchasing',
-      'sales',
-      'accounting',
-      'businessModules',
-      'aiInsights',
-      'settings',
-    ],
-    permissions: {
-      canCreate: true,
-      canEdit: true,
-      canDelete: true,
-      canExport: true,
-      canApprove: true,
-      canManageUsers: false,
-      canManageLicense: false,
-    },
-  },
 ];
+
+const DEFAULT_CLEAN_COMPANY: Company = {
+  id: 'comp-01',
+  tenantId: 'ten-1',
+  name: 'Your Commercial Business',
+  nameAr: 'منشأتك التجارية',
+  taxNumber: '',
+  crNumber: '',
+  currency: 'YER',
+  address: '',
+  phone: '',
+  email: '',
+};
+
+const DEFAULT_CLEAN_BRANCH: Branch = {
+  id: 'branch-main-01',
+  tenantId: 'ten-1',
+  companyId: 'comp-01',
+  code: 'BR-MAIN-01',
+  name: 'Main Branch',
+  nameAr: 'الفرع الرئيسي',
+  phone: '',
+  city: 'صنعاء',
+  isActive: true,
+};
+
+const DEFAULT_CLEAN_WAREHOUSE: Warehouse = {
+  id: 'wh-main-01',
+  tenantId: 'ten-1',
+  branchId: 'branch-main-01',
+  code: 'WH-MAIN-01',
+  name: 'Main Warehouse',
+  nameAr: 'المستودع الرئيسي',
+  isDefault: true,
+};
+
+const DEFAULT_CLEAN_TENANT: Tenant = {
+  id: 'ten-1',
+  name: 'Primary Organization',
+  legalName: 'منشأتك التجارية المعتمدة',
+  code: 'HASEB-MAIN',
+  planId: 'enterprise',
+  status: 'active',
+  maxUsers: 50,
+  maxBranches: 10,
+  maxWarehouses: 20,
+  activeModules: ['core', 'barcode', 'inventory', 'purchasing', 'sales', 'pos', 'accounting'],
+  createdAt: new Date().toISOString(),
+};
+
+const DEFAULT_CLEAN_USER: User = {
+  id: 'usr-admin-1',
+  tenantId: 'ten-1',
+  email: 'admin@haseb-erp.local',
+  name: 'المدير العام',
+  role: 'SUPER_ADMIN',
+  branchId: 'branch-main-01',
+  isActive: true,
+  allowedModules: [...ALL_ERP_MODULES, 'communications'],
+  permissions: INITIAL_USER_ACCOUNTS[0].permissions,
+};
+
+const DEFAULT_CLEAN_SHIFT: POSShift = createDefaultShiftlessState({
+  tenantId: 'ten-1',
+  branchId: 'branch-main-01',
+  cashierId: 'usr-admin-1',
+  cashierName: 'المدير العام',
+});
 
 export const PRIMARY_DEVICE_HARDWARE: HardwareFingerprint = detectRealHardwareFingerprint();
 
@@ -405,18 +355,39 @@ export const FOREIGN_DEVICE_HARDWARE: HardwareFingerprint = {
   },
 };
 
-const DEFAULT_TEMPLATE_SETTINGS: InvoiceTemplateSettings = {
+export const DEFAULT_TEMPLATE_SETTINGS: InvoiceTemplateSettings = {
   thermalTemplate: 'thermal_80mm_warranty',
   standardTemplate: 'a4_warranty_electronics',
-  headerTitleAr: 'فاتورة مبيعات وشهادة ضمان رسمية - نظام حاسب المحاسبي المتكامل',
-  headerTitleEn: 'Official Sales Invoice & Warranty Certificate - Haseb ERP',
-  footerNoteAr: 'هذه الفاتورة تعد شهادة ضمان رسمية للأجهزة الإلكترونية وألواح الطاقة الشمسية والبطاريات والإنفرترات حسب الرقم التسلسلي المسجل',
-  footerNoteEn: 'Official Warranty Certificate for Electronics, Solar Panels, Inverters & Batteries per Serial/IMEI',
+  headerTitleAr: 'فاتورة مبيعات ضريبية ومستند ضمان معتمد',
+  headerTitleEn: 'Official Sales Invoice & Warranty Certificate',
+  footerNoteAr: 'شكراً لتعاملكم معنا — هذه الفاتورة صادرة إلكترونياً وموثقة بالباركود ورمز التحقق.',
+  footerNoteEn: 'Thank you for your business — Electronically verified invoice with QR & Barcode.',
   showQR: true,
   showBarcode: true,
   showStampAndSignature: true,
   showWarrantyTerms: true,
   accentColor: 'emerald',
+  primaryColorHex: '#0f172a',
+  secondaryColorHex: '#059669',
+  fontScale: 'normal',
+  paperMargin: 'normal',
+  logoSize: 'md',
+  logoPosition: 'right',
+  showCompanyLogo: true,
+  showCompanyNameEn: true,
+  showCustomerPhone: true,
+  showCustomerId: false,
+  showItemSku: true,
+  showItemDiscount: true,
+  showItemTax: false,
+  showSerialAndWarranty: true,
+  showTafqeet: true,
+  showBankAccounts: false,
+  customBankDetailsAr: '',
+  showWatermark: false,
+  watermarkText: 'نسخة معتمدة',
+  qrSizePx: 88,
+  barcodeWidthPx: 140,
 };
 
 interface ERPContextType {
@@ -435,6 +406,7 @@ interface ERPContextType {
   setActiveIndustry: (ind: IndustryType) => void;
   invoiceTemplateSettings: InvoiceTemplateSettings;
   updateInvoiceTemplateSettings: (patch: Partial<InvoiceTemplateSettings>) => void;
+  resetInvoiceTemplateSettings: () => void;
   isCommandPaletteOpen: boolean;
   setIsCommandPaletteOpen: (open: boolean) => void;
   backendConnected: boolean;
@@ -447,8 +419,17 @@ interface ERPContextType {
 
   // Authentication, Memberships & Granular Permissions
   isAuthenticated: boolean;
+  isTerminalLocked: boolean;
+  lockTerminal: () => void;
+  unlockTerminal: (password: string) => { success: boolean; errorAr?: string; errorEn?: string };
+  idleTimeoutMinutes: number;
+  setIdleTimeoutMinutes: (mins: number) => void;
+  failedLoginAttempts: number;
+  loginLockoutUntilMs: number;
   login: (username: string, password: string) => { success: boolean; errorAr?: string; errorEn?: string };
   logout: () => void;
+  switchUserAccount: (accountId: string) => void;
+  changeUserPassword: (accountId: string, newPassword: string) => { success: boolean; errorAr?: string };
   userAccounts: UserAccount[];
   currentAccount: UserAccount;
   addUserAccount: (acc: Omit<UserAccount, 'id' | 'tenantId'>) => void;
@@ -456,6 +437,9 @@ interface ERPContextType {
   deleteUserAccount: (id: string) => void;
   hasModuleAccess: (moduleId: string) => boolean;
   hasPermission: (perm: keyof UserPermissions) => boolean;
+  usedSerialTokens: string[];
+  boundHardware: HardwareFingerprint;
+  maxObservedClockMs: number;
 
   // Multi-Hardware Licensing, 30-Day Trial & Anti-Theft Source Protection
   hardwareFingerprint: HardwareFingerprint;
@@ -656,6 +640,9 @@ interface ERPContextType {
   resumePOSBill: (billId: string) => void;
   closePOSShift: (actualCount: number, openNewShiftWithFloat?: number) => void;
   openNewPOSShift: (startingCash?: number) => void;
+  isShiftModalOpen: boolean;
+  openShiftModal: () => void;
+  closeShiftModal: () => void;
   kitchenTickets: KitchenOrderTicket[];
   sendCartToKitchen: (tableNumber: string, orderType: 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY') => KitchenOrderTicket | null;
   advanceKitchenTicket: (id: string) => void;
@@ -836,6 +823,25 @@ interface ERPContextType {
   resetSystemToBlank: () => void;
   isOnboardingCompleted: boolean;
   completeOnboarding: () => void;
+  completeFirstLaunchSetup: (params: {
+    companyNameAr: string;
+    companyNameEn?: string;
+    logoDataUrl?: string;
+    taxNumber?: string;
+    phone?: string;
+    address?: string;
+    city?: string;
+    branchNameAr: string;
+    warehouseNameAr: string;
+    currency: Currency;
+    industry: IndustryType;
+    uiTheme: 'corporate_slate' | 'swiss_light' | 'haseb_royal' | 'haseb_sand' | 'obsidian_dark';
+    arabicFont: 'cairo' | 'tajawal' | 'almarai' | 'ibm';
+    adminNameAr: string;
+    adminUsername: string;
+    adminPassword: string;
+    idleTimeoutMinutes: number;
+  }) => { success: boolean; errorAr?: string };
   isOnboardingOpen: boolean;
   openOnboarding: () => void;
   closeOnboarding: () => void;
@@ -849,6 +855,21 @@ interface ERPContextType {
     messageAr: string;
     messageEn: string;
   };
+
+  // Real-Time Connected System Notifications Engine
+  systemNotifications: SystemNotification[];
+  unreadNotificationsCount: number;
+  criticalNotificationsCount: number;
+  lastBackupTimestamp: string | null;
+  pushLiveNotification: (
+    notif: Omit<SystemNotification, 'id' | 'timestamp' | 'isRead'> & { id?: string }
+  ) => void;
+  markNotificationRead: (id: string) => void;
+  toggleNotificationRead: (id: string) => void;
+  markAllNotificationsRead: () => void;
+  dismissNotification: (id: string) => void;
+  clearReadNotifications: () => void;
+  recordBackupCompleted: (isoTimestamp?: string) => void;
 }
 
 const ERPContext = createContext<ERPContextType | undefined>(undefined);
@@ -899,13 +920,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
   const [uiDensity, setUiDensity] = useState<'comfortable' | 'compact'>('comfortable');
-  const [promoCoupons, setPromoCoupons] = useState<PromoCoupon[]>(SEED_PROMO_COUPONS);
-  const [promotionalOffers, setPromotionalOffers] = useState<PromotionalOffer[]>(
-    SEED_PROMOTIONAL_OFFERS
-  );
+  const [promoCoupons, setPromoCoupons] = useState<PromoCoupon[]>([]);
+  const [promotionalOffers, setPromotionalOffers] = useState<PromotionalOffer[]>([]);
   const [networkInfo, setNetworkInfo] = useState<NetworkHostInfo | null>(null);
-  const [outboundMessages, setOutboundMessages] =
-    useState<OutboundMessageRecord[]>(SEED_OUTBOUND_MESSAGES);
+  const [outboundMessages, setOutboundMessages] = useState<OutboundMessageRecord[]>([]);
   const [messagingGatewayConfig, setMessagingGatewayConfig] = useState<MessagingGatewayConfig>(
     DEFAULT_MESSAGING_GATEWAY_CONFIG
   );
@@ -913,13 +931,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     isOpen: false,
   });
 
-  // WhatsApp Multi-Account In-App Web Station & Live Chats
-  const [whatsappAccounts, setWhatsappAccounts] = useState<WhatsAppAccountInstance[]>(
-    SEED_WHATSAPP_ACCOUNTS
-  );
-  const [activeWhatsAppAccountId, setActiveWhatsAppAccountId] = useState<string>(
-    SEED_WHATSAPP_ACCOUNTS[0]?.id || 'wa-acc-sales'
-  );
+  // WhatsApp Multi-Account In-App Web Station & Live Chats (Clean initial state — zero fake chats)
+  const [whatsappAccounts, setWhatsappAccounts] = useState<WhatsAppAccountInstance[]>(() => [
+    createCleanWhatsAppDefaultAccount(DEFAULT_CLEAN_COMPANY.nameAr),
+  ]);
+  const [activeWhatsAppAccountId, setActiveWhatsAppAccountId] = useState<string>('wa-acc-primary');
   const [lastAutoSavedAt, setLastAutoSavedAt] = useState<string>(() =>
     new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   );
@@ -927,14 +943,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const activeWhatsAppAccountObj =
     whatsappAccounts.find((a) => a.id === activeWhatsAppAccountId) ||
     whatsappAccounts[0] ||
-    SEED_WHATSAPP_ACCOUNTS[0];
+    createCleanWhatsAppDefaultAccount();
 
   const whatsappSession: WhatsAppSessionInfo = activeWhatsAppAccountObj.session;
   const whatsappChats: WhatsAppChat[] = activeWhatsAppAccountObj.chats;
 
-  const [activeWhatsAppChatId, setActiveWhatsAppChatId] = useState<string>(
-    SEED_WHATSAPP_ACCOUNTS[0]?.chats[0]?.id || 'chat-cust-1'
-  );
+  const [activeWhatsAppChatId, setActiveWhatsAppChatId] = useState<string>('');
 
   // USB Mobile Phone Bridge (SMS via connected Phone SIM)
   const [usbConnectedDevice, setUsbConnectedDevice] = useState<UsbConnectedDevice>(() =>
@@ -949,10 +963,104 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Cross-Branch LAN & WAN Stock Probe & Inter-Branch Transfers
-  const [branchNodes, setBranchNodes] = useState<BranchNodeInfo[]>(SEED_BRANCH_NODES);
+  const [branchNodes, setBranchNodes] = useState<BranchNodeInfo[]>([]);
   const [interBranchTransfers, setInterBranchTransfers] = useState<InterBranchTransferRequest[]>([]);
   const [isCrossBranchModalOpen, setIsCrossBranchModalOpen] = useState<boolean>(false);
   const [crossBranchModalSku, setCrossBranchModalSku] = useState<string | null>(null);
+
+  // Real-Time Connected Notifications Engine State (Persisted across reload & navigation)
+  const [readNotificationIds, setReadNotificationIds] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const saved = localStorage.getItem('haseb_notif_read_ids_v1');
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const saved = localStorage.getItem('haseb_notif_dismissed_ids_v1');
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const [liveEventNotifications, setLiveEventNotifications] = useState<SystemNotification[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const saved = localStorage.getItem('haseb_notif_live_events_v1');
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed.slice(0, 25) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [lastBackupTimestamp, setLastBackupTimestamp] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      return localStorage.getItem('rlm_last_backup_timestamp');
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('haseb_notif_read_ids_v1', JSON.stringify(readNotificationIds.slice(-150)));
+    } catch {
+      // ignore storage errors
+    }
+  }, [readNotificationIds]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        'haseb_notif_dismissed_ids_v1',
+        JSON.stringify(dismissedNotificationIds.slice(-150))
+      );
+    } catch {
+      // ignore storage errors
+    }
+  }, [dismissedNotificationIds]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        'haseb_notif_live_events_v1',
+        JSON.stringify(liveEventNotifications.slice(0, 25))
+      );
+    } catch {
+      // ignore storage errors
+    }
+  }, [liveEventNotifications]);
+
+  const pushLiveNotification = useCallback(
+    (notif: Omit<SystemNotification, 'id' | 'timestamp' | 'isRead'> & { id?: string }) => {
+      const entry: SystemNotification = {
+        ...notif,
+        id: notif.id || `evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        timestamp: new Date().toISOString(),
+        isRead: false,
+      };
+      setLiveEventNotifications((prev) => [entry, ...prev].slice(0, 25));
+    },
+    []
+  );
+
+  const recordBackupCompleted = useCallback((isoTimestamp?: string) => {
+    const ts = isoTimestamp || new Date().toISOString();
+    setLastBackupTimestamp(ts);
+    try {
+      localStorage.setItem('rlm_last_backup_timestamp', ts);
+    } catch {
+      // ignore
+    }
+    setDismissedNotificationIds((prev) => prev.filter((id) => id !== 'alert-system-backup-needed'));
+  }, []);
 
   const currentIndustryBlueprint = getIndustryBlueprint(activeIndustry);
 
@@ -991,18 +1099,18 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return TRANSLATIONS[language][key] || TRANSLATIONS.en[key] || key;
   };
 
-  // State Stores
-  const [tenants, setTenants] = useState<Tenant[]>(SEED_TENANTS);
-  const [currentTenant, setCurrentTenantState] = useState<Tenant>(SEED_TENANTS[0]);
-  const [company, setCompany] = useState<Company>(SEED_COMPANY);
-  const [branches, setBranches] = useState<Branch[]>(SEED_BRANCHES);
-  const [currentBranch, setCurrentBranch] = useState<Branch>(SEED_BRANCHES[0]);
-  const [warehouses, setWarehouses] = useState<Warehouse[]>(SEED_WAREHOUSES);
-  const [currentWarehouse, setCurrentWarehouse] = useState<Warehouse>(SEED_WAREHOUSES[0]);
-  const [currentUser, setCurrentUser] = useState<User>(SEED_USERS[0]);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(SEED_AUDIT_LOGS);
+  // Clean State Stores (Zero pre-loaded demo data)
+  const [tenants, setTenants] = useState<Tenant[]>([DEFAULT_CLEAN_TENANT]);
+  const [currentTenant, setCurrentTenantState] = useState<Tenant>(DEFAULT_CLEAN_TENANT);
+  const [company, setCompany] = useState<Company>(DEFAULT_CLEAN_COMPANY);
+  const [branches, setBranches] = useState<Branch[]>([DEFAULT_CLEAN_BRANCH]);
+  const [currentBranch, setCurrentBranch] = useState<Branch>(DEFAULT_CLEAN_BRANCH);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([DEFAULT_CLEAN_WAREHOUSE]);
+  const [currentWarehouse, setCurrentWarehouse] = useState<Warehouse>(DEFAULT_CLEAN_WAREHOUSE);
+  const [currentUser, setCurrentUser] = useState<User>(DEFAULT_CLEAN_USER);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
 
-  // Authentication, Memberships & Granular Permissions (supports ?autostart=1 for automated test workflows)
+  // Authentication, Single General Manager Default Membership, Brute-Force Lockout & Terminal Lock
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -1011,6 +1119,25 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     return false;
   });
+  const [isTerminalLocked, setIsTerminalLocked] = useState<boolean>(false);
+  const [idleTimeoutMinutes, setIdleTimeoutMinutesState] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = Number(localStorage.getItem('haseb_idle_timeout_min'));
+      if (Number.isFinite(saved) && saved >= 1 && saved <= 240) return saved;
+    }
+    return 15;
+  });
+  const setIdleTimeoutMinutes = (mins: number) => {
+    const safe = Math.max(1, Math.min(240, Math.round(mins || 15)));
+    setIdleTimeoutMinutesState(safe);
+    try {
+      localStorage.setItem('haseb_idle_timeout_min', String(safe));
+    } catch {
+      // ignore
+    }
+  };
+  const [failedLoginAttempts, setFailedLoginAttempts] = useState<number>(0);
+  const [loginLockoutUntilMs, setLoginLockoutUntilMs] = useState<number>(0);
   const [userAccounts, setUserAccounts] = useState<UserAccount[]>(INITIAL_USER_ACCOUNTS);
   const [currentAccount, setCurrentAccount] = useState<UserAccount>(() => {
     if (typeof window !== 'undefined') {
@@ -1020,31 +1147,99 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (found) return found;
       }
     }
-    return INITIAL_USER_ACCOUNTS.find((u) => u.username === 'admin') || INITIAL_USER_ACCOUNTS[0];
+    return INITIAL_USER_ACCOUNTS[0];
   });
 
-  // Multi-Hardware Licensing, 30-Day Trial & Source Code Anti-Theft Protection
-  const [trialBaseTimestamp] = useState<number>(() => Date.now());
-  const [simulatedTrialDaysElapsed, setSimulatedTrialDaysElapsed] = useState<number>(4); // Day 4 of 30 (26 days left by default)
+  // Strict Single-Device DRM Hardware Binding, Monotonic Clock Guard & Single-Use Serial Registry
+  const [trialBaseTimestamp, setTrialBaseTimestamp] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = Number(localStorage.getItem('haseb_drm_trial_start_ms_v1'));
+      if (Number.isFinite(saved) && saved > 1700000000000) return saved;
+      const now = Date.now();
+      try {
+        localStorage.setItem('haseb_drm_trial_start_ms_v1', String(now));
+      } catch {}
+      return now;
+    }
+    return Date.now();
+  });
+  const [simulatedTrialDaysElapsed, setSimulatedTrialDaysElapsed] = useState<number>(0);
   const [isSimulatedTrialExpired, setIsSimulatedTrialExpired] = useState<boolean>(false);
   const [isSimulatedForeignDevice, setIsSimulatedForeignDevice] = useState<boolean>(false);
   const [isSimulatedClockTampered, setIsSimulatedClockTampered] = useState<boolean>(false);
   const [simulatedTamperedComponent, setSimulatedTamperedComponent] = useState<
     'NONE' | 'MOTHERBOARD' | 'CPU' | 'GPU' | 'DISK_NVME' | 'SYSTEM_UUID'
   >('NONE');
-  const [lastObservedMaxClockMs, setLastObservedMaxClockMs] = useState<number>(() => Date.now());
+
   const [livePrimaryHardware, setLivePrimaryHardware] = useState<HardwareFingerprint>(() =>
     detectRealHardwareFingerprint()
   );
 
+  // Persisted Bound Hardware Baseline (detects hardware replacement or DB copy to another PC)
+  const [boundHardware, setBoundHardware] = useState<HardwareFingerprint>(() => {
+    const detected = detectRealHardwareFingerprint();
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('haseb_drm_bound_hw_v1');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.motherboardSerial && parsed?.cpuProcessorId && parsed?.systemUuid) {
+            return parsed;
+          }
+        }
+        localStorage.setItem('haseb_drm_bound_hw_v1', JSON.stringify(detected));
+      } catch {}
+    }
+    return detected;
+  });
+
+  // Persisted High-Water Monotonic Clock Guard (tamper-sealed)
+  const [lastObservedMaxClockMs, setLastObservedMaxClockMs] = useState<number>(() => {
+    const initialReq = generateMachineRequestCode(PRIMARY_DEVICE_HARDWARE);
+    const now = Date.now();
+    if (typeof window !== 'undefined') {
+      try {
+        const savedClock = Number(localStorage.getItem('haseb_drm_clock_hwm_v1'));
+        const savedTag = localStorage.getItem('haseb_drm_clock_tag_v1') || '';
+        if (
+          Number.isFinite(savedClock) &&
+          savedClock > 0 &&
+          verifyClockHighWaterIntegrityTag(savedClock, savedTag, initialReq)
+        ) {
+          return savedClock;
+        }
+        localStorage.setItem('haseb_drm_clock_hwm_v1', String(now));
+        localStorage.setItem(
+          'haseb_drm_clock_tag_v1',
+          computeClockHighWaterIntegrityTag(now, initialReq)
+        );
+      } catch {}
+    }
+    return now;
+  });
+
+  // Persisted Consumed Single-Use Activation Serials Registry
+  const [usedSerialTokens, setUsedSerialTokens] = useState<string[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('haseb_drm_used_serials_v1');
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {}
+    }
+    return [];
+  });
+
   const [activeLicenseSerial, setActiveLicenseSerial] = useState<string | null>(() => {
-    const initialHw = detectRealHardwareFingerprint();
-    const reqCode = generateMachineRequestCode(initialHw);
-    return generateActivationSerial(reqCode, '3_MONTHS', 90, Date.now());
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('haseb_drm_active_serial_v1');
+    }
+    return null;
   });
   const [antiTheftShieldEnabled, setAntiTheftShieldEnabled] = useState<boolean>(true);
   const [blockedInspectCount, setBlockedInspectCount] = useState<number>(0);
   const [lastSecurityAlert, setLastSecurityAlert] = useState<string | null>(null);
+  const keygenCounterRef = useRef<number>(0);
 
   const rescanLiveHardware = async (): Promise<HardwareFingerprint> => {
     setIsSimulatedForeignDevice(false);
@@ -1056,11 +1251,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (data?.hostHardware) {
           const detected = detectRealHardwareFingerprint(data.hostHardware);
           setLivePrimaryHardware(detected);
-          setActiveLicenseSerial((prev) => {
-            if (!prev) return prev;
-            const reqCode = generateMachineRequestCode(detected);
-            return generateActivationSerial(reqCode, '3_MONTHS', 90, Date.now());
-          });
+          setBoundHardware(detected);
+          try {
+            localStorage.setItem('haseb_drm_bound_hw_v1', JSON.stringify(detected));
+          } catch {}
           return detected;
         }
       }
@@ -1069,11 +1263,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     const clientDetected = detectRealHardwareFingerprint();
     setLivePrimaryHardware(clientDetected);
-    setActiveLicenseSerial((prev) => {
-      if (!prev) return prev;
-      const reqCode = generateMachineRequestCode(clientDetected);
-      return generateActivationSerial(reqCode, '3_MONTHS', 90, Date.now());
-    });
+    setBoundHardware(clientDetected);
+    try {
+      localStorage.setItem('haseb_drm_bound_hw_v1', JSON.stringify(clientDetected));
+    } catch {}
     return clientDetected;
   };
 
@@ -1091,18 +1284,78 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     refreshNetworkInfo().catch(() => {});
+    // Hydrate server DRM consumed serial tokens and monotonic server clock high-water mark
+    fetch('/api/v1/security/drm-status')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((drm) => {
+        if (!drm?.success) return;
+        if (Array.isArray(drm.usedSerialTokens) && drm.usedSerialTokens.length > 0) {
+          setUsedSerialTokens((prev) => {
+            const merged = Array.from(new Set([...prev, ...drm.usedSerialTokens]));
+            try {
+              localStorage.setItem('haseb_drm_used_serials_v1', JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
+        }
+        const serverMaxClock = Math.max(
+          Number(drm.maxObservedClockMs) || 0,
+          Number(drm.serverNowMs) || 0
+        );
+        if (serverMaxClock > 0) {
+          setLastObservedMaxClockMs((prev) => {
+            const next = Math.max(prev, serverMaxClock);
+            try {
+              const req = generateMachineRequestCode(boundHardware);
+              localStorage.setItem('haseb_drm_clock_hwm_v1', String(next));
+              localStorage.setItem(
+                'haseb_drm_clock_tag_v1',
+                computeClockHighWaterIntegrityTag(next, req)
+              );
+            } catch {}
+            return next;
+          });
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const [isLanPortalOpen, setIsLanPortalOpen] = useState<boolean>(false);
   const openLanPortal = () => setIsLanPortalOpen(true);
   const closeLanPortal = () => setIsLanPortalOpen(false);
 
-  // Update monotonic clock high-water mark when not simulating clock rollback
+  const [isShiftModalOpen, setIsShiftModalOpen] = useState<boolean>(false);
+  const openShiftModal = useCallback(() => setIsShiftModalOpen(true), []);
+  const closeShiftModal = useCallback(() => setIsShiftModalOpen(false), []);
+
   useEffect(() => {
-    if (!isSimulatedClockTampered) {
-      setLastObservedMaxClockMs((prev) => Math.max(prev, Date.now()));
-    }
-  }, [isSimulatedClockTampered]);
+    const handleLegacyOpenShift = () => setIsShiftModalOpen(true);
+    window.addEventListener('haseb-open-close-shift-modal', handleLegacyOpenShift);
+    return () => window.removeEventListener('haseb-open-close-shift-modal', handleLegacyOpenShift);
+  }, []);
+
+  // Update & persist monotonic clock high-water mark continuously (anti-rollback protection)
+  useEffect(() => {
+    const updateClockHwm = () => {
+      if (isSimulatedClockTampered) return;
+      const now = Date.now();
+      setLastObservedMaxClockMs((prev) => {
+        if (now <= prev) return prev;
+        try {
+          const req = generateMachineRequestCode(boundHardware);
+          localStorage.setItem('haseb_drm_clock_hwm_v1', String(now));
+          localStorage.setItem(
+            'haseb_drm_clock_tag_v1',
+            computeClockHighWaterIntegrityTag(now, req)
+          );
+        } catch {}
+        return now;
+      });
+    };
+    updateClockHwm();
+    const timer = setInterval(updateClockHwm, 30000);
+    return () => clearInterval(timer);
+  }, [isSimulatedClockTampered, boundHardware]);
 
   const importWindowsWmiSerials = (
     rawInputOrHw: string | HardwareFingerprint
@@ -1120,6 +1373,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         rawTelemetry: livePrimaryHardware.rawTelemetry,
       };
       setLivePrimaryHardware(enriched);
+      setBoundHardware(enriched);
+      try {
+        localStorage.setItem('haseb_drm_bound_hw_v1', JSON.stringify(enriched));
+      } catch {}
       return { success: true, hardware: enriched };
     } else {
       const customHw: HardwareFingerprint = {
@@ -1132,6 +1389,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         rawTelemetry: rawInputOrHw.rawTelemetry || livePrimaryHardware.rawTelemetry,
       };
       setLivePrimaryHardware(customHw);
+      setBoundHardware(customHw);
+      try {
+        localStorage.setItem('haseb_drm_bound_hw_v1', JSON.stringify(customHw));
+      } catch {}
       return { success: true, hardware: customHw };
     }
   };
@@ -1159,7 +1420,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const protectionState: SystemProtectionEvaluation = evaluateSystemProtectionState({
     hardware: hardwareFingerprint,
-    boundHardware: livePrimaryHardware,
+    boundHardware,
     trialStartedAtMs: effectiveTrialStartMs,
     trialTotalDays: 30,
     activeSerial: activeLicenseSerial,
@@ -1170,27 +1431,59 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const login = (usernameInput: string, passwordInput: string) => {
-    const cleanUser = usernameInput.trim().toLowerCase();
-    const found = userAccounts.find(
-      (acc) => acc.username.toLowerCase() === cleanUser && acc.password === passwordInput
-    );
-    if (!found) {
+    const nowMs = Date.now();
+    if (loginLockoutUntilMs > nowMs) {
+      const remSec = Math.max(1, Math.ceil((loginLockoutUntilMs - nowMs) / 1000));
       return {
         success: false,
-        errorAr: 'اسم المستخدم أو كلمة المرور غير صحيحة (البيانات الافتراضية: admin / admin)',
-        errorEn: 'Invalid username or password (Default credentials: admin / admin)',
+        errorAr: `تم تعليق محاولات الدخول مؤقتاً لأسباب أمنية. يرجى الانتظار ${remSec} ثانية.`,
+        errorEn: `Login temporarily locked for security. Please wait ${remSec} seconds.`,
+      };
+    }
+
+    const cleanUser = usernameInput.trim().toLowerCase();
+    const found = userAccounts.find(
+      (acc) =>
+        acc.username.toLowerCase() === cleanUser &&
+        verifyUserPassword(passwordInput, acc.password, acc.username)
+    );
+    if (!found) {
+      const lockoutEval = evaluateLoginAttemptLockout(failedLoginAttempts, loginLockoutUntilMs, nowMs);
+      setFailedLoginAttempts(lockoutEval.nextFailedCount);
+      setLoginLockoutUntilMs(lockoutEval.nextLockUntilMs);
+      if (lockoutEval.isLocked) {
+        return {
+          success: false,
+          errorAr: `تجاوزت الحد المسموح (5 محاولات فاشلة). تم قفل تسجيل الدخول لمدة ${lockoutEval.remainingSec} ثانية.`,
+          errorEn: `Exceeded maximum login attempts (5). Locked for ${lockoutEval.remainingSec} seconds.`,
+        };
+      }
+      const remainingTries = Math.max(1, 5 - lockoutEval.nextFailedCount);
+      return {
+        success: false,
+        errorAr: `بيانات الدخول غير صحيحة. المحاولات المتبقية قبل القفل المؤقت: ${remainingTries}`,
+        errorEn: `Invalid username or password. Remaining attempts: ${remainingTries}`,
       };
     }
     if (!found.isActive) {
       return {
         success: false,
-        errorAr: 'تم إيقاف هذه العضوية من قبل مدير النظام',
+        errorAr: 'تم إيقاف هذه العضوية من قبل المدير العام',
         errorEn: 'This user membership is currently suspended by the administrator',
       };
     }
 
+    setFailedLoginAttempts(0);
+    setLoginLockoutUntilMs(0);
+
+    // Upgrade legacy plaintext passwords cleanly to salted digest on first login
+    const securedPassword = found.password.startsWith('HSH-V1-')
+      ? found.password
+      : hashUserPassword(passwordInput, found.username);
+
     const updatedAccount: UserAccount = {
       ...found,
+      password: securedPassword,
       lastLoginAt: new Date().toISOString(),
     };
     setCurrentAccount(updatedAccount);
@@ -1211,16 +1504,13 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       permissions: updatedAccount.permissions,
     });
     setIsAuthenticated(true);
+    setIsTerminalLocked(false);
     try {
       sessionStorage.setItem('rlm_erp_auth_session', updatedAccount.username);
-      if (localStorage.getItem('asf_onboarding_completed') === 'false') {
-        setIsOnboardingOpen(true);
-      }
     } catch {
       // Ignore storage errors
     }
 
-    // Ensure current tab is allowed for this user
     if (
       updatedAccount.allowedModules.length > 0 &&
       !updatedAccount.allowedModules.includes(activeTab)
@@ -1233,12 +1523,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         id: `aud-${Date.now()}`,
         tenantId: currentTenant.id,
         userId: updatedAccount.id,
-        userName: updatedAccount.name,
+        userName: updatedAccount.nameAr || updatedAccount.name,
         action: 'USER_LOGIN_SUCCESS',
         module: 'SECURITY',
         entityType: 'UserAccount',
         entityId: updatedAccount.username,
-        details: `Authenticated user [${updatedAccount.username}] with role [${updatedAccount.role}] on Hardware Node [${protectionState.machineRequestCode}].`,
+        details: `Authenticated [${updatedAccount.username}] (${updatedAccount.role}) on Hardware Node [${protectionState.machineRequestCode}].`,
         timestamp: new Date().toISOString(),
       },
       ...prev,
@@ -1249,6 +1539,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const logout = () => {
     setIsAuthenticated(false);
+    setIsTerminalLocked(false);
     try {
       sessionStorage.removeItem('rlm_erp_auth_session');
     } catch {
@@ -1256,9 +1547,72 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const lockTerminal = () => {
+    if (isAuthenticated) {
+      setIsTerminalLocked(true);
+    }
+  };
+
+  const unlockTerminal = (passwordInput: string) => {
+    const valid = verifyUserPassword(passwordInput, currentAccount.password, currentAccount.username);
+    if (!valid) {
+      return {
+        success: false,
+        errorAr: 'كلمة المرور غير صحيحة لإلغاء قفل الشاشة',
+        errorEn: 'Incorrect password to unlock terminal',
+      };
+    }
+    setIsTerminalLocked(false);
+    return { success: true };
+  };
+
+  const switchUserAccount = (accountId: string) => {
+    const target = userAccounts.find((a) => a.id === accountId);
+    if (!target || !target.isActive) return;
+    setCurrentAccount(target);
+    setCurrentUser({
+      id: target.id,
+      tenantId: target.tenantId,
+      username: target.username,
+      email: target.email,
+      name: language === 'ar' ? target.nameAr : target.name,
+      nameAr: target.nameAr,
+      role: target.role,
+      branchId: target.branchId,
+      isActive: target.isActive,
+      allowedModules: target.allowedModules,
+      permissions: target.permissions,
+    });
+    if (target.allowedModules.length > 0 && !target.allowedModules.includes(activeTab)) {
+      setActiveTab(target.allowedModules[0]);
+    }
+    try {
+      sessionStorage.setItem('rlm_erp_auth_session', target.username);
+    } catch {}
+  };
+
+  const changeUserPassword = (accountId: string, newPassword: string) => {
+    const cleanPwd = (newPassword || '').trim();
+    if (cleanPwd.length < 4) {
+      return { success: false, errorAr: 'يجب أن لا تقل كلمة المرور الجديدة عن 4 أحرف.' };
+    }
+    const target = userAccounts.find((a) => a.id === accountId);
+    if (!target) return { success: false, errorAr: 'العضوية غير موجودة.' };
+    const hashed = hashUserPassword(cleanPwd, target.username);
+    setUserAccounts((prev) => prev.map((a) => (a.id === accountId ? { ...a, password: hashed } : a)));
+    if (currentAccount.id === accountId) {
+      setCurrentAccount((prev) => ({ ...prev, password: hashed }));
+    }
+    return { success: true };
+  };
+
   const addUserAccount = (acc: Omit<UserAccount, 'id' | 'tenantId'>) => {
+    const securedPassword = acc.password.startsWith('HSH-V1-')
+      ? acc.password
+      : hashUserPassword(acc.password, acc.username);
     const newAcc: UserAccount = {
       ...acc,
+      password: securedPassword,
       id: `usr-${Date.now()}`,
       tenantId: currentTenant.id,
     };
@@ -1305,7 +1659,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return true;
     }
     if (moduleId === 'masterAdmin') {
-      return false;
+      return currentAccount.role === 'SUPER_ADMIN';
     }
     if (!isModuleVisibleUnderMasterConfig(moduleId, masterSystemConfig, false)) {
       return false;
@@ -1458,6 +1812,13 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const activateSystemWithSerial = (serial: string): SerialVerificationResult => {
     const cleanInput = serial.trim();
 
+    if (protectionState.status === 'CLOCK_TAMPERED') {
+      return {
+        valid: false,
+        reason: 'EXPIRED',
+      };
+    }
+
     // Check if input is an ASF V2 Base64 Signed Token
     if (cleanInput.startsWith('{') || cleanInput.length > 80) {
       try {
@@ -1466,39 +1827,85 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           : atob(cleanInput);
         const parsedToken = JSON.parse(rawJson);
         if (parsedToken && parsedToken.version === '2.0' && parsedToken.signature) {
+          const v2ConsumeToken = `SER-V2-${parsedToken.claims?.licenseUuid || parsedToken.signature.slice(0, 12)}`;
+          if (usedSerialTokens.includes(v2ConsumeToken)) {
+            return {
+              valid: false,
+              reason: 'ALREADY_USED_ONCE',
+              boundDeviceToken: parsedToken.boundDeviceFingerprintHash?.slice(0, 8),
+            };
+          }
+          const nextTokens = [...usedSerialTokens, v2ConsumeToken];
+          setUsedSerialTokens(nextTokens);
+          const serialLabel = `ASF-V2-${parsedToken.claims.edition}-${parsedToken.claims.licenseUuid.slice(0, 8).toUpperCase()}`;
           localStorage.setItem('asf_v2_signed_token', btoa(JSON.stringify(parsedToken)));
-          setActiveLicenseSerial(`ASF-V2-${parsedToken.claims.edition}-${parsedToken.claims.licenseUuid.slice(0, 8).toUpperCase()}`);
+          localStorage.setItem('haseb_drm_used_serials_v1', JSON.stringify(nextTokens));
+          localStorage.setItem('haseb_drm_active_serial_v1', serialLabel);
+          setActiveLicenseSerial(serialLabel);
           setIsSimulatedTrialExpired(false);
+          fetch('/api/v1/security/consume-serial', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              consumptionToken: v2ConsumeToken,
+              requestCode: protectionState.machineRequestCode,
+              clientClockMs: Date.now(),
+            }),
+          }).catch(() => {});
           return {
             valid: true,
+            consumptionToken: v2ConsumeToken,
             durationDays: parsedToken.claims.isLifetime ? 36500 : 365,
-            durationLabelAr: parsedToken.claims.isLifetime ? 'ترخيص رسمي دائم (V2)' : 'ترخيص مؤسسي معتمد (V2)',
-            durationLabelEn: 'ASF Secure Enterprise License V2',
+            durationLabelAr: parsedToken.claims.isLifetime ? 'ترخيص رسمي دائم (V2) — استخدام وحيد' : 'ترخيص مؤسسي معتمد (V2) — استخدام وحيد',
+            durationLabelEn: 'ASF Secure Enterprise License V2 (Single-Use)',
             remainingDays: 365,
             isLifetime: parsedToken.claims.isLifetime,
             boundDeviceToken: parsedToken.boundDeviceFingerprintHash.slice(0, 8),
           };
         }
       } catch {
-        // Fall through to standard V1/V2 serial verification
+        // Fall through to standard serial verification
       }
     }
 
-    const result = verifyActivationSerial(serial, protectionState.machineRequestCode, Date.now());
-    if (result.valid) {
-      setActiveLicenseSerial(serial.trim().toUpperCase());
+    const result = verifyOneTimeSerialActivation({
+      serial,
+      currentRequestCode: protectionState.machineRequestCode,
+      usedSerialTokens,
+      nowMs: Date.now(),
+    });
+    if (result.valid && result.consumptionToken) {
+      const normalizedSerial = serial.trim().toUpperCase();
+      const nextTokens = Array.from(new Set([...usedSerialTokens, result.consumptionToken]));
+      setUsedSerialTokens(nextTokens);
+      setActiveLicenseSerial(normalizedSerial);
       setIsSimulatedTrialExpired(false);
+      setBoundHardware(hardwareFingerprint);
+      try {
+        localStorage.setItem('haseb_drm_used_serials_v1', JSON.stringify(nextTokens));
+        localStorage.setItem('haseb_drm_active_serial_v1', normalizedSerial);
+        localStorage.setItem('haseb_drm_bound_hw_v1', JSON.stringify(hardwareFingerprint));
+      } catch {}
+      fetch('/api/v1/security/consume-serial', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          consumptionToken: result.consumptionToken,
+          requestCode: protectionState.machineRequestCode,
+          clientClockMs: Date.now(),
+        }),
+      }).catch(() => {});
       setAuditLogs((prev) => [
         {
           id: `aud-${Date.now()}`,
           tenantId: currentTenant.id,
           userId: currentUser.id,
           userName: currentUser.name,
-          action: 'HARDWARE_LICENSE_ACTIVATED',
+          action: 'ONE_TIME_HARDWARE_LICENSE_ACTIVATED',
           module: 'SECURITY',
           entityType: 'LicenseSerial',
           entityId: result.boundDeviceToken || 'NODE',
-          details: `Activated single-device hardware license (${result.durationLabelEn}) bound to Request Code [${protectionState.machineRequestCode}].`,
+          details: `Consumed single-use hardware license (${result.durationLabelEn}) bound exclusively to [${protectionState.machineRequestCode}].`,
           timestamp: new Date().toISOString(),
         },
         ...prev,
@@ -1509,6 +1916,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const clearActiveLicense = () => {
     setActiveLicenseSerial(null);
+    try {
+      localStorage.removeItem('haseb_drm_active_serial_v1');
+    } catch {}
   };
 
   const generateDeveloperActivationKey = (
@@ -1517,7 +1927,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     customDays = 30
   ) => {
     try {
-      const serial = generateActivationSerial(requestCode, preset, customDays, Date.now());
+      // Subtract unique counter minutes so multiple keys generated within the same minute are cryptographically distinct
+      keygenCounterRef.current += 1;
+      const offsetMs = (keygenCounterRef.current - 1) * 60000;
+      const serial = generateActivationSerial(requestCode, preset, customDays, Date.now() - offsetMs);
       return { success: true, serial };
     } catch (e: any) {
       return {
@@ -1539,352 +1952,32 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, 4000);
   };
 
-  // Inventory & Barcode
+  // Inventory & Barcode (Clean Initial State)
   const [categories, setCategories] = useState<Category[]>(SEED_CATEGORIES);
-  const [products, setProducts] = useState<Product[]>(SEED_PRODUCTS);
-  const [barcodes, setBarcodes] = useState<BarcodeItem[]>(SEED_BARCODES);
-  const [traceabilityEvents, setTraceabilityEvents] = useState<TraceabilityEvent[]>(SEED_TRACEABILITY);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [barcodes, setBarcodes] = useState<BarcodeItem[]>([]);
+  const [traceabilityEvents, setTraceabilityEvents] = useState<TraceabilityEvent[]>([]);
 
   // Purchasing & Suppliers
-  const [suppliers, setSuppliers] = useState<Supplier[]>(SEED_SUPPLIERS);
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(SEED_PURCHASE_ORDERS);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
 
   // Sales, Commercial Pipeline, Returns, Warranty & POS
-  const [customers, setCustomers] = useState<Customer[]>(SEED_CUSTOMERS);
-  const [salesInvoices, setSalesInvoices] = useState<SalesInvoice[]>(SEED_SALES_INVOICES);
-  const [salesReturns, setSalesReturns] = useState<SalesReturnDoc[]>([
-    {
-      id: 'ret-101',
-      tenantId: 'ten-1',
-      creditNoteNumber: 'CN-2026-1001',
-      originalInvoiceId: 'inv-1',
-      originalInvoiceNumber: 'INV-2026-1001',
-      customerId: 'cust-1',
-      customerName: 'شركة البناء الحديث للمقاولات العامة',
-      productId: 'prd-sol-pnl-585',
-      productName: 'لوح طاقة شمسية مونو كريستال وجهين Jinko Tiger Neo 585W N-Type',
-      sku: 'SOL-PNL-585W',
-      serialNumber: 'SN-JNK-2026-00912',
-      quantity: 2,
-      unitPrice: 485,
-      unitCost: 365,
-      subtotal: 970,
-      taxAmount: 145.5,
-      totalRefund: 1115.5,
-      condition: 'HEALTHY_RESTOCK',
-      refundMethod: 'CREDIT_BALANCE',
-      reason: 'فائض كمية ألواح بعد انتهاء تركيب المشروع - الألواح بحالة المصنع السليمة',
-      withinWarranty: true,
-      date: '2026-10-30',
-      journalEntryNumber: 'JE-RET-2026-1001',
-      approvedBy: 'م. طارق المنصور',
-    },
-  ]);
-
-  const [warrantyTickets, setWarrantyTickets] = useState<WarrantyMaintenanceTicket[]>([
-    {
-      id: 'rma-401',
-      tenantId: 'ten-1',
-      ticketNumber: 'RMA-2026-401',
-      serialNumber: 'SN-DEYE-8K-2026-8812',
-      productId: 'prd-sol-inv-8k',
-      productName: 'إنفرتر طاقة شمسية هجين ذكي Deye 8kW Hybrid 48V Dual MPPT',
-      sku: 'SOL-INV-DEYE8K',
-      customerName: 'شركة البناء الحديث للمقاولات العامة',
-      customerPhone: '+966 50 412 8890',
-      purchaseDate: '2026-03-15',
-      warrantyMonths: 60,
-      warrantyExpiryDate: '2031-03-15',
-      isUnderWarranty: true,
-      faultDescription: 'انخفاض قراءة تيار MPPT الثاني عند درجة حرارة فوق 48 مئوية',
-      technicianReport: 'تم تحديث Firmware لوحة التحكم ومعايرة حساسات MPPT تحت الضمان مجاناً',
-      sparePartsUsed: 'حساس حرارة داخلي أصلي Deye NTC + تحديث نظام',
-      sparePartsCost: 0,
-      laborFee: 0,
-      totalCustomerCharge: 0,
-      status: 'IN_REPAIR',
-      receivedAt: '2026-10-31',
-      expectedDeliveryDate: '2026-11-04',
-    },
-    {
-      id: 'rma-402',
-      tenantId: 'ten-1',
-      ticketNumber: 'RMA-2026-402',
-      serialNumber: 'SN-FLC-48V200-7741',
-      productId: 'prd-bat-li-200',
-      productName: 'بطارية ليثيوم فوسفات الحديد Felicity LiFePO4 48V 200Ah (10.24kWh)',
-      sku: 'BAT-LI-48V200',
-      customerName: 'مؤسسة الخدمات البتروكيماوية المتقدمة',
-      customerPhone: '+966 55 890 1122',
-      purchaseDate: '2026-05-10',
-      warrantyMonths: 60,
-      warrantyExpiryDate: '2031-05-10',
-      isUnderWarranty: true,
-      faultDescription: 'عدم تزامن بروتوكول CAN-Bus مع الإنفرتر الهجين بعد تغيير الكابل',
-      technicianReport: 'تم ضبط إعدادات DIP Switch واستبدال كابل الاتصال BMS CAN مجاناً ضمن الضمان',
-      sparePartsUsed: 'كابل اتصال CAN-Bus RJ45 مدرع',
-      sparePartsCost: 0,
-      laborFee: 0,
-      totalCustomerCharge: 0,
-      status: 'READY',
-      receivedAt: '2026-10-29',
-      expectedDeliveryDate: '2026-11-02',
-    },
-    {
-      id: 'rma-403',
-      tenantId: 'ten-1',
-      ticketNumber: 'RMA-2026-403',
-      serialNumber: 'SN-SAM-QLED65-1109',
-      productId: 'prd-scr-qled-65',
-      productName: 'شاشة ذكية سامسونج 65 بوصة 4K QLED Smart TV 120Hz',
-      sku: 'SCR-QLED-65',
-      customerName: 'عميل معرض التجزئة - الرياض',
-      customerPhone: '+966 54 221 9080',
-      purchaseDate: '2023-08-01',
-      warrantyMonths: 24,
-      warrantyExpiryDate: '2025-08-01',
-      isUnderWarranty: false,
-      faultDescription: 'تلف بردة التغذية الكهربائية بسبب تذبذب تيار مولد خارجي (خارج الضمان)',
-      technicianReport: 'استبدال Power Supply Board أصلية مع تركيب منظم جهد',
-      sparePartsUsed: 'لوحة تغذية Samsung BN44-01101A الأصلية',
-      sparePartsCost: 380,
-      laborFee: 150,
-      totalCustomerCharge: 530,
-      status: 'DIAGNOSING',
-      receivedAt: '2026-11-01',
-      expectedDeliveryDate: '2026-11-05',
-    },
-  ]);
-  const [salesPipelineDocs, setSalesPipelineDocs] = useState<SalesPipelineDoc[]>([
-    {
-      id: 'pipe-201',
-      tenantId: 'ten-1',
-      branchId: 'br-1',
-      warehouseId: 'wh-1',
-      quoteNumber: 'QT-2026-1041',
-      customerId: 'cust-1',
-      customerName: 'شركة المدار للمقاولات والتطوير',
-      date: '2026-11-01',
-      validUntil: '2026-11-20',
-      items: [
-        {
-          productId: 'prd-1',
-          productName: 'مضخة هيدروليكية صناعية 50 حصان',
-          sku: 'IND-PUMP-500',
-          quantity: 2,
-          unitPrice: 6500,
-          discount: 0,
-          taxRate: 0,
-          taxAmount: 0,
-          total: 13000,
-        },
-      ],
-      subtotal: 13000,
-      discountAmount: 0,
-      taxAmount: 0,
-      grandTotal: 13000,
-      paymentMethod: 'CREDIT',
-      stage: 'QUOTATION',
-      stockReserved: false,
-      stockDeducted: false,
-      notes: 'عرض سعر توريد مضخات هيدروليكية لمشروع البنية التحتية - شامل الضمان 24 شهراً',
-    },
-    {
-      id: 'pipe-202',
-      tenantId: 'ten-1',
-      branchId: 'br-1',
-      warehouseId: 'wh-1',
-      quoteNumber: 'QT-2026-1038',
-      salesOrderNumber: 'SO-2026-4410',
-      customerId: 'cust-2',
-      customerName: 'مؤسسة النخبة للتجارة والإلكترونيات',
-      date: '2026-10-29',
-      validUntil: '2026-11-15',
-      items: [
-        {
-          productId: 'prd-2',
-          productName: 'حساس ليزر صناعي ذكي لقياس المسافات',
-          sku: 'SEN-LSR-200',
-          quantity: 10,
-          unitPrice: 1200,
-          discount: 0,
-          taxRate: 0,
-          taxAmount: 0,
-          total: 12000,
-        },
-      ],
-      subtotal: 12000,
-      discountAmount: 0,
-      taxAmount: 0,
-      grandTotal: 12000,
-      paymentMethod: 'CARD',
-      stage: 'SALES_ORDER',
-      stockReserved: true,
-      stockDeducted: false,
-      notes: 'أمر بيع مؤكد (تم حجز الرصيد المخزني بانتظار إصدار إشعار التسليم DN)',
-    },
-    {
-      id: 'pipe-203',
-      tenantId: 'ten-1',
-      branchId: 'br-1',
-      warehouseId: 'wh-1',
-      quoteNumber: 'QT-2026-1032',
-      salesOrderNumber: 'SO-2026-4395',
-      deliveryNoteNumber: 'DN-2026-8812',
-      cogsJournalNumber: 'JE-DN-2026-8812',
-      customerId: 'cust-1',
-      customerName: 'شركة المدار للمقاولات والتطوير',
-      date: '2026-10-27',
-      validUntil: '2026-11-10',
-      items: [
-        {
-          productId: 'prd-3',
-          productName: 'خوذة أمان هندسية مقواة بألياف الكربون',
-          sku: 'SAF-HLM-90',
-          quantity: 20,
-          unitPrice: 250,
-          discount: 0,
-          taxRate: 0,
-          taxAmount: 0,
-          total: 5000,
-        },
-      ],
-      subtotal: 5000,
-      discountAmount: 0,
-      taxAmount: 0,
-      grandTotal: 5000,
-      paymentMethod: 'CREDIT',
-      stage: 'DELIVERY_NOTE',
-      stockReserved: true,
-      stockDeducted: true,
-      notes: 'تم تسليم البضاعة من المستودع الرئيسي وبانتظار إصدار فاتورة المبيعات المعتمدة',
-    },
-  ]);
-  const [currentShift, setCurrentShift] = useState<POSShift>(SEED_POS_SHIFTS[0]);
-  const [posCart, setPosCart] = useState<InvoiceItem[]>([
-    {
-      productId: 'prd-sol-pnl-585',
-      sku: 'SOL-PNL-585W',
-      productName: 'لوح طاقة شمسية مونو كريستال Jinko Tiger Neo',
-      quantity: 1,
-      unitPrice: 485,
-      discount: 0,
-      taxRate: 0,
-      taxAmount: 0,
-      total: 485,
-      serialNumber: 'IMEI-ALN-2611-001F85',
-      warrantyMonths: 144,
-    },
-  ]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [salesInvoices, setSalesInvoices] = useState<SalesInvoice[]>([]);
+  const [salesReturns, setSalesReturns] = useState<SalesReturnDoc[]>([]);
+  const [warrantyTickets, setWarrantyTickets] = useState<WarrantyMaintenanceTicket[]>([]);
+  const [salesPipelineDocs, setSalesPipelineDocs] = useState<SalesPipelineDoc[]>([]);
+  const [currentShift, setCurrentShift] = useState<POSShift>(DEFAULT_CLEAN_SHIFT);
+  const [posCart, setPosCart] = useState<InvoiceItem[]>([]);
   const [holdBills, setHoldBills] = useState<POSHoldBill[]>([]);
-  const [kitchenTickets, setKitchenTickets] = useState<KitchenOrderTicket[]>([
-    {
-      id: 'kot-init-1',
-      kotNumber: 'KOT-101',
-      tableNumber: 'T-04',
-      orderType: 'DINE_IN',
-      items: [
-        { name: 'وجبة برجر بلاك أنجوس دبل مشوي', qty: 2, notes: 'بدون بصل - زيادة جبن شيدر' },
-        { name: 'قهوة مختصة مقطرة V60 إثيوبي', qty: 2 },
-      ],
-      status: 'PREPARING',
-      createdAt: '12:40 PM',
-    },
-  ]);
+  const [kitchenTickets, setKitchenTickets] = useState<KitchenOrderTicket[]>([]);
 
   // Accounting, Bank Reconciliation, PDC & Multi-Currency
   const [chartAccounts, setChartAccounts] = useState<ChartAccount[]>(SEED_CHART_OF_ACCOUNTS);
-  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>(SEED_JOURNAL_ENTRIES);
-  const [bankStatementLines, setBankStatementLines] = useState<BankStatementLine[]>([
-    {
-      id: 'bs-101',
-      tenantId: 'ten-1',
-      date: '2026-10-25',
-      reference: 'KUR-POS-8821',
-      description: 'Kuraimi M-Floos & POS Batch Settlement',
-      descriptionAr: 'تسوية مبيعات نقاط البيع (خدمة حاسب / ام فلوس) - بنك الكريمي للتمويل الأصغر الإسلامي',
-      amount: 42500,
-      status: 'MATCHED',
-      matchedJournalEntryId: 'je-1',
-    },
-    {
-      id: 'bs-102',
-      tenantId: 'ten-1',
-      date: '2026-10-27',
-      reference: 'WIRE-SUP-409',
-      description: 'Supplier Wire Transfer - Tadhamon Islamic Bank',
-      descriptionAr: 'حوالة بنكية صادرة لسداد دفعة الموردين - بنك التضامن الإسلامي الدولي',
-      amount: -18200,
-      status: 'MATCHED',
-      matchedJournalEntryId: 'je-2',
-    },
-    {
-      id: 'bs-103',
-      tenantId: 'ten-1',
-      date: '2026-10-29',
-      reference: 'BNK-FEE-10',
-      description: 'Corporate Account Maintenance & Transfer Fee - YKB',
-      descriptionAr: 'رسوم وعمولات خدمات مصرفية وتحويلات بنكية - بنك اليمن والكويت (غير مسجلة بالدفاتر)',
-      amount: -345,
-      status: 'UNRECONCILED',
-    },
-    {
-      id: 'bs-104',
-      tenantId: 'ten-1',
-      date: '2026-10-30',
-      reference: 'DEP-CUST-772',
-      description: 'Direct Customer Deposit - Al-Kuraimi Islamic Bank',
-      descriptionAr: 'إيداع بنكي مباشر من عميل عبر بنك الكريمي الإسلامي (بانتظار المطابقة)',
-      amount: 12800,
-      status: 'UNRECONCILED',
-    },
-  ]);
-
-  const [postDatedChecks, setPostDatedChecks] = useState<PostDatedCheck[]>([
-    {
-      id: 'pdc-201',
-      tenantId: 'ten-1',
-      checkNumber: 'CHK-994021',
-      type: 'RECEIVABLE',
-      partyName: 'شركة المدار للمقاولات والتطوير',
-      bankName: 'بنك الكريمي للتمويل الأصغر الإسلامي',
-      amount: 28500,
-      currency: 'YER',
-      issueDate: '2026-10-10',
-      maturityDate: '2026-11-05',
-      status: 'UNDER_COLLECTION',
-      notes: 'دفعة مستخلص مشروع التوريد والطاقة الشمسية',
-    },
-    {
-      id: 'pdc-202',
-      tenantId: 'ten-1',
-      checkNumber: 'CHK-771209',
-      type: 'PAYABLE',
-      partyName: 'الشركة الوطنية للتوريدات الصناعية',
-      bankName: 'بنك التضامن الإسلامي الدولي',
-      amount: 16400,
-      currency: 'YER',
-      issueDate: '2026-10-15',
-      maturityDate: '2026-11-12',
-      status: 'UNDER_COLLECTION',
-      notes: 'سداد آجل لأمر شراء PO-2026-102',
-    },
-    {
-      id: 'pdc-203',
-      tenantId: 'ten-1',
-      checkNumber: 'CHK-552190',
-      type: 'RECEIVABLE',
-      partyName: 'مؤسسة النخبة للتجارة والإلكترونيات',
-      bankName: 'بنك اليمن والكويت للتجارة والاستثمار',
-      amount: 14200,
-      currency: 'YER',
-      issueDate: '2026-09-20',
-      maturityDate: '2026-10-20',
-      status: 'CLEARED',
-      journalEntryId: 'je-1',
-      notes: 'تم التحصيل والإيداع في الحساب الجاري',
-    },
-  ]);
+  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
+  const [bankStatementLines, setBankStatementLines] = useState<BankStatementLine[]>([]);
+  const [postDatedChecks, setPostDatedChecks] = useState<PostDatedCheck[]>([]);
 
   const [exchangeRates, setExchangeRates] = useState<CurrencyExchangeRate[]>([
     {
@@ -1894,8 +1987,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       symbol: 'ر.ي',
       rateToSAR: 0.007,
       previousRateToSAR: 0.007,
-      foreignMonetaryBalance: 2500000,
-      lastUpdated: '2026-11-01',
+      foreignMonetaryBalance: 0,
+      lastUpdated: new Date().toISOString().slice(0, 10),
     },
     {
       currency: 'SAR',
@@ -1905,7 +1998,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       rateToSAR: 1.0,
       previousRateToSAR: 1.0,
       foreignMonetaryBalance: 0,
-      lastUpdated: '2026-11-01',
+      lastUpdated: new Date().toISOString().slice(0, 10),
     },
     {
       currency: 'USD',
@@ -1914,8 +2007,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       symbol: '$',
       rateToSAR: 3.76,
       previousRateToSAR: 3.75,
-      foreignMonetaryBalance: 45000,
-      lastUpdated: '2026-11-01',
+      foreignMonetaryBalance: 0,
+      lastUpdated: new Date().toISOString().slice(0, 10),
     },
     {
       currency: 'EUR',
@@ -1924,8 +2017,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       symbol: '€',
       rateToSAR: 4.11,
       previousRateToSAR: 4.06,
-      foreignMonetaryBalance: 18000,
-      lastUpdated: '2026-11-01',
+      foreignMonetaryBalance: 0,
+      lastUpdated: new Date().toISOString().slice(0, 10),
     },
     {
       currency: 'AED',
@@ -1934,8 +2027,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       symbol: 'د.إ',
       rateToSAR: 1.021,
       previousRateToSAR: 1.02,
-      foreignMonetaryBalance: 60000,
-      lastUpdated: '2026-11-01',
+      foreignMonetaryBalance: 0,
+      lastUpdated: new Date().toISOString().slice(0, 10),
     },
     {
       currency: 'EGP',
@@ -1944,89 +2037,24 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       symbol: 'ج.م',
       rateToSAR: 0.077,
       previousRateToSAR: 0.079,
-      foreignMonetaryBalance: 150000,
-      lastUpdated: '2026-11-01',
+      foreignMonetaryBalance: 0,
+      lastUpdated: new Date().toISOString().slice(0, 10),
     },
   ]);
 
-  const [costCenterBudgets, setCostCenterBudgets] = useState<CostCenterBudget[]>([
-    {
-      id: 'ccb-101',
-      tenantId: 'ten-1',
-      costCenterId: 'cc-1',
-      costCenterCode: 'CC-OPS-RYD',
-      costCenterName: 'Sanaa HQ Operations & Logistics',
-      costCenterNameAr: 'مركز تكلفة العمليات والتشغيل - المقر الرئيسي بصنعاء',
-      branchId: 'br-1',
-      branchNameAr: 'المركز الرئيسي - صنعاء',
-      fiscalPeriod: '2026-Q4',
-      allocatedBudget: 180000,
-      committedAmount: 24000,
-      baseActualSpent: 118000,
-      alertThresholdPercent: 85,
-      notes: 'يشمل مصاريف التشغيل اللوجستي والمستودع المركزي بصنعاء',
-    },
-    {
-      id: 'ccb-102',
-      tenantId: 'ten-1',
-      costCenterId: 'cc-2',
-      costCenterCode: 'CC-SALES-JED',
-      costCenterName: 'Aden Commercial & Showrooms',
-      costCenterNameAr: 'مركز تكلفة المبيعات والمعارض - فرع عدن التجاري',
-      branchId: 'br-2',
-      branchNameAr: 'فرع عدن التجاري',
-      fiscalPeriod: '2026-Q4',
-      allocatedBudget: 120000,
-      committedAmount: 18500,
-      baseActualSpent: 91000,
-      alertThresholdPercent: 85,
-      notes: 'تنبيه: اقترب الإنفاق الفعلي والالتزامات من سقف الموازنة الربع سنوية (91.3%)',
-    },
-    {
-      id: 'ccb-103',
-      tenantId: 'ten-1',
-      costCenterId: 'cc-3',
-      costCenterCode: 'CC-MFG-DMM',
-      costCenterName: 'Taiz Solar & Industrial Assembly Line',
-      costCenterNameAr: 'مركز تكلفة خطوط التجميع والصيانة الهندسية - فرع تعز',
-      branchId: 'br-3',
-      branchNameAr: 'فرع تعز الصناعي',
-      fiscalPeriod: '2026-Q4',
-      allocatedBudget: 95000,
-      committedAmount: 14000,
-      baseActualSpent: 86500,
-      alertThresholdPercent: 85,
-      notes: 'تجاوز السقف المعتمد بسبب صيانة طارئة لمنظومات الطاقة والبطاريات (105.8%)',
-    },
-    {
-      id: 'ccb-104',
-      tenantId: 'ten-1',
-      costCenterId: 'cc-4',
-      costCenterCode: 'CC-IT-CLOUD',
-      costCenterName: 'Digital Infrastructure & Cloud ERP',
-      costCenterNameAr: 'مركز تكلفة البنية الرقمية والربط المصرفي (الكريمي / التضامن)',
-      branchId: 'br-1',
-      branchNameAr: 'المركز الرئيسي - صنعاء',
-      fiscalPeriod: '2026-Q4',
-      allocatedBudget: 65000,
-      committedAmount: 5000,
-      baseActualSpent: 32000,
-      alertThresholdPercent: 85,
-      notes: 'تراخيص الخوادم والربط المباشر مع بوابات البنوك اليمنية',
-    },
-  ]);
+  const [costCenterBudgets, setCostCenterBudgets] = useState<CostCenterBudget[]>([]);
 
   // Business Modules
-  const [employees, setEmployees] = useState<Employee[]>(SEED_EMPLOYEES);
-  const [fixedAssets, setFixedAssets] = useState<FixedAsset[]>(SEED_FIXED_ASSETS);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [fixedAssets, setFixedAssets] = useState<FixedAsset[]>([]);
   const [boms] = useState<BillOfMaterials[]>(SEED_BOMS);
-  const [productionOrders, setProductionOrders] = useState<ProductionOrder[]>(SEED_PRODUCTION_ORDERS);
-  const [projects, setProjects] = useState<Project[]>(SEED_PROJECTS);
-  const [fleetVehicles, setFleetVehicles] = useState<FleetVehicle[]>(SEED_FLEET);
-  const [qualityInspections, setQualityInspections] = useState<QualityInspection[]>(SEED_QUALITY);
-  const [crmLeads, setCrmLeads] = useState<CRMLead[]>(SEED_CRM_LEADS);
-  const [ecommerceOrders, setEcommerceOrders] = useState<EcommerceOrder[]>(SEED_ECOMMERCE_ORDERS);
-  const [workflowApprovals, setWorkflowApprovals] = useState<WorkflowApproval[]>(SEED_WORKFLOW_APPROVALS);
+  const [productionOrders, setProductionOrders] = useState<ProductionOrder[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [fleetVehicles, setFleetVehicles] = useState<FleetVehicle[]>([]);
+  const [qualityInspections, setQualityInspections] = useState<QualityInspection[]>([]);
+  const [crmLeads, setCrmLeads] = useState<CRMLead[]>([]);
+  const [ecommerceOrders, setEcommerceOrders] = useState<EcommerceOrder[]>([]);
+  const [workflowApprovals, setWorkflowApprovals] = useState<WorkflowApproval[]>([]);
 
   // AI Copilot
   const [aiMessages, setAiMessages] = useState<AIChatMessage[]>([
@@ -2034,8 +2062,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: 'ai-init',
       sender: 'assistant',
       text: language === 'ar'
-        ? 'مرحباً بك في مساعد RLM ERP الذكي! أنا متصل مباشرة بقاعدة بياناتك المؤسسية وخادم التحليل الذكي. يمكنك سؤالي عن: مؤشرات المبيعات، أصناف المخزون التي تحتاج إعادة طلب، تحليل القيود المحاسبية، أو طلب تلخيص مالي.'
-        : 'Welcome to RLM ERP AI Copilot! I am directly integrated with your enterprise database and AI server. Ask me about sales velocity, stock replenishment forecasting, journal entries, or financial summaries.',
+        ? 'مرحباً بك في مساعد نظام حاسب الذكي! يمكنك سؤالي عن مؤشرات المبيعات، أصناف المخزون، أو تحليل القيود المحاسبية.'
+        : 'Welcome to Haseb ERP AI Copilot! Ask me about sales velocity, stock replenishment, or financial summaries.',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     },
   ]);
@@ -2367,6 +2395,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setInvoiceTemplateSettings((prev) => ({ ...prev, ...patch }));
   };
 
+  const resetInvoiceTemplateSettings = () => {
+    setInvoiceTemplateSettings(DEFAULT_TEMPLATE_SETTINGS);
+  };
+
   const updateCompanyProfile = (patch: Partial<Company>) => {
     setCompany((prev) => ({ ...prev, ...patch }));
   };
@@ -2582,13 +2614,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Helper to hydrate all persisted state slices consistently
   const applyHydratedState = (d: Record<string, any>) => {
-    const hasSolarItems =
-      Array.isArray(d.products) &&
-      d.products.some((p: Product) => p.sku === 'SOL-PNL-585W');
-    if (hasSolarItems && d.products.length >= SEED_PRODUCTS.length) {
+    if (Array.isArray(d.products)) {
       setProducts(d.products);
     }
-    if (Array.isArray(d.barcodes) && d.barcodes.length > 0) setBarcodes(d.barcodes);
+    if (Array.isArray(d.barcodes)) setBarcodes(d.barcodes);
     if (Array.isArray(d.traceabilityEvents)) setTraceabilityEvents(d.traceabilityEvents);
     if (Array.isArray(d.suppliers)) setSuppliers(d.suppliers);
     if (Array.isArray(d.purchaseOrders)) setPurchaseOrders(d.purchaseOrders);
@@ -2723,11 +2752,14 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
       });
     }
-    if (Array.isArray(d.promoCoupons) && d.promoCoupons.length > 0) {
+    if (Array.isArray(d.promoCoupons)) {
       setPromoCoupons(d.promoCoupons);
     }
-    if (Array.isArray(d.promotionalOffers) && d.promotionalOffers.length > 0) {
+    if (Array.isArray(d.promotionalOffers)) {
       setPromotionalOffers(d.promotionalOffers);
+    }
+    if (Array.isArray(d.usedSerialTokens) && d.usedSerialTokens.length > 0) {
+      setUsedSerialTokens((prev) => Array.from(new Set([...prev, ...d.usedSerialTokens])));
     }
     if (typeof d.activeLicenseSerial === 'string' && d.activeLicenseSerial.trim()) {
       const check = verifyActivationSerial(
@@ -2737,19 +2769,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       );
       if (check.valid) {
         setActiveLicenseSerial(d.activeLicenseSerial);
-      } else if (!d.isSimulatedTrialExpired) {
-        setActiveLicenseSerial(
-          generateActivationSerial(protectionState.machineRequestCode, '3_MONTHS', 90, Date.now())
-        );
       } else {
         setActiveLicenseSerial(null);
       }
-    } else if (!d.isSimulatedTrialExpired) {
-      setActiveLicenseSerial(
-        generateActivationSerial(protectionState.machineRequestCode, '3_MONTHS', 90, Date.now())
-      );
-    } else {
-      setActiveLicenseSerial(null);
     }
     if (typeof d.isSimulatedTrialExpired === 'boolean') {
       setIsSimulatedTrialExpired(d.isSimulatedTrialExpired);
@@ -2763,7 +2785,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (d.invoiceTemplateSettings) {
       setInvoiceTemplateSettings({ ...DEFAULT_TEMPLATE_SETTINGS, ...d.invoiceTemplateSettings });
     }
-    if (Array.isArray(d.outboundMessages) && d.outboundMessages.length > 0) {
+    if (Array.isArray(d.outboundMessages)) {
       setOutboundMessages(d.outboundMessages);
     }
     if (d.messagingGatewayConfig) {
@@ -2772,7 +2794,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (Array.isArray(d.whatsappAccounts) && d.whatsappAccounts.length > 0) {
       setWhatsappAccounts(d.whatsappAccounts);
     }
-    if (typeof d.activeWhatsAppAccountId === 'string' && d.activeWhatsAppAccountId) {
+    if (typeof d.activeWhatsAppAccountId === 'string') {
       setActiveWhatsAppAccountId(d.activeWhatsAppAccountId);
     }
     if (Array.isArray(d.posCart)) {
@@ -2790,14 +2812,13 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const updated = d.userAccounts.find(
           (u: UserAccount) => u.id === prev.id || u.username === prev.username
         );
-        return updated || prev;
+        return updated || d.userAccounts[0];
       });
     }
     if (d.company && typeof d.company === 'object') {
       setCompany((prev) => ({ ...prev, ...d.company }));
     }
     if (Array.isArray(d.categories) && d.categories.length > 0) {
-      // Merge with SEED_CATEGORIES so all new specific categories are always present
       const existingIds = new Set(d.categories.map((c: Category) => c.id));
       const merged = [
         ...SEED_CATEGORIES.filter((sc) => !existingIds.has(sc.id)),
@@ -2812,19 +2833,16 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const lastMutationTsRef = useRef<number>(0);
   const latestSnapshotRef = useRef<Record<string, any> | null>(null);
 
-  // Load persisted state from 0ms LocalStorage cache + Express RAM backend on mount
+  // Load persisted state from 0ms LocalStorage cache + Express RAM/SQLite backend on mount
   useEffect(() => {
     let active = true;
-    const INSTANT_CACHE_KEY = 'haseb_erp_instant_v7_yemen_banks';
+    const INSTANT_CACHE_KEY = 'haseb_erp_clean_v8';
 
     try {
       const cachedRaw = localStorage.getItem(INSTANT_CACHE_KEY);
       if (cachedRaw) {
         const cached = JSON.parse(cachedRaw);
-        if (
-          Array.isArray(cached.products) &&
-          cached.products.some((p: Product) => p.sku === 'SOL-PNL-585W')
-        ) {
+        if (cached && typeof cached === 'object') {
           applyHydratedState(cached);
         }
       }
@@ -2854,10 +2872,44 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, []);
 
-  // Multi-Device Local Network (LAN) Real-Time State Revision Synchronizer
-  // Ensures phones, tablets, and secondary desktop terminals on the network stay in instant sync
-  // without interrupting or overwriting active local mutations
+  // Multi-Device Local Network (LAN) Real-Time SSE + Revision Synchronizer (0ms push across PC/Mobile/Tablet)
   useEffect(() => {
+    const syncStateFromServer = (incomingRev: number) => {
+      if (!isHydratedRef.current || isSavingRef.current) return;
+      if (Date.now() - lastMutationTsRef.current < 1800) return;
+      if (incomingRev <= localRevisionRef.current) return;
+
+      fetch('/api/v1/erp/state')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((stateJson) => {
+          if (
+            stateJson?.data &&
+            stateJson.dbRevision > localRevisionRef.current &&
+            !isSavingRef.current
+          ) {
+            localRevisionRef.current = stateJson.dbRevision;
+            setDbRevision(stateJson.dbRevision);
+            applyHydratedState(stateJson.data);
+          }
+        })
+        .catch(() => {});
+    };
+
+    let eventSource: EventSource | null = null;
+    if (typeof EventSource !== 'undefined') {
+      try {
+        eventSource = new EventSource('/api/v1/erp/events');
+        eventSource.addEventListener('revision', (ev: MessageEvent) => {
+          try {
+            const parsed = JSON.parse(ev.data);
+            if (typeof parsed?.dbRevision === 'number') {
+              syncStateFromServer(parsed.dbRevision);
+            }
+          } catch {}
+        });
+      } catch {}
+    }
+
     const syncInterval = setInterval(() => {
       if (!isHydratedRef.current || isSavingRef.current) return;
       if (Date.now() - lastMutationTsRef.current < 2500) return;
@@ -2865,37 +2917,22 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       fetch('/api/v1/erp/revision')
         .then((r) => (r.ok ? r.json() : null))
         .then((revJson) => {
-          if (
-            revJson?.success &&
-            typeof revJson.dbRevision === 'number' &&
-            revJson.dbRevision > localRevisionRef.current &&
-            !isSavingRef.current &&
-            Date.now() - lastMutationTsRef.current >= 2500
-          ) {
-            fetch('/api/v1/erp/state')
-              .then((res) => (res.ok ? res.json() : null))
-              .then((stateJson) => {
-                if (
-                  stateJson?.data &&
-                  stateJson.dbRevision > localRevisionRef.current &&
-                  !isSavingRef.current
-                ) {
-                  localRevisionRef.current = stateJson.dbRevision;
-                  setDbRevision(stateJson.dbRevision);
-                  applyHydratedState(stateJson.data);
-                }
-              })
-              .catch(() => {});
+          if (revJson?.success && typeof revJson.dbRevision === 'number') {
+            syncStateFromServer(revJson.dbRevision);
           }
         })
         .catch(() => {});
-    }, 2500);
-    return () => clearInterval(syncInterval);
+    }, 5000);
+
+    return () => {
+      eventSource?.close();
+      clearInterval(syncInterval);
+    };
   }, []);
 
   // Ensure any pending snapshot is flushed synchronously if tab closes or reloads
   useEffect(() => {
-    const INSTANT_CACHE_KEY = 'haseb_erp_instant_v7_yemen_banks';
+    const INSTANT_CACHE_KEY = 'haseb_erp_clean_v8';
     const flushOnUnload = () => {
       if (latestSnapshotRef.current) {
         try {
@@ -2912,7 +2949,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Instant Non-Blocking Write-Through LocalStorage + Server RAM Sync (Zero UI Thread Blocking)
   useEffect(() => {
     if (!isHydratedRef.current) return;
-    const INSTANT_CACHE_KEY = 'haseb_erp_instant_v7_yemen_banks';
+    const INSTANT_CACHE_KEY = 'haseb_erp_clean_v8';
     const stateSnapshot = {
       yemenCurrencyMigratedV7: true,
       categories,
@@ -3148,6 +3185,17 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       industry: p.industry || activeIndustry,
     };
     setProducts((prev) => [newProduct, ...prev]);
+    pushLiveNotification({
+      category: 'LIVE_EVENTS',
+      severity: 'info',
+      titleAr: `إضافة صنف جديد (${p.nameAr || p.name})`,
+      titleEn: `New Item Added (${p.name})`,
+      messageAr: `تم تسجيل الصنف [${p.sku}] في المخزون برصيد افتتاحي ${p.stockQty} ${p.uom || 'حبة'}.`,
+      messageEn: `Registered SKU [${p.sku}] with opening stock ${p.stockQty}.`,
+      actionType: 'INVENTORY',
+      actionLabelAr: 'عرض المخزون ↗',
+      actionLabelEn: 'View Inventory ↗',
+    });
 
     const barItem: BarcodeItem = {
       id: `bar-${nowTs}`,
@@ -3652,6 +3700,18 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...prev,
     ]);
 
+    pushLiveNotification({
+      category: 'LIVE_EVENTS',
+      severity: 'success',
+      titleAr: `اعتماد واستلام أمر شراء (${targetPO.poNumber})`,
+      titleEn: `Purchase Order Received (${targetPO.poNumber})`,
+      messageAr: `تم استلام البضاعة من (${targetPO.supplierName}) بقيمة ${Math.round(targetPO.total).toLocaleString('en-US')} ${currency} وترحيل القيد المحاسبي [${entryNumber}].`,
+      messageEn: `Received PO ${targetPO.poNumber} from ${targetPO.supplierName}.`,
+      actionType: 'PURCHASING',
+      actionLabelAr: 'عرض المشتريات ↗',
+      actionLabelEn: 'View Purchasing ↗',
+    });
+
     return { success: true, entryNumber };
   };
 
@@ -4059,6 +4119,18 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...prev,
     ]);
 
+    pushLiveNotification({
+      category: 'LIVE_EVENTS',
+      severity: 'success',
+      titleAr: `سند قبض جديد (${refNo})`,
+      titleEn: `Customer Payment Receipt (${refNo})`,
+      messageAr: `تم تحصيل ${Math.round(cleanAmount).toLocaleString('en-US')} ${currency} من العميل (${targetCustomer.nameAr || targetCustomer.name}) والرصيد المتبقي ${Math.round(newBalance).toLocaleString('en-US')} ${currency}.`,
+      messageEn: `Received ${cleanAmount} ${currency} from ${targetCustomer.name}.`,
+      actionType: 'DEBTS',
+      actionLabelAr: 'كشف حساب العميل ↗',
+      actionLabelEn: 'View Debt Ledger ↗',
+    });
+
     return {
       success: true,
       entryNumber,
@@ -4158,6 +4230,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }): SalesPipelineDoc => {
     const customer = customers.find((c) => c.id === params.customerId) || customers[0];
     const product = products.find((p) => p.id === params.productId) || products[0];
+    if (!product) {
+      throw new Error(language === 'ar' ? 'يرجى إضافة صنف واحد على الأقل أولاً' : 'Please add at least one product first');
+    }
+    const resolvedPipeCustomerId = customer?.id || 'cust-pos-walkin';
+    const resolvedPipeCustomerName =
+      customer?.nameAr || customer?.name || (language === 'ar' ? 'عميل نقدي عام' : 'Walk-in Customer');
     const qty = Math.max(1, Number(params.quantity) || 1);
     const subtotal = Math.round(product.salePrice * qty * 100) / 100;
     const taxAmount = 0;
@@ -4170,8 +4248,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       branchId: currentBranch.id,
       warehouseId: currentWarehouse.id,
       quoteNumber,
-      customerId: customer.id,
-      customerName: customer.nameAr || customer.name,
+      customerId: resolvedPipeCustomerId,
+      customerName: resolvedPipeCustomerName,
       date: new Date().toISOString().slice(0, 10),
       validUntil:
         params.validUntil ||
@@ -4592,12 +4670,22 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const grandTotal = Math.round(netTaxable * 100) / 100;
     const invNumber = `INV-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    const targetCustomer = customers.find((c) => c.id === customerId) || customers[2] || customers[0];
+    const targetCustomer =
+      customerId === 'cust-pos-walkin'
+        ? customers.find((c) => c.id === 'cust-pos-walkin')
+        : customers.find((c) => c.id === customerId) || customers[0];
+    const resolvedCustomerId = targetCustomer?.id || 'cust-pos-walkin';
     const resolvedCustomerName =
       extraMeta?.customerName?.trim() ||
-      (language === 'ar' ? targetCustomer.nameAr : targetCustomer.name);
+      (targetCustomer
+        ? language === 'ar'
+          ? targetCustomer.nameAr
+          : targetCustomer.name
+        : language === 'ar'
+        ? 'عميل نقدي عام (Walk-in Customer)'
+        : 'Walk-in Cash Customer');
     const resolvedCustomerPhone =
-      extraMeta?.customerPhone?.trim() || targetCustomer.phone;
+      extraMeta?.customerPhone?.trim() || targetCustomer?.phone || '';
 
     // Ensure every electronics/warranty item has a serial number & warranty months recorded
     const finalizedItems = posCart.map((item) => {
@@ -4627,7 +4715,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `inv-${Date.now()}`,
       tenantId: currentTenant.id,
       invoiceNumber: invNumber,
-      customerId: targetCustomer.id,
+      customerId: resolvedCustomerId,
       customerName: resolvedCustomerName,
       customerPhone: resolvedCustomerPhone,
       branchId: currentBranch.id,
@@ -4701,14 +4789,13 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         : 0;
     const cardPortion = Math.max(0, Math.round((grandTotal - cashPortion) * 100) / 100);
 
-    setCurrentShift((prev) => ({
-      ...prev,
-      status: 'OPEN',
-      cashSales: Math.round((prev.cashSales + cashPortion) * 100) / 100,
-      cardSales: Math.round((prev.cardSales + cardPortion) * 100) / 100,
-      totalSales: Math.round((prev.totalSales + grandTotal) * 100) / 100,
-      expectedCash: Math.round((prev.expectedCash + cashPortion) * 100) / 100,
-    }));
+    setCurrentShift((prev) =>
+      applySaleToShift(prev, {
+        grandTotal,
+        cashPortion,
+        cardPortion,
+      })
+    );
 
     setSalesInvoices((prev) => [invoice, ...prev]);
 
@@ -4727,6 +4814,18 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       },
       ...prev,
     ]);
+
+    pushLiveNotification({
+      category: 'LIVE_EVENTS',
+      severity: 'success',
+      titleAr: `فاتورة مبيعات جديدة (${invNumber})`,
+      titleEn: `New POS Sale (${invNumber})`,
+      messageAr: `تم إصدار الفاتورة للعميل (${resolvedCustomerName}) بمبلغ ${Math.round(grandTotal).toLocaleString('en-US')} ${currency} — ترحيل القيد المحاسبي تلقائياً.`,
+      messageEn: `Issued POS invoice ${invNumber} for ${Math.round(grandTotal)} ${currency}.`,
+      actionType: 'SALES',
+      actionLabelAr: 'عرض الفاتورة بالمبيعات ↗',
+      actionLabelEn: 'View in Sales ↗',
+    });
 
     clearPOSCart();
     return invoice;
@@ -4767,6 +4866,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const closePOSShift = (actualCount: number, openNewShiftWithFloat?: number) => {
+    if (currentShift.status !== 'OPEN') {
+      return;
+    }
     const cleanActual = Math.max(0, Number(actualCount) || 0);
     const variance = Math.round((cleanActual - currentShift.expectedCash) * 100) / 100;
     const closedShiftSnapshot = { ...currentShift };
@@ -5809,7 +5911,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const [isOnboardingCompleted, setIsOnboardingCompleted] = useState<boolean>(() => {
-    return localStorage.getItem('asf_onboarding_completed') !== 'false';
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('autostart') === '1') return true;
+      return localStorage.getItem('haseb_onboarding_completed_v8') === 'true';
+    }
+    return true;
   });
   const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
@@ -5824,13 +5931,139 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const closeOnboarding = () => setIsOnboardingOpen(false);
 
   const completeOnboarding = () => {
-    localStorage.setItem('asf_onboarding_completed', 'true');
+    try {
+      localStorage.setItem('haseb_onboarding_completed_v8', 'true');
+    } catch {}
     setIsOnboardingCompleted(true);
     setIsOnboardingOpen(false);
   };
 
+  const completeFirstLaunchSetup = (params: {
+    companyNameAr: string;
+    companyNameEn?: string;
+    logoDataUrl?: string;
+    taxNumber?: string;
+    phone?: string;
+    address?: string;
+    city?: string;
+    branchNameAr: string;
+    warehouseNameAr: string;
+    currency: Currency;
+    industry: IndustryType;
+    uiTheme: 'corporate_slate' | 'swiss_light' | 'haseb_royal' | 'haseb_sand' | 'obsidian_dark';
+    arabicFont: 'cairo' | 'tajawal' | 'almarai' | 'ibm';
+    adminNameAr: string;
+    adminUsername: string;
+    adminPassword: string;
+    idleTimeoutMinutes: number;
+  }) => {
+    const cleanCompany = params.companyNameAr.trim() || 'منشأتك التجارية';
+    const cleanUsername = params.adminUsername.trim().toLowerCase() || 'admin';
+    const cleanPwd = params.adminPassword.trim();
+    if (cleanPwd.length < 4) {
+      return { success: false, errorAr: 'يجب أن لا تقل كلمة المرور عن 4 أحرف.' };
+    }
+
+    const updatedCompany: Company = {
+      ...company,
+      nameAr: cleanCompany,
+      name: params.companyNameEn?.trim() || cleanCompany,
+      logo: params.logoDataUrl || company.logo,
+      taxNumber: params.taxNumber?.trim() || '',
+      phone: params.phone?.trim() || '',
+      address: params.address?.trim() || '',
+      currency: params.currency,
+    };
+    setCompany(updatedCompany);
+
+    const updatedBranch: Branch = {
+      ...DEFAULT_CLEAN_BRANCH,
+      nameAr: params.branchNameAr.trim() || 'الفرع الرئيسي',
+      name: params.branchNameAr.trim() || 'Main Branch',
+      city: params.city?.trim() || 'صنعاء',
+      phone: params.phone?.trim() || '',
+    };
+    setBranches([updatedBranch]);
+    setCurrentBranch(updatedBranch);
+
+    const updatedWarehouse: Warehouse = {
+      ...DEFAULT_CLEAN_WAREHOUSE,
+      branchId: updatedBranch.id,
+      nameAr: params.warehouseNameAr.trim() || 'المستودع الرئيسي',
+      name: params.warehouseNameAr.trim() || 'Main Warehouse',
+    };
+    setWarehouses([updatedWarehouse]);
+    setCurrentWarehouse(updatedWarehouse);
+
+    setCurrencyState(params.currency);
+    setActiveIndustry(params.industry);
+    setUiTheme(params.uiTheme);
+    setIdleTimeoutMinutes(params.idleTimeoutMinutes || 15);
+    try {
+      localStorage.setItem('haseb_arabic_font', params.arabicFont);
+      document.documentElement.dataset.erpFont = params.arabicFont;
+    } catch {}
+
+    // Single General Manager Account (no other default memberships)
+    const cleanAdminNameAr = params.adminNameAr.trim() || 'المدير العام';
+    const adminAcc: UserAccount = {
+      id: 'usr-admin-1',
+      tenantId: currentTenant.id,
+      username: cleanUsername,
+      password: hashUserPassword(cleanPwd, cleanUsername),
+      email: `${cleanUsername}@haseb-erp.local`,
+      name: cleanAdminNameAr,
+      nameAr: cleanAdminNameAr,
+      role: 'SUPER_ADMIN',
+      branchId: updatedBranch.id,
+      isActive: true,
+      allowedModules: [...ALL_ERP_MODULES, 'communications'],
+      permissions: {
+        canCreate: true,
+        canEdit: true,
+        canDelete: true,
+        canExport: true,
+        canApprove: true,
+        canManageUsers: true,
+        canManageLicense: true,
+      },
+      lastLoginAt: new Date().toISOString(),
+    };
+    setUserAccounts([adminAcc]);
+    setCurrentAccount(adminAcc);
+    setCurrentUser({
+      id: adminAcc.id,
+      tenantId: adminAcc.tenantId,
+      username: adminAcc.username,
+      email: adminAcc.email,
+      name: cleanAdminNameAr,
+      nameAr: cleanAdminNameAr,
+      role: adminAcc.role,
+      branchId: updatedBranch.id,
+      isActive: true,
+      allowedModules: adminAcc.allowedModules,
+      permissions: adminAcc.permissions,
+    });
+    setWhatsappAccounts([createCleanWhatsAppDefaultAccount(cleanCompany)]);
+    setIsAuthenticated(true);
+    setIsTerminalLocked(false);
+
+    try {
+      sessionStorage.setItem('rlm_erp_auth_session', adminAcc.username);
+      localStorage.setItem('haseb_onboarding_completed_v8', 'true');
+      const now = Date.now();
+      localStorage.setItem('haseb_drm_trial_start_ms_v1', String(now));
+      localStorage.setItem('haseb_drm_bound_hw_v1', JSON.stringify(livePrimaryHardware));
+      setTrialBaseTimestamp(now);
+    } catch {}
+
+    setIsOnboardingCompleted(true);
+    setIsOnboardingOpen(false);
+    return { success: true };
+  };
+
   const resetSystemToBlank = () => {
-    // Zero out all products, stock, customer records, vendor records, invoices, orders, employees
+    // Zero out all operational business records (keeps General Manager membership & DRM consumed tokens intact)
     setProducts([]);
     setBarcodes([]);
     setTraceabilityEvents([]);
@@ -5838,6 +6071,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCustomers([]);
     setSalesInvoices([]);
     setPurchaseOrders([]);
+    setSalesReturns([]);
+    setWarrantyTickets([]);
+    setSalesPipelineDocs([]);
+    setBankStatementLines([]);
+    setCostCenterBudgets([]);
     setEmployees([]);
     setFixedAssets([]);
     setProductionOrders([]);
@@ -5847,23 +6085,26 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCrmLeads([]);
     setEcommerceOrders([]);
     setWorkflowApprovals([]);
+    setOutboundMessages([]);
     setPosCart([]);
     setHoldBills([]);
     setPostDatedChecks([]);
     setKitchenTickets([]);
+    setWhatsappAccounts([createCleanWhatsAppDefaultAccount(company.nameAr)]);
+    setActiveWhatsAppChatId('');
 
-    // Keep Chart of Accounts intact, but initialize balanced zero/clean journal
+    // Keep Chart of Accounts intact, clear journals & return to flexible shiftless mode
     setChartAccounts(SEED_CHART_OF_ACCOUNTS);
     setJournalEntries([]);
+    setCurrentShift(DEFAULT_CLEAN_SHIFT);
 
-    // Clear server state if available
     fetch('/api/v1/erp/reset-blank', { method: 'POST' }).catch(() => {});
   };
 
   const exportEncryptedDatabaseSnapshot = (passphrase?: string) => {
     let fullSnapshot: Record<string, any> = {};
     try {
-      const raw = localStorage.getItem('rlm_erp_instant_v4_solar');
+      const raw = localStorage.getItem('haseb_erp_clean_v8');
       if (raw) fullSnapshot = JSON.parse(raw);
     } catch {
       // Fallback to active slices
@@ -5926,6 +6167,19 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       },
       ...prev,
     ]);
+
+    recordBackupCompleted();
+    pushLiveNotification({
+      category: 'LIVE_EVENTS',
+      severity: 'success',
+      titleAr: 'تم تنزيل نسخة احتياطية مشفرة بنجاح',
+      titleEn: 'Encrypted Backup Downloaded',
+      messageAr: `تم إنشاء وتنزيل اللقطة المشفرة (${filename}) مع التوقيع الرقمي [${encryptedSnapshot.integritySignature}].`,
+      messageEn: `Exported encrypted snapshot ${filename}.`,
+      actionType: 'SETTINGS',
+      actionLabelAr: 'إعدادات النسخ الاحتياطي ↗',
+      actionLabelEn: 'Backup Settings ↗',
+    });
 
     return {
       jsonString,
@@ -6595,6 +6849,92 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   };
 
+  // Compute Live Connected Notifications Summary (Synced between Navbar Badge & Center Modal)
+  const whatsappUnreadTotal = useMemo(
+    () =>
+      whatsappAccounts.reduce(
+        (accSum, acc) =>
+          accSum + acc.chats.reduce((cSum, ch) => cSum + (Number(ch.unreadCount) || 0), 0),
+        0
+      ),
+    [whatsappAccounts]
+  );
+
+  const pendingPoMetrics = useMemo(() => {
+    const pending = purchaseOrders.filter((po) => po.status !== 'RECEIVED');
+    return {
+      count: pending.length,
+      total: pending.reduce((sum, po) => sum + (Number(po.total) || 0), 0),
+    };
+  }, [purchaseOrders]);
+
+  const rawSystemNotifications = useMemo(() => {
+    return generateSystemNotifications({
+      products,
+      customers,
+      salesInvoices,
+      warrantyTickets,
+      holdBills,
+      currentShift,
+      currency,
+      lastBackupTimestamp,
+      pendingTransfersCount: interBranchTransfers.filter(
+        (t) => t.status === 'PENDING_APPROVAL' || t.status === 'IN_TRANSIT'
+      ).length,
+      whatsappUnreadCount: whatsappUnreadTotal,
+      pendingPurchaseOrdersCount: pendingPoMetrics.count,
+      pendingPurchaseOrdersTotal: pendingPoMetrics.total,
+      liveEventNotifications,
+    });
+  }, [
+    products,
+    customers,
+    salesInvoices,
+    warrantyTickets,
+    holdBills,
+    currentShift,
+    currency,
+    lastBackupTimestamp,
+    interBranchTransfers,
+    whatsappUnreadTotal,
+    pendingPoMetrics,
+    liveEventNotifications,
+  ]);
+
+  const notificationSummary = useMemo(
+    () =>
+      computeNotificationStateSummary({
+        rawNotifications: rawSystemNotifications,
+        readIds: readNotificationIds,
+        dismissedIds: dismissedNotificationIds,
+      }),
+    [rawSystemNotifications, readNotificationIds, dismissedNotificationIds]
+  );
+
+  const markNotificationRead = useCallback((id: string) => {
+    setReadNotificationIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+  }, []);
+
+  const toggleNotificationRead = useCallback((id: string) => {
+    setReadNotificationIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  }, []);
+
+  const markAllNotificationsRead = useCallback(() => {
+    const ids = notificationSummary.notifications.map((n) => n.id);
+    setReadNotificationIds((prev) => Array.from(new Set([...prev, ...ids])));
+  }, [notificationSummary.notifications]);
+
+  const dismissNotification = useCallback((id: string) => {
+    setDismissedNotificationIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+  }, []);
+
+  const clearReadNotifications = useCallback(() => {
+    const readIds = notificationSummary.notifications.filter((n) => n.isRead).map((n) => n.id);
+    setDismissedNotificationIds((prev) => Array.from(new Set([...prev, ...readIds])));
+  }, [notificationSummary.notifications]);
+
   return (
     <ERPContext.Provider
       value={{
@@ -6612,6 +6952,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setActiveIndustry,
         invoiceTemplateSettings,
         updateInvoiceTemplateSettings,
+        resetInvoiceTemplateSettings,
         isCommandPaletteOpen,
         setIsCommandPaletteOpen,
         backendConnected,
@@ -6623,8 +6964,17 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setUiDensity,
 
         isAuthenticated,
+        isTerminalLocked,
+        lockTerminal,
+        unlockTerminal,
+        idleTimeoutMinutes,
+        setIdleTimeoutMinutes,
+        failedLoginAttempts,
+        loginLockoutUntilMs,
         login,
         logout,
+        switchUserAccount,
+        changeUserPassword,
         userAccounts,
         currentAccount,
         addUserAccount,
@@ -6632,6 +6982,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteUserAccount,
         hasModuleAccess,
         hasPermission,
+        usedSerialTokens,
+        boundHardware,
+        maxObservedClockMs: lastObservedMaxClockMs,
 
         hardwareFingerprint,
         rescanLiveHardware,
@@ -6854,16 +7207,32 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         isLanPortalOpen,
         openLanPortal,
         closeLanPortal,
+        isShiftModalOpen,
+        openShiftModal,
+        closeShiftModal,
 
         resetToInitialDemo,
         resetSystemToBlank,
         isOnboardingCompleted,
         completeOnboarding,
+        completeFirstLaunchSetup,
         isOnboardingOpen,
         openOnboarding,
         closeOnboarding,
         exportEncryptedDatabaseSnapshot,
         importBackupJSON,
+
+        systemNotifications: notificationSummary.notifications,
+        unreadNotificationsCount: notificationSummary.unreadCount,
+        criticalNotificationsCount: notificationSummary.criticalCount,
+        lastBackupTimestamp,
+        pushLiveNotification,
+        markNotificationRead,
+        toggleNotificationRead,
+        markAllNotificationsRead,
+        dismissNotification,
+        clearReadNotifications,
+        recordBackupCompleted,
       }}
     >
       {children}

@@ -39,7 +39,10 @@ export interface SerialVerificationResult {
     | 'INVALID_FORMAT'
     | 'SIGNATURE_TAMPERED'
     | 'DEVICE_MISMATCH'
-    | 'EXPIRED';
+    | 'EXPIRED'
+    | 'ALREADY_USED_ONCE'
+    | 'CLOCK_TAMPERED';
+  consumptionToken?: string;
   durationDays?: number;
   durationLabelAr?: string;
   durationLabelEn?: string;
@@ -943,4 +946,188 @@ export function decryptDatabaseSnapshotJSON(
   }
 }
 
+// ============================================================================
+// Enterprise User Password Cryptographic Hashing, Strength & Brute-Force Guard
+// ============================================================================
 
+export type PasswordStrengthLevel = 'WEAK' | 'MEDIUM' | 'STRONG';
+
+export interface PasswordStrengthResult {
+  score: number; // 0 to 100
+  level: PasswordStrengthLevel;
+  labelAr: string;
+  labelEn: string;
+}
+
+export interface LoginLockoutEvaluation {
+  isLocked: boolean;
+  remainingSec: number;
+  nextFailedCount: number;
+  nextLockUntilMs: number;
+}
+
+/**
+ * Generates a salted multi-round deterministic cryptographic password digest.
+ * Format: HSH-V1-<16 uppercase hex chars>
+ */
+export function hashUserPassword(password: string, username: string): string {
+  const cleanUser = (username || 'user').trim().toLowerCase();
+  const raw = password || '';
+  const saltA = `HASEB-PWD-SALT-A::${cleanUser}::994812`;
+  const saltB = `HASEB-PWD-SALT-B::${cleanUser.split('').reverse().join('')}::771539`;
+  let round1 = cryptoHash32(`${saltA}:${raw}:${saltB}`, 'PWD-ROUND-1');
+  let round2 = cryptoHash32(`${round1}:${raw}:${cleanUser}`, 'PWD-ROUND-2');
+  for (let i = 0; i < 4; i++) {
+    round1 = cryptoHash32(`${round1}:${round2}:${i}`, `PWD-ITER-${i}`);
+    round2 = cryptoHash32(`${round2}:${round1}:${raw.length}`, `PWD-MIX-${i}`);
+  }
+  return `HSH-V1-${round1}${round2}`;
+}
+
+/**
+ * Verifies a user-supplied plaintext password against a stored HSH-V1 hash (or legacy plaintext for seamless migration).
+ */
+export function verifyUserPassword(
+  inputPassword: string,
+  storedPasswordOrHash: string,
+  username: string
+): boolean {
+  if (!storedPasswordOrHash) return false;
+  if (storedPasswordOrHash.startsWith('HSH-V1-')) {
+    return hashUserPassword(inputPassword, username) === storedPasswordOrHash;
+  }
+  return inputPassword === storedPasswordOrHash;
+}
+
+/**
+ * Evaluates password complexity for onboarding and password rotation forms.
+ */
+export function evaluatePasswordStrength(password: string): PasswordStrengthResult {
+  const p = password || '';
+  let score = 0;
+  if (p.length >= 6) score += 25;
+  if (p.length >= 10) score += 20;
+  if (/[A-Z]/.test(p) && /[a-z]/.test(p)) score += 20;
+  if (/\d/.test(p)) score += 20;
+  if (/[^A-Za-z0-9]/.test(p)) score += 15;
+
+  if (score >= 70) {
+    return { score, level: 'STRONG', labelAr: 'كلمة مرور قوية ومحصّنة', labelEn: 'Strong Password' };
+  }
+  if (score >= 45) {
+    return { score, level: 'MEDIUM', labelAr: 'كلمة مرور متوسطة (يفضل إضافة أرقام/رموز)', labelEn: 'Moderate Password' };
+  }
+  return { score, level: 'WEAK', labelAr: 'ضعيفة (استخدم 6 أحرف على الأقل مع أرقام)', labelEn: 'Weak Password' };
+}
+
+/**
+ * Evaluates failed login attempts and applies a 30-second cooldown lock after 5 consecutive failures.
+ */
+export function evaluateLoginAttemptLockout(
+  failedAttempts: number,
+  lockUntilMs: number,
+  nowMs: number = Date.now(),
+  maxAttempts = 5,
+  cooldownMs = 30000
+): LoginLockoutEvaluation {
+  if (lockUntilMs > nowMs) {
+    return {
+      isLocked: true,
+      remainingSec: Math.max(1, Math.ceil((lockUntilMs - nowMs) / 1000)),
+      nextFailedCount: failedAttempts,
+      nextLockUntilMs: lockUntilMs,
+    };
+  }
+  const nextFailedCount = failedAttempts + 1;
+  if (nextFailedCount >= maxAttempts) {
+    return {
+      isLocked: true,
+      remainingSec: Math.ceil(cooldownMs / 1000),
+      nextFailedCount,
+      nextLockUntilMs: nowMs + cooldownMs,
+    };
+  }
+  return {
+    isLocked: false,
+    remainingSec: 0,
+    nextFailedCount,
+    nextLockUntilMs: 0,
+  };
+}
+
+// ============================================================================
+// Single-Use Activation Serial Anti-Replay & Clock High-Water Integrity
+// ============================================================================
+
+/**
+ * Computes a deterministic single-use consumption token binding a serial key
+ * to this machine's hardware request code so any activated serial can never be reused.
+ */
+export function computeSerialConsumptionToken(
+  serial: string,
+  machineRequestCode: string
+): string {
+  const cleanedSerial = (serial || '').trim().toUpperCase();
+  const cleanedReq = (machineRequestCode || '').trim().toUpperCase();
+  const partA = cryptoHash32(`${cleanedSerial}::${cleanedReq}`, 'SERIAL-CONSUME-A');
+  const partB = cryptoHash32(`${cleanedReq}::${cleanedSerial}`, 'SERIAL-CONSUME-B');
+  return `SER-USED-${partA}${partB.slice(0, 4)}`;
+}
+
+/**
+ * Verifies an activation serial AND enforces strict one-time use per machine.
+ * Re-using an already consumed serial (even on the same machine) fails with ALREADY_USED_ONCE.
+ */
+export function verifyOneTimeSerialActivation(params: {
+  serial: string;
+  currentRequestCode: string;
+  usedSerialTokens: string[];
+  nowMs?: number;
+}): SerialVerificationResult {
+  const { serial, currentRequestCode, usedSerialTokens, nowMs = Date.now() } = params;
+  const baseResult = verifyActivationSerial(serial, currentRequestCode, nowMs);
+  if (!baseResult.valid) {
+    return baseResult;
+  }
+
+  const consumptionToken = computeSerialConsumptionToken(serial, currentRequestCode);
+  const globalSerialToken = `SER-KEY-${cryptoHash32(serial.trim().toUpperCase(), 'SERIAL-GLOBAL-ONCE')}`;
+
+  if (
+    usedSerialTokens.includes(consumptionToken) ||
+    usedSerialTokens.includes(globalSerialToken)
+  ) {
+    return {
+      valid: false,
+      reason: 'ALREADY_USED_ONCE',
+      boundDeviceToken: baseResult.boundDeviceToken,
+      consumptionToken,
+    };
+  }
+
+  return {
+    ...baseResult,
+    consumptionToken,
+  };
+}
+
+/**
+ * Generates a tamper-evident integrity tag for the persisted high-water monotonic clock.
+ */
+export function computeClockHighWaterIntegrityTag(
+  maxClockMs: number,
+  machineRequestCode: string
+): string {
+  const rounded = Math.floor(Number(maxClockMs) || 0);
+  const req = (machineRequestCode || '').trim().toUpperCase();
+  return cryptoHash32(`CLOCK-HWM::${rounded}::${req}`, 'ANTI-ROLLBACK-SEAL');
+}
+
+export function verifyClockHighWaterIntegrityTag(
+  maxClockMs: number,
+  tag: string,
+  machineRequestCode: string
+): boolean {
+  if (!tag || !Number.isFinite(maxClockMs) || maxClockMs <= 0) return false;
+  return tag === computeClockHighWaterIntegrityTag(maxClockMs, machineRequestCode);
+}

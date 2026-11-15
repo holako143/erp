@@ -14,7 +14,34 @@ import {
 import { useERP } from '../context/ERPContext';
 import { LicenseDurationPreset } from '../core/securityEngine';
 
-const MASTER_DEVELOPER_PIN = 'AbuSaif143';
+// Precomputed SHA-256 hex digest for authorized developer secret PIN verification (zero plaintext secret in bundle)
+const DEVELOPER_PIN_SHA256 = '04fe1b9ac6a7364396c1a0e07376cb180808b7828460c42f116e3b880567a1a4';
+
+async function verifyDeveloperPinSha256(candidate: string): Promise<boolean> {
+  const normalized = candidate.trim();
+  if (!normalized) return false;
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    try {
+      const encoded = new TextEncoder().encode(normalized);
+      const digest = await crypto.subtle.digest('SHA-256', encoded);
+      const hex = Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+      if (hex === DEVELOPER_PIN_SHA256) return true;
+    } catch {
+      // fallback below for insecure HTTP LAN contexts where SubtleCrypto is restricted
+    }
+  }
+  // Deterministic FNV-1a 64-bit check for non-HTTPS local LAN HTTP origins
+  let h1 = 0x811c9dc5;
+  let h2 = 0x9e3779b9;
+  for (let i = 0; i < normalized.length; i += 1) {
+    const c = normalized.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
+    h2 = Math.imul(h2 ^ (c + i), 0x85ebca6b) >>> 0;
+  }
+  return `${h1.toString(16).padStart(8, '0')}-${h2.toString(16).padStart(8, '0')}` === '9221d4a4-f04467bb';
+}
 
 export const StandaloneActivationPortal: React.FC = () => {
   const {
@@ -50,9 +77,10 @@ export const StandaloneActivationPortal: React.FC = () => {
     setIsStandaloneKeygenOpen(false);
   };
 
-  const handleUnlockPortal = (e: React.FormEvent) => {
+  const handleUnlockPortal = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (pinInput.trim() === MASTER_DEVELOPER_PIN) {
+    const ok = await verifyDeveloperPinSha256(pinInput);
+    if (ok) {
       setIsUnlocked(true);
       setPinError(null);
       setTargetRequestCode(protectionState.machineRequestCode);
@@ -119,10 +147,10 @@ export const StandaloneActivationPortal: React.FC = () => {
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/40 backdrop-blur-[2px] overflow-y-auto"
     >
       <div className="relative w-full max-w-4xl bg-white border border-slate-200/90 rounded-3xl shadow-2xl overflow-hidden text-slate-900 flex flex-col my-auto max-h-[95vh]">
-        {/* Top Developer Header (Unified Lumina POS Theme) */}
+        {/* Top Developer Header */}
         <div className="px-6 py-4 bg-white border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shadow-2xs shrink-0">
+            <div className="w-10 h-10 rounded-xl haseb-card-gradient text-white flex items-center justify-center shrink-0">
               <KeyRound className="w-5 h-5" />
             </div>
             <div>
@@ -156,7 +184,7 @@ export const StandaloneActivationPortal: React.FC = () => {
         {!isUnlocked ? (
           <form onSubmit={handleUnlockPortal} className="p-8 max-w-md mx-auto w-full space-y-4">
             <div className="text-center space-y-2">
-              <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center mx-auto shadow-2xs">
+              <div className="w-12 h-12 rounded-2xl haseb-card-gradient text-white flex items-center justify-center mx-auto">
                 <Lock className="w-6 h-6" />
               </div>
               <h3 className="text-base font-bold text-slate-900">
@@ -183,7 +211,7 @@ export const StandaloneActivationPortal: React.FC = () => {
                   onChange={(e) => setPinInput(e.target.value)}
                   placeholder="••••••••••"
                   dir="ltr"
-                  className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200/80 text-slate-900 font-mono text-sm focus:bg-white focus:outline-none focus:border-slate-900 transition"
+                  className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200/80 text-slate-900 font-mono text-sm focus:bg-white focus:outline-none focus:border-blue-600 transition"
                 />
                 <button
                   type="button"
@@ -205,7 +233,7 @@ export const StandaloneActivationPortal: React.FC = () => {
             <button
               type="submit"
               data-testid="standalone-keygen-unlock-btn"
-              className="w-full py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-2xs"
+              className="w-full py-3 rounded-xl haseb-btn-primary font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer"
             >
               <ShieldCheck className="w-4 h-4" />
               {isAr ? 'فتح منصة إصدار السريالات' : 'Unlock Activation Portal'}

@@ -35,6 +35,11 @@ import {
   Receipt,
   Calendar,
   BookOpen,
+  ArrowRight,
+  Pin,
+  Download,
+  Megaphone,
+  Filter,
 } from 'lucide-react';
 import {
   calculateSmsParts,
@@ -101,8 +106,28 @@ export const CommunicationsView: React.FC = () => {
   } = useERP();
 
   const [activeTab, setActiveTab] = useState<'WHATSAPP' | 'QUICK_SEND_LOG' | 'USB_SMS'>('WHATSAPP');
+  const [mobileWaPanel, setMobileWaPanel] = useState<'CHATS' | 'ACTIVE_CHAT' | 'PAIRING' | 'DOCS'>('CHATS');
+  const [chatFilterMode, setChatFilterMode] = useState<'ALL' | 'UNREAD' | 'DEBTORS'>('ALL');
+  const [pinnedChatIds, setPinnedChatIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('haseb_wa_pinned_chats');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [bulkCampaignAlert, setBulkCampaignAlert] = useState<string | null>(null);
   const [isLaunchingCampaign, setIsLaunchingCampaign] = useState(false);
+
+  // Tab 2 Outbound Log Filters & WhatsApp Broadcast Composer
+  const [logChannelFilter, setLogChannelFilter] = useState<'ALL' | 'WHATSAPP' | 'SMS'>('ALL');
+  const [logSearchQuery, setLogSearchQuery] = useState('');
+  const [waBroadcastAudience, setWaBroadcastAudience] = useState<'ALL' | 'DEBTORS' | 'REGULAR'>('ALL');
+  const [waBroadcastMessage, setWaBroadcastMessage] = useState(
+    `مرحباً {العميل}، تحية طيبة من {الشركة}. نود إبلاغكم بأحدث العروض وتوفر كافة الأصناف المعتمدة لدينا.`
+  );
+  const [waBroadcastAlert, setWaBroadcastAlert] = useState<string | null>(null);
+  const [isSendingWaBroadcast, setIsSendingWaBroadcast] = useState(false);
 
   // Unified Real ERP Document & Quick-Send Composer State
   const [selectedRealInvoiceId, setSelectedRealInvoiceId] = useState<string>(
@@ -129,15 +154,15 @@ export const CommunicationsView: React.FC = () => {
   const [showAddAccountForm, setShowAddAccountForm] = useState(false);
   const [newAccLabel, setNewAccLabel] = useState('');
   const [newAccDept, setNewAccDept] = useState('المبيعات وخدمة العملاء');
-  const [newAccPhone, setNewAccPhone] = useState('+967 774 500 800');
+  const [newAccPhone, setNewAccPhone] = useState('');
   const [newAccStartMode, setNewAccStartMode] = useState<'QR_SCAN' | 'INSTANT_CONNECTED'>('QR_SCAN');
   const [accountToast, setAccountToast] = useState<string | null>(null);
 
   // Pairing Mode State (QR vs 8-Digit Phone Code vs Camera Scan)
   const [pairingMethod, setPairingMethod] = useState<'QR_CODE' | 'PHONE_CODE'>('QR_CODE');
-  const [pairingPhoneInput, setPairingPhoneInput] = useState('+967 771 445 880');
+  const [pairingPhoneInput, setPairingPhoneInput] = useState(company.phone || '');
   const [pairingNameInput] = useState('واتساب المؤسسة المعتمد');
-  const [generated8DigitCode, setGenerated8DigitCode] = useState('RLM8-8849');
+  const [generated8DigitCode, setGenerated8DigitCode] = useState('HSB8-0000');
   const [isRequestingReal8DigitCode, setIsRequestingReal8DigitCode] = useState(false);
   const [real8DigitCodeSource, setReal8DigitCodeSource] = useState<'LIVE_WHATSAPP' | 'LOCAL'>('LOCAL');
   const [isQrCameraScannerOpen, setIsQrCameraScannerOpen] = useState(false);
@@ -206,23 +231,37 @@ export const CommunicationsView: React.FC = () => {
     }
   }, [slashShortcuts]);
 
-  // USB SMS Tab State
+  useEffect(() => {
+    try {
+      localStorage.setItem('haseb_wa_pinned_chats', JSON.stringify(pinnedChatIds));
+    } catch {
+      // ignore
+    }
+  }, [pinnedChatIds]);
+
+  const togglePinChat = (chatId: string) => {
+    setPinnedChatIds((prev) =>
+      prev.includes(chatId) ? prev.filter((id) => id !== chatId) : [chatId, ...prev]
+    );
+  };
+
+  // USB SMS Tab State (Zero hard-coded demo fallbacks)
   const [smsDispatchMode, setSmsDispatchMode] = useState<'SINGLE' | 'MULTI_BATCH'>('SINGLE');
-  const [smsPhone, setSmsPhone] = useState(customers[0]?.phone || '+967 771 445 880');
+  const [smsPhone, setSmsPhone] = useState(customers[0]?.phone || '');
   const [smsRecipientName, setSmsRecipientName] = useState(
-    customers[0]?.nameAr || customers[0]?.name || 'شركة البناء الحديث للمقاولات العامة'
+    customers[0]?.nameAr || customers[0]?.name || ''
   );
   const [smsMultiPhonesInput, setSmsMultiPhonesInput] = useState(
-    customers.map((c) => c.phone).join('، ')
+    customers.map((c) => c.phone).filter(Boolean).join('، ')
   );
   const [smsSelectedCustomerId, setSmsSelectedCustomerId] = useState<string>(customers[0]?.id || '');
   const [smsSelectedInvoiceId, setSmsSelectedInvoiceId] = useState<string>(salesInvoices[0]?.id || '');
   const [smsBody, setSmsBody] = useState(
     salesInvoices[0]
-      ? `عميلنا العزيز (${salesInvoices[0].customerName})، تم إصدار فاتورتكم رقم ${salesInvoices[0].invoiceNumber} بمبلغ ${salesInvoices[0].grandTotal.toLocaleString()} ر.ي. نشكر ثقتكم بنا.`
-      : 'عميلنا العزيز، نود تذكيركم بمستحقات الفاتورة رقم INV-2026-6194 بمبلغ 1,250 ر.ي. شكراً لتعاملكم الراقي.'
+      ? `عميلنا العزيز (${salesInvoices[0].customerName})، تم إصدار فاتورتكم رقم ${salesInvoices[0].invoiceNumber} بمبلغ ${salesInvoices[0].grandTotal.toLocaleString()} ${currency}. نشكر ثقتكم بنا.`
+      : ''
   );
-  const [smsRefNumber, setSmsRefNumber] = useState(salesInvoices[0]?.invoiceNumber || 'INV-2026-6194');
+  const [smsRefNumber, setSmsRefNumber] = useState(salesInvoices[0]?.invoiceNumber || '');
   const [isSendingSms, setIsSendingSms] = useState(false);
   const [smsStatusAlert, setSmsStatusAlert] = useState<{
     type: 'success' | 'error';
@@ -251,21 +290,46 @@ export const CommunicationsView: React.FC = () => {
     whatsappChats.find((c) => c.id === activeWhatsAppChatId) ||
     whatsappChats[0] || {
       id: 'chat-empty',
-      contactName: 'محادثة جديدة',
-      contactPhone: '+967 770 000 000',
-      normalizedPhone: '+967770000000',
+      contactName: 'لا توجد محادثة محددة',
+      contactPhone: '',
+      normalizedPhone: '',
       lastMessage: '',
-      lastMessageTime: 'الآن',
+      lastMessageTime: '—',
       unreadCount: 0,
       isBusiness: true,
       messages: [],
     };
 
-  const filteredChats = whatsappChats.filter(
-    (c) =>
-      c.contactName.toLowerCase().includes(chatSearch.toLowerCase()) ||
-      c.contactPhone.includes(chatSearch)
-  );
+  const getMatchedCustomerForChat = (contactName: string, contactPhone: string) => {
+    const cleanDigits = contactPhone.replace(/\D/g, '').slice(-7);
+    return customers.find(
+      (c) =>
+        c.nameAr === contactName ||
+        c.name === contactName ||
+        (cleanDigits && c.phone.replace(/\D/g, '').slice(-7) === cleanDigits)
+    );
+  };
+
+  const filteredChats = useMemo(() => {
+    const q = chatSearch.trim().toLowerCase();
+    return whatsappChats
+      .filter((c) => {
+        if (q && !c.contactName.toLowerCase().includes(q) && !c.contactPhone.includes(q)) {
+          return false;
+        }
+        if (chatFilterMode === 'UNREAD') return (c.unreadCount || 0) > 0;
+        if (chatFilterMode === 'DEBTORS') {
+          const matched = getMatchedCustomerForChat(c.contactName, c.contactPhone);
+          return Boolean(matched && Number(matched.balance) > 0);
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const aPinned = pinnedChatIds.includes(a.id) ? 1 : 0;
+        const bPinned = pinnedChatIds.includes(b.id) ? 1 : 0;
+        return bPinned - aPinned;
+      });
+  }, [whatsappChats, chatSearch, chatFilterMode, pinnedChatIds, customers]);
 
   const fetchLiveWhatsAppQR = async (forceNew = false) => {
     try {
@@ -543,13 +607,11 @@ export const CommunicationsView: React.FC = () => {
 
   const activeChatMatchedCustomer = useMemo(() => {
     const cleanChatDigits = activeChat.contactPhone.replace(/\D/g, '').slice(-7);
-    return (
-      customers.find(
-        (c) =>
-          c.nameAr === activeChat.contactName ||
-          c.name === activeChat.contactName ||
-          (cleanChatDigits && c.phone.replace(/\D/g, '').slice(-7) === cleanChatDigits)
-      ) || customers[0]
+    return customers.find(
+      (c) =>
+        c.nameAr === activeChat.contactName ||
+        c.name === activeChat.contactName ||
+        (cleanChatDigits && c.phone.replace(/\D/g, '').slice(-7) === cleanChatDigits)
     );
   }, [activeChat.contactName, activeChat.contactPhone, customers]);
 
@@ -571,25 +633,25 @@ export const CommunicationsView: React.FC = () => {
   const handleQuickComposerDocAction = (
     actionType: 'INVOICE' | 'RECEIPT' | 'STATEMENT' | 'INSTALLMENT'
   ) => {
-    const custBalance = Number(activeChatMatchedCustomer?.balance ?? 4850);
-    const invTotal = Number(activeChatMatchedInvoice?.grandTotal ?? 3500);
-    const invNum = activeChatMatchedInvoice?.invoiceNumber || 'INV-2026-1001';
+    const custBalance = Number(activeChatMatchedCustomer?.balance ?? 0);
+    const invTotal = Number(activeChatMatchedInvoice?.grandTotal ?? 0);
+    const invNum = activeChatMatchedInvoice?.invoiceNumber || 'DOC-001';
     const itemsSummary =
       activeChatMatchedInvoice?.items
         ?.map((it) => `${it.quantity}× ${it.productName}`)
-        .join(' + ') || 'منظومة طاقة شمسية متكاملة (معفاة من الضريبة 0%)';
+        .join(' + ') || 'مستند مالي معتمد من النظام';
 
     const composed = composeChatBarQuickDocumentText({
       docType: actionType,
       customerName: activeChat.contactName,
-      companyName: company.nameAr || company.name,
+      companyName: company.nameAr || company.name || 'المنشأة',
       currency: currency === 'YER' ? 'ر.ي' : currency === 'USD' ? '$' : 'ر.س',
       invoiceNumber: invNum,
       invoiceTotal: invTotal,
       invoiceItemsSummary: itemsSummary,
-      receiptAmount: Math.min(2500, Math.max(500, Math.round(custBalance / 2))),
+      receiptAmount: custBalance > 0 ? Math.max(100, Math.round(custBalance / 2)) : invTotal,
       remainingBalance: custBalance,
-      installmentAmount: Math.max(500, Math.round((custBalance || invTotal) / 3)),
+      installmentAmount: (custBalance || invTotal) > 0 ? Math.max(100, Math.round((custBalance || invTotal) / 3)) : 0,
       installmentDueDate: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
     });
 
@@ -690,16 +752,16 @@ export const CommunicationsView: React.FC = () => {
       }
     } else if (selectedQuickDoc === 'INVOICE') {
       attachmentType = 'INVOICE';
-      refNum = activeChatMatchedInvoice?.invoiceNumber || 'INV-2026-1001';
-      textToSend = textToSend || 'مرفق لكم فاتورة المبيعات المعتمدة (معفاة من الضريبة 0%).';
+      refNum = activeChatMatchedInvoice?.invoiceNumber || 'DOC-INV';
+      textToSend = textToSend || 'مرفق لكم فاتورة المبيعات المعتمدة من النظام.';
     } else if (selectedQuickDoc === 'RECEIPT') {
       attachmentType = 'RECEIPT';
-      refNum = 'RV-2026-015';
+      refNum = `RV-${Date.now().toString().slice(-4)}`;
       textToSend = textToSend || 'تم استلام الدفعة النقدية بنجاح. مرفق سند القبض المعتمد.';
     } else if (selectedQuickDoc === 'DEBT_REMINDER') {
       attachmentType = 'DEBT_REMINDER';
-      refNum = 'SOA-2026';
-      textToSend = textToSend || 'إشعار كشف حسابوجدولة قسط مستحق، يرجى التفضل بالاطلاع والتسوية.';
+      refNum = `SOA-${new Date().getFullYear()}`;
+      textToSend = textToSend || 'إشعار كشف حساب وجدولة قسط مستحق، يرجى التفضل بالاطلاع والتسوية.';
     }
 
     await sendWhatsAppChatMessage(activeChat.id, textToSend, attachmentType, refNum);
@@ -814,17 +876,87 @@ export const CommunicationsView: React.FC = () => {
     const inv = salesInvoices.find((i) => i.id === invId);
     if (!inv) return;
     const matchedCust = customers.find((c) => c.id === inv.customerId);
-    setSmsPhone(matchedCust?.phone || '+967 771 445 880');
+    setSmsPhone(matchedCust?.phone || '');
     setSmsRecipientName(inv.customerName);
     setSmsRefNumber(inv.invoiceNumber);
     setSmsBody(
       composeInvoiceMessageText({
         invoice: inv,
-        companyName: company.nameAr || company.name,
+        companyName: company.nameAr || company.name || 'المنشأة',
         branchName: currentBranch.nameAr,
         currency,
       })
     );
+  };
+
+  const filteredOutboundMessages = useMemo(() => {
+    const q = logSearchQuery.trim().toLowerCase();
+    return outboundMessages.filter((m) => {
+      if (logChannelFilter !== 'ALL' && m.channel !== logChannelFilter) return false;
+      if (!q) return true;
+      return (
+        m.recipientName.toLowerCase().includes(q) ||
+        m.recipientPhone.includes(q) ||
+        m.messageBody.toLowerCase().includes(q) ||
+        (m.referenceNumber && m.referenceNumber.toLowerCase().includes(q))
+      );
+    });
+  }, [outboundMessages, logChannelFilter, logSearchQuery]);
+
+  const broadcastTargets = useMemo(() => {
+    return customers.filter((c) => {
+      if (!c.phone?.trim()) return false;
+      if (waBroadcastAudience === 'DEBTORS') return Number(c.balance) > 0;
+      if (waBroadcastAudience === 'REGULAR') return Number(c.balance) <= 0;
+      return true;
+    });
+  }, [customers, waBroadcastAudience]);
+
+  const handleExportOutboundCsv = () => {
+    const headers = ['القناة', 'المستلم', 'الهاتف', 'المرجع', 'المحتوى', 'الوقت'];
+    const rows = filteredOutboundMessages.map((m) => [
+      m.channel,
+      m.recipientName,
+      m.normalizedPhone || m.recipientPhone,
+      m.referenceNumber || '',
+      m.messageBody.replace(/[\r\n]+/g, ' '),
+      m.sentAt,
+    ]);
+    const csvContent =
+      '\uFEFF' +
+      [headers, ...rows]
+        .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+        .join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `haseb-communications-log-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setAccountToast('تم تصدير سجل التواصل والرسائل بصيغة CSV بنجاح.');
+    setTimeout(() => setAccountToast(null), 3500);
+  };
+
+  const handleLaunchWhatsAppBroadcast = async () => {
+    if (!waBroadcastMessage.trim() || broadcastTargets.length === 0) return;
+    setIsSendingWaBroadcast(true);
+    setWaBroadcastAlert(null);
+    let sent = 0;
+    try {
+      for (const cust of broadcastTargets) {
+        const personalized = waBroadcastMessage
+          .replace(/\{العميل\}/g, cust.nameAr || cust.name)
+          .replace(/\{الرصيد\}/g, formatCurrency(cust.balance || 0))
+          .replace(/\{الشركة\}/g, company.nameAr || company.name || 'المنشأة');
+        const chatId = startOrOpenWhatsAppChat(cust.nameAr || cust.name, cust.phone, cust.id);
+        await sendWhatsAppChatMessage(chatId, personalized, 'DEBT_REMINDER', 'BROADCAST-WA');
+        sent += 1;
+      }
+      setWaBroadcastAlert(`تم إرسال الحملة الجماعية بنجاح إلى (${sent}) عميل عبر واتساب وتوثيقها في السجل.`);
+    } finally {
+      setIsSendingWaBroadcast(false);
+    }
   };
 
   const smsOutboundList = useMemo(() => {
@@ -850,7 +982,7 @@ export const CommunicationsView: React.FC = () => {
       <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/70 dark:border-slate-800 shadow-2xs space-y-3">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <span className="w-9 h-9 bg-slate-900 text-white rounded-xl flex items-center justify-center shrink-0 shadow-2xs">
+            <span className="w-9 h-9 haseb-btn-primary text-white rounded-xl flex items-center justify-center shrink-0 shadow-2xs">
               <MessageSquare className="w-4 h-4" />
             </span>
             <div className="min-w-0">
@@ -907,28 +1039,28 @@ export const CommunicationsView: React.FC = () => {
           </div>
         </div>
 
-        {/* Row 2: POS-Style Rounded-Full Pill Sub-Tabs */}
+        {/* Row 2: Responsive Gradient Sub-Tabs */}
         <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
           <button
             type="button"
             data-testid="comm-tab-whatsapp"
             onClick={() => setActiveTab('WHATSAPP')}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs border transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
+            className={`flex items-center gap-2 px-4 py-1.5 rounded-xl text-xs border transition-none cursor-pointer whitespace-nowrap shrink-0 ${
               activeTab === 'WHATSAPP'
-                ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
-                : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
+                ? 'haseb-btn-primary border-transparent text-white font-semibold shadow-xs'
+                : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 font-medium'
             }`}
           >
-            <MessageSquare className={`w-3.5 h-3.5 ${activeTab === 'WHATSAPP' ? 'text-emerald-400' : 'text-emerald-600'}`} />
+            <MessageSquare className={`w-3.5 h-3.5 ${activeTab === 'WHATSAPP' ? 'text-emerald-200' : 'text-emerald-600'}`} />
             <span>محطة واتساب والإرسال الفوري</span>
             <span
               className={`text-[10px] px-2 py-0.2 rounded-full font-mono font-bold ${
                 activeTab === 'WHATSAPP'
                   ? 'bg-white/20 text-white'
-                  : 'bg-slate-100 text-slate-600'
+                  : 'bg-slate-100 text-slate-700'
               }`}
             >
-              {whatsappAccounts.length} حسابات
+              {whatsappAccounts.length}
             </span>
           </button>
 
@@ -936,19 +1068,19 @@ export const CommunicationsView: React.FC = () => {
             type="button"
             data-testid="comm-tab-quick-send-log"
             onClick={() => setActiveTab('QUICK_SEND_LOG')}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs border transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
+            className={`flex items-center gap-2 px-4 py-1.5 rounded-xl text-xs border transition-none cursor-pointer whitespace-nowrap shrink-0 ${
               activeTab === 'QUICK_SEND_LOG'
-                ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
-                : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
+                ? 'haseb-btn-primary border-transparent text-white font-semibold shadow-xs'
+                : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 font-medium'
             }`}
           >
             <Send className="w-3.5 h-3.5" />
-            <span>قوالب الإرسال السريع وسجل الصادر</span>
+            <span>الحملات الجماعية وسجل الصادر</span>
             <span
               className={`text-[10px] px-2 py-0.2 rounded-full font-mono font-bold ${
                 activeTab === 'QUICK_SEND_LOG'
                   ? 'bg-white/20 text-white'
-                  : 'bg-slate-100 text-slate-600'
+                  : 'bg-slate-100 text-slate-700'
               }`}
             >
               {outboundMessages.length}
@@ -959,10 +1091,10 @@ export const CommunicationsView: React.FC = () => {
             type="button"
             data-testid="comm-tab-sms-usb"
             onClick={() => setActiveTab('USB_SMS')}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs border transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
+            className={`flex items-center gap-2 px-4 py-1.5 rounded-xl text-xs border transition-none cursor-pointer whitespace-nowrap shrink-0 ${
               activeTab === 'USB_SMS'
-                ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
-                : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
+                ? 'haseb-btn-primary border-transparent text-white font-semibold shadow-xs'
+                : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 font-medium'
             }`}
           >
             <Smartphone className="w-3.5 h-3.5" />
@@ -974,7 +1106,7 @@ export const CommunicationsView: React.FC = () => {
                   : 'bg-slate-100 text-slate-600'
               }`}
             >
-              {isUsbReady ? `نشط ⚡ (${smsOutboundList.length})` : 'فحص ADB'}
+              {isUsbReady ? `نشط (${smsOutboundList.length})` : 'فحص ADB'}
             </span>
           </button>
         </div>
@@ -1001,8 +1133,66 @@ export const CommunicationsView: React.FC = () => {
       {/* ======================================================== */}
       {activeTab === 'WHATSAPP' && (
         <div className="space-y-3">
-          {/* MULTI-ACCOUNT SWITCHER BAR (0ms Instant Switching Without Data Loss or Re-Scanning) */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-3 shadow-sm">
+          {/* Mobile Sub-View Switcher (< lg) */}
+          <div
+            data-testid="comm-mobile-subview-bar"
+            className="grid grid-cols-4 gap-1 bg-white dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs lg:hidden"
+          >
+            <button
+              type="button"
+              data-testid="comm-mobile-sub-chats"
+              onClick={() => setMobileWaPanel('CHATS')}
+              className={`py-2 px-1 rounded-xl text-[11px] font-bold transition cursor-pointer flex items-center justify-center gap-1 ${
+                mobileWaPanel === 'CHATS'
+                  ? 'haseb-btn-primary text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+              }`}
+            >
+              <span>المحادثات</span>
+              <span className="px-1.5 py-0.2 rounded-full bg-black/15 text-[10px] font-mono">
+                {whatsappChats.length}
+              </span>
+            </button>
+            <button
+              type="button"
+              data-testid="comm-mobile-sub-active"
+              onClick={() => setMobileWaPanel('ACTIVE_CHAT')}
+              className={`py-2 px-1 rounded-xl text-[11px] font-bold transition cursor-pointer flex items-center justify-center gap-1 ${
+                mobileWaPanel === 'ACTIVE_CHAT'
+                  ? 'haseb-btn-primary text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+              }`}
+            >
+              <span>الدردشة</span>
+            </button>
+            <button
+              type="button"
+              data-testid="comm-mobile-sub-pairing"
+              onClick={() => setMobileWaPanel('PAIRING')}
+              className={`py-2 px-1 rounded-xl text-[11px] font-bold transition cursor-pointer flex items-center justify-center gap-1 ${
+                mobileWaPanel === 'PAIRING'
+                  ? 'haseb-btn-primary text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+              }`}
+            >
+              <span>الربط والباركود</span>
+            </button>
+            <button
+              type="button"
+              data-testid="comm-mobile-sub-docs"
+              onClick={() => setMobileWaPanel('DOCS')}
+              className={`py-2 px-1 rounded-xl text-[11px] font-bold transition cursor-pointer flex items-center justify-center gap-1 ${
+                mobileWaPanel === 'DOCS'
+                  ? 'haseb-btn-primary text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+              }`}
+            >
+              <span>المستندات</span>
+            </button>
+          </div>
+
+          {/* MULTI-ACCOUNT SWITCHER BAR (Shown in Pairing on mobile, always on lg+) */}
+          <div className={`${mobileWaPanel === 'PAIRING' ? 'block' : 'hidden'} lg:block bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-3 shadow-sm`}>
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2 mb-2.5">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
@@ -1199,8 +1389,9 @@ export const CommunicationsView: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-            {/* Status & Real ISO QR Pairing Card (Left Column) */}
-            <div className="lg:col-span-4 space-y-4 min-w-0">
+            {/* Status & Real ISO QR Pairing Card + ERP Docs (Left Column on desktop, controlled by mobileWaPanel on mobile) */}
+            <div className={`${mobileWaPanel === 'PAIRING' || mobileWaPanel === 'DOCS' ? 'block' : 'hidden'} lg:block lg:col-span-4 space-y-4 min-w-0`}>
+              <div className={`${mobileWaPanel === 'PAIRING' ? 'block' : 'hidden'} lg:block`}>
               {whatsappSession.status !== 'CONNECTED' ? (
                 /* REAL ISO/IEC 18004 QR Code & 8-Digit Code Pairing Box */
                 <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-4">
@@ -1472,11 +1663,12 @@ export const CommunicationsView: React.FC = () => {
                     <Power className="w-3.5 h-3.5" />
                     <span>تغيير الجهاز / توليد باركود QR رسمي جديد</span>
                   </button>
-                </div>
+              </div>
               )}
+              </div>
 
-              {/* Integrated Real Quick-Send & Financial Document Composer (Replaces separate QuickSend modal) */}
-              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm space-y-3 min-w-0 overflow-hidden">
+              {/* Integrated Real Quick-Send & Financial Document Composer */}
+              <div className={`${mobileWaPanel === 'DOCS' ? 'block' : 'hidden'} lg:block bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm space-y-3 min-w-0 overflow-hidden`}>
                 <div className="flex items-center justify-between gap-2">
                   <h4 className="font-black text-xs text-slate-800 dark:text-slate-100 flex items-center gap-2 truncate">
                     <Zap className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -1495,18 +1687,24 @@ export const CommunicationsView: React.FC = () => {
                   <div className="flex gap-1.5 min-w-0">
                     <select
                       value={selectedRealInvoiceId}
+                      disabled={salesInvoices.length === 0}
                       onChange={(e) => setSelectedRealInvoiceId(e.target.value)}
-                      className="flex-1 min-w-0 truncate px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-[11px] font-bold"
+                      className="flex-1 min-w-0 truncate px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-[11px] font-bold disabled:opacity-60"
                     >
-                      {salesInvoices.map((inv) => (
-                        <option key={inv.id} value={inv.id}>
-                          {inv.invoiceNumber} — {inv.customerName} ({formatCurrency(inv.grandTotal)})
-                        </option>
-                      ))}
+                      {salesInvoices.length === 0 ? (
+                        <option value="">لا توجد فواتير مبيعات مسجلة بعد</option>
+                      ) : (
+                        salesInvoices.map((inv) => (
+                          <option key={inv.id} value={inv.id}>
+                            {inv.invoiceNumber} — {inv.customerName} ({formatCurrency(inv.grandTotal)})
+                          </option>
+                        ))
+                      )}
                     </select>
                     <button
                       type="button"
                       data-testid="quick-send-invoice-btn"
+                      disabled={salesInvoices.length === 0}
                       onClick={() => {
                         const inv =
                           salesInvoices.find((i) => i.id === selectedRealInvoiceId) ||
@@ -1517,7 +1715,7 @@ export const CommunicationsView: React.FC = () => {
                         const chatId = startOrOpenWhatsAppChat(inv.customerName, phone, cust?.id);
                         const composed = composeInvoiceMessageText({
                           invoice: inv,
-                          companyName: company.nameAr || company.name,
+                          companyName: company.nameAr || company.name || 'المنشأة',
                           branchName: currentBranch.nameAr,
                           currency,
                           includeItems: true,
@@ -1528,11 +1726,12 @@ export const CommunicationsView: React.FC = () => {
                         setAccountToast(
                           `تم إرسال الفاتورة (${inv.invoiceNumber}) مباشرة في محادثة (${inv.customerName}) وعبر واتساب!`
                         );
+                        setMobileWaPanel('ACTIVE_CHAT');
                       }}
-                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[11px] font-bold cursor-pointer shrink-0 flex items-center gap-1"
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-[11px] font-bold cursor-pointer shrink-0 flex items-center gap-1"
                     >
                       <Send className="w-3 h-3" />
-                      <span>إرسال الفاتورة</span>
+                      <span>إرسال</span>
                     </button>
                   </div>
                 </div>
@@ -1545,18 +1744,24 @@ export const CommunicationsView: React.FC = () => {
                   <div className="flex gap-1.5 min-w-0">
                     <select
                       value={selectedRealCustomerId}
+                      disabled={customers.length === 0}
                       onChange={(e) => setSelectedRealCustomerId(e.target.value)}
-                      className="flex-1 min-w-0 truncate px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-[11px] font-bold"
+                      className="flex-1 min-w-0 truncate px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-[11px] font-bold disabled:opacity-60"
                     >
-                      {customers.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.nameAr} — الرصيد: {formatCurrency(c.balance)}
-                        </option>
-                      ))}
+                      {customers.length === 0 ? (
+                        <option value="">لا يوجد عملاء مسجلون بعد</option>
+                      ) : (
+                        customers.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.nameAr} — الرصيد: {formatCurrency(c.balance)}
+                          </option>
+                        ))
+                      )}
                     </select>
                     <button
                       type="button"
                       data-testid="quick-send-debt-btn"
+                      disabled={customers.length === 0}
                       onClick={() => {
                         const cust =
                           customers.find((c) => c.id === selectedRealCustomerId) || customers[0];
@@ -1570,7 +1775,7 @@ export const CommunicationsView: React.FC = () => {
                         const composed = composeDebtReminderMessageText({
                           customerName: cust.nameAr || cust.name,
                           totalBalance: Math.abs(cust.balance || 0),
-                          companyName: company.nameAr || company.name,
+                          companyName: company.nameAr || company.name || 'المنشأة',
                           currency,
                           customSignatureAr: messagingGatewayConfig.customSignatureAr,
                         });
@@ -1578,11 +1783,12 @@ export const CommunicationsView: React.FC = () => {
                         setAccountToast(
                           `تم إرسال كشف الحساب ومطالبة السداد إلى (${cust.nameAr}) مباشرة!`
                         );
+                        setMobileWaPanel('ACTIVE_CHAT');
                       }}
-                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-[11px] font-bold cursor-pointer shrink-0 flex items-center gap-1"
+                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-xl text-[11px] font-bold cursor-pointer shrink-0 flex items-center gap-1"
                     >
                       <Send className="w-3 h-3" />
-                      <span>إرسال المطالبة</span>
+                      <span>إرسال</span>
                     </button>
                   </div>
                 </div>
@@ -1595,18 +1801,24 @@ export const CommunicationsView: React.FC = () => {
                   <div className="flex gap-1.5 min-w-0">
                     <select
                       value={selectedRealRmaId}
+                      disabled={warrantyTickets.length === 0}
                       onChange={(e) => setSelectedRealRmaId(e.target.value)}
-                      className="flex-1 min-w-0 truncate px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-[11px] font-bold"
+                      className="flex-1 min-w-0 truncate px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-[11px] font-bold disabled:opacity-60"
                     >
-                      {warrantyTickets.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.ticketNumber} — {t.customerName} ({t.productName.slice(0, 22)})
-                        </option>
-                      ))}
+                      {warrantyTickets.length === 0 ? (
+                        <option value="">لا توجد تذاكر صيانة مسجلة بعد</option>
+                      ) : (
+                        warrantyTickets.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.ticketNumber} — {t.customerName} ({t.productName.slice(0, 22)})
+                          </option>
+                        ))
+                      )}
                     </select>
                     <button
                       type="button"
                       data-testid="quick-send-rma-btn"
+                      disabled={warrantyTickets.length === 0}
                       onClick={() => {
                         const rma =
                           warrantyTickets.find((t) => t.id === selectedRealRmaId) ||
@@ -1621,11 +1833,12 @@ export const CommunicationsView: React.FC = () => {
                         setAccountToast(
                           `تم إرسال تقرير الضمان (${rma.ticketNumber}) إلى (${rma.customerName}) مباشرة!`
                         );
+                        setMobileWaPanel('ACTIVE_CHAT');
                       }}
-                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[11px] font-bold cursor-pointer shrink-0 flex items-center gap-1"
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-[11px] font-bold cursor-pointer shrink-0 flex items-center gap-1"
                     >
                       <Send className="w-3 h-3" />
-                      <span>إرسال التقرير</span>
+                      <span>إرسال</span>
                     </button>
                   </div>
                 </div>
@@ -1633,10 +1846,10 @@ export const CommunicationsView: React.FC = () => {
             </div>
 
             {/* WhatsApp Chat Split-Screen (Right Column - 8 Cols) */}
-            <div className="lg:col-span-8 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col md:flex-row h-[560px]">
+            <div className={`${mobileWaPanel === 'CHATS' || mobileWaPanel === 'ACTIVE_CHAT' ? 'flex' : 'hidden'} lg:flex lg:col-span-8 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden flex-col md:flex-row h-[calc(100dvh-16rem)] min-h-[460px] lg:h-[580px]`}>
               {/* Contacts Sidebar */}
-              <div className="w-full md:w-80 border-b md:border-b-0 md:border-l border-slate-200 dark:border-slate-800 flex flex-col bg-slate-50/50 dark:bg-slate-900/50">
-                {/* Search Bar + New Chat Button */}
+              <div className={`${mobileWaPanel === 'CHATS' ? 'flex' : 'hidden'} lg:flex w-full md:w-80 border-b md:border-b-0 md:border-l border-slate-200 dark:border-slate-800 flex-col bg-slate-50/50 dark:bg-slate-900/50 min-h-0 flex-1 lg:flex-initial`}>
+                {/* Search Bar + Filter Chips + New Chat Button */}
                 <div className="p-3 border-b border-slate-200 dark:border-slate-800 space-y-2">
                   <div className="flex items-center gap-1.5">
                     <div className="relative flex-1">
@@ -1717,66 +1930,137 @@ export const CommunicationsView: React.FC = () => {
                       </button>
                     </form>
                   )}
+                  {/* Contact List Filters */}
+                  <div className="flex items-center gap-1">
+                    {([
+                      { id: 'ALL', label: 'الكل' },
+                      { id: 'UNREAD', label: 'غير مقروء' },
+                      { id: 'DEBTORS', label: 'مدينون' },
+                    ] as const).map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => setChatFilterMode(f.id)}
+                        className={`flex-1 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                          chatFilterMode === f.id
+                            ? 'bg-emerald-600 text-white shadow-2xs'
+                            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                        }`}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 {/* Chat List */}
                 <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
-                  {filteredChats.map((chat) => {
-                    const isSelected = chat.id === activeChat.id;
-                    return (
+                  {filteredChats.length === 0 ? (
+                    <div className="p-8 text-center space-y-2">
+                      <MessageSquare className="w-8 h-8 text-slate-300 mx-auto" />
+                      <p className="text-xs font-bold text-slate-500">لا توجد محادثات مطابقة حالياً</p>
                       <button
-                        key={chat.id}
                         type="button"
-                        onClick={() => setActiveWhatsAppChatId(chat.id)}
-                        className={`w-full p-3.5 text-right flex items-start gap-3 transition-colors cursor-pointer ${
-                          isSelected
-                            ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-r-4 border-emerald-500'
-                            : 'hover:bg-slate-100 dark:hover:bg-slate-800/40'
-                        }`}
+                        onClick={() => setShowNewChatForm(true)}
+                        className="px-3 py-1.5 bg-emerald-600 text-white rounded-xl text-[11px] font-bold cursor-pointer"
                       >
-                        <div className="w-11 h-11 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center font-bold text-sm shrink-0">
-                          {Array.from(chat.contactName.trim())[0] || '💬'}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between mb-0.5">
-                            <h5 className="text-xs font-black text-slate-800 dark:text-slate-100 truncate">
-                              {chat.contactName}
-                            </h5>
-                            <span className="text-[10px] text-slate-400 font-mono">
-                              {chat.lastMessageTime}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                              {chat.lastMessage}
-                            </p>
-                            {chat.unreadCount > 0 && (
-                              <span className="px-1.5 py-0.5 bg-emerald-500 text-white rounded-full text-[10px] font-black">
-                                {chat.unreadCount}
-                              </span>
-                            )}
-                          </div>
-                        </div>
+                        + بدء محادثة جديدة
                       </button>
-                    );
-                  })}
+                    </div>
+                  ) : (
+                    filteredChats.map((chat) => {
+                      const isSelected = chat.id === activeChat.id;
+                      const isPinned = pinnedChatIds.includes(chat.id);
+                      const matchedCust = getMatchedCustomerForChat(chat.contactName, chat.contactPhone);
+                      return (
+                        <div
+                          key={chat.id}
+                          className={`w-full p-3.5 text-right flex items-start gap-2.5 transition-colors ${
+                            isSelected
+                              ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-r-4 border-emerald-500'
+                              : 'hover:bg-slate-100 dark:hover:bg-slate-800/40'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveWhatsAppChatId(chat.id);
+                              setMobileWaPanel('ACTIVE_CHAT');
+                            }}
+                            className="flex-1 min-w-0 flex items-start gap-2.5 text-right cursor-pointer"
+                          >
+                            <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center font-bold text-sm shrink-0">
+                              {Array.from(chat.contactName.trim())[0] || '💬'}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between mb-0.5 gap-1">
+                                <h5 className="text-xs font-black text-slate-800 dark:text-slate-100 truncate">
+                                  {chat.contactName}
+                                </h5>
+                                <span className="text-[10px] text-slate-400 font-mono shrink-0">
+                                  {chat.lastMessageTime}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between gap-1">
+                                <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                                  {chat.lastMessage || 'لا توجد رسائل بعد'}
+                                </p>
+                                {chat.unreadCount > 0 && (
+                                  <span className="px-1.5 py-0.5 bg-emerald-500 text-white rounded-full text-[10px] font-black shrink-0">
+                                    {chat.unreadCount}
+                                  </span>
+                                )}
+                              </div>
+                              {matchedCust && Number(matchedCust.balance) > 0 && (
+                                <span className="inline-block mt-1 px-1.5 py-0.2 bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200/70 dark:border-amber-800 rounded text-[9px] font-bold font-mono">
+                                  رصيد: {formatCurrency(matchedCust.balance)}
+                                </span>
+                              )}
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => togglePinChat(chat.id)}
+                            title={isPinned ? 'إلغاء تثبيت المحادثة' : 'تثبيت المحادثة بالأعلى'}
+                            className={`p-1 rounded-lg transition cursor-pointer shrink-0 ${
+                              isPinned
+                                ? 'text-emerald-600 bg-emerald-100 dark:bg-emerald-950/60'
+                                : 'text-slate-400 hover:text-slate-600'
+                            }`}
+                          >
+                            <Pin className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </div>
 
               {/* Live Chat Window */}
-              <div className="flex-1 flex flex-col bg-[#efeae2] dark:bg-slate-950">
-                {/* Chat Header (Real-Time Live Status & Quick Actions — Zero Simulation) */}
-                <div className="px-5 py-3.5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-emerald-600 text-white flex items-center justify-center font-black text-sm">
+              <div className={`${mobileWaPanel === 'ACTIVE_CHAT' ? 'flex' : 'hidden'} lg:flex flex-1 flex-col bg-[#efeae2] dark:bg-slate-950 min-h-0`}>
+                {/* Chat Header (Real-Time Live Status & Quick Actions) */}
+                <div className="px-3 sm:px-5 py-3 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                    <button
+                      type="button"
+                      data-testid="comm-mobile-chat-back"
+                      onClick={() => setMobileWaPanel('CHATS')}
+                      className="lg:hidden p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 cursor-pointer shrink-0 flex items-center gap-1 text-[11px] font-bold"
+                      aria-label="رجوع إلى قائمة المحادثات"
+                    >
+                      <ArrowRight className="w-4 h-4" />
+                      <span>رجوع</span>
+                    </button>
+                    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-emerald-600 text-white flex items-center justify-center font-black text-sm shrink-0">
                       {Array.from(activeChat.contactName.trim())[0] || '💬'}
                     </div>
-                    <div>
-                      <h4 className="text-sm font-black text-slate-800 dark:text-slate-100">
+                    <div className="min-w-0">
+                      <h4 className="text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100 truncate">
                         {activeChat.contactName}
                       </h4>
-                      <p className="text-xs text-slate-500 font-mono flex items-center gap-2">
-                        <span>{activeChat.contactPhone}</span>
+                      <p className="text-[11px] text-slate-500 font-mono flex items-center gap-1.5 flex-wrap">
+                        <span>{activeChat.contactPhone || '—'}</span>
                         <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
                           • عبر: {activeAccountObj?.accountLabel}
                         </span>
@@ -1784,7 +2068,7 @@ export const CommunicationsView: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     {/* Chat Header Robot Icon Button (Inactive by default -> Active Emerald/Cyan when clicked) */}
                     <button
                       type="button"
@@ -1920,7 +2204,20 @@ export const CommunicationsView: React.FC = () => {
 
                 {/* Messages Body */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                  {activeChat.messages.map((msg, mIdx) => {
+                  {activeChat.messages.length === 0 ? (
+                    <div className="h-full min-h-[220px] flex flex-col items-center justify-center text-center px-6 py-8">
+                      <div className="w-12 h-12 rounded-2xl bg-white/90 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 flex items-center justify-center shadow-2xs mb-3">
+                        <MessageSquare className="w-6 h-6 text-emerald-600" />
+                      </div>
+                      <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                        ابدأ المحادثة مع عملائك مباشرة من هنا
+                      </h4>
+                      <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 max-w-md">
+                        اربط حساب واتساب بمسح الباركود على اليمين ثم اختر أي محادثة أو أنشئ محادثة جديدة لإرسال الفواتير وسندات القبض وكشوف الحساب فوراً.
+                      </p>
+                    </div>
+                  ) : (
+                    activeChat.messages.map((msg, mIdx) => {
                     const isOutbound = msg.sender === 'ME';
                     return (
                       <div
@@ -1964,7 +2261,8 @@ export const CommunicationsView: React.FC = () => {
                         </div>
                       </div>
                     );
-                  })}
+                    })
+                  )}
                 </div>
 
                 {/* ======================================================== */}
@@ -2311,119 +2609,309 @@ export const CommunicationsView: React.FC = () => {
       )}
 
       {/* ======================================================== */}
-      {/* TAB 2: UNIFIED QUICK-SEND TEMPLATES & OUTBOUND LOG       */}
+      {/* TAB 2: BULK CAMPAIGNS, QUICK-SEND & OUTBOUND LOG         */}
       {/* ======================================================== */}
       {activeTab === 'QUICK_SEND_LOG' && (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm space-y-5">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-4">
-            <div>
-              <h3 className="text-base font-black text-slate-800 dark:text-slate-100">
-                مركز الإرسال الفوري الموحد وسجل الرسائل الصادرة ({outboundMessages.length} رسالة)
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                إرسال التقارير المالية للإدارة العليا، الفواتير، ومطالبات السداد، مع توثيق لحظي لكافة الرسائل المرسلة عبر واتساب وSMS
-              </p>
+        <div className="space-y-4">
+          {/* Bulk WhatsApp Broadcast Campaign Card */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-5 shadow-sm space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <span className="w-9 h-9 rounded-xl haseb-btn-primary text-white flex items-center justify-center shrink-0">
+                  <Megaphone className="w-4 h-4" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-black text-slate-800 dark:text-slate-100">
+                    منظومة الحملات الجماعية وإعلانات واتساب المخصصة
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    استهدف العملاء أو المدينين برسائل مخصصة باسم كل عميل ورصيده بضغطة زر
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  const fin = calculateDynamicFinancialStatements(
+                    chartAccounts,
+                    journalEntries,
+                    salesInvoices,
+                    []
+                  );
+                  const cashBal = fin.effectiveAccounts
+                    .filter((a) => a.code === '1101' || a.code === '1102')
+                    .reduce((s, a) => s + Math.max(0, a.effectiveBalance), 0);
+                  const arBal = customers.reduce((s, c) => s + Math.max(0, c.balance), 0);
+                  const lowStockCount = products.filter((p) => p.stockQty <= p.reorderPoint).length;
+                  const reportText = composeExecutiveReportMessageText({
+                    companyName: company.nameAr || company.name || 'المنشأة',
+                    reportTitleAr: 'التقرير المالي والتشغيلي اللحظي للإدارة العليا',
+                    totalRevenue: fin.revenues,
+                    netProfit: fin.netIncome,
+                    cashBalance: cashBal,
+                    receivablesTotal: arBal,
+                    payablesTotal: fin.totalLiabilities,
+                    lowStockCount,
+                    currency,
+                    activeIndustryAr: currentIndustryBlueprint.nameAr,
+                  });
+                  await sendWhatsAppOrSmsMessage({
+                    channel: 'WHATSAPP',
+                    category: 'FINANCIAL_REPORT',
+                    recipientName: 'الإدارة العليا / المالك',
+                    recipientPhone: messagingGatewayConfig.ownerReportPhone || company.phone || '',
+                    referenceNumber: `REP-${new Date().toISOString().slice(0, 10)}`,
+                    messageBody: reportText,
+                  });
+                  setAccountToast('تم إرسال التقرير المالي اللحظي للإدارة العليا عبر واتساب وتوثيقه في السجل!');
+                  setActiveTab('WHATSAPP');
+                }}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer shadow-xs shrink-0"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>إرسال التقرير التنفيذي للإدارة</span>
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={async () => {
-                const fin = calculateDynamicFinancialStatements(
-                  chartAccounts,
-                  journalEntries,
-                  salesInvoices,
-                  []
-                );
-                const cashBal = fin.effectiveAccounts
-                  .filter((a) => a.code === '1101' || a.code === '1102')
-                  .reduce((s, a) => s + Math.max(0, a.effectiveBalance), 0);
-                const arBal = customers.reduce((s, c) => s + Math.max(0, c.balance), 0);
-                const lowStockCount = products.filter((p) => p.stockQty <= p.reorderPoint).length;
-                const reportText = composeExecutiveReportMessageText({
-                  companyName: company.nameAr || company.name,
-                  reportTitleAr: 'التقرير المالي والتشغيلي اللحظي للإدارة العليا',
-                  totalRevenue: fin.revenues,
-                  netProfit: fin.netIncome,
-                  cashBalance: cashBal,
-                  receivablesTotal: arBal,
-                  payablesTotal: fin.totalLiabilities,
-                  lowStockCount,
-                  currency,
-                  activeIndustryAr: currentIndustryBlueprint.nameAr,
-                });
-                await sendWhatsAppOrSmsMessage({
-                  channel: 'WHATSAPP',
-                  category: 'FINANCIAL_REPORT',
-                  recipientName: 'الإدارة العليا / المالك',
-                  recipientPhone: messagingGatewayConfig.ownerReportPhone || '+967 771 445 880',
-                  referenceNumber: `REP-${new Date().toISOString().slice(0, 10)}`,
-                  messageBody: reportText,
-                });
-                setAccountToast('تم إرسال التقرير المالي اللحظي للإدارة العليا عبر واتساب وتوثيقه في السجل!');
-                setActiveTab('WHATSAPP');
-              }}
-              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer shadow-sm"
-            >
-              <Sparkles className="w-4 h-4" />
-              <span>إرسال التقرير المالي اللحظي للإدارة العليا عبر واتساب</span>
-            </button>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-start">
+              <div className="lg:col-span-4 space-y-2">
+                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                  الفئة المستهدفة ({broadcastTargets.length} عميل مطابق):
+                </label>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {([
+                    { id: 'ALL', label: 'كل العملاء' },
+                    { id: 'DEBTORS', label: 'المدينون فقط' },
+                    { id: 'REGULAR', label: 'المنتظمون' },
+                  ] as const).map((aud) => (
+                    <button
+                      key={aud.id}
+                      type="button"
+                      onClick={() => setWaBroadcastAudience(aud.id)}
+                      className={`py-2 px-2 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
+                        waBroadcastAudience === aud.id
+                          ? 'haseb-btn-primary text-white border-transparent'
+                          : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                      }`}
+                    >
+                      {aud.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10px] text-slate-500">
+                  المتغيرات المتاحة: <span className="font-mono text-emerald-600">{'{العميل}'} {'{الرصيد}'} {'{الشركة}'}</span>
+                </p>
+              </div>
+
+              <div className="lg:col-span-8 space-y-2">
+                <textarea
+                  rows={2}
+                  data-testid="wa-broadcast-message-input"
+                  value={waBroadcastMessage}
+                  onChange={(e) => setWaBroadcastMessage(e.target.value)}
+                  className="w-full p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  placeholder="اكتب نص الحملة..."
+                />
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  {waBroadcastAlert ? (
+                    <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
+                      ✓ {waBroadcastAlert}
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-slate-400">
+                      سيتم الإرسال وتوثيق جميع الرسائل في السجل فوراً.
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    data-testid="launch-wa-broadcast-btn"
+                    disabled={isSendingWaBroadcast || broadcastTargets.length === 0 || !waBroadcastMessage.trim()}
+                    onClick={handleLaunchWhatsAppBroadcast}
+                    className="px-4 py-2 haseb-btn-primary disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer"
+                  >
+                    <Megaphone className="w-3.5 h-3.5" />
+                    <span>
+                      {isSendingWaBroadcast
+                        ? 'جاري إرسال الحملة...'
+                        : `إطلاق الحملة لـ (${broadcastTargets.length}) عميل`}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs">
-              <thead>
-                <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500">
-                  <th className="py-2.5 px-3">القناة</th>
-                  <th className="py-2.5 px-3">المستلم</th>
-                  <th className="py-2.5 px-3">رقم الهاتف</th>
-                  <th className="py-2.5 px-3">المرجع</th>
-                  <th className="py-2.5 px-3">محتوى الرسالة</th>
-                  <th className="py-2.5 px-3">وقت الإرسال</th>
-                  <th className="py-2.5 px-3">الإجراء</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {outboundMessages.map((m, idx) => (
-                  <tr key={`${m.id}-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                    <td className="py-2.5 px-3 font-bold">
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] ${
-                          m.channel === 'WHATSAPP'
-                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                            : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300'
-                        }`}
-                      >
-                        {m.channel === 'WHATSAPP' ? 'واتساب فعلي' : 'SMS'}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-3 font-bold text-slate-800 dark:text-slate-100">
-                      {m.recipientName}
-                    </td>
-                    <td className="py-2.5 px-3 font-mono dir-ltr text-slate-600 dark:text-slate-300">
-                      {m.recipientPhone}
-                    </td>
-                    <td className="py-2.5 px-3 font-mono text-emerald-600">
-                      {m.referenceNumber || '—'}
-                    </td>
-                    <td className="py-2.5 px-3 max-w-md truncate text-slate-600 dark:text-slate-400">
-                      {m.messageBody}
-                    </td>
-                    <td className="py-2.5 px-3 font-mono text-[11px] text-slate-500">{m.sentAt}</td>
-                    <td className="py-2.5 px-3">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          startOrOpenWhatsAppChat(m.recipientName, m.recipientPhone);
-                          setActiveTab('WHATSAPP');
-                        }}
-                        className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 rounded-lg text-[11px] font-bold cursor-pointer"
-                      >
-                        فتح المحادثة
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          {/* Outbound Message Log Card */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-6 shadow-sm space-y-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-4">
+              <div>
+                <h3 className="text-sm sm:text-base font-black text-slate-800 dark:text-slate-100">
+                  سجل الرسائل والمستندات الصادرة ({filteredOutboundMessages.length} من {outboundMessages.length})
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  توثيق لحظي لكافة الرسائل المرسلة عبر واتساب وSMS مع دعم الفلترة والتصدير
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Channel Filter */}
+                <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                  {(['ALL', 'WHATSAPP', 'SMS'] as const).map((ch) => (
+                    <button
+                      key={ch}
+                      type="button"
+                      onClick={() => setLogChannelFilter(ch)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                        logChannelFilter === ch
+                          ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 shadow-2xs'
+                          : 'text-slate-500'
+                      }`}
+                    >
+                      {ch === 'ALL' ? 'الكل' : ch === 'WHATSAPP' ? 'واتساب' : 'SMS'}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Search Input */}
+                <div className="relative flex-1 sm:w-52">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={logSearchQuery}
+                    onChange={(e) => setLogSearchQuery(e.target.value)}
+                    placeholder="بحث بالعميل أو المرجع..."
+                    className="w-full pr-8 pl-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs"
+                  />
+                </div>
+
+                {/* Export CSV */}
+                <button
+                  type="button"
+                  data-testid="export-outbound-csv-btn"
+                  disabled={filteredOutboundMessages.length === 0}
+                  onClick={handleExportOutboundCsv}
+                  className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 disabled:opacity-50 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>تصدير CSV</span>
+                </button>
+              </div>
+            </div>
+
+            {filteredOutboundMessages.length === 0 ? (
+              <div className="py-10 text-center space-y-2">
+                <Filter className="w-8 h-8 text-slate-300 mx-auto" />
+                <p className="text-xs font-bold text-slate-500">لا توجد رسائل صادرة مسجلة حتى الآن</p>
+              </div>
+            ) : (
+              <>
+                {/* Desktop & Tablet Table */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-right text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500">
+                        <th className="py-2.5 px-3">القناة</th>
+                        <th className="py-2.5 px-3">المستلم</th>
+                        <th className="py-2.5 px-3">رقم الهاتف</th>
+                        <th className="py-2.5 px-3">المرجع</th>
+                        <th className="py-2.5 px-3">محتوى الرسالة</th>
+                        <th className="py-2.5 px-3">وقت الإرسال</th>
+                        <th className="py-2.5 px-3">الإجراء</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {filteredOutboundMessages.map((m, idx) => (
+                        <tr key={`${m.id}-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                          <td className="py-2.5 px-3 font-bold">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] ${
+                                m.channel === 'WHATSAPP'
+                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                  : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300'
+                              }`}
+                            >
+                              {m.channel === 'WHATSAPP' ? 'واتساب فعلي' : 'SMS'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 font-bold text-slate-800 dark:text-slate-100">
+                            {m.recipientName}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono dir-ltr text-slate-600 dark:text-slate-300">
+                            {m.recipientPhone}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-emerald-600">
+                            {m.referenceNumber || '—'}
+                          </td>
+                          <td className="py-2.5 px-3 max-w-md truncate text-slate-600 dark:text-slate-400">
+                            {m.messageBody}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-[11px] text-slate-500">{m.sentAt}</td>
+                          <td className="py-2.5 px-3">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                startOrOpenWhatsAppChat(m.recipientName, m.recipientPhone);
+                                setActiveTab('WHATSAPP');
+                                setMobileWaPanel('ACTIVE_CHAT');
+                              }}
+                              className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 rounded-lg text-[11px] font-bold cursor-pointer"
+                            >
+                              فتح المحادثة
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile Cards (< md) */}
+                <div className="md:hidden space-y-2.5">
+                  {filteredOutboundMessages.map((m, idx) => (
+                    <div
+                      key={`${m.id}-mob-${idx}`}
+                      className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 space-y-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold shrink-0 ${
+                              m.channel === 'WHATSAPP'
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300'
+                            }`}
+                          >
+                            {m.channel === 'WHATSAPP' ? 'واتساب' : 'SMS'}
+                          </span>
+                          <span className="text-xs font-black text-slate-800 dark:text-slate-100 truncate">
+                            {m.recipientName}
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-mono text-slate-400 shrink-0">{m.sentAt}</span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-300 line-clamp-2 leading-relaxed">
+                        {m.messageBody}
+                      </p>
+                      <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-700/60 text-[11px]">
+                        <span className="font-mono text-slate-500 dir-ltr">{m.recipientPhone}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            startOrOpenWhatsAppChat(m.recipientName, m.recipientPhone);
+                            setActiveTab('WHATSAPP');
+                            setMobileWaPanel('ACTIVE_CHAT');
+                          }}
+                          className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-[10px] font-bold cursor-pointer"
+                        >
+                          فتح المحادثة
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -2685,6 +3173,29 @@ export const CommunicationsView: React.FC = () => {
                         سبأفون / YOU / STC
                       </div>
                     </button>
+                  </div>
+
+                  {/* Quick Carrier Profile Presets */}
+                  <div className="pt-1 flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] font-bold text-slate-500">شبكة المشغل السريعة:</span>
+                    {[
+                      { label: 'يمن موبايل', op: 'Yemen Mobile 4G LTE (421-03)', slot: 1 as const },
+                      { label: 'سبأفون', op: 'Sabafon GSM/4G (421-01)', slot: 2 as const },
+                      { label: 'YOU', op: 'YOU / MTN 4G (421-02)', slot: 2 as const },
+                      { label: 'STC', op: 'STC 5G/LTE (420-01)', slot: 1 as const },
+                    ].map((preset) => (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => {
+                          updateUsbConnectedDevice({ simSlot: preset.slot, simOperator: preset.op });
+                          setAccountToast(`تم ضبط ملف شبكة (${preset.label}) بنجاح.`);
+                        }}
+                        className="px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:border-indigo-400 cursor-pointer"
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
@@ -3223,7 +3734,8 @@ export const CommunicationsView: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="overflow-x-auto max-h-80">
+                {/* Desktop Table */}
+                <div className="hidden md:block overflow-x-auto max-h-80">
                   <table className="w-full text-right text-xs">
                     <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-500 sticky top-0">
                       <tr>
@@ -3297,6 +3809,59 @@ export const CommunicationsView: React.FC = () => {
                       )}
                     </tbody>
                   </table>
+                </div>
+
+                {/* Mobile Cards (< md) */}
+                <div className="md:hidden space-y-2.5">
+                  {smsOutboundList.length === 0 ? (
+                    <div className="py-6 text-center text-xs text-slate-400">
+                      لا توجد رسائل SMS مطابقة للبحث حالياً.
+                    </div>
+                  ) : (
+                    smsOutboundList.map((msg, idx) => (
+                      <div
+                        key={`${msg.id}-sms-mob-${idx}`}
+                        className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 space-y-1.5"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-black text-slate-800 dark:text-slate-100 truncate">
+                            {msg.recipientName}
+                          </span>
+                          <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">
+                            ✓ SIM {usbConnectedDevice.simSlot}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-600 dark:text-slate-300 line-clamp-2">
+                          {msg.messageBody}
+                        </p>
+                        <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-700/60 text-[11px]">
+                          <span className="font-mono text-indigo-600 dir-ltr">
+                            {msg.normalizedPhone || msg.recipientPhone}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setSmsDispatchMode('SINGLE');
+                              setSmsPhone(msg.recipientPhone);
+                              setSmsRecipientName(msg.recipientName);
+                              setSmsRefNumber(msg.referenceNumber || '');
+                              setSmsBody(msg.messageBody);
+                              await sendSmsViaUsb(
+                                msg.recipientPhone,
+                                msg.messageBody,
+                                msg.referenceNumber,
+                                msg.recipientName
+                              );
+                              setAccountToast(`⚡ تمت إعادة إرسال الرسالة إلى (${msg.recipientName})`);
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-indigo-600 text-white text-[10px] font-bold cursor-pointer"
+                          >
+                            إعادة إرسال
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </div>

@@ -339,7 +339,7 @@ export function generateQRMatrix(payload: string, size = 25): boolean[][] {
  * Generates Code 128 linear barcode bar widths/positions for SVG invoice rendering.
  */
 export function generateLinearBarcodeBars(code: string): Array<{ x: number; width: number }> {
-  const binary = generateCode128Binary(code || 'INV-2026-1001');
+  const binary = generateCode128Binary(code || 'HSB-0001');
   const bars: Array<{ x: number; width: number }> = [];
   let i = 0;
   while (i < binary.length) {

@@ -250,3 +250,64 @@ export function filterPosCustomersForQuickPicker<T extends QuickPickerCustomerRe
   );
 }
 
+/**
+ * Builds an O(1) lookup dictionary mapping `productId -> totalQuantity` in the POS cart.
+ * Prevents O(N * M) nested `.find()` scans inside product grid rendering.
+ */
+export function buildCartQuantityLookupMap(
+  cartItems: ReadonlyArray<{ productId: string; quantity: number }>
+): Record<string, number> {
+  const map: Record<string, number> = {};
+  for (let i = 0; i < cartItems.length; i += 1) {
+    const item = cartItems[i];
+    map[item.productId] = (map[item.productId] || 0) + (Number(item.quantity) || 0);
+  }
+  return map;
+}
+
+/**
+ * Computes total unit count across POS cart items in a single pass.
+ */
+export function sumCartItemQuantities(
+  cartItems: ReadonlyArray<{ quantity: number }>
+): number {
+  let total = 0;
+  for (let i = 0; i < cartItems.length; i += 1) {
+    total += Number(cartItems[i].quantity) || 0;
+  }
+  return total;
+}
+
+export type MobilePosViewMode = 'CATALOG' | 'SPLIT' | 'CART';
+
+/**
+ * Pure layout calculator for the responsive mobile POS workspace.
+ * Supports seamless toggling between full Product Catalog, vertical Split-View,
+ * and full Cart Checkout pane without losing active search or cart context.
+ */
+export function computeMobilePosLayoutMetrics(
+  mode: MobilePosViewMode,
+  cartUnitCount: number
+): {
+  mode: MobilePosViewMode;
+  showCatalogOnMobile: boolean;
+  showCartOnMobile: boolean;
+  isSplitViewOnMobile: boolean;
+  cartUnitCount: number;
+  hasItems: boolean;
+} {
+  const safeCount = Math.max(0, Number(cartUnitCount) || 0);
+  const resolvedMode: MobilePosViewMode =
+    mode === 'CART' || mode === 'SPLIT' || mode === 'CATALOG' ? mode : 'CATALOG';
+
+  return {
+    mode: resolvedMode,
+    showCatalogOnMobile: resolvedMode === 'CATALOG' || resolvedMode === 'SPLIT',
+    showCartOnMobile: resolvedMode === 'CART' || resolvedMode === 'SPLIT',
+    isSplitViewOnMobile: resolvedMode === 'SPLIT',
+    cartUnitCount: safeCount,
+    hasItems: safeCount > 0,
+  };
+}
+
+

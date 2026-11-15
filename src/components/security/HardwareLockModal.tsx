@@ -63,7 +63,13 @@ export const HardwareLockModal: React.FC = () => {
 
     const res = activateSystemWithSerial(serialInput);
     if (!res.valid) {
-      if (res.reason === 'DEVICE_MISMATCH') {
+      if (res.reason === 'ALREADY_USED_ONCE') {
+        setActivationError(
+          language === 'ar'
+            ? 'رفض أمني صارم: تم استهلاك كود التفعيل هذا مسبقاً! كل كود تفعيل يعمل لمرة واحدة فقط على هذا الجهاز.'
+            : 'Strict Single-Use Lock: This activation serial has already been consumed on this device and cannot be reused!'
+        );
+      } else if (res.reason === 'DEVICE_MISMATCH') {
         setActivationError(
           language === 'ar'
             ? 'رفض أمني صارم: هذا السيريال مرخص لجهاز آخر مختلف في القطع الداخلية (اللوحة الأم / المعالج / القرص) ولا يعمل إلا على جهاز واحد فقط!'
@@ -74,6 +80,12 @@ export const HardwareLockModal: React.FC = () => {
           language === 'ar'
             ? 'انتهت صلاحية سيريال التفعيل هذا. يرجى طلب سيريال تجديد مشفر من نظام التراخيص المستقل.'
             : 'This activation serial has expired. Request a renewal serial from the standalone licensing server.'
+        );
+      } else if (res.reason === 'CLOCK_TAMPERED') {
+        setActivationError(
+          language === 'ar'
+            ? 'رفض أمني صارم: تم رصد إرجاع ساعة الجهاز للخلف! يرجى ضبط تاريخ ووقت الجهاز الحقيقي.'
+            : 'Anti-Tamper Lock: System clock rollback detected!'
         );
       } else {
         setActivationError(
@@ -167,7 +179,7 @@ export const HardwareLockModal: React.FC = () => {
               type="button"
               data-testid="open-decoupled-keygen-portal-btn"
               onClick={() => setIsStandaloneKeygenOpen(true)}
-              className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
+              className="px-4 py-2 rounded-xl haseb-btn-primary text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
             >
               <ExternalLink className="w-3.5 h-3.5" />
               <span>
@@ -355,10 +367,10 @@ export const HardwareLockModal: React.FC = () => {
                   ? 'إدخال سيريال التفعيل الرسمي الصادر لهذا الجهاز فقط'
                   : 'Enter Official Single-Machine Activation Serial'}
               </div>
-              <span className="text-[11px] text-slate-500">
+              <span className="text-[11px] font-bold text-rose-700 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200">
                 {language === 'ar'
-                  ? 'لا يفتح النظام إلا بسريال موقع رقمياً لبصمة هذا الجهاز'
-                  : 'Requires valid signature matching this device'}
+                  ? 'كل كود تفعيل يعمل لمرة واحدة فقط وعلى جهاز واحد'
+                  : 'Single-use serial • Bound to one device only'}
               </span>
             </div>
 

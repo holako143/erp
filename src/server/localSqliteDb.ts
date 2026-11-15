@@ -406,6 +406,32 @@ export class HasebLocalSqliteEngine {
   }
 
   /**
+   * Clears all ERP state tables inside the local SQLite database atomically.
+   */
+  public clearAllState(): void {
+    if (!this.db) return;
+    try {
+      this.db.exec(`
+        BEGIN IMMEDIATE TRANSACTION;
+        DELETE FROM erp_kv_snapshots;
+        DELETE FROM erp_products;
+        DELETE FROM erp_sales_invoices;
+        DELETE FROM erp_serial_registry;
+        DELETE FROM erp_customers;
+        DELETE FROM erp_journal_entries;
+        COMMIT;
+      `);
+    } catch (err) {
+      try {
+        this.db.exec('ROLLBACK');
+      } catch {
+        // ignore rollback error
+      }
+      console.error('[Haseb Local SQLite] Clear state error:', err);
+    }
+  }
+
+  /**
    * Records a connected LAN / Desktop client device accessing the local database.
    */
   public recordLanDeviceActivity(ipAddress: string, userAgent: string): void {

@@ -46,6 +46,28 @@ export interface InvoiceTemplateSettings {
   showStampAndSignature: boolean;
   showWarrantyTerms: boolean;
   accentColor: 'indigo' | 'emerald' | 'amber' | 'rose' | 'slate';
+  // Extended full template control & customization options
+  primaryColorHex?: string;
+  secondaryColorHex?: string;
+  fontScale?: 'compact' | 'normal' | 'large';
+  paperMargin?: 'narrow' | 'normal' | 'wide';
+  logoSize?: 'sm' | 'md' | 'lg';
+  logoPosition?: 'center' | 'right' | 'left';
+  showCompanyLogo?: boolean;
+  showCompanyNameEn?: boolean;
+  showCustomerPhone?: boolean;
+  showCustomerId?: boolean;
+  showItemSku?: boolean;
+  showItemDiscount?: boolean;
+  showItemTax?: boolean;
+  showSerialAndWarranty?: boolean;
+  showTafqeet?: boolean;
+  showBankAccounts?: boolean;
+  customBankDetailsAr?: string;
+  showWatermark?: boolean;
+  watermarkText?: string;
+  qrSizePx?: number;
+  barcodeWidthPx?: number;
 }
 
 export type UserRole =
@@ -81,6 +103,7 @@ export interface Company {
   crNumber: string;
   currency: Currency;
   logoUrl?: string;
+  logo?: string;
   address: string;
   phone: string;
   email: string;
@@ -378,6 +401,7 @@ export interface LandedCost {
 export interface Customer {
   id: string;
   tenantId: string;
+  code?: string;
   name: string;
   nameAr: string;
   taxNumber?: string;

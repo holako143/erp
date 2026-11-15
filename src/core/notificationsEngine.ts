@@ -8,9 +8,12 @@ import { Product, Customer, SalesInvoice, WarrantyMaintenanceTicket, POSHoldBill
 
 export type SystemNotificationCategory =
   | 'ALL'
+  | 'LIVE_EVENTS'       // أحداث لحظية مسجلة بالنظام (مبيعات، مخزون، مقبوضات)
   | 'DEBT_OVERDUE'      // مديونيات العملاء والموردين وتجاوز حدود الائتمان
   | 'LOW_STOCK'         // أصناف بلغت حد إعادة الطلب
   | 'OUT_OF_STOCK'      // إشعارات النواقص ونفاد المخزون التام
+  | 'WHATSAPP_INBOX'    // رسائل واتساب العملاء غير المقروءة
+  | 'PURCHASE_ORDERS'   // أوامر الشراء بانتظار الاعتماد والاستلام
   | 'MAINTENANCE_RMA'   // تذكيرات الصيانة والضمان ومواعيد التسليم
   | 'SYSTEM_BACKUP'     // حفظ نسخ احتياطية للنظام وتنبيهات الأمان
   | 'HELD_INVOICES'     // الفواتير المعلقة ومسودات الكاشير
@@ -18,6 +21,18 @@ export type SystemNotificationCategory =
   | 'BRANCH_SYNC';      // مزامنة الفروع والتحويلات المعلقة
 
 export type NotificationSeverity = 'critical' | 'warning' | 'info' | 'success';
+
+export type NotificationActionType =
+  | 'DEBTS'
+  | 'INVENTORY'
+  | 'PURCHASING'
+  | 'MAINTENANCE'
+  | 'BACKUP'
+  | 'POS'
+  | 'SETTINGS'
+  | 'BRANCH_TRANSFERS'
+  | 'COMMUNICATIONS'
+  | 'SALES';
 
 export interface SystemNotification {
   id: string;
@@ -30,7 +45,7 @@ export interface SystemNotification {
   timestamp: string;
   isRead: boolean;
   count?: number;
-  actionType?: 'DEBTS' | 'INVENTORY' | 'PURCHASING' | 'MAINTENANCE' | 'BACKUP' | 'POS' | 'SETTINGS' | 'BRANCH_TRANSFERS';
+  actionType?: NotificationActionType;
   actionPayload?: any;
   actionLabelAr?: string;
   actionLabelEn?: string;
@@ -74,7 +89,7 @@ export function playScannerBeep(isSuccess = true) {
   }
 }
 
-interface NotificationEngineInput {
+export interface NotificationEngineInput {
   products: Product[];
   customers: Customer[];
   salesInvoices: SalesInvoice[];
@@ -84,6 +99,44 @@ interface NotificationEngineInput {
   currency: string;
   lastBackupTimestamp?: string | null;
   pendingTransfersCount?: number;
+  whatsappUnreadCount?: number;
+  pendingPurchaseOrdersCount?: number;
+  pendingPurchaseOrdersTotal?: number;
+  liveEventNotifications?: SystemNotification[];
+}
+
+/**
+ * Computes active notifications and accurate unread / critical badges from raw notifications
+ * and persisted read/dismissed ID sets.
+ */
+export function computeNotificationStateSummary({
+  rawNotifications,
+  readIds,
+  dismissedIds,
+}: {
+  rawNotifications: SystemNotification[];
+  readIds: Iterable<string>;
+  dismissedIds: Iterable<string>;
+}): {
+  notifications: SystemNotification[];
+  unreadCount: number;
+  criticalCount: number;
+} {
+  const readSet = new Set(readIds);
+  const dismissedSet = new Set(dismissedIds);
+
+  const notifications = rawNotifications
+    .filter((n) => !dismissedSet.has(n.id))
+    .map((n) => ({
+      ...n,
+      isRead: Boolean(n.isRead || readSet.has(n.id)),
+    }));
+
+  return {
+    notifications,
+    unreadCount: notifications.filter((n) => !n.isRead).length,
+    criticalCount: notifications.filter((n) => !n.isRead && n.severity === 'critical').length,
+  };
 }
 
 /**
@@ -99,10 +152,21 @@ export function generateSystemNotifications({
   currency,
   lastBackupTimestamp,
   pendingTransfersCount = 0,
+  whatsappUnreadCount = 0,
+  pendingPurchaseOrdersCount = 0,
+  pendingPurchaseOrdersTotal = 0,
+  liveEventNotifications = [],
 }: NotificationEngineInput): SystemNotification[] {
   const notifications: SystemNotification[] = [];
   const now = new Date();
   const nowIso = now.toISOString();
+
+  // 0. REAL-TIME SYSTEM EVENT ALERTS (Pinned first for instant audit visibility)
+  if (Array.isArray(liveEventNotifications) && liveEventNotifications.length > 0) {
+    liveEventNotifications.forEach((evt) => {
+      notifications.push(evt);
+    });
+  }
 
   // 1. OUT OF STOCK SHORTAGES (النواقص ونفاد المخزون التام) - CRITICAL
   const zeroStockProducts = products.filter((p) => p.stockQty <= 0);
@@ -261,7 +325,9 @@ export function generateSystemNotifications({
     }
   }
 
-  if (needsBackup) {
+  const hasOperationalData = products.length > 0 || salesInvoices.length > 0 || customers.length > 0;
+
+  if (needsBackup && hasOperationalData) {
     notifications.push({
       id: 'alert-system-backup-needed',
       category: 'SYSTEM_BACKUP',
@@ -277,6 +343,23 @@ export function generateSystemNotifications({
       actionType: 'BACKUP',
       actionLabelAr: 'حفظ نسخة احتياطية فوراً 💾',
       actionLabelEn: 'Instant Backup Now 💾',
+    });
+  } else if (!hasOperationalData) {
+    notifications.push({
+      id: 'alert-system-clean-ready',
+      category: 'LIVE_EVENTS',
+      severity: 'info',
+      titleAr: 'المنظومة جاهزة للعمل الفعلي ببياناتك الخاصة',
+      titleEn: 'Workspace Ready for Live Production Use',
+      messageAr:
+        'قاعدة البيانات نظيفة وخالية من أي بيانات تجريبية. يمكنك البدء بإضافة الأصناف في المخزون أو إصدار أول فاتورة مباشرة.',
+      messageEn:
+        'Database is clean and free of demo records. Start adding inventory items or issuing your first invoice.',
+      timestamp: nowIso,
+      isRead: false,
+      actionType: 'INVENTORY',
+      actionLabelAr: 'إضافة أول صنف بالمخزون ↗',
+      actionLabelEn: 'Add First Inventory Item ↗',
     });
   } else {
     notifications.push({
@@ -359,6 +442,45 @@ export function generateSystemNotifications({
       actionType: 'BRANCH_TRANSFERS',
       actionLabelAr: 'متابعة التحويلات ↗',
       actionLabelEn: 'View Transfers ↗',
+    });
+  }
+
+  // 9. UNREAD WHATSAPP CUSTOMER MESSAGES (رسائل واتساب العملاء غير المقروءة)
+  if (whatsappUnreadCount > 0) {
+    notifications.push({
+      id: `alert-whatsapp-unread-${whatsappUnreadCount}`,
+      category: 'WHATSAPP_INBOX',
+      severity: 'info',
+      titleAr: `رسائل واتساب واردة غير مقروءة (${whatsappUnreadCount} رسالة)`,
+      titleEn: `Unread WhatsApp Customer Messages (${whatsappUnreadCount})`,
+      messageAr: `توجد ${whatsappUnreadCount} محادثة عملاء نشطة بانتظار الرد في مركز التواصل والواتساب المتكامل.`,
+      messageEn: `You have ${whatsappUnreadCount} unread customer WhatsApp messages awaiting response.`,
+      timestamp: nowIso,
+      isRead: false,
+      count: whatsappUnreadCount,
+      actionType: 'COMMUNICATIONS',
+      actionLabelAr: 'فتح صندوق الواتساب ↗',
+      actionLabelEn: 'Open WhatsApp Inbox ↗',
+    });
+  }
+
+  // 10. PENDING PURCHASE ORDERS (أوامر الشراء بانتظار الاعتماد والاستلام)
+  if (pendingPurchaseOrdersCount > 0) {
+    const cleanPoTotal = Math.round(Number(pendingPurchaseOrdersTotal) || 0).toLocaleString('en-US');
+    notifications.push({
+      id: `alert-pending-pos-${pendingPurchaseOrdersCount}`,
+      category: 'PURCHASE_ORDERS',
+      severity: 'warning',
+      titleAr: `أوامر شراء بانتظار الاستلام (${pendingPurchaseOrdersCount} طلب)`,
+      titleEn: `Pending Purchase Orders (${pendingPurchaseOrdersCount})`,
+      messageAr: `يوجد ${pendingPurchaseOrdersCount} أمر شراء بقيمة ${cleanPoTotal} ${currency} بانتظار الاعتماد وإثبات الاستلام المخزني.`,
+      messageEn: `${pendingPurchaseOrdersCount} purchase orders (${cleanPoTotal} ${currency}) awaiting receiving confirmation.`,
+      timestamp: nowIso,
+      isRead: false,
+      count: pendingPurchaseOrdersCount,
+      actionType: 'PURCHASING',
+      actionLabelAr: 'مراجعة المشتريات ↗',
+      actionLabelEn: 'Review Purchase Orders ↗',
     });
   }
 

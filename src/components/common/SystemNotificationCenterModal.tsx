@@ -16,7 +16,6 @@ import { useERP } from '../../context/ERPContext';
 import {
   SystemNotification,
   SystemNotificationCategory,
-  generateSystemNotifications,
 } from '../../core/notificationsEngine';
 
 interface SystemNotificationCenterModalProps {
@@ -29,27 +28,23 @@ export const SystemNotificationCenterModal: React.FC<SystemNotificationCenterMod
   onClose,
 }) => {
   const {
-    products,
-    customers,
-    salesInvoices,
-    warrantyTickets,
-    holdBills,
-    currentShift,
-    currency,
     language,
     setActiveTab,
     exportEncryptedDatabaseSnapshot,
-    interBranchTransfers,
     uiTheme,
+    systemNotifications,
+    unreadNotificationsCount,
+    criticalNotificationsCount,
+    markNotificationRead,
+    toggleNotificationRead,
+    markAllNotificationsRead,
+    dismissNotification,
+    clearReadNotifications,
+    recordBackupCompleted,
   } = useERP();
 
   const [activeCategoryFilter, setActiveCategoryFilter] =
     useState<SystemNotificationCategory>('ALL');
-  const [readNotificationIds, setReadNotificationIds] = useState<Set<string>>(new Set());
-  const [dismissedNotificationIds, setDismissedNotificationIds] = useState<Set<string>>(new Set());
-  const [lastBackupTimestamp, setLastBackupTimestamp] = useState<string | null>(() => {
-    return localStorage.getItem('rlm_last_backup_timestamp');
-  });
   const [backupBannerSuccess, setBackupBannerSuccess] = useState<string | null>(null);
 
   useEffect(() => {
@@ -63,42 +58,7 @@ export const SystemNotificationCenterModal: React.FC<SystemNotificationCenterMod
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  // Generate dynamic system notifications across all operational modules
-  const rawNotifications = useMemo(() => {
-    return generateSystemNotifications({
-      products,
-      customers,
-      salesInvoices,
-      warrantyTickets,
-      holdBills,
-      currentShift,
-      currency,
-      lastBackupTimestamp,
-      pendingTransfersCount: interBranchTransfers.filter(
-        (t) => t.status === 'PENDING_APPROVAL' || t.status === 'IN_TRANSIT'
-      ).length,
-    });
-  }, [
-    products,
-    customers,
-    salesInvoices,
-    warrantyTickets,
-    holdBills,
-    currentShift,
-    currency,
-    lastBackupTimestamp,
-    interBranchTransfers,
-  ]);
-
-  // Apply read and dismissed states
-  const activeNotifications = useMemo(() => {
-    return rawNotifications
-      .filter((n) => !dismissedNotificationIds.has(n.id))
-      .map((n) => ({
-        ...n,
-        isRead: n.isRead || readNotificationIds.has(n.id),
-      }));
-  }, [rawNotifications, dismissedNotificationIds, readNotificationIds]);
+  const activeNotifications = systemNotifications;
 
   // Filter by category
   const filteredNotifications = useMemo(() => {
@@ -106,39 +66,14 @@ export const SystemNotificationCenterModal: React.FC<SystemNotificationCenterMod
     return activeNotifications.filter((n) => n.category === activeCategoryFilter);
   }, [activeNotifications, activeCategoryFilter]);
 
-  const unreadCount = activeNotifications.filter((n) => !n.isRead).length;
-  const criticalCount = activeNotifications.filter((n) => n.severity === 'critical').length;
-
-  // Actions
-  const handleMarkAllAsRead = () => {
-    const allIds = new Set(activeNotifications.map((n) => n.id));
-    setReadNotificationIds(allIds);
-  };
-
-  const handleClearRead = () => {
-    const readIds = activeNotifications.filter((n) => n.isRead).map((n) => n.id);
-    setDismissedNotificationIds((prev) => new Set([...prev, ...readIds]));
-  };
-
-  const handleDismissOne = (id: string) => {
-    setDismissedNotificationIds((prev) => new Set([...prev, id]));
-  };
-
-  const handleToggleRead = (id: string) => {
-    setReadNotificationIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
+  const unreadCount = unreadNotificationsCount;
+  const criticalCount = criticalNotificationsCount;
 
   // Instant 1-Click Backup
   const handleInstantBackup = () => {
     const backupRes = exportEncryptedDatabaseSnapshot();
     const nowIso = new Date().toISOString();
-    setLastBackupTimestamp(nowIso);
-    localStorage.setItem('rlm_last_backup_timestamp', nowIso);
+    recordBackupCompleted(nowIso);
     setBackupBannerSuccess(
       language === 'ar'
         ? `تم تنزيل النسخة الاحتياطية (${backupRes.filename}) بنجاح وتحديث حالة أمان النظام.`
@@ -147,9 +82,9 @@ export const SystemNotificationCenterModal: React.FC<SystemNotificationCenterMod
     setTimeout(() => setBackupBannerSuccess(null), 5000);
   };
 
-  // 1-Click Action Handler
+  // 1-Click Deep Action Handler
   const handleNotificationAction = (notification: SystemNotification) => {
-    handleToggleRead(notification.id);
+    markNotificationRead(notification.id);
     onClose();
 
     switch (notification.actionType) {
@@ -164,6 +99,15 @@ export const SystemNotificationCenterModal: React.FC<SystemNotificationCenterMod
         break;
       case 'MAINTENANCE':
         setActiveTab('businessModules');
+        break;
+      case 'SALES':
+        setActiveTab('sales');
+        break;
+      case 'COMMUNICATIONS':
+        setActiveTab('communications');
+        break;
+      case 'SETTINGS':
+        setActiveTab('settings');
         break;
       case 'POS':
         setActiveTab('pos');
@@ -187,6 +131,11 @@ export const SystemNotificationCenterModal: React.FC<SystemNotificationCenterMod
   const categoryTabs: { id: SystemNotificationCategory; label: string; count: number }[] = [
     { id: 'ALL', label: 'الكل', count: activeNotifications.length },
     {
+      id: 'LIVE_EVENTS',
+      label: 'أحداث النظام الفورية',
+      count: activeNotifications.filter((n) => n.category === 'LIVE_EVENTS').length,
+    },
+    {
       id: 'DEBT_OVERDUE',
       label: 'الديون والائتمان',
       count: activeNotifications.filter((n) => n.category === 'DEBT_OVERDUE').length,
@@ -200,6 +149,16 @@ export const SystemNotificationCenterModal: React.FC<SystemNotificationCenterMod
       id: 'OUT_OF_STOCK',
       label: 'النواقص الصفرية',
       count: activeNotifications.filter((n) => n.category === 'OUT_OF_STOCK').length,
+    },
+    {
+      id: 'WHATSAPP_INBOX',
+      label: 'رسائل واتساب',
+      count: activeNotifications.filter((n) => n.category === 'WHATSAPP_INBOX').length,
+    },
+    {
+      id: 'PURCHASE_ORDERS',
+      label: 'أوامر الشراء',
+      count: activeNotifications.filter((n) => n.category === 'PURCHASE_ORDERS').length,
     },
     {
       id: 'MAINTENANCE_RMA',
@@ -229,12 +188,12 @@ export const SystemNotificationCenterModal: React.FC<SystemNotificationCenterMod
       data-navbar-popover-content="NOTIFICATIONS"
       role="dialog"
       aria-label={language === 'ar' ? 'قائمة الإشعارات والتنبيهات المنسدلة' : 'Notifications Dropdown'}
-      className="absolute top-12 left-0 w-[94vw] sm:w-[540px] md:w-[580px] max-w-[calc(100vw-1.5rem)] z-50 text-xs"
+      className="fixed inset-x-3 top-14 sm:inset-x-auto sm:absolute sm:top-12 sm:left-0 w-auto sm:w-[540px] md:w-[580px] z-50 text-xs"
     >
       {/* Upward Caret Pointer directly aligned beneath the Notifications Bell Icon */}
       <div
         aria-hidden="true"
-        className={`w-3.5 h-3.5 rotate-45 absolute -top-1.5 left-3 border-t border-s z-10 ${
+        className={`hidden sm:block w-3.5 h-3.5 rotate-45 absolute -top-1.5 left-3 border-t border-s z-10 ${
           isDark
             ? 'bg-slate-900 border-slate-700'
             : 'bg-slate-50 border-slate-200/90'
@@ -258,7 +217,7 @@ export const SystemNotificationCenterModal: React.FC<SystemNotificationCenterMod
           }`}
         >
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-8.5 h-8.5 rounded-xl bg-slate-900 dark:bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
+            <div className="w-8.5 h-8.5 rounded-xl haseb-card-gradient text-white flex items-center justify-center shrink-0">
               <Bell className="w-4 h-4" />
             </div>
             <div className="min-w-0">
@@ -302,7 +261,7 @@ export const SystemNotificationCenterModal: React.FC<SystemNotificationCenterMod
 
             <button
               type="button"
-              data-testid="close-notifications-dropdown-btn"
+              data-testid="close-notifications-modal-btn"
               onClick={onClose}
               aria-label="إغلاق قائمة الإشعارات"
               className="w-7.5 h-7.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition cursor-pointer"
@@ -346,7 +305,7 @@ export const SystemNotificationCenterModal: React.FC<SystemNotificationCenterMod
                   onClick={() => setActiveCategoryFilter(tab.id)}
                   className={`px-2.5 py-1 rounded-full font-semibold transition cursor-pointer flex items-center gap-1 text-[11px] border ${
                     isActive
-                      ? 'bg-slate-900 border-slate-900 text-white dark:bg-emerald-600 dark:border-emerald-600 shadow-2xs'
+                      ? 'haseb-nav-active'
                       : 'bg-slate-50 dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100'
                   }`}
                 >
@@ -375,7 +334,8 @@ export const SystemNotificationCenterModal: React.FC<SystemNotificationCenterMod
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
-                onClick={handleMarkAllAsRead}
+                data-testid="notif-mark-all-read-btn"
+                onClick={markAllNotificationsRead}
                 className="px-2.5 py-1 rounded-lg border border-slate-200/80 dark:border-slate-700 text-[10px] font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition flex items-center gap-1 cursor-pointer"
               >
                 <CheckCheck className="w-3 h-3 text-emerald-600" />
@@ -383,7 +343,8 @@ export const SystemNotificationCenterModal: React.FC<SystemNotificationCenterMod
               </button>
               <button
                 type="button"
-                onClick={handleClearRead}
+                data-testid="notif-clear-read-btn"
+                onClick={clearReadNotifications}
                 className="px-2.5 py-1 rounded-lg border border-slate-200/80 dark:border-slate-700 text-[10px] font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition flex items-center gap-1 cursor-pointer"
               >
                 <Trash2 className="w-3 h-3 text-slate-400" />
@@ -502,7 +463,7 @@ export const SystemNotificationCenterModal: React.FC<SystemNotificationCenterMod
                             <button
                               type="button"
                               onClick={() => handleNotificationAction(notification)}
-                              className="px-2.5 py-1 rounded-lg bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 text-white font-bold text-[10px] shadow-2xs transition flex items-center gap-1 cursor-pointer"
+                              className="px-2.5 py-1 rounded-lg haseb-btn-primary font-bold text-[10px] transition flex items-center gap-1 cursor-pointer"
                             >
                               <span>{notification.actionLabelAr}</span>
                               <ArrowUpRight className="w-3 h-3" />
@@ -511,7 +472,7 @@ export const SystemNotificationCenterModal: React.FC<SystemNotificationCenterMod
 
                           <button
                             type="button"
-                            onClick={() => handleToggleRead(notification.id)}
+                            onClick={() => toggleNotificationRead(notification.id)}
                             className="px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 font-medium transition cursor-pointer"
                             title={isRead ? 'تحديد كغير مقروء' : 'تحديد كمقروء'}
                           >
@@ -520,7 +481,7 @@ export const SystemNotificationCenterModal: React.FC<SystemNotificationCenterMod
 
                           <button
                             type="button"
-                            onClick={() => handleDismissOne(notification.id)}
+                            onClick={() => dismissNotification(notification.id)}
                             className="w-6 h-6 rounded-lg hover:bg-rose-50 text-slate-400 hover:text-rose-600 flex items-center justify-center transition cursor-pointer"
                             title="إخفاء التنبيه"
                           >

@@ -27,6 +27,8 @@ import {
   TrendingUp,
   Plus,
   Minus,
+  Lock,
+  MonitorSmartphone,
 } from 'lucide-react';
 import { HasebBrandLogo } from '../common/HasebBrandLogo';
 import {
@@ -113,6 +115,10 @@ export function Sidebar() {
     uiTheme,
     masterSystemConfig,
     whatsappAccounts,
+    currentBranch,
+    currentWarehouse,
+    lockTerminal,
+    openLanPortal,
   } = useERP();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [sidebarTabScale, setSidebarTabScale] = useState<number>(() => getSavedTabScalePercent());
@@ -378,11 +384,7 @@ export function Sidebar() {
                     : 'w-full gap-2.5 px-3 py-2'
                 } ${
                   isActive
-                    ? isRoyalRail
-                      ? 'bg-indigo-600 text-white font-semibold shadow-xs'
-                      : isDarkRail
-                      ? 'bg-blue-600 text-white font-semibold shadow-xs'
-                      : 'bg-slate-900 text-white font-semibold shadow-xs'
+                    ? 'haseb-nav-active font-semibold'
                     : isDarkRail
                     ? 'text-slate-300 hover:text-white hover:bg-slate-800/80 font-medium'
                     : isSandRail
@@ -442,14 +444,18 @@ export function Sidebar() {
             >
               <div className="flex items-center justify-between text-slate-500">
                 <span>{language === 'ar' ? 'الفرع' : 'Branch'}</span>
-                <span className="font-semibold text-slate-700 dark:text-slate-200">
-                  {language === 'ar' ? 'المركز الرئيسي' : 'Main HQ'}
+                <span className="font-semibold text-slate-700 dark:text-slate-200 truncate max-w-[100px]">
+                  {language === 'ar'
+                    ? currentBranch?.nameAr || 'الفرع الرئيسي'
+                    : currentBranch?.name || 'Main Branch'}
                 </span>
               </div>
               <div className="flex items-center justify-between text-slate-500">
                 <span>{language === 'ar' ? 'المستودع' : 'Warehouse'}</span>
-                <span className="font-semibold text-slate-700 dark:text-slate-200">
-                  {language === 'ar' ? 'طاقة #1' : 'Solar #1'}
+                <span className="font-semibold text-slate-700 dark:text-slate-200 truncate max-w-[100px]">
+                  {language === 'ar'
+                    ? currentWarehouse?.nameAr || 'المستودع الرئيسي'
+                    : currentWarehouse?.name || 'Main Warehouse'}
                 </span>
               </div>
             </div>
@@ -535,9 +541,11 @@ export function Sidebar() {
       {/* Mobile & Tablet Bottom Navigation Bar (lg:hidden) — Native App Feel */}
       <nav
         data-testid="mobile-bottom-nav"
-        className={`lg:hidden fixed bottom-0 inset-x-0 z-40 px-1.5 py-1.5 border-t flex items-center justify-around shadow-lg backdrop-blur-md ${
+        className={`lg:hidden fixed bottom-0 inset-x-0 z-40 px-1.5 pt-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] border-t flex items-center justify-around shadow-lg backdrop-blur-md ${
           isDarkRail
             ? 'bg-[#080C14]/95 border-slate-800 text-slate-200'
+            : isSandRail
+            ? 'bg-[#F5EFE4]/95 border-[#DFD3BE] text-stone-800'
             : 'bg-white/95 border-slate-200/80 text-slate-700'
         }`}
       >
@@ -558,7 +566,9 @@ export function Sidebar() {
               onClick={() => setActiveTab(item.id)}
               className={`flex flex-col items-center justify-center gap-0.5 py-1 px-2 rounded-xl text-[10px] font-bold transition-all cursor-pointer min-w-[54px] ${
                 isActive
-                  ? 'bg-slate-900 text-white shadow-2xs'
+                  ? 'haseb-nav-active'
+                  : isDarkRail
+                  ? 'text-slate-400 hover:text-white'
                   : 'text-slate-500 hover:text-slate-900'
               }`}
             >
@@ -571,7 +581,9 @@ export function Sidebar() {
           type="button"
           data-testid="mobile-nav-more-btn"
           onClick={() => setIsMobileMenuOpen(true)}
-          className="flex flex-col items-center justify-center gap-0.5 py-1 px-2 rounded-xl text-[10px] font-bold text-slate-500 hover:text-slate-900 cursor-pointer min-w-[48px]"
+          className={`flex flex-col items-center justify-center gap-0.5 py-1 px-2 rounded-xl text-[10px] font-bold cursor-pointer min-w-[48px] ${
+            isDarkRail ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-900'
+          }`}
         >
           <Menu className="w-4 h-4" />
           <span>{language === 'ar' ? 'المزيد' : 'More'}</span>
@@ -580,18 +592,36 @@ export function Sidebar() {
 
       {/* Mobile Drawer Overlay */}
       {isMobileMenuOpen && (
-        <div className="lg:hidden fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex justify-end">
-          <div className="w-72 max-w-[85vw] bg-white text-slate-800 h-full p-4 overflow-y-auto flex flex-col justify-between border-s border-slate-200 shadow-2xl">
+        <div
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setIsMobileMenuOpen(false);
+          }}
+          className="lg:hidden fixed inset-0 z-50 bg-slate-950/65 backdrop-blur-xs flex justify-end"
+        >
+          <div
+            className={`w-72 max-w-[85vw] h-full p-4 overflow-y-auto flex flex-col justify-between border-s shadow-2xl ${
+              isDarkRail
+                ? 'bg-[#0B111E] text-slate-100 border-slate-800'
+                : isSandRail
+                ? 'bg-[#F5EFE4] text-stone-900 border-[#DFD3BE]'
+                : 'bg-white text-slate-800 border-slate-200'
+            }`}
+          >
             <div>
-              <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-200">
+              <div
+                className={`flex items-center justify-between pb-3 mb-3 border-b ${
+                  isDarkRail ? 'border-slate-800' : 'border-slate-200'
+                }`}
+              >
                 <div className="flex items-center gap-2.5">
                   <HasebBrandLogo size="sm" theme={uiTheme} />
-                  <span className="font-bold text-sm text-slate-900">حاسب — القائمة الكاملة</span>
+                  <span className="font-bold text-sm">حاسب — القائمة الكاملة</span>
                 </div>
                 <button
                   type="button"
+                  data-testid="mobile-drawer-close-btn"
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100 cursor-pointer"
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -611,7 +641,9 @@ export function Sidebar() {
                       }}
                       className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
                         isActive
-                          ? 'bg-slate-900 text-white shadow-xs'
+                          ? 'haseb-nav-active'
+                          : isDarkRail
+                          ? 'hover:bg-slate-800 text-slate-200'
                           : 'hover:bg-slate-100 text-slate-700'
                       }`}
                     >
@@ -620,7 +652,7 @@ export function Sidebar() {
                         <span>{item.label}</span>
                       </div>
                       {item.count !== null && (
-                        <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-700 font-mono text-[10px]">
+                        <span className="px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-mono text-[10px]">
                           {item.count}
                         </span>
                       )}
@@ -630,8 +662,34 @@ export function Sidebar() {
               </div>
             </div>
 
-            <div className="pt-4 border-t border-slate-100 text-center text-[11px] font-mono text-slate-400">
-              منظومة حاسب المحاسبية المتكاملة
+            <div className="pt-3 border-t border-slate-200/70 dark:border-slate-800 space-y-2">
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    openLanPortal();
+                  }}
+                  className="px-2.5 py-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <MonitorSmartphone className="w-3.5 h-3.5" />
+                  <span>الشبكة LAN</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    lockTerminal();
+                  }}
+                  className="px-2.5 py-2 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>قفل الشاشة</span>
+                </button>
+              </div>
+              <div className="text-center text-[11px] font-mono text-slate-400">
+                منظومة حاسب المحاسبية المتكاملة
+              </div>
             </div>
           </div>
         </div>

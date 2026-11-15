@@ -15,6 +15,8 @@ import {
   Package,
   Barcode as BarcodeIcon,
   Check,
+  ImagePlus,
+  Keyboard,
 } from 'lucide-react';
 import { Product } from '../../types/erp';
 import { playScannerBeep } from '../../core/notificationsEngine';
@@ -39,6 +41,16 @@ interface CameraBarcodeScannerModalProps {
   initialScanMode?: 'SINGLE' | 'CONTINUOUS';
 }
 
+const SUPPORTED_FORMATS = [
+  Html5QrcodeSupportedFormats.EAN_13,
+  Html5QrcodeSupportedFormats.EAN_8,
+  Html5QrcodeSupportedFormats.CODE_128,
+  Html5QrcodeSupportedFormats.CODE_39,
+  Html5QrcodeSupportedFormats.QR_CODE,
+  Html5QrcodeSupportedFormats.UPC_A,
+  Html5QrcodeSupportedFormats.UPC_E,
+];
+
 export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps> = ({
   isOpen,
   onClose,
@@ -57,6 +69,8 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
   const [selectedCameraId, setSelectedCameraId] = useState<string>('');
   const [torchOn, setTorchOn] = useState(false);
   const [hasTorch, setHasTorch] = useState(false);
+  const [manualCodeInput, setManualCodeInput] = useState('');
+  const [isScanningPhoto, setIsScanningPhoto] = useState(false);
 
   // Batch collection for Continuous Mode
   const [batchItems, setBatchItems] = useState<ScannedBatchItem[]>([]);
@@ -65,6 +79,7 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
   const [flashSuccess, setFlashSuccess] = useState(false);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
   const lastScanTimestampRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
   const html5QrCodeId = 'interactive-camera-barcode-viewport';
 
@@ -79,7 +94,45 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
     );
   };
 
-  // Start Camera Scanning
+  const initAndStartCamera = async (isMountedCheck?: () => boolean) => {
+    setCameraError(null);
+
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      setCameraActive(false);
+      setCameraError(
+        language === 'ar'
+          ? 'المتصفح الحالي لا يتيح البث المباشر للكاميرا (يتطلب HTTPS على الهواتف). يمكنك استخدام زر "التقاط صورة للكود" أو الإدخال اليدوي أدناه فوراً.'
+          : 'Live camera stream is unavailable (HTTPS required on mobile LAN). Use Capture Photo Scan or Manual Entry below.'
+      );
+      return;
+    }
+
+    try {
+      const cameras = await Html5Qrcode.getCameras();
+      if (isMountedCheck && !isMountedCheck()) return;
+
+      if (cameras && cameras.length > 0) {
+        setAvailableCameras(cameras);
+        const backCam = cameras.find(
+          (c) =>
+            c.label.toLowerCase().includes('back') ||
+            c.label.toLowerCase().includes('rear') ||
+            c.label.toLowerCase().includes('environment')
+        );
+        const activeCamId = backCam ? backCam.id : cameras[0].id;
+        setSelectedCameraId(activeCamId);
+        await startScanning(activeCamId);
+        return;
+      }
+    } catch {
+      // Enumeration may fail before first permission prompt on mobile; fall through to direct constraint start
+    }
+
+    if (isMountedCheck && !isMountedCheck()) return;
+    await startScanning({ facingMode: { ideal: 'environment' } });
+  };
+
+  // Start Camera Scanning on Open
   useEffect(() => {
     if (!isOpen) {
       stopCamera();
@@ -87,42 +140,9 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
     }
 
     let isMounted = true;
-
-    const initScanner = async () => {
-      try {
-        setCameraError(null);
-        const cameras = await Html5Qrcode.getCameras();
-        if (!isMounted) return;
-
-        if (cameras && cameras.length > 0) {
-          setAvailableCameras(cameras);
-          // Prefer back/environment camera
-          const backCam = cameras.find(
-            (c) =>
-              c.label.toLowerCase().includes('back') ||
-              c.label.toLowerCase().includes('rear') ||
-              c.label.toLowerCase().includes('environment')
-          );
-          const activeCamId = backCam ? backCam.id : cameras[0].id;
-          setSelectedCameraId(activeCamId);
-          await startScanning(activeCamId);
-        } else {
-          // Attempt generic facingMode if getCameras returns empty
-          await startScanning({ facingMode: 'environment' });
-        }
-      } catch (err: any) {
-        if (!isMounted) return;
-        console.warn('Camera enumeration error, falling back:', err);
-        setCameraError(
-          language === 'ar'
-            ? 'تعذر الوصول إلى الكاميرا تلقائياً (تأكد من منح إذن الكاميرا للمتصفح)، يمكنك استخدام شريط الاختبار السريع بالأسفل.'
-            : 'Unable to access camera directly. Please check browser camera permissions or use quick test chips.'
-        );
-      }
-    };
-
-    // Small delay to ensure modal DOM element is rendered
-    const timer = setTimeout(initScanner, 250);
+    const timer = setTimeout(() => {
+      initAndStartCamera(() => isMounted);
+    }, 220);
 
     return () => {
       isMounted = false;
@@ -135,22 +155,18 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
     try {
       if (scannerRef.current) {
         try {
-          await scannerRef.current.stop();
+          if (scannerRef.current.isScanning) {
+            await scannerRef.current.stop();
+          }
+          scannerRef.current.clear();
         } catch {
           // ignore already stopped
         }
       }
 
       const html5QrCode = new Html5Qrcode(html5QrCodeId, {
-        formatsToSupport: [
-          Html5QrcodeSupportedFormats.EAN_13,
-          Html5QrcodeSupportedFormats.EAN_8,
-          Html5QrcodeSupportedFormats.CODE_128,
-          Html5QrcodeSupportedFormats.CODE_39,
-          Html5QrcodeSupportedFormats.QR_CODE,
-          Html5QrcodeSupportedFormats.UPC_A,
-          Html5QrcodeSupportedFormats.UPC_E,
-        ],
+        formatsToSupport: SUPPORTED_FORMATS,
+        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
         verbose: false,
       });
 
@@ -158,7 +174,11 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
 
       const config = {
         fps: 15,
-        qrbox: { width: 280, height: 180 },
+        qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+          const w = Math.max(180, Math.min(300, Math.floor(viewfinderWidth * 0.78)));
+          const h = Math.max(120, Math.min(200, Math.floor(viewfinderHeight * 0.58)));
+          return { width: w, height: h };
+        },
         aspectRatio: 1.33,
       };
 
@@ -167,14 +187,13 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
         config,
         (decodedText) => handleCodeDetected(decodedText),
         () => {
-          // frame decoding tick - no error spam
+          // frame decoding tick - ignore
         }
       );
 
       setCameraActive(true);
       setCameraError(null);
 
-      // Check for torch capability
       try {
         const capabilities = html5QrCode.getRunningTrackCapabilities();
         if (capabilities && (capabilities as any).torch) {
@@ -183,13 +202,12 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
       } catch {
         setHasTorch(false);
       }
-    } catch (err: any) {
-      console.warn('Failed to start camera:', err);
+    } catch {
       setCameraActive(false);
       setCameraError(
         language === 'ar'
-          ? 'لم يتم فتح الكاميرا (ربما الإذن محظور أو الجهاز لا يحتوي على كاميرا متصلة). يمكنك تجربة الباركودات الجاهزة أدناه.'
-          : 'Camera initialization failed. Check device permissions or use test barcodes below.'
+          ? 'لم يتم فتح الكاميرا المباشرة (تأكد من منح صلاحية الكاميرا للمتصفح أو عدم استخدامها من تطبيق آخر). يمكنك مسح صورة بالكاميرا أو كتابة الكود يدوياً أدناه.'
+          : 'Could not open live camera stream. Use Capture Photo Scan or Manual Barcode entry below.'
       );
     }
   };
@@ -201,8 +219,8 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
           await scannerRef.current.stop();
         }
         scannerRef.current.clear();
-      } catch (e) {
-        console.warn('Error stopping scanner:', e);
+      } catch {
+        // ignore stop errors
       }
       scannerRef.current = null;
     }
@@ -219,8 +237,8 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
         advanced: [{ torch: nextTorch } as any],
       });
       setTorchOn(nextTorch);
-    } catch (err) {
-      console.warn('Torch toggle not supported on this track', err);
+    } catch {
+      // ignore unsupported torch
     }
   };
 
@@ -230,13 +248,62 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
     await startScanning(newCamId);
   };
 
-  // Core handler when a barcode is detected by camera or test simulator
+  // Native Photo / Image Barcode+QR Decoder (works even over plain HTTP LAN on mobile phones!)
+  const handlePhotoFileScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setIsScanningPhoto(true);
+    setCameraError(null);
+
+    try {
+      // Try native BarcodeDetector first if available in modern Chromium/Android
+      if (typeof (window as any).BarcodeDetector === 'function') {
+        try {
+          const bitmap = await createImageBitmap(file);
+          const detector = new (window as any).BarcodeDetector();
+          const detected = await detector.detect(bitmap);
+          bitmap.close?.();
+          if (Array.isArray(detected) && detected.length > 0 && detected[0]?.rawValue) {
+            handleCodeDetected(String(detected[0].rawValue));
+            setIsScanningPhoto(false);
+            return;
+          }
+        } catch {
+          // fallback to html5-qrcode scanFile
+        }
+      }
+
+      const fileScanner =
+        scannerRef.current ||
+        new Html5Qrcode(html5QrCodeId, {
+          formatsToSupport: SUPPORTED_FORMATS,
+          experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+          verbose: false,
+        });
+      const wasStreaming = Boolean(scannerRef.current?.isScanning);
+      if (wasStreaming && scannerRef.current) {
+        await scannerRef.current.stop();
+      }
+      const decodedText = await fileScanner.scanFile(file, false);
+      handleCodeDetected(decodedText);
+    } catch {
+      setCameraError(
+        language === 'ar'
+          ? 'لم يتم العثور على باركود أو رمز QR واضح داخل الصورة الملتقطة — حاول التقريب وإضاءة الكود جيداً.'
+          : 'No readable barcode or QR code detected in the captured image.'
+      );
+    } finally {
+      setIsScanningPhoto(false);
+    }
+  };
+
+  // Core handler when a barcode is detected by camera, photo, or manual entry
   const handleCodeDetected = (decodedText: string) => {
     const cleanCode = decodedText.trim();
     if (!cleanCode) return;
 
     const now = Date.now();
-    // Debounce the exact same barcode for 1200ms in continuous mode to prevent rapid runaway scanning
     if (
       lastScanTimestampRef.current.code === cleanCode &&
       now - lastScanTimestampRef.current.time < 1200
@@ -249,9 +316,8 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
     const matchedProduct = findProductByCode(cleanCode);
     const itemName = matchedProduct
       ? matchedProduct.nameAr || matchedProduct.name
-      : `صنف غير مسجل (${cleanCode})`;
+      : `كود: ${cleanCode}`;
 
-    // Audio & Haptic Feedback
     playScannerBeep(!!matchedProduct);
     if (navigator.vibrate) {
       navigator.vibrate(80);
@@ -263,13 +329,11 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
     setTimeout(() => setFlashSuccess(false), 700);
 
     if (scanMode === 'SINGLE') {
-      // Single Mode: Trigger scan immediately and notify
       onScan(cleanCode, matchedProduct, 1);
       setTimeout(() => {
         onClose();
-      }, 350);
+      }, 320);
     } else {
-      // Continuous / Batch Mode: Aggregate items in local list
       setBatchItems((prev) => {
         const existingIdx = prev.findIndex((item) => item.barcode === cleanCode);
         if (existingIdx >= 0) {
@@ -293,19 +357,23 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
           ];
         }
       });
-      // Also invoke onScan so parent can update live if desired
       onScan(cleanCode, matchedProduct, 1);
     }
   };
 
-  // Batch actions
+  const handleManualSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualCodeInput.trim()) return;
+    handleCodeDetected(manualCodeInput);
+    setManualCodeInput('');
+  };
+
   const updateBatchQty = (barcode: string, delta: number) => {
     setBatchItems((prev) =>
       prev
         .map((item) => {
           if (item.barcode === barcode) {
-            const nextQty = Math.max(1, item.quantity + delta);
-            return { ...item, quantity: nextQty };
+            return { ...item, quantity: Math.max(1, item.quantity + delta) };
           }
           return item;
         })
@@ -324,7 +392,6 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
     onClose();
   };
 
-  // Sample quick test barcodes so users/reviewers can test without needing physical printed barcodes
   const sampleTestProducts = products.slice(0, 4);
 
   if (!isOpen) return null;
@@ -335,18 +402,28 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
   return (
     <div
       data-testid="camera-barcode-scanner-modal"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/80 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-5 bg-slate-950/80 backdrop-blur-sm animate-fade-in"
     >
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-2xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+      {/* Guarantee html5-qrcode inner video fills viewport cleanly */}
+      <style>{`
+        #${html5QrCodeId} video {
+          width: 100% !important;
+          height: 100% !important;
+          object-fit: cover !important;
+          border-radius: 0.75rem;
+        }
+      `}</style>
+
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-2xl max-h-[94dvh] flex flex-col shadow-2xl overflow-hidden">
         {/* Header Bar */}
-        <div className="p-3.5 sm:p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0 bg-slate-50 dark:bg-slate-900/90">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-emerald-600 text-white shadow-xs">
-              <Camera className="w-5 h-5 animate-pulse" />
+        <div className="p-3 sm:p-4 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2.5 shrink-0 bg-slate-50 dark:bg-slate-900/90">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="p-2 rounded-xl bg-emerald-600 text-white shadow-xs shrink-0">
+              <Camera className="w-5 h-5" />
             </div>
-            <div>
-              <h2 className="font-black text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                <span>{title}</span>
+            <div className="min-w-0">
+              <h2 className="font-black text-xs sm:text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2 flex-wrap">
+                <span className="truncate">{title}</span>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-400">
                   {contextMode === 'POS'
                     ? 'نقطة البيع (POS)'
@@ -357,40 +434,40 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
                     : 'الباركود العام'}
                 </span>
               </h2>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                قراءة فورية لباركود EAN-13, Code-128, QR عبر كاميرا الجوال أو الحواسيب
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                قراءة فورية لباركود EAN-13, Code-128, QR عبر الكاميرا أو التقاط صورة
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 shrink-0">
             {/* Mode Toggle Pills */}
-            <div className="bg-slate-200 dark:bg-slate-800 p-0.5 rounded-xl flex items-center text-xs font-bold">
+            <div className="bg-slate-200 dark:bg-slate-800 p-0.5 rounded-xl flex items-center text-[11px] font-bold">
               <button
                 type="button"
                 data-testid="scanner-mode-single"
                 onClick={() => setScanMode('SINGLE')}
-                className={`px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
+                className={`px-2.5 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1 ${
                   scanMode === 'SINGLE'
                     ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                 }`}
               >
                 <BarcodeIcon className="w-3.5 h-3.5" />
-                <span>إدخال مفرد</span>
+                <span>مفرد</span>
               </button>
               <button
                 type="button"
                 data-testid="scanner-mode-continuous"
                 onClick={() => setScanMode('CONTINUOUS')}
-                className={`px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
+                className={`px-2.5 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1 ${
                   scanMode === 'CONTINUOUS'
                     ? 'bg-emerald-600 text-white shadow-2xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                 }`}
               >
                 <Layers className="w-3.5 h-3.5" />
-                <span>إدخال متعدد مستمر</span>
+                <span>مستمر</span>
                 {batchItems.length > 0 && (
                   <span className="px-1.5 py-0.2 rounded-full font-mono text-[10px] bg-white text-emerald-700">
                     {totalBatchQuantity}
@@ -401,7 +478,9 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
 
             <button
               type="button"
+              data-testid="camera-scanner-close-btn"
               onClick={onClose}
+              aria-label="إغلاق الماسح"
               className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition cursor-pointer"
             >
               <X className="w-4 h-4" />
@@ -410,23 +489,19 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
         </div>
 
         {/* Body Workspace */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 overflow-y-auto p-3.5 sm:p-4 space-y-3.5">
           {/* Camera Viewport Container */}
-          <div className="relative rounded-2xl overflow-hidden bg-black border-2 border-slate-800 aspect-4/3 max-h-72 sm:max-h-80 mx-auto flex items-center justify-center shadow-inner">
-            {/* Viewport for html5-qrcode */}
-            <div id={html5QrCodeId} className="w-full h-full object-cover" />
+          <div className="relative rounded-2xl overflow-hidden bg-slate-950 border-2 border-slate-800 aspect-4/3 max-h-64 sm:max-h-76 mx-auto flex items-center justify-center shadow-inner">
+            <div id={html5QrCodeId} className="w-full h-full min-h-[210px] object-cover" />
 
             {/* Visual Reticle & Laser Overlay */}
             {cameraActive && (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <div className="relative w-64 h-36 border-2 border-emerald-400/80 rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.3)] flex items-center justify-center">
-                  {/* Corner accents */}
+                <div className="relative w-60 h-32 border-2 border-emerald-400/80 rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.3)] flex items-center justify-center">
                   <span className="absolute -top-1 -start-1 w-4 h-4 border-t-2 border-s-2 border-emerald-400" />
                   <span className="absolute -top-1 -end-1 w-4 h-4 border-t-2 border-e-2 border-emerald-400" />
                   <span className="absolute -bottom-1 -start-1 w-4 h-4 border-b-2 border-s-2 border-emerald-400" />
                   <span className="absolute -bottom-1 -end-1 w-4 h-4 border-b-2 border-e-2 border-emerald-400" />
-
-                  {/* Animated Laser Beam */}
                   <div className="w-full h-0.5 bg-emerald-400 shadow-[0_0_8px_#10b981] animate-pulse" />
                 </div>
               </div>
@@ -434,32 +509,52 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
 
             {/* Flash Effect on Successful Scan */}
             {flashSuccess && (
-              <div className="pointer-events-none absolute inset-0 bg-emerald-500/25 animate-fade-in flex items-center justify-center">
-                <div className="bg-slate-900/90 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 border border-emerald-500 shadow-xl">
+              <div className="pointer-events-none absolute inset-0 bg-emerald-500/25 animate-fade-in flex items-center justify-center z-20">
+                <div className="bg-slate-900/95 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 border border-emerald-500 shadow-xl">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                   <span>تم المسح: {lastScannedItemName}</span>
                 </div>
               </div>
             )}
 
-            {/* Error or Permission Needed Fallback */}
+            {/* Error or Permission Fallback Overlay with Retry + Photo Scan */}
             {cameraError && (
-              <div className="absolute inset-0 p-4 bg-slate-950/90 text-white flex flex-col items-center justify-center text-center space-y-2 z-10">
-                <AlertCircle className="w-8 h-8 text-amber-500" />
-                <p className="text-xs font-bold text-slate-200 max-w-sm">{cameraError}</p>
-                <p className="text-[11px] text-slate-400 max-w-sm">
-                  يمكنك استخدام أزرار الباركودات التجريبية بالأسفل فوراً لاختبار عملية الإدخال دون كاميرا
+              <div className="absolute inset-0 p-4 bg-slate-950/92 text-white flex flex-col items-center justify-center text-center space-y-3 z-10">
+                <AlertCircle className="w-8 h-8 text-amber-400" />
+                <p className="text-xs font-bold text-slate-200 max-w-sm leading-relaxed">
+                  {cameraError}
                 </p>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    data-testid="retry-camera-btn"
+                    onClick={() => initAndStartCamera()}
+                    className="px-3.5 py-2 rounded-xl haseb-btn-primary text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>إعادة تشغيل الكاميرا</span>
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="camera-capture-photo-btn"
+                    onClick={() => photoInputRef.current?.click()}
+                    disabled={isScanningPhoto}
+                    className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <ImagePlus className="w-3.5 h-3.5" />
+                    <span>{isScanningPhoto ? 'جاري القراءة...' : 'تصوير بالكاميرا / صورة'}</span>
+                  </button>
+                </div>
               </div>
             )}
 
-            {/* Controls Floating Overlay on Viewport */}
-            <div className="absolute top-2.5 start-2.5 end-2.5 flex items-center justify-between pointer-events-auto z-20">
+            {/* Floating Camera Controls */}
+            <div className="absolute top-2.5 start-2.5 end-2.5 flex items-center justify-between pointer-events-auto z-20 gap-1.5">
               {availableCameras.length > 1 && (
                 <select
                   value={selectedCameraId}
                   onChange={(e) => handleCameraChange(e.target.value)}
-                  className="bg-black/70 backdrop-blur-md text-white text-[11px] font-bold px-2.5 py-1.5 rounded-lg border border-white/20 outline-hidden cursor-pointer"
+                  className="bg-black/75 backdrop-blur-md text-white text-[11px] font-bold px-2.5 py-1.5 rounded-lg border border-white/20 outline-hidden cursor-pointer max-w-[160px]"
                 >
                   {availableCameras.map((cam) => (
                     <option key={cam.id} value={cam.id}>
@@ -470,6 +565,17 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
               )}
 
               <div className="flex items-center gap-1.5 ms-auto">
+                <button
+                  type="button"
+                  data-testid="toolbar-photo-scan-btn"
+                  onClick={() => photoInputRef.current?.click()}
+                  className="px-2.5 py-1.5 rounded-lg bg-black/75 backdrop-blur-md text-white hover:bg-black/90 text-[11px] font-bold flex items-center gap-1 cursor-pointer border border-white/15"
+                  title="التقاط صورة للباركود أو اختيار صورة"
+                >
+                  <ImagePlus className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="hidden sm:inline">مسح صورة</span>
+                </button>
+
                 {hasTorch && (
                   <button
                     type="button"
@@ -477,7 +583,7 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
                     className={`p-2 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
                       torchOn
                         ? 'bg-amber-500 text-black'
-                        : 'bg-black/70 backdrop-blur-md text-white hover:bg-black/90'
+                        : 'bg-black/75 backdrop-blur-md text-white hover:bg-black/90'
                     }`}
                     title="تشغيل/إطفاء فلاش الكاميرا"
                   >
@@ -488,7 +594,7 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
                 <button
                   type="button"
                   onClick={() => playScannerBeep(true)}
-                  className="p-2 rounded-lg bg-black/70 backdrop-blur-md text-white hover:bg-black/90 text-xs transition cursor-pointer"
+                  className="p-2 rounded-lg bg-black/75 backdrop-blur-md text-white hover:bg-black/90 text-xs transition cursor-pointer"
                   title="اختبار نغمة المسح"
                 >
                   <Volume2 className="w-3.5 h-3.5" />
@@ -497,32 +603,72 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
             </div>
           </div>
 
-          {/* Quick Simulation Barcode Chips (Crucial for Testing Without Webcams) */}
-          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                <BarcodeIcon className="w-4 h-4 text-emerald-600" />
-                <span>محاكي قراءة الباركود (للاختبار الفوري السريع دون توجيه كاميرا):</span>
-              </span>
-              <span className="text-[10px] text-slate-400">انقر على أي صنف للمحاكاة</span>
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            data-testid="camera-photo-file-input"
+            onChange={handlePhotoFileScan}
+            className="sr-only"
+          />
+
+          {/* Manual Barcode / SKU / QR Input Form (Works even without camera or HTTPS) */}
+          <form
+            onSubmit={handleManualSubmit}
+            className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 flex flex-col sm:flex-row items-stretch sm:items-center gap-2"
+          >
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <Keyboard className="w-4 h-4 text-blue-600 shrink-0" />
+              <input
+                type="text"
+                data-testid="scanner-manual-barcode-input"
+                value={manualCodeInput}
+                onChange={(e) => setManualCodeInput(e.target.value)}
+                placeholder="أدخل أو امسح كود الباركود / QR / SKU يدوياً واضغط Enter..."
+                dir="ltr"
+                className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-900 dark:text-white outline-hidden focus:border-blue-600"
+              />
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {sampleTestProducts.map((prod) => (
-                <button
-                  key={prod.id}
-                  type="button"
-                  onClick={() => handleCodeDetected(prod.barcode || prod.sku)}
-                  className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:border-emerald-300 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-200 transition shadow-2xs cursor-pointer flex items-center gap-1.5"
-                >
-                  <Package className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                  <span>{prod.nameAr}</span>
-                  <span className="font-mono text-[10px] text-slate-400 bg-slate-100 dark:bg-slate-700 px-1 py-0.2 rounded" dir="ltr">
-                    {prod.barcode || prod.sku}
-                  </span>
-                </button>
-              ))}
+            <button
+              type="submit"
+              data-testid="scanner-manual-submit-btn"
+              className="px-4 py-2 rounded-xl haseb-btn-primary text-white text-xs font-bold cursor-pointer shrink-0"
+            >
+              إدراج الكود
+            </button>
+          </form>
+
+          {/* Quick Catalog Chips (Only shown if catalog already has products) */}
+          {sampleTestProducts.length > 0 && (
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <BarcodeIcon className="w-4 h-4 text-emerald-600" />
+                  <span>إدخال سريع من أصناف المستودع:</span>
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {sampleTestProducts.map((prod) => (
+                  <button
+                    key={prod.id}
+                    type="button"
+                    onClick={() => handleCodeDetected(prod.barcode || prod.sku)}
+                    className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:border-emerald-300 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-200 transition shadow-2xs cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Package className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>{prod.nameAr}</span>
+                    <span
+                      className="font-mono text-[10px] text-slate-400 bg-slate-100 dark:bg-slate-700 px-1 py-0.2 rounded"
+                      dir="ltr"
+                    >
+                      {prod.barcode || prod.sku}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Continuous Batch Scanned Items Table */}
           {scanMode === 'CONTINUOUS' && (
@@ -546,10 +692,10 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
 
               {batchItems.length === 0 ? (
                 <div className="p-4 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400">
-                  وجه الكاميرا نحو باركودات الأصناف تباعاً وسيتم تجميعها واحتساب كمياتها تلقائياً.
+                  وجه الكاميرا نحو باركودات الأصناف أو أدخلها يدوياً وسيتم تجميعها تلقائياً.
                 </div>
               ) : (
-                <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                <div className="max-h-44 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
                   {batchItems.map((item) => (
                     <div
                       key={item.barcode}
@@ -568,7 +714,6 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
                         </div>
                       </div>
 
-                      {/* Quantity Controls */}
                       <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           type="button"
@@ -604,19 +749,26 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
         </div>
 
         {/* Footer Actions */}
-        <div className="p-3.5 sm:p-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0 bg-slate-50 dark:bg-slate-900/90">
+        <div className="p-3.5 sm:p-4 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2.5 shrink-0 bg-slate-50 dark:bg-slate-900/90">
           <div className="text-xs">
             {scanMode === 'CONTINUOUS' ? (
               <div className="flex items-center gap-2 font-bold text-slate-700 dark:text-slate-300">
-                <span>إجمالي الأصناف: <strong className="font-mono text-emerald-600">{totalBatchQuantity}</strong></span>
+                <span>
+                  إجمالي: <strong className="font-mono text-emerald-600">{totalBatchQuantity}</strong>
+                </span>
                 <span>•</span>
-                <span>القيمة: <strong className="font-mono text-slate-900 dark:text-white">{totalBatchAmount.toLocaleString()} {currency}</strong></span>
+                <span>
+                  القيمة:{' '}
+                  <strong className="font-mono text-slate-900 dark:text-white">
+                    {totalBatchAmount.toLocaleString()} {currency}
+                  </strong>
+                </span>
               </div>
             ) : (
               <span className="text-slate-500">
                 {lastScannedCode
                   ? `آخر صنف ممسوح: ${lastScannedItemName}`
-                  : 'وجه الكاميرا نحو الباركود للمسح الفوري'}
+                  : 'وجه الكاميرا نحو الباركود أو استخدم المسح بالصورة'}
               </span>
             )}
           </div>
