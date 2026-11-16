@@ -57,6 +57,7 @@ import {
   composeChatBarQuickDocumentText,
   summarizeCommunicationsWorkspace,
   calculateChannelHealthMetrics,
+  isUsbDeviceReady,
 } from '../core/communicationsEngine';
 import {
   composeInvoiceMessageText,
@@ -99,6 +100,10 @@ export const CommunicationsView: React.FC = () => {
     usbConnectedDevice,
     updateUsbConnectedDevice,
     usbDiagnosticsReport,
+    refreshUsbConnectedDevice,
+    connectWebUsbDevice,
+    connectWebSerialModem,
+    disconnectUsbDevice,
     runUsbDiagnostics,
     sendSmsViaUsb,
     launchBulkDebtSmsCampaign,
@@ -135,8 +140,17 @@ export const CommunicationsView: React.FC = () => {
       return [];
     }
   });
-  const [bulkCampaignAlert, setBulkCampaignAlert] = useState<string | null>(null);
+  const [bulkCampaignAlert, setBulkCampaignAlert] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
   const [isLaunchingCampaign, setIsLaunchingCampaign] = useState(false);
+
+  useEffect(() => {
+    if (activeTab === 'USB_SMS') {
+      void refreshUsbConnectedDevice();
+    }
+  }, [activeTab]);
 
   // WhatsApp In-Chat Search & Inbound Simulator Popover
   const [isChatSearchOpen, setIsChatSearchOpen] = useState(false);
@@ -813,7 +827,9 @@ export const CommunicationsView: React.FC = () => {
           smsPhone.trim(),
           smsBody.trim(),
           smsRefNumber.trim() || undefined,
-          smsRecipientName.trim() || 'عميل SMS'
+          smsRecipientName.trim() || 'عميل SMS',
+          'CUSTOM_OPERATION',
+          usbConnectedDevice.connectionMode === 'ETHERNET_TETHER' ? smsGatewayEndpoint : undefined
         );
         if (result.success) {
           setSmsStatusAlert({
@@ -821,15 +837,16 @@ export const CommunicationsView: React.FC = () => {
             message:
               result.messageAr ||
               'تم إرسال الرسالة النصية وتوثيقها في السجل مباشرة عبر شريحة الجوال الموصول.',
-            smsUri: result.record?.smsUri,
+            smsUri: result.record?.smsUri || result.smsUri,
           });
           setAccountToast(
-            `تم إرسال رسالة SMS إلى (${smsRecipientName || smsPhone}) عبر شريحة SIM ${usbConnectedDevice.simSlot} بنجاح.`
+            `تم إرسال رسالة SMS إلى (${smsRecipientName || smsPhone}) بنجاح.`
           );
         } else {
           setSmsStatusAlert({
             type: 'error',
-            message: result.messageAr || 'تعذر الإرسال، يرجى التحقق من رقم الهاتف ونص الرسالة.',
+            message: result.messageAr || 'تعذر الإرسال: لا يوجد جوال أو مودم SMS موصل وجاهز حالياً.',
+            smsUri: result.smsUri,
           });
         }
       } else {
@@ -838,6 +855,7 @@ export const CommunicationsView: React.FC = () => {
           .map((n) => n.trim())
           .filter(Boolean);
         let sentCount = 0;
+        let lastErrorAr = '';
         const companyNameAr = company.nameAr || company.name || 'المنشأة';
         for (const num of rawNumbers) {
           const matchedCust = customers.find(
@@ -851,16 +869,33 @@ export const CommunicationsView: React.FC = () => {
             currency,
             phone: num,
           });
-          const res = await sendSmsViaUsb(num, personalizedBody, smsRefNumber.trim() || 'BATCH-SMS', cName);
+          const res = await sendSmsViaUsb(
+            num,
+            personalizedBody,
+            smsRefNumber.trim() || 'BATCH-SMS',
+            cName,
+            'CUSTOM_OPERATION',
+            usbConnectedDevice.connectionMode === 'ETHERNET_TETHER' ? smsGatewayEndpoint : undefined
+          );
           if (res.success) sentCount += 1;
+          else if (!lastErrorAr && res.messageAr) lastErrorAr = res.messageAr;
         }
-        setSmsStatusAlert({
-          type: 'success',
-          message: `تم إرسال الحملة الجماعية المخصصة إلى (${sentCount}) رقم بنجاح عبر شريحة SIM ${usbConnectedDevice.simSlot} وتوثيقها في السجل أدناه.`,
-        });
-        setAccountToast(
-          `تم إرسال (${sentCount}) رسالة SMS جماعية مخصصة عبر جسر الجوال بنجاح.`
-        );
+        if (sentCount > 0) {
+          setSmsStatusAlert({
+            type: 'success',
+            message: `تم إرسال الحملة الجماعية المخصصة إلى (${sentCount}) رقم بنجاح عبر (${usbConnectedDevice.model}) وتوثيقها في السجل أدناه.`,
+          });
+          setAccountToast(
+            `تم إرسال (${sentCount}) رسالة SMS جماعية بنجاح.`
+          );
+        } else {
+          setSmsStatusAlert({
+            type: 'error',
+            message:
+              lastErrorAr ||
+              'تعذر إرسال الحملة: لا يوجد جوال أو مودم SMS موصل وجاهز بالنظام حالياً.',
+          });
+        }
       }
     } catch {
       setSmsStatusAlert({
@@ -874,11 +909,23 @@ export const CommunicationsView: React.FC = () => {
 
   const handleRunUsbDiag = async () => {
     setIsRunningDiag(true);
-    await runUsbDiagnostics();
-    setSmsStatusAlert({
-      type: 'success',
-      message: `تم فحص وتنشيط جسر رسائل SMS (${usbConnectedDevice.model} — SIM ${usbConnectedDevice.simSlot}) بنجاح! الجسر جاهز للإرسال.`,
+    const report = await runUsbDiagnostics({
+      connectionMode: usbConnectedDevice.connectionMode,
+      gatewayEndpoint: smsGatewayEndpoint,
+      simSlot: usbConnectedDevice.simSlot,
     });
+    if (report.atCmdResponseOk || report.usbPermissionGranted) {
+      setSmsStatusAlert({
+        type: 'success',
+        message: `تم فحص الجوال/البوابة الحقيقية بنجاح! القناة متصلة وجاهزة للإرسال الفوري.`,
+      });
+    } else {
+      setSmsStatusAlert({
+        type: 'error',
+        message:
+          'لم يتم العثور على جوال أندرويد أو مودم USB موصل بالخادم أو المتصفح حالياً. يمكنك ربط الجوال من الأزرار في البطاقة الجانبية أو فتح الرسالة بتطبيق الجوال.',
+      });
+    }
     setIsRunningDiag(false);
   };
 
@@ -1037,7 +1084,9 @@ export const CommunicationsView: React.FC = () => {
   }, [outboundMessages, smsLogSearch]);
 
   const smsMetrics = calculateSmsParts(smsBody);
-  const isUsbReady = usbConnectedDevice.atCommandReady && usbConnectedDevice.usbDebuggingEnabled;
+  const isUsbReady = isUsbDeviceReady(usbConnectedDevice);
+  const isHardwareDetected =
+    usbConnectedDevice.status !== 'DISCONNECTED' && usbConnectedDevice.detectionSource !== 'NONE';
   const commSummary = useMemo(
     () => summarizeCommunicationsWorkspace(whatsappAccounts, outboundMessages, customers),
     [whatsappAccounts, outboundMessages, customers]
@@ -1162,8 +1211,21 @@ export const CommunicationsView: React.FC = () => {
           <div className="px-3 py-2 rounded-xl bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] flex items-center justify-between gap-2 min-w-0">
             <div className="min-w-0">
               <div className="text-[10px] font-bold text-[var(--erp-text-secondary)] truncate">بوابة رسائل SMS</div>
-              <div className="text-xs sm:text-sm font-black text-[var(--erp-text-primary)] font-mono tabular-nums">
-                {channelHealth.usbGatewayReady ? `SIM ${channelHealth.activeSimSlot} جاهز ✓` : 'قيد الفحص'}
+              <div
+                data-testid="comm-health-sms-status"
+                className={`text-xs sm:text-sm font-black font-mono tabular-nums truncate ${
+                  channelHealth.usbGatewayReady
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : usbConnectedDevice.status === 'AUTHORIZING'
+                    ? 'text-amber-600 dark:text-amber-400'
+                    : 'text-[var(--erp-text-primary)]'
+                }`}
+              >
+                {channelHealth.usbGatewayReady
+                  ? `متصل · SIM ${channelHealth.activeSimSlot} ✓`
+                  : usbConnectedDevice.status === 'AUTHORIZING'
+                  ? 'بانتظار الموافقة'
+                  : 'غير موصل'}
               </div>
             </div>
             <Smartphone className="w-4 h-4 text-[var(--erp-accent)] shrink-0" />
@@ -1261,13 +1323,22 @@ export const CommunicationsView: React.FC = () => {
                 <span className="hidden sm:inline">جسر SMS (USB/SIM)</span>
               </span>
               <span
+                data-testid="comm-tab-sms-badge"
                 className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold shrink-0 ${
                   activeTab === 'USB_SMS'
                     ? 'bg-white/20 text-white'
-                    : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
+                    : isUsbReady
+                    ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
+                    : usbConnectedDevice.status === 'AUTHORIZING'
+                    ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
                 }`}
               >
-                جاهز
+                {isUsbReady
+                  ? 'متصل'
+                  : usbConnectedDevice.status === 'AUTHORIZING'
+                  ? 'موافقة'
+                  : 'غير موصل'}
               </span>
             </button>
           </div>
@@ -3536,12 +3607,25 @@ export const CommunicationsView: React.FC = () => {
                   <h2 className="text-xs sm:text-sm font-bold text-[var(--erp-text-primary)]">
                     جسر رسائل SMS المباشر (Direct SIM & USB AT+CMGS)
                   </h2>
-                  <span className="px-2 py-0.5 rounded-lg bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] text-emerald-700 dark:text-emerald-300 text-[10px] font-mono font-bold tabular-nums">
-                    متصل · SIM {usbConnectedDevice.simSlot} · {messagingGatewayConfig.smsSenderId || 'RLM-ERP'}
+                  <span
+                    data-testid="sms-bridge-header-badge"
+                    className={`px-2 py-0.5 rounded-lg bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] text-[10px] font-mono font-bold tabular-nums ${
+                      isUsbReady
+                        ? 'text-emerald-700 dark:text-emerald-300'
+                        : usbConnectedDevice.status === 'AUTHORIZING'
+                        ? 'text-amber-700 dark:text-amber-300'
+                        : 'text-rose-700 dark:text-rose-300'
+                    }`}
+                  >
+                    {isUsbReady
+                      ? `متصل · SIM ${usbConnectedDevice.simSlot} · ${messagingGatewayConfig.smsSenderId || 'RLM-ERP'}`
+                      : usbConnectedDevice.status === 'AUTHORIZING'
+                      ? `مكتشف (${usbConnectedDevice.model}) · بانتظار التفويض`
+                      : `غير موصل · ${messagingGatewayConfig.smsSenderId || 'RLM-ERP'}`}
                   </span>
                 </div>
                 <p className="text-[11px] text-[var(--erp-text-secondary)] mt-0.5">
-                  مربوط فعلياً بقاعدة بيانات العملاء والفواتير والمديونيات والمخزون والتقارير المالية مع توثيق فوري في السجل
+                  يتعرف تلقائياً على الجوال أو المودم الموصل عبر ADB / WebUSB / Web Serial أو بوابة الشبكة بدون أي بيانات وهمية
                 </p>
               </div>
             </div>
@@ -3556,7 +3640,14 @@ export const CommunicationsView: React.FC = () => {
                     salesInvoices.find((i) => i.id === smsSelectedInvoiceId) || salesInvoices[0];
                   if (!inv) return;
                   const matchedCust = customers.find((c) => c.id === inv.customerId);
-                  const phone = matchedCust?.phone || smsPhone || '+967 771 445 880';
+                  const phone = matchedCust?.phone || smsPhone || '';
+                  if (!phone.trim()) {
+                    setSmsStatusAlert({
+                      type: 'error',
+                      message: 'لا يوجد رقم هاتف مسجل لهذه الفاتورة.',
+                    });
+                    return;
+                  }
                   const body = composeInvoiceMessageText({
                     invoice: inv,
                     companyName: company.nameAr || company.name,
@@ -3567,11 +3658,22 @@ export const CommunicationsView: React.FC = () => {
                   setSmsRecipientName(inv.customerName);
                   setSmsRefNumber(inv.invoiceNumber);
                   setSmsBody(body);
-                  const res = await sendSmsViaUsb(phone, body, inv.invoiceNumber, inv.customerName, 'INVOICE');
+                  const res = await sendSmsViaUsb(
+                    phone,
+                    body,
+                    inv.invoiceNumber,
+                    inv.customerName,
+                    'INVOICE',
+                    usbConnectedDevice.connectionMode === 'ETHERNET_TETHER' ? smsGatewayEndpoint : undefined
+                  );
                   setSmsStatusAlert({
-                    type: 'success',
-                    message: res.messageAr || `تم إرسال فاتورة (${inv.invoiceNumber}) عبر SMS فوراً!`,
-                    smsUri: res.record?.smsUri,
+                    type: res.success ? 'success' : 'error',
+                    message:
+                      res.messageAr ||
+                      (res.success
+                        ? `تم إرسال فاتورة (${inv.invoiceNumber}) عبر SMS فوراً!`
+                        : 'تعذر الإرسال: لا يوجد جوال أو مودم SMS موصل بالنظام حالياً.'),
+                    smsUri: res.record?.smsUri || res.smsUri,
                   });
                 }}
                 className="px-3 py-2 rounded-xl haseb-btn-primary text-white text-[11px] font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
@@ -3606,12 +3708,17 @@ export const CommunicationsView: React.FC = () => {
                     body,
                     `DEBT-${cust.id}`,
                     cName,
-                    'DEBT_REMINDER'
+                    'DEBT_REMINDER',
+                    usbConnectedDevice.connectionMode === 'ETHERNET_TETHER' ? smsGatewayEndpoint : undefined
                   );
                   setSmsStatusAlert({
-                    type: 'success',
-                    message: res.messageAr || `تم إرسال كشف المديونية إلى (${cName}) عبر SMS فوراً!`,
-                    smsUri: res.record?.smsUri,
+                    type: res.success ? 'success' : 'error',
+                    message:
+                      res.messageAr ||
+                      (res.success
+                        ? `تم إرسال كشف المديونية إلى (${cName}) عبر SMS فوراً!`
+                        : 'تعذر الإرسال: لا يوجد جوال أو مودم SMS موصل بالنظام حالياً.'),
+                    smsUri: res.record?.smsUri || res.smsUri,
                   });
                 }}
                 className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
@@ -3647,7 +3754,14 @@ export const CommunicationsView: React.FC = () => {
                     currency,
                     activeIndustryAr: currentIndustryBlueprint.nameAr,
                   });
-                  const ownerPhone = messagingGatewayConfig.ownerReportPhone || '+967 771 445 880';
+                  const ownerPhone = messagingGatewayConfig.ownerReportPhone || company.phone || smsPhone;
+                  if (!ownerPhone?.trim()) {
+                    setSmsStatusAlert({
+                      type: 'error',
+                      message: 'يرجى تحديد رقم هاتف المالك في الإعدادات لإرسال التقرير المالي.',
+                    });
+                    return;
+                  }
                   const ref = `REP-SMS-${new Date().toISOString().slice(0, 10)}`;
                   setSmsPhone(ownerPhone);
                   setSmsRecipientName('الإدارة العليا / المالك');
@@ -3658,12 +3772,17 @@ export const CommunicationsView: React.FC = () => {
                     reportText,
                     ref,
                     'الإدارة العليا / المالك',
-                    'FINANCIAL_REPORT'
+                    'FINANCIAL_REPORT',
+                    usbConnectedDevice.connectionMode === 'ETHERNET_TETHER' ? smsGatewayEndpoint : undefined
                   );
                   setSmsStatusAlert({
-                    type: 'success',
-                    message: res.messageAr || 'تم إرسال التقرير المالي اللحظي عبر SMS للإدارة بنجاح!',
-                    smsUri: res.record?.smsUri,
+                    type: res.success ? 'success' : 'error',
+                    message:
+                      res.messageAr ||
+                      (res.success
+                        ? 'تم إرسال التقرير المالي اللحظي عبر SMS للإدارة بنجاح!'
+                        : 'تعذر الإرسال: لا يوجد جوال أو مودم SMS موصل بالنظام حالياً.'),
+                    smsUri: res.record?.smsUri || res.smsUri,
                   });
                 }}
                 className="px-3 py-2 rounded-xl bg-[var(--erp-bg-elevated)] hover:opacity-90 border border-[var(--erp-border)] text-[var(--erp-text-primary)] text-[11px] font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
@@ -3678,37 +3797,126 @@ export const CommunicationsView: React.FC = () => {
             {/* Hardware, Dual-SIM Selector & Bulk Campaign Panel (Left 5 Cols) */}
             <div className="lg:col-span-5 space-y-4 min-w-0">
               {/* Connected Mobile Phone Hardware & Dual-SIM Status Card */}
-              <div className="bg-[var(--erp-bg-surface)] rounded-2xl border border-[var(--erp-border)] p-3.5 sm:p-5 shadow-sm space-y-4 min-w-0 overflow-hidden">
-                <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
-                  <div className="flex items-center gap-3 min-w-0">
+              <div
+                data-testid="usb-hardware-status-card"
+                className="bg-[var(--erp-bg-surface)] rounded-2xl border border-[var(--erp-border)] p-3.5 sm:p-5 shadow-sm space-y-4 min-w-0 overflow-hidden"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 min-w-0">
+                  <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1">
                     <div className="w-10 h-10 rounded-2xl bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] text-[var(--erp-accent)] flex items-center justify-center font-black shrink-0">
                       <Smartphone className="w-5 h-5" />
                     </div>
-                    <div className="min-w-0">
-                      <h3 className="font-black text-sm text-[var(--erp-text-primary)] truncate">
-                        {usbConnectedDevice.model}
-                      </h3>
-                      <p className="text-[11px] text-[var(--erp-text-secondary)] font-mono truncate">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2 min-w-0">
+                        <h3
+                          data-testid="usb-device-model-text"
+                          className="font-black text-sm text-[var(--erp-text-primary)] truncate"
+                        >
+                          {usbConnectedDevice.model}
+                        </h3>
+                        <span
+                          data-testid="usb-device-status-pill"
+                          className={`px-2 py-0.5 rounded-lg text-[10px] sm:text-[11px] font-bold border shrink-0 whitespace-nowrap ${
+                            isUsbReady
+                              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                              : usbConnectedDevice.status === 'AUTHORIZING'
+                              ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30'
+                              : 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/30'
+                          }`}
+                        >
+                          {isUsbReady
+                            ? 'متصل وجاهز ✓'
+                            : usbConnectedDevice.status === 'AUTHORIZING'
+                            ? 'بانتظار الموافقة'
+                            : 'غير موصل'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[var(--erp-text-secondary)] font-mono truncate mt-0.5">
                         {usbConnectedDevice.manufacturer} · {usbConnectedDevice.port}
                       </p>
+                      {isHardwareDetected && usbConnectedDevice.serialNumber && usbConnectedDevice.serialNumber !== '—' && (
+                        <p className="text-[10px] text-[var(--erp-text-secondary)] font-mono truncate">
+                          S/N: {usbConnectedDevice.serialNumber}
+                        </p>
+                      )}
                     </div>
                   </div>
-
-                  <span
-                    className={`px-2.5 py-1 rounded-xl text-[11px] font-bold border shrink-0 ${
-                      isUsbReady
-                        ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
-                        : 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30'
-                    }`}
-                  >
-                    {isUsbReady ? 'متصل وجاهز ✓' : 'قيد الفحص'}
-                  </span>
                 </div>
 
-                {/* Dual-SIM Instant Switcher (SIM 1 vs SIM 2) */}
+                {/* Truthful Hardware Reason / Direct Browser Connection Buttons */}
+                <div className="p-3 rounded-xl bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] space-y-2.5">
+                  <p className="text-[11px] text-[var(--erp-text-secondary)] leading-relaxed">
+                    {usbConnectedDevice.statusReasonAr ||
+                      (isUsbReady
+                        ? 'تم التعرف على الجهاز الحقيقي بنجاح ومصادقة قناة الإرسال.'
+                        : 'لم يتم اكتشاف أي جوال أو مودم موصل حالياً. وصّل الجوال بالكيبل أو استخدم الأزرار أدناه للتعرف عليه فوراً.')}
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      data-testid="btn-connect-webusb"
+                      onClick={async () => {
+                        const r = await connectWebUsbDevice();
+                        setSmsStatusAlert({
+                          type: r.success ? 'success' : 'error',
+                          message: r.messageAr,
+                        });
+                      }}
+                      className="px-2.5 py-2 rounded-xl bg-[var(--erp-bg-surface)] hover:opacity-90 border border-[var(--erp-border)] text-[var(--erp-text-primary)] text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Smartphone className="w-3.5 h-3.5 text-[var(--erp-accent)] shrink-0" />
+                      <span>التعرف على جوال USB (WebUSB)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      data-testid="btn-connect-webserial"
+                      onClick={async () => {
+                        const r = await connectWebSerialModem();
+                        setSmsStatusAlert({
+                          type: r.success ? 'success' : 'error',
+                          message: r.messageAr,
+                        });
+                      }}
+                      className="px-2.5 py-2 rounded-xl bg-[var(--erp-bg-surface)] hover:opacity-90 border border-[var(--erp-border)] text-[var(--erp-text-primary)] text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Terminal className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>ربط مودم COM (Web Serial)</span>
+                    </button>
+                  </div>
+                  {isHardwareDetected && (
+                    <button
+                      type="button"
+                      data-testid="btn-disconnect-usb"
+                      onClick={() => void disconnectUsbDevice()}
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/15 border border-rose-500/25 text-rose-700 dark:text-rose-300 text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Power className="w-3.5 h-3.5 shrink-0" />
+                      <span>فصل الجهاز الحالي</span>
+                    </button>
+                  )}
+                  {!isUsbReady && (
+                    <div className="pt-2 border-t border-[var(--erp-border)] flex flex-wrap items-center justify-between gap-2 text-[10.5px] text-[var(--erp-text-secondary)]">
+                      <span>
+                        توصيل الجوال بالسلك (تصحيح USB مفعّل) يتم اكتشافه لحظياً عبر النظام؛ لتجهيز جدار الحماية وADB على Windows تلقائياً:
+                      </span>
+                      <a
+                        href="/api/v1/installer/windows-setup.bat"
+                        download="Haseb_ERP_Windows_Installer.bat"
+                        data-testid="usb-tab-download-installer-btn"
+                        className="px-2.5 py-1 rounded-lg bg-[var(--erp-bg-surface)] hover:opacity-90 border border-[var(--erp-border)] text-[var(--erp-text-primary)] font-bold inline-flex items-center gap-1 shrink-0 whitespace-nowrap"
+                      >
+                        <Download className="w-3 h-3 shrink-0" />
+                        <span>ملف التسطيب وصلاحيات ADB</span>
+                      </a>
+                    </div>
+                  )}
+                </div>
+
+                {/* Preferred SIM Slot Selector (SIM 1 vs SIM 2) */}
                 <div className="p-3 rounded-xl bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] space-y-2 min-w-0">
                   <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] font-bold text-[var(--erp-text-secondary)]">
-                    <span className="truncate">اختيار شريحة الإرسال الفعلي (Dual-SIM):</span>
+                    <span className="truncate">شريحة الإرسال المفضلة (Dual-SIM):</span>
                     <span className="font-mono text-[var(--erp-accent)] shrink-0">
                       شريحة #{usbConnectedDevice.simSlot}
                     </span>
@@ -3718,12 +3926,8 @@ export const CommunicationsView: React.FC = () => {
                       type="button"
                       data-testid="btn-sim-slot-1"
                       onClick={() => {
-                        updateUsbConnectedDevice({
-                          simSlot: 1,
-                          simOperator: 'Yemen Mobile 4G LTE (421-03)',
-                          signalStrengthPercent: 98,
-                        });
-                        setAccountToast('تم التبديل الفوري إلى الشريحة الأولى (SIM 1: Yemen Mobile 4G LTE)');
+                        updateUsbConnectedDevice({ simSlot: 1 });
+                        setAccountToast('تم تعيين الشريحة المفضلة إلى SIM 1.');
                       }}
                       className={`min-w-0 overflow-hidden p-2.5 rounded-xl border text-right transition cursor-pointer ${
                         usbConnectedDevice.simSlot === 1
@@ -3734,7 +3938,7 @@ export const CommunicationsView: React.FC = () => {
                       <div className="flex items-center justify-between gap-1 text-xs font-black">
                         <span className="truncate">شريحة SIM 1</span>
                         <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-black/15 shrink-0">
-                          4G
+                          الافتراضية
                         </span>
                       </div>
                       <div
@@ -3742,7 +3946,10 @@ export const CommunicationsView: React.FC = () => {
                           usbConnectedDevice.simSlot === 1 ? 'text-white/85' : 'text-[var(--erp-text-secondary)]'
                         }`}
                       >
-                        يمن موبايل (Yemen Mobile)
+                        {usbConnectedDevice.dualSimOperators?.sim1 ||
+                          (isHardwareDetected && usbConnectedDevice.simSlot === 1
+                            ? usbConnectedDevice.simOperator
+                            : 'الشريحة الأولى بالجوال')}
                       </div>
                     </button>
 
@@ -3750,12 +3957,8 @@ export const CommunicationsView: React.FC = () => {
                       type="button"
                       data-testid="btn-sim-slot-2"
                       onClick={() => {
-                        updateUsbConnectedDevice({
-                          simSlot: 2,
-                          simOperator: 'Sabafon / YOU / STC 4G (421-01)',
-                          signalStrengthPercent: 95,
-                        });
-                        setAccountToast('تم التبديل الفوري إلى الشريحة الثانية (SIM 2: Sabafon / YOU / STC)');
+                        updateUsbConnectedDevice({ simSlot: 2 });
+                        setAccountToast('تم تعيين الشريحة المفضلة إلى SIM 2.');
                       }}
                       className={`min-w-0 overflow-hidden p-2.5 rounded-xl border text-right transition cursor-pointer ${
                         usbConnectedDevice.simSlot === 2
@@ -3766,7 +3969,7 @@ export const CommunicationsView: React.FC = () => {
                       <div className="flex items-center justify-between gap-1 text-xs font-black">
                         <span className="truncate">شريحة SIM 2</span>
                         <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-black/15 shrink-0">
-                          GSM
+                          ثانوية
                         </span>
                       </div>
                       <div
@@ -3774,44 +3977,29 @@ export const CommunicationsView: React.FC = () => {
                           usbConnectedDevice.simSlot === 2 ? 'text-white/85' : 'text-[var(--erp-text-secondary)]'
                         }`}
                       >
-                        سبأفون / YOU / STC
+                        {usbConnectedDevice.dualSimOperators?.sim2 ||
+                          (isHardwareDetected && usbConnectedDevice.simSlot === 2
+                            ? usbConnectedDevice.simOperator
+                            : 'الشريحة الثانية بالجوال')}
                       </div>
                     </button>
                   </div>
-
-                  {/* Quick Carrier Profile Presets */}
-                  <div className="pt-1 flex items-center gap-1.5 flex-wrap">
-                    <span className="text-[10px] font-bold text-[var(--erp-text-secondary)]">شبكة المشغل:</span>
-                    {[
-                      { label: 'يمن موبايل', op: 'Yemen Mobile 4G LTE (421-03)', slot: 1 as const },
-                      { label: 'سبأفون', op: 'Sabafon GSM/4G (421-01)', slot: 2 as const },
-                      { label: 'YOU', op: 'YOU / MTN 4G (421-02)', slot: 2 as const },
-                      { label: 'STC', op: 'STC 5G/LTE (420-01)', slot: 1 as const },
-                    ].map((preset) => (
-                      <button
-                        key={preset.label}
-                        type="button"
-                        onClick={() => {
-                          updateUsbConnectedDevice({ simSlot: preset.slot, simOperator: preset.op });
-                          setAccountToast(`تم ضبط ملف شبكة (${preset.label}) بنجاح.`);
-                        }}
-                        className="px-2 py-0.5 rounded-lg bg-[var(--erp-bg-surface)] border border-[var(--erp-border)] text-[10px] font-bold text-[var(--erp-text-primary)] hover:opacity-85 cursor-pointer"
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
-                  </div>
                 </div>
 
-                {/* Hardware Meters */}
+                {/* Real Hardware Telemetry Meters (Never displays fake 88%/96% when disconnected) */}
                 <div className="grid grid-cols-3 gap-2 tabular-nums">
                   <div className="p-2 sm:p-2.5 bg-[var(--erp-bg-elevated)] rounded-xl text-center border border-[var(--erp-border)] flex flex-col items-center justify-center min-w-0">
                     <div className="flex items-center justify-center gap-1 text-[var(--erp-text-secondary)] text-[10px] sm:text-[11px] mb-0.5 truncate max-w-full">
                       <Battery className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                       <span>البطارية</span>
                     </div>
-                    <div className="text-xs sm:text-sm font-black text-[var(--erp-text-primary)] font-mono">
-                      {usbConnectedDevice.batteryPercent}%
+                    <div
+                      data-testid="usb-battery-value"
+                      className="text-xs sm:text-sm font-black text-[var(--erp-text-primary)] font-mono"
+                    >
+                      {isHardwareDetected && usbConnectedDevice.batteryPercent > 0
+                        ? `${usbConnectedDevice.batteryPercent}%`
+                        : '--'}
                     </div>
                   </div>
 
@@ -3821,8 +4009,13 @@ export const CommunicationsView: React.FC = () => {
                       <span className="sm:hidden">الإشارة</span>
                       <span className="hidden sm:inline">إشارة البث</span>
                     </div>
-                    <div className="text-xs sm:text-sm font-black text-[var(--erp-text-primary)] font-mono">
-                      {usbConnectedDevice.signalStrengthPercent}%
+                    <div
+                      data-testid="usb-signal-value"
+                      className="text-xs sm:text-sm font-black text-[var(--erp-text-primary)] font-mono"
+                    >
+                      {isHardwareDetected && usbConnectedDevice.signalStrengthPercent > 0
+                        ? `${usbConnectedDevice.signalStrengthPercent}%`
+                        : '--'}
                     </div>
                   </div>
 
@@ -3844,15 +4037,27 @@ export const CommunicationsView: React.FC = () => {
                 {/* SIM, Port, Sender ID & Gateway Specs */}
                 <div className="p-3.5 bg-[var(--erp-bg-elevated)] rounded-xl space-y-2.5 text-xs border border-[var(--erp-border)] min-w-0">
                   <div className="flex flex-wrap justify-between items-center gap-1.5 text-[var(--erp-text-secondary)]">
-                    <span>الشريحة النشطة (SIM {usbConnectedDevice.simSlot}):</span>
+                    <span>المشغل المكتشف (SIM {usbConnectedDevice.simSlot}):</span>
                     <span className="font-bold text-[var(--erp-accent)] truncate max-w-full">
                       {usbConnectedDevice.simOperator}
                     </span>
                   </div>
                   <div className="flex flex-wrap justify-between items-center gap-1.5 text-[var(--erp-text-secondary)]">
-                    <span>تصحيح أخطاء USB (ADB):</span>
-                    <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                      {usbConnectedDevice.usbDebuggingEnabled ? 'مفعل ومصادق (Authorized ✓)' : 'غير مفعل'}
+                    <span>مصدر الفحص والتصريح:</span>
+                    <span
+                      className={`font-bold ${
+                        isUsbReady
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : usbConnectedDevice.status === 'AUTHORIZING'
+                          ? 'text-amber-600 dark:text-amber-400'
+                          : 'text-rose-600 dark:text-rose-400'
+                      }`}
+                    >
+                      {isUsbReady
+                        ? `${usbConnectedDevice.detectionSource || 'CONNECTED'} (مصادق ✓)`
+                        : usbConnectedDevice.status === 'AUTHORIZING'
+                        ? `${usbConnectedDevice.detectionSource || 'USB'} (بانتظار التصريح)`
+                        : 'غير موصل'}
                     </span>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
@@ -3873,14 +4078,14 @@ export const CommunicationsView: React.FC = () => {
                     </div>
                     <div>
                       <label className="block text-[10px] font-bold text-[var(--erp-text-secondary)] mb-1">
-                        منفذ المودم / الجسر:
+                        منفذ المودم / الجسر المكتشف:
                       </label>
                       <input
                         type="text"
                         value={usbConnectedDevice.port}
-                        onChange={(e) => updateUsbConnectedDevice({ port: e.target.value })}
+                        readOnly
                         dir="ltr"
-                        className="w-full px-2.5 py-1 bg-[var(--erp-bg-surface)] border border-[var(--erp-border)] rounded-lg font-mono text-[11px] font-bold text-[var(--erp-text-primary)]"
+                        className="w-full px-2.5 py-1 bg-[var(--erp-bg-surface)] border border-[var(--erp-border)] rounded-lg font-mono text-[11px] font-bold text-[var(--erp-text-secondary)]"
                       />
                     </div>
                   </div>
@@ -3928,12 +4133,12 @@ export const CommunicationsView: React.FC = () => {
                   {isRunningDiag ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
-                      <span>جاري فحص وتنشيط منفذ USB و ADB...</span>
+                      <span>جاري فحص منافذ USB و ADB والمودم...</span>
                     </>
                   ) : (
                     <>
                       <Terminal className="w-4 h-4 shrink-0" />
-                      <span>فحص وتنشيط جسر USB و SIM تلقائياً</span>
+                      <span>إعادة فحص واكتشاف الجوال الحقيقي الآن</span>
                     </>
                   )}
                 </button>
@@ -3972,17 +4177,25 @@ export const CommunicationsView: React.FC = () => {
                     </span>
                   </div>
                   <p className="text-[10px] text-[var(--erp-text-secondary)] pt-1 leading-relaxed">
-                    يقوم النظام بتوليد رسالة باسم كل عميل مدين ورصيده الفعلي وإرسالها فوراً وتوثيقها في سجل الرسائل أدناه.
+                    يتطلب وجود جوال أو بوابة SMS متصلة فعلياً ليتم إرسال الرسائل وتوثيقها في السجل.
                   </p>
                 </div>
 
                 {bulkCampaignAlert && (
                   <div
-                    data-testid="bulk-sms-campaign-success"
-                    className="p-3 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 rounded-xl text-xs font-bold border border-emerald-500/30 flex items-center gap-2"
+                    data-testid="bulk-sms-campaign-alert"
+                    className={`p-3 rounded-xl text-xs font-bold border flex items-center gap-2 ${
+                      bulkCampaignAlert.type === 'success'
+                        ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                        : 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/30'
+                    }`}
                   >
-                    <CheckCircle className="w-4 h-4 shrink-0 text-emerald-600" />
-                    <span>{bulkCampaignAlert}</span>
+                    {bulkCampaignAlert.type === 'success' ? (
+                      <CheckCircle className="w-4 h-4 shrink-0 text-emerald-600" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                    )}
+                    <span>{bulkCampaignAlert.message}</span>
                   </div>
                 )}
 
@@ -3993,7 +4206,10 @@ export const CommunicationsView: React.FC = () => {
                   onClick={async () => {
                     setIsLaunchingCampaign(true);
                     const res = launchBulkDebtSmsCampaign();
-                    setBulkCampaignAlert(res.messageAr);
+                    setBulkCampaignAlert({
+                      type: res.success === false ? 'error' : 'success',
+                      message: res.messageAr,
+                    });
                     setAccountToast(res.messageAr);
                     setIsLaunchingCampaign(false);
                   }}
@@ -4015,14 +4231,25 @@ export const CommunicationsView: React.FC = () => {
 
               {/* Diagnostics Terminal Output Viewer (Theme-Unified) */}
               {usbDiagnosticsReport && (
-                <div className="bg-[var(--erp-bg-surface)] text-[var(--erp-text-primary)] rounded-2xl p-4 font-mono text-xs shadow-2xs border border-[var(--erp-border)] space-y-2 min-w-0 overflow-hidden">
+                <div
+                  data-testid="usb-diagnostics-log-panel"
+                  className="bg-[var(--erp-bg-surface)] text-[var(--erp-text-primary)] rounded-2xl p-4 font-mono text-xs shadow-2xs border border-[var(--erp-border)] space-y-2 min-w-0 overflow-hidden"
+                >
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--erp-border)] pb-2">
                     <div className="flex items-center gap-2 font-bold">
                       <Terminal className="w-4 h-4 text-[var(--erp-accent)] shrink-0" />
                       <span>سجل الفحص العتادي المباشر (USB / AT+CMGS)</span>
                     </div>
-                    <span className="text-[10px] bg-emerald-500/15 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-lg font-bold">
-                      جاهز ✓
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded-lg font-bold border ${
+                        usbDiagnosticsReport.atCmdResponseOk || usbDiagnosticsReport.usbPermissionGranted
+                          ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
+                          : 'bg-rose-500/15 border-rose-500/30 text-rose-700 dark:text-rose-300'
+                      }`}
+                    >
+                      {usbDiagnosticsReport.atCmdResponseOk || usbDiagnosticsReport.usbPermissionGranted
+                        ? 'جاهز ✓'
+                        : 'غير موصل'}
                     </span>
                   </div>
 
@@ -4030,7 +4257,15 @@ export const CommunicationsView: React.FC = () => {
                     {usbDiagnosticsReport.diagnosticLogs.map((log: string, index: number) => (
                       <div key={index} className="flex items-start gap-2">
                         <span className="text-[var(--erp-text-secondary)] select-none">›</span>
-                        <span className={log.includes('OK') || log.includes('جاهز') ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-[var(--erp-text-secondary)]'}>
+                        <span
+                          className={
+                            log.includes('OK') || log.includes('تم التعرف')
+                              ? 'text-emerald-600 dark:text-emerald-400 font-bold'
+                              : log.includes('لم يتم') || log.includes('خطأ') || log.includes('غير مصرح')
+                              ? 'text-rose-600 dark:text-rose-400 font-bold'
+                              : 'text-[var(--erp-text-secondary)]'
+                          }
+                        >
                           {log}
                         </span>
                       </div>
@@ -4539,11 +4774,20 @@ export const CommunicationsView: React.FC = () => {
                                     msg.recipientPhone,
                                     msg.messageBody,
                                     msg.referenceNumber,
-                                    msg.recipientName
-                                  );
-                                  setAccountToast(
-                                    `تمت إعادة إرسال الرسالة النصية إلى (${msg.recipientName}) بنجاح.`
-                                  );
+                                    msg.recipientName,
+                                    'CUSTOM_OPERATION',
+                                    usbConnectedDevice.connectionMode === 'ETHERNET_TETHER' ? smsGatewayEndpoint : undefined
+                                  ).then((res) => {
+                                    setSmsStatusAlert({
+                                      type: res.success ? 'success' : 'error',
+                                      message:
+                                        res.messageAr ||
+                                        (res.success
+                                          ? `تمت إعادة إرسال الرسالة النصية إلى (${msg.recipientName}) بنجاح.`
+                                          : 'تعذر إعادة الإرسال: لا يوجد جوال موصل حالياً.'),
+                                      smsUri: res.record?.smsUri || res.smsUri,
+                                    });
+                                  });
                                 }}
                                 className="px-2.5 py-1 rounded-lg bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] text-[var(--erp-text-primary)] hover:opacity-85 text-[11px] font-bold cursor-pointer whitespace-nowrap"
                               >

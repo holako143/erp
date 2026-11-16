@@ -525,50 +525,517 @@ export function appendMessageToWhatsAppChats(
 }
 
 // ============================================================================
-// 2. Android USB Mobile Phone Bridge (SMS over USB / ADB)
+// 2. Real Android USB / Serial Modem / Gateway SMS Bridge
 // ============================================================================
 
-export function createDefaultUsbConnectedDevice(): UsbConnectedDevice {
-  return {
-    id: 'usb-dev-samsung-s24',
-    model: 'Samsung Galaxy S24 Ultra (SM-S928B)',
-    manufacturer: 'Samsung Electronics Co., Ltd.',
-    serialNumber: 'R5CW4019XYZ',
-    port: 'USB-C Bus 001 Device 004 (COM4 / /dev/ttyUSB0)',
-    connectionMode: 'ADB_DEBUGGING',
-    simOperator: 'Yemen Mobile (421-03) / STC Saudi 4G LTE',
-    simSlot: 1,
-    signalStrengthPercent: 96,
-    batteryPercent: 88,
-    isCharging: true,
-    usbDebuggingEnabled: true,
-    atCommandReady: true,
-    messagesSentCount: 142,
-    connectedAt: '2026-11-03 08:30:00',
+const USB_VENDOR_NAMES: Record<number, string> = {
+  0x04e8: 'Samsung Electronics',
+  0x2717: 'Xiaomi Inc.',
+  0x12d1: 'Huawei Technologies',
+  0x22d9: 'OPPO / Realme',
+  0x2d95: 'Vivo Communication',
+  0x2a70: 'OnePlus Technology',
+  0x22b8: 'Motorola Mobility',
+  0x18d1: 'Google LLC',
+  0x05ac: 'Apple Inc.',
+  0x054c: 'Sony Mobile',
+  0x0421: 'Nokia / HMD Global',
+  0x1004: 'LG Electronics',
+  0x19d2: 'ZTE Mobile',
+  0x1782: 'Unisoc / Spreadtrum',
+  0x0e8d: 'MediaTek Inc.',
+  0x05c6: 'Qualcomm Inc.',
+  0x1a86: 'QinHeng Electronics (CH340 Serial)',
+  0x10c4: 'Silicon Labs (CP210x Serial)',
+  0x0403: 'FTDI USB-Serial',
+  0x067b: 'Prolific USB-Serial',
+};
+
+export function lookupUsbVendorName(vendorId?: number): string {
+  if (typeof vendorId !== 'number' || !Number.isFinite(vendorId) || vendorId <= 0) {
+    return 'جهاز USB غير معروف المصنع';
+  }
+  return (
+    USB_VENDOR_NAMES[vendorId] ||
+    `USB Vendor (0x${vendorId.toString(16).padStart(4, '0').toUpperCase()})`
+  );
+}
+
+export interface ParsedAdbDevice {
+  serial: string;
+  state: 'device' | 'unauthorized' | 'offline' | 'recovery' | 'unknown';
+  model?: string;
+  product?: string;
+  device?: string;
+  transportId?: string;
+}
+
+export function parseAdbDevicesList(rawOutput: string): ParsedAdbDevice[] {
+  if (!rawOutput) return [];
+  const lines = rawOutput
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0 && !l.startsWith('List of devices') && !l.startsWith('* daemon'));
+
+  const results: ParsedAdbDevice[] = [];
+  for (const line of lines) {
+    const parts = line.split(/\s+/);
+    if (parts.length < 2) continue;
+    const serial = parts[0];
+    const rawState = parts[1];
+    const state: ParsedAdbDevice['state'] =
+      rawState === 'device' ||
+      rawState === 'unauthorized' ||
+      rawState === 'offline' ||
+      rawState === 'recovery'
+        ? rawState
+        : 'unknown';
+
+    let model: string | undefined;
+    let product: string | undefined;
+    let device: string | undefined;
+    let transportId: string | undefined;
+
+    for (const token of parts.slice(2)) {
+      if (token.startsWith('model:')) model = token.slice(6).replace(/_/g, ' ').trim();
+      else if (token.startsWith('product:')) product = token.slice(8).trim();
+      else if (token.startsWith('device:')) device = token.slice(7).trim();
+      else if (token.startsWith('transport_id:')) transportId = token.slice(13).trim();
+    }
+
+    results.push({ serial, state, model, product, device, transportId });
+  }
+  return results;
+}
+
+export function parseAdbBatteryOutput(rawOutput: string): {
+  batteryPercent: number;
+  isCharging: boolean;
+} {
+  if (!rawOutput) return { batteryPercent: 0, isCharging: false };
+  const levelMatch = rawOutput.match(/level:\s*(\d+)/i);
+  const scaleMatch = rawOutput.match(/scale:\s*(\d+)/i);
+  const rawLevel = levelMatch ? Number(levelMatch[1]) : 0;
+  const rawScale = scaleMatch ? Math.max(1, Number(scaleMatch[1])) : 100;
+  const batteryPercent = Math.min(100, Math.max(0, Math.round((rawLevel / rawScale) * 100)));
+  const isCharging =
+    /AC powered:\s*true/i.test(rawOutput) ||
+    /USB powered:\s*true/i.test(rawOutput) ||
+    /Wireless powered:\s*true/i.test(rawOutput);
+  return { batteryPercent, isCharging };
+}
+
+export function parseAdbSignalOutput(rawOutput: string): number {
+  if (!rawOutput) return 0;
+  // Look for explicit Android mLevel (0..4)
+  const levelMatch = rawOutput.match(/(?:level|mLevel)\s*[=:]\s*(\d+)/i);
+  if (levelMatch) {
+    const lvl = Math.min(4, Math.max(0, Number(levelMatch[1])));
+    if (lvl > 0) return lvl * 25;
+  }
+  // Look for dBm RSSI (-50 excellent .. -120 none)
+  const dbmMatch = rawOutput.match(/(?:rssi|rsrp|dbm)\s*[=:]\s*(-\d+)/i);
+  if (dbmMatch) {
+    const dbm = Number(dbmMatch[1]);
+    if (Number.isFinite(dbm) && dbm < 0 && dbm >= -130) {
+      return Math.min(100, Math.max(5, Math.round(((dbm + 125) / 75) * 100)));
+    }
+  }
+  return 0;
+}
+
+export function parseModemAtIdentityResponses(res: {
+  manufacturer?: string;
+  model?: string;
+  operator?: string;
+  csq?: string;
+}): {
+  manufacturer: string;
+  model: string;
+  simOperator: string;
+  signalStrengthPercent: number;
+} {
+  const cleanLine = (raw?: string, fallback = '') => {
+    if (!raw) return fallback;
+    const cleaned = raw
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l && l !== 'OK' && !l.startsWith('AT'))
+      .join(' ')
+      .replace(/^["']|["']$/g, '')
+      .trim();
+    return cleaned || fallback;
   };
+
+  let simOperator = 'غير معروف';
+  const opRaw = cleanLine(res.operator);
+  const quotedOp = opRaw.match(/"([^"]+)"/);
+  if (quotedOp?.[1]) {
+    simOperator = quotedOp[1].trim();
+  } else if (opRaw && !opRaw.startsWith('+COPS: 0')) {
+    simOperator = opRaw.replace(/^\+COPS:\s*/, '').trim();
+  }
+
+  let signalStrengthPercent = 0;
+  const csqMatch = (res.csq || '').match(/\+CSQ:\s*(\d+)/i);
+  if (csqMatch) {
+    const rssi = Number(csqMatch[1]);
+    if (rssi >= 0 && rssi <= 31) {
+      signalStrengthPercent = Math.min(100, Math.max(5, Math.round((rssi / 31) * 100)));
+    }
+  }
+
+  return {
+    manufacturer: cleanLine(res.manufacturer, 'USB GSM/3G/4G Modem'),
+    model: cleanLine(res.model, 'Serial AT+CMGS Modem'),
+    simOperator,
+    signalStrengthPercent,
+  };
+}
+
+export interface DualSimOperatorInfo {
+  sim1Operator: string;
+  sim2Operator?: string;
+  summaryLabel: string;
+}
+
+/**
+ * Parses Android `gsm.sim.operator.alpha` (e.g. "Yemen Mobile,Sabafon" or ",MTN")
+ * into distinct SIM1 & SIM2 operator labels.
+ */
+export function parseAdbDualSimOperators(
+  rawAlpha: string,
+  rawFallbackOperator = ''
+): DualSimOperatorInfo {
+  const parts = String(rawAlpha || '')
+    .split(',')
+    .map((p) => p.trim())
+    .map((p) => (p.toLowerCase() === 'null' ? '' : p));
+
+  const fallbackParts = String(rawFallbackOperator || '')
+    .split(',')
+    .map((p) => p.trim())
+    .map((p) => (p.toLowerCase() === 'null' ? '' : p));
+
+  const sim1 = parts[0] || fallbackParts[0] || '';
+  const sim2 = parts[1] || fallbackParts[1] || '';
+
+  if (sim1 && sim2) {
+    return {
+      sim1Operator: sim1,
+      sim2Operator: sim2,
+      summaryLabel: `${sim1} / ${sim2}`,
+    };
+  }
+  if (sim1) {
+    return {
+      sim1Operator: sim1,
+      summaryLabel: sim1,
+    };
+  }
+  if (sim2) {
+    return {
+      sim1Operator: sim2,
+      sim2Operator: sim2,
+      summaryLabel: sim2,
+    };
+  }
+  return {
+    sim1Operator: 'شريحة SIM نشطة',
+    summaryLabel: 'شريحة SIM نشطة',
+  };
+}
+
+/**
+ * Extracts subscription IDs from `adb shell content query --uri content://telephony/siminfo`
+ * or `dumpsys isms` output so SIM 1 and SIM 2 map to exact Android subIds.
+ */
+export function parseAdbSimSubIds(rawOutput: string): { sim1?: number; sim2?: number } {
+  const result: { sim1?: number; sim2?: number } = {};
+  if (!rawOutput) return result;
+  const rows = rawOutput.split(/\r?\n/);
+  for (const row of rows) {
+    const subMatch = row.match(/(?:_id|subId|id)\s*=\s*(\d+)/i);
+    const slotMatch = row.match(/(?:sim_id|slotIndex|slot_index|phoneId)\s*=\s*(\d+)/i);
+    if (subMatch && slotMatch) {
+      const subId = Number(subMatch[1]);
+      const slot = Number(slotMatch[1]);
+      if (Number.isFinite(subId) && subId > 0) {
+        if (slot === 0 && !result.sim1) result.sim1 = subId;
+        if (slot === 1 && !result.sim2) result.sim2 = subId;
+      }
+    }
+  }
+  return result;
+}
+
+export interface ParsedWindowsSerialPort {
+  port: string;
+  name: string;
+  pnpDeviceId: string;
+  isModem: boolean;
+}
+
+/**
+ * Parses Windows PowerShell JSON / CSV / `mode` COM port output into structured port entries.
+ */
+export function parseWindowsSerialPortsOutput(rawOutput: string): ParsedWindowsSerialPort[] {
+  const trimmed = String(rawOutput || '').trim();
+  if (!trimmed) return [];
+
+  // 1. JSON array or single object from ConvertTo-Json
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      const list = Array.isArray(parsed) ? parsed : [parsed];
+      const mapped: ParsedWindowsSerialPort[] = [];
+      for (const item of list) {
+        const port = String(item?.DeviceID || item?.AttachedTo || item?.Port || '').trim();
+        if (!/^COM\d+$/i.test(port)) continue;
+        const name = String(item?.Name || item?.Description || item?.Caption || port).trim();
+        const pnpDeviceId = String(item?.PNPDeviceID || '').trim();
+        const isModem = /modem|android|gsm|lte|huawei|samsung|xiaomi|qualcomm|mediatek|ch340|cp210|ftdi|usb serial|cdc/i.test(
+          `${name} ${pnpDeviceId}`
+        );
+        mapped.push({ port: port.toUpperCase(), name, pnpDeviceId, isModem });
+      }
+      return mapped;
+    } catch {
+      // fall through to regex parsing
+    }
+  }
+
+  // 2. Fallback regex for `COM3`, `COM4`, etc. (e.g. `mode` output)
+  const seen = new Set<string>();
+  const matches: ParsedWindowsSerialPort[] = [];
+  const regex = /\b(COM\d+)\b([^\r\n]*)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(trimmed)) !== null) {
+    const port = m[1].toUpperCase();
+    if (seen.has(port)) continue;
+    seen.add(port);
+    const label = m[2]?.replace(/[:\-]+$/, '').trim() || `Serial Port ${port}`;
+    matches.push({
+      port,
+      name: label,
+      pnpDeviceId: '',
+      isModem: /modem|android|gsm|usb|serial|ch340|cp210|ftdi/i.test(label),
+    });
+  }
+  return matches;
+}
+
+/**
+ * Escapes an SMS body safely for POSIX `sh -c` / `adb shell` single quotes while preserving Arabic UTF-8.
+ */
+export function escapeAdbShellSingleArg(value: string): string {
+  return `'${String(value || '').replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * Generates ordered Android SDK-aware `adb shell` SMS dispatch commands
+ * across Android 7-15 binder signatures (`isms`) and CLI fallbacks.
+ */
+export function buildAdbSmsShellCommands(params: {
+  sdkVersion: number;
+  phone: string;
+  message: string;
+  simSlot?: number;
+  subId?: number;
+}): string[] {
+  const sdk = Number(params.sdkVersion) || 30;
+  const cleanPhone = String(params.phone || '').replace(/[^\d+]/g, '');
+  const escapedMsg = escapeAdbShellSingleArg(params.message);
+  const subId =
+    typeof params.subId === 'number' && Number.isFinite(params.subId) && params.subId > 0
+      ? params.subId
+      : params.simSlot === 2
+      ? 2
+      : 1;
+
+  const cmds: string[] = [];
+
+  if (sdk >= 31) {
+    // Android 12-15 (API 31-35): attributionTag present on sendTextForSubscriber
+    cmds.push(
+      `service call isms 7 i32 ${subId} s16 "com.android.mms" s16 "null" s16 "${cleanPhone}" s16 "null" s16 ${escapedMsg} s16 "null" s16 "null" i32 0 i64 0`
+    );
+    cmds.push(
+      `service call isms 5 i32 ${subId} s16 "com.android.mms" s16 "null" s16 "${cleanPhone}" s16 "null" s16 ${escapedMsg} s16 "null" s16 "null" i32 0 i64 0`
+    );
+    cmds.push(
+      `service call isms 6 i32 ${subId} s16 "com.android.mms" s16 "null" s16 "${cleanPhone}" s16 "null" s16 ${escapedMsg} s16 "null" s16 "null" i32 0 i64 0`
+    );
+  } else if (sdk >= 29) {
+    // Android 10-11 (API 29-30)
+    cmds.push(
+      `service call isms 5 i32 ${subId} s16 "com.android.mms" s16 "null" s16 "${cleanPhone}" s16 "null" s16 ${escapedMsg} s16 "null" s16 "null" i32 0 i64 0`
+    );
+    cmds.push(
+      `service call isms 7 i32 ${subId} s16 "com.android.mms" s16 "${cleanPhone}" s16 "null" s16 ${escapedMsg} s16 "null" s16 "null" i32 0`
+    );
+  } else {
+    // Android 7-9 (API 24-28)
+    cmds.push(
+      `service call isms 7 i32 ${subId} s16 "com.android.mms" s16 "${cleanPhone}" s16 "null" s16 ${escapedMsg} s16 "null" s16 "null"`
+    );
+    cmds.push(
+      `service call isms 5 i32 0 s16 "com.android.mms" s16 "${cleanPhone}" s16 "null" s16 ${escapedMsg} s16 "null" s16 "null"`
+    );
+  }
+
+  return cmds;
+}
+
+export function classifyAdbSmsDispatchResult(rawOutput: string): {
+  ok: boolean;
+  reasonCode: 'DELIVERED' | 'SECURITY_PERMISSION_REQUIRED' | 'BINDER_MISMATCH' | 'UNKNOWN_ERROR';
+  messageAr: string;
+} {
+  const out = String(rawOutput || '');
+  if (/Parcel\(/i.test(out) && !/Error|Exception|SecurityException|Failure/i.test(out)) {
+    return {
+      ok: true,
+      reasonCode: 'DELIVERED',
+      messageAr: 'تم تسليم أمر الإرسال إلى شريحة الجوال عبر ADB بنجاح.',
+    };
+  }
+  if (/SecurityException|permission denial|requires SEND_SMS/i.test(out)) {
+    return {
+      ok: false,
+      reasonCode: 'SECURITY_PERMISSION_REQUIRED',
+      messageAr:
+        'الجوال متصل عبر ADB لكن نظام الحماية في الهاتف منع الإرسال الخلفي: يرجى تفعيل خيار (تصحيح أخطاء USB - إعدادات الأمان / USB Debugging Security Settings) من خيارات المطور، أو استخدام بوابة HTTP/المودم.',
+    };
+  }
+  if (/Attempt to invoke|NullPointerException|BadParcelableException|not enough|invalid/i.test(out)) {
+    return {
+      ok: false,
+      reasonCode: 'BINDER_MISMATCH',
+      messageAr: 'واجهة خدمة الرسائل على هذا الإصدار تحتاج توقيعاً بديلاً أو بوابة HTTP على الهاتف.',
+    };
+  }
+  return {
+    ok: false,
+    reasonCode: 'UNKNOWN_ERROR',
+    messageAr: out.trim() || 'لم يستجب الجوال لأمر إرسال الرسالة عبر ADB.',
+  };
+}
+
+export function isUsbDeviceReady(device?: Partial<UsbConnectedDevice> | null): boolean {
+  if (!device) return false;
+  if (device.status === 'DISCONNECTED' || device.status === 'ERROR' || device.status === 'AUTHORIZING') {
+    return false;
+  }
+  if (device.detectionSource === 'NONE') return false;
+  return Boolean(device.atCommandReady || device.usbDebuggingEnabled);
+}
+
+export function createDisconnectedUsbDevice(
+  reasonAr = 'لم يتم اكتشاف أي جوال أندرويد أو مودم USB موصل بالنظام حالياً.'
+): UsbConnectedDevice {
+  return {
+    id: 'usb-none',
+    model: 'لا يوجد جهاز جوال موصل',
+    manufacturer: 'قم بتوصيل الجوال عبر كابل USB أو اختيار منفذ تسلسلي / بوابة شبكة',
+    serialNumber: '—',
+    port: 'غير متصل',
+    connectionMode: 'ADB_DEBUGGING',
+    simOperator: 'لا توجد شريحة نشطة',
+    simSlot: 1,
+    signalStrengthPercent: 0,
+    batteryPercent: 0,
+    isCharging: false,
+    usbDebuggingEnabled: false,
+    atCommandReady: false,
+    messagesSentCount: 0,
+    connectedAt: '',
+    status: 'DISCONNECTED',
+    detectionSource: 'NONE',
+    statusReasonAr: reasonAr,
+    lastCheckedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
+  };
+}
+
+export function createDefaultUsbConnectedDevice(): UsbConnectedDevice {
+  return createDisconnectedUsbDevice();
 }
 
 export function runUsbAutoDiagnostics(device?: UsbConnectedDevice): UsbDiagnosticsReport {
   const logs: string[] = [];
   const now = new Date().toLocaleTimeString();
 
-  logs.push(`[${now}] جاري استشعار منافذ USB وسلاسل البيانات التسلسلية (Probing USB Bus)...`);
-  logs.push(`[${now}] تم كشف الجهاز: ${device?.model || 'Generic Android Mobile Device'}`);
-  logs.push(`[${now}] منفذ الاتصال: ${device?.port || 'COM4 - CDC-ACM Serial Interface'}`);
-  logs.push(`[${now}] استجابة خدمة ADB Daemon: متصل ومستقر على المنفذ المحلي 5037`);
-  logs.push(`[${now}] التحقق من شهادة تصحيح الأخطاء (USB Debugging Key RSA): مصادق عليه بنجاح`);
-  logs.push(`[${now}] إرسال أمر اختبار المودم الداخلي: AT -> رد الجهاز: OK`);
-  logs.push(`[${now}] تفعيل نمط الرسائل النصية المباشر: AT+CMGF=1 -> رد الجهاز: OK`);
-  logs.push(`[${now}] فحص شريحة الاتصال والشبكة: AT+COPS? -> ${device?.simOperator || '4G LTE Connected'}`);
-  logs.push(`[${now}] قوة إشارة البث الخلوي: 96% (-65 dBm) — جاهز لإرسال واستقبال SMS فوراً`);
+  logs.push(`[${now}] فحص منافذ USB ومسرى تصحيح الأخطاء (ADB) والمنافذ التسلسلية (COM/ttyUSB)...`);
+
+  if (!device || device.status === 'DISCONNECTED' || device.detectionSource === 'NONE') {
+    logs.push(`[${now}] النتيجة: لم يتم العثور على أي جوال أو مودم SMS موصل فعلياً حالياً.`);
+    logs.push(
+      `[${now}] سبب الحالة: ${
+        device?.statusReasonAr ||
+        'منافذ USB/Serial على الخادم فارغة أو لم يتم منح تصريح WebUSB/Serial من المتصفح.'
+      }`
+    );
+    logs.push(
+      `[${now}] للتوصيل: 1) وصل الجوال بكابل USB وفعّل (تصحيح أخطاء USB) مع تثبيت ADB، أو 2) انقر زر "ربط جوال / مودم من المتصفح (WebUSB/Serial)"، أو 3) أدخل رابط بوابة HTTP LAN.`
+    );
+    return {
+      timestamp: new Date().toISOString(),
+      usbPortCheck: false,
+      driverLoaded: false,
+      adbDaemonRunning: Boolean(device?.hasUsbToolsOnHost),
+      usbPermissionGranted: false,
+      atCmdResponseOk: false,
+      diagnosticLogs: logs,
+    };
+  }
+
+  if (device.status === 'AUTHORIZING') {
+    logs.push(`[${now}] تم رصد جوال على المنفذ (${device.port}) بالرقم التسلسلي (${device.serialNumber})، لكنه غير مصرح (Unauthorized).`);
+    logs.push(`[${now}] الإجراء المطلوب: افتح شاشة الجوال واضغط "السماح بتصحيح أخطاء USB (Allow USB Debugging)" ثم أعد الفحص.`);
+    return {
+      timestamp: new Date().toISOString(),
+      usbPortCheck: true,
+      driverLoaded: true,
+      adbDaemonRunning: true,
+      usbPermissionGranted: false,
+      atCmdResponseOk: false,
+      diagnosticLogs: logs,
+    };
+  }
+
+  if (device.status === 'ERROR') {
+    logs.push(`[${now}] خطأ في الاتصال بالجهاز (${device.model}): ${device.statusReasonAr || 'فشل الاستجابة'}`);
+    return {
+      timestamp: new Date().toISOString(),
+      usbPortCheck: true,
+      driverLoaded: false,
+      adbDaemonRunning: Boolean(device.hasUsbToolsOnHost),
+      usbPermissionGranted: false,
+      atCmdResponseOk: false,
+      diagnosticLogs: logs,
+    };
+  }
+
+  const ready = isUsbDeviceReady(device);
+  logs.push(`[${now}] تم التعرف على الجهاز الحقيقي: ${device.model} (${device.manufacturer})`);
+  logs.push(`[${now}] الرقم التسلسلي / المعرّف: ${device.serialNumber} · المنفذ: ${device.port}`);
+  logs.push(`[${now}] مصدر الاكتشاف الفعلي: ${device.detectionSource || device.connectionMode}`);
+  logs.push(
+    `[${now}] الشريحة والمشغل: SIM ${device.simSlot} (${device.simOperator}) · الإشارة: ${device.signalStrengthPercent}% · البطارية: ${device.batteryPercent}%`
+  );
+  logs.push(
+    ready
+      ? `[${now}] OK — القناة جاهزة فعلياً لإرسال الرسائل النصية عبر الجهاز الموصل.`
+      : `[${now}] تم رصد الجهاز عبر USB، لكن قناة الإرسال التلقائي (${device.connectionMode}) تتطلب مودم Web Serial (AT+CMGS) أو تفعيل ADB/HTTP للإرسال المباشر.`
+  );
 
   return {
     timestamp: new Date().toISOString(),
     usbPortCheck: true,
     driverLoaded: true,
-    adbDaemonRunning: true,
-    usbPermissionGranted: true,
-    atCmdResponseOk: true,
+    adbDaemonRunning: device.usbDebuggingEnabled,
+    usbPermissionGranted: ready,
+    atCmdResponseOk: Boolean(device.atCommandReady),
     diagnosticLogs: logs,
   };
 }
@@ -1432,7 +1899,7 @@ export interface ChannelHealthMetrics {
 export function calculateChannelHealthMetrics(
   accounts: Pick<WhatsAppAccountInstance, 'session' | 'messagesDispatchedCount'>[],
   outboundMessages: { channel?: string; status?: string }[],
-  usbDevice?: Pick<UsbConnectedDevice, 'atCommandReady' | 'usbDebuggingEnabled' | 'simSlot'>
+  usbDevice?: Partial<UsbConnectedDevice> | null
 ): ChannelHealthMetrics {
   let connectedWhatsAppCount = 0;
   let totalMessagesDispatched = outboundMessages.length;
@@ -1456,7 +1923,7 @@ export function calculateChannelHealthMetrics(
     totalMessagesDispatched,
     deliveredSmsCount,
     deliveredWhatsAppCount,
-    usbGatewayReady: Boolean(usbDevice?.atCommandReady && usbDevice?.usbDebuggingEnabled),
+    usbGatewayReady: isUsbDeviceReady(usbDevice),
     activeSimSlot: usbDevice?.simSlot || 1,
   };
 }

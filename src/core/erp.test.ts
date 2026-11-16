@@ -1675,19 +1675,39 @@ test('Track 11 & 12 Communications: WhatsApp Web QR pairing, in-app chats, USB P
   assert.ok(custChat.messages.length >= 2);
   assert.equal(custChat.messages[1].attachmentType, 'INVOICE');
 
-  // 3. USB Mobile Phone Bridge & Diagnostics
+  // 3. Honest USB Mobile Phone Bridge & Diagnostics (starts disconnected with zero fake Samsung data)
   const usbDev = createDefaultUsbConnectedDevice();
-  assert.equal(usbDev.connectionMode, 'ADB_DEBUGGING');
-  assert.ok(usbDev.signalStrengthPercent >= 90);
-  assert.ok(usbDev.model.includes('Samsung'));
+  assert.equal(usbDev.status, 'DISCONNECTED');
+  assert.equal(usbDev.signalStrengthPercent, 0);
+  assert.equal(usbDev.batteryPercent, 0);
+  assert.equal(usbDev.usbDebuggingEnabled, false);
+  assert.equal(usbDev.atCommandReady, false);
 
-  const diag = runUsbAutoDiagnostics(usbDev);
-  assert.equal(diag.usbPortCheck, true);
-  assert.equal(diag.driverLoaded, true);
-  assert.equal(diag.adbDaemonRunning, true);
-  assert.equal(diag.usbPermissionGranted, true);
-  assert.equal(diag.atCmdResponseOk, true);
-  assert.ok(diag.diagnosticLogs.length >= 7);
+  const diagDisconnected = runUsbAutoDiagnostics(usbDev);
+  assert.equal(diagDisconnected.usbPortCheck, false);
+  assert.equal(diagDisconnected.atCmdResponseOk, false);
+  assert.ok(diagDisconnected.diagnosticLogs.some((l) => l.includes('لم يتم العثور')));
+
+  const realDiag = runUsbAutoDiagnostics({
+    ...usbDev,
+    id: 'adb-REAL123',
+    model: 'Pixel 8',
+    manufacturer: 'Google',
+    serialNumber: 'REAL123',
+    port: 'ADB USB',
+    status: 'CONNECTED',
+    detectionSource: 'SERVER_ADB',
+    usbDebuggingEnabled: true,
+    atCommandReady: true,
+    signalStrengthPercent: 85,
+    batteryPercent: 72,
+  });
+  assert.equal(realDiag.usbPortCheck, true);
+  assert.equal(realDiag.driverLoaded, true);
+  assert.equal(realDiag.adbDaemonRunning, true);
+  assert.equal(realDiag.usbPermissionGranted, true);
+  assert.equal(realDiag.atCmdResponseOk, true);
+  assert.ok(realDiag.diagnosticLogs.some((l) => l.includes('Pixel 8')));
 
   // 4. SMS Character & Part Counting
   const arSms = calculateSmsParts('فاتورة ضريبية من شركة النور رقم INV-2026-1001 بمبلغ 5000 ر.س');
@@ -1840,7 +1860,15 @@ test('Track 15 Bulk Debt SMS Campaign filters debtors and increments USB SIM dis
     { id: 'c-4', name: 'Yemen Solar Tech', nameAr: 'تقنية الطاقة صنعاء', phone: '770987654', balance: 12500 },
   ];
 
-  const device = createDefaultUsbConnectedDevice();
+  const device = {
+    ...createDefaultUsbConnectedDevice(),
+    status: 'CONNECTED' as const,
+    detectionSource: 'SERVER_ADB' as const,
+    usbDebuggingEnabled: true,
+    atCommandReady: true,
+    model: 'Test ADB Handset',
+    messagesSentCount: 10,
+  };
   const initialSent = device.messagesSentCount;
 
   const campaign = buildBulkDebtSmsCampaign(mockCustomers, device);
@@ -2843,7 +2871,7 @@ test('Track 34: Performance Monitor Engine tracks view render times, rolling ave
   history = recordViewRenderSample(history, 'pos', 2.0, 'mount', '10:00:00');
   history = recordViewRenderSample(history, 'pos', 4.0, 'update', '10:00:05');
   history = recordViewRenderSample(history, 'inventory', 12.5, 'mount', '10:00:10');
-  history = recordViewRenderSample(history, 'security', 62.0, 'mount', '10:00:15');
+  history = recordViewRenderSample(history, 'accounting', 62.0, 'mount', '10:00:15');
 
   const summary = summarizePerformanceMetrics(history, 'pos');
   assert.equal(summary.activeViewMetric.viewId, 'pos');
@@ -2855,7 +2883,7 @@ test('Track 34: Performance Monitor Engine tracks view render times, rolling ave
 
   assert.equal(summary.bottleneckCount, 1);
   assert.equal(summary.overallStatus, 'BOTTLENECK');
-  assert.equal(summary.slowestView?.viewId, 'security');
+  assert.equal(summary.slowestView?.viewId, 'accounting');
   assert.equal(summary.slowestView?.maxRenderMs, 62.0);
 });
 
@@ -4471,12 +4499,185 @@ test('Track 51: calculateChannelHealthMetrics aggregates WhatsApp, SMS, and USB 
   assert.equal(metrics.activeSimSlot, 2);
 });
 
+test('Track 52: Performance Monitor hides security & masterAdmin views, and USB SMS parsers read real ADB/AT hardware telemetry', async () => {
+  const {
+    VIEW_LABELS_MAP,
+    HIDDEN_PERFORMANCE_VIEWS,
+    isHiddenPerformanceView,
+    recordViewRenderSample,
+    summarizePerformanceMetrics,
+  } = await import('./performanceMonitorEngine');
 
+  assert.equal(isHiddenPerformanceView('security'), true);
+  assert.equal(isHiddenPerformanceView('masterAdmin'), true);
+  assert.equal(isHiddenPerformanceView('pos'), false);
+  assert.equal(VIEW_LABELS_MAP['security'], undefined);
+  assert.equal(VIEW_LABELS_MAP['masterAdmin'], undefined);
+  assert.ok(HIDDEN_PERFORMANCE_VIEWS.has('security'));
 
+  let hist = {};
+  hist = recordViewRenderSample(hist, 'pos', 3.2, 'mount', '11:00:00');
+  hist = recordViewRenderSample(hist, 'security', 88.0, 'mount', '11:00:01');
+  hist = recordViewRenderSample(hist, 'masterAdmin', 77.0, 'mount', '11:00:02');
 
+  const sum = summarizePerformanceMetrics(hist, 'security');
+  assert.equal(sum.allMetrics.some((m) => m.viewId === 'security' || m.viewId === 'masterAdmin'), false);
+  assert.equal(sum.activeViewMetric.viewId, 'pos');
+  assert.equal(sum.slowestView?.viewId, 'pos');
 
+  const {
+    lookupUsbVendorName,
+    parseAdbDevicesList,
+    parseAdbBatteryOutput,
+    parseAdbSignalOutput,
+    parseModemAtIdentityResponses,
+    createDisconnectedUsbDevice,
+    isUsbDeviceReady,
+    runUsbAutoDiagnostics,
+  } = await import('./communicationsEngine');
 
+  assert.equal(lookupUsbVendorName(0x2717), 'Xiaomi Inc.');
+  assert.equal(lookupUsbVendorName(0x04e8), 'Samsung Electronics');
 
+  const adbParsed = parseAdbDevicesList(
+    'List of devices attached\nR9XR5012ABC\tdevice usb:1-2 product:a54x model:SM_A546E device:a54x transport_id:4\nUNAUTH99\tunauthorized transport_id:5\n'
+  );
+  assert.equal(adbParsed.length, 2);
+  assert.equal(adbParsed[0].serial, 'R9XR5012ABC');
+  assert.equal(adbParsed[0].state, 'device');
+  assert.equal(adbParsed[0].model, 'SM A546E');
+  assert.equal(adbParsed[0].transportId, '4');
+  assert.equal(adbParsed[1].state, 'unauthorized');
 
+  const bat = parseAdbBatteryOutput('  AC powered: false\n  USB powered: true\n  level: 67\n  scale: 100');
+  assert.equal(bat.batteryPercent, 67);
+  assert.equal(bat.isCharging, true);
 
+  assert.equal(parseAdbSignalOutput('mSignalStrength=SignalStrength:{mLevel=3}'), 75);
+  assert.ok(parseAdbSignalOutput('rssi=-75') > 50);
+
+  const atParsed = parseModemAtIdentityResponses({
+    manufacturer: 'AT+CGMI\r\nQuectel\r\nOK',
+    model: 'AT+CGMM\r\nEC25-E\r\nOK',
+    operator: '+COPS: 0,0,"Yemen Mobile",7\r\nOK',
+    csq: '+CSQ: 24,99\r\nOK',
+  });
+  assert.equal(atParsed.manufacturer, 'Quectel');
+  assert.equal(atParsed.model, 'EC25-E');
+  assert.equal(atParsed.simOperator, 'Yemen Mobile');
+  assert.ok(atParsed.signalStrengthPercent >= 75);
+
+  const disconnected = createDisconnectedUsbDevice();
+  assert.equal(isUsbDeviceReady(disconnected), false);
+  const authReport = runUsbAutoDiagnostics({
+    ...disconnected,
+    status: 'AUTHORIZING',
+    detectionSource: 'SERVER_ADB',
+    serialNumber: 'UNAUTH99',
+  });
+  assert.equal(authReport.usbPortCheck, true);
+  assert.equal(authReport.usbPermissionGranted, false);
+  assert.equal(authReport.atCmdResponseOk, false);
+});
+
+test('Track 53: Zero-Download Installers (Windows/Linux Firewall & Ports), Pure PKZIP Builder, and Multi-SDK USB SMS Parsers', async () => {
+  const {
+    generateWindowsSetupBat,
+    generateLinuxMacSetupSh,
+    generatePortableReadmeAr,
+    computeCrc32,
+    createStoredZipBuffer,
+  } = await import('./installerEngine');
+
+  const winBat = generateWindowsSetupBat({ port: 3000, httpsPort: 3443, primaryLanIp: '192.168.1.55' });
+  assert.ok(winBat.includes('-Verb RunAs'));
+  assert.ok(winBat.includes('netsh advfirewall firewall add rule'));
+  assert.ok(winBat.includes('localport=3000'));
+  assert.ok(winBat.includes('localport=3443'));
+  assert.ok(winBat.includes('localport=5037'));
+  assert.ok(winBat.includes('netsh http add urlacl'));
+  assert.ok(winBat.includes('server.bundle.cjs'));
+  assert.ok(winBat.includes('adb.exe'));
+
+  const linuxSh = generateLinuxMacSetupSh({ port: 3000, httpsPort: 3443 });
+  assert.ok(linuxSh.includes('ufw allow 3000/tcp'));
+  assert.ok(linuxSh.includes('51-haseb-android.rules'));
+  assert.ok(linuxSh.includes('server.bundle.cjs'));
+
+  const readmeAr = generatePortableReadmeAr({ port: 3000, httpsPort: 3443 });
+  assert.ok(readmeAr.includes('installer_windows.bat'));
+  assert.ok(readmeAr.includes('USB'));
+
+  const crcEmpty = computeCrc32(Buffer.from(''));
+  assert.equal(crcEmpty, 0);
+
+  const zipBuf = createStoredZipBuffer([
+    { name: 'hello.txt', data: Buffer.from('Haseb Offline Bundle', 'utf8') },
+    { name: 'dir/sub.txt', data: Buffer.from('Port 3000 Ready', 'utf8') },
+  ]);
+  // Verify PK local file header signature (0x50 0x4b 0x03 0x04)
+  assert.equal(zipBuf.readUInt32LE(0), 0x04034b50);
+  // Verify End of Central Directory (EOCD) signature exists near end
+  assert.ok(zipBuf.includes(Buffer.from([0x50, 0x4b, 0x05, 0x06])));
+  assert.ok(zipBuf.includes(Buffer.from('hello.txt', 'utf8')));
+  assert.ok(zipBuf.includes(Buffer.from('dir/sub.txt', 'utf8')));
+
+  const {
+    parseAdbDualSimOperators,
+    parseAdbSimSubIds,
+    parseWindowsSerialPortsOutput,
+    escapeAdbShellSingleArg,
+    buildAdbSmsShellCommands,
+    classifyAdbSmsDispatchResult,
+  } = await import('./communicationsEngine');
+
+  const ops = parseAdbDualSimOperators('Yemen Mobile , Sabafon ');
+  assert.equal(ops.sim1Operator, 'Yemen Mobile');
+  assert.equal(ops.sim2Operator, 'Sabafon');
+  assert.equal(ops.summaryLabel, 'Yemen Mobile / Sabafon');
+
+  const subIds = parseAdbSimSubIds('Row: 0 _id=1, sim_id=0\nRow: 1 _id=4, sim_id=1');
+  assert.equal(subIds.sim1, 1);
+  assert.equal(subIds.sim2, 4);
+
+  const comPorts = parseWindowsSerialPortsOutput(
+    JSON.stringify([
+      { DeviceID: 'COM3', Name: 'Android USB Modem', PNPDeviceID: 'USB\\VID_04E8&PID_6860\\123' },
+      { DeviceID: 'COM5', Name: 'Quectel USB AT Port', PNPDeviceID: 'USB\\VID_2C7C&PID_0125\\456' },
+    ])
+  );
+  assert.equal(comPorts.length, 2);
+  assert.equal(comPorts[0].port, 'COM3');
+  assert.equal(comPorts[0].isModem, true);
+  assert.ok(comPorts[0].name.includes('Android USB Modem'));
+
+  const escaped = escapeAdbShellSingleArg("test'msg & hello");
+  assert.ok(escaped.includes("'\\''"));
+
+  const cmdsApi34 = buildAdbSmsShellCommands({
+    sdkVersion: 34,
+    phone: '+967771234567',
+    message: 'مرحبا بك في نظام حاسب',
+    subId: 2,
+  });
+  assert.ok(cmdsApi34.length >= 2);
+  assert.ok(cmdsApi34[0].includes('service call isms 7 i32 2'));
+
+  const cmdsApi29 = buildAdbSmsShellCommands({
+    sdkVersion: 29,
+    phone: '+967771234567',
+    message: 'Test',
+    subId: 1,
+  });
+  assert.ok(cmdsApi29[0].includes('service call isms 5 i32 1'));
+
+  const secErr = classifyAdbSmsDispatchResult('Exception occurred: java.lang.SecurityException: Sending SMS message');
+  assert.equal(secErr.ok, false);
+  assert.equal(secErr.reasonCode, 'SECURITY_PERMISSION_REQUIRED');
+  assert.ok(secErr.messageAr.includes('إعدادات الأمان'));
+
+  const delivered = classifyAdbSmsDispatchResult('Result: Parcel(00000000 00000000   \'........\')');
+  assert.equal(delivered.ok, true);
+  assert.equal(delivered.reasonCode, 'DELIVERED');
+});
 

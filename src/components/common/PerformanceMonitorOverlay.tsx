@@ -4,6 +4,7 @@ import { useERP } from '../../context/ERPContext';
 import {
   performanceTelemetryStore,
   summarizePerformanceMetrics,
+  isHiddenPerformanceView,
   RenderHealthStatus,
 } from '../../core/performanceMonitorEngine';
 
@@ -48,6 +49,7 @@ export const PerformanceMonitorOverlay: React.FC<PerformanceMonitorOverlayProps>
 
   // Measure high-precision view switch commit time whenever activeTab changes
   useEffect(() => {
+    if (isHiddenPerformanceView(activeTab)) return;
     const t0 = navStartRef.current || (typeof performance !== 'undefined' ? performance.now() : 0);
     const rafId = requestAnimationFrame(() => {
       const now = typeof performance !== 'undefined' ? performance.now() : t0 + 1.5;
@@ -306,25 +308,28 @@ export const PerformanceMonitorOverlay: React.FC<PerformanceMonitorOverlayProps>
             </div>
 
             <div className="max-h-44 overflow-y-auto space-y-1 pe-0.5">
-              {allMetrics.map((m) => {
-                const isCurrent = m.viewId === activeTab;
-                const barWidthPct = Math.min(100, Math.max(8, (m.lastRenderMs / 32) * 100));
-                return (
-                  <button
-                    key={m.viewId}
-                    type="button"
-                    data-testid={`perf-view-row-${m.viewId}`}
-                    onClick={() => {
-                      navStartRef.current =
-                        typeof performance !== 'undefined' ? performance.now() : 0;
-                      setActiveTab(m.viewId);
-                    }}
-                    className={`w-full p-2 rounded-xl border text-start transition cursor-pointer ${
-                      isCurrent
-                        ? 'haseb-btn-primary text-white border-transparent'
-                        : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200/80'
-                    }`}
-                  >
+              {allMetrics
+                .filter((m) => !isHiddenPerformanceView(m.viewId))
+                .map((m) => {
+                  const isCurrent = m.viewId === activeTab;
+                  const barWidthPct = Math.min(100, Math.max(8, (m.lastRenderMs / 32) * 100));
+                  return (
+                    <button
+                      key={m.viewId}
+                      type="button"
+                      data-testid={`perf-view-row-${m.viewId}`}
+                      onClick={() => {
+                        if (isHiddenPerformanceView(m.viewId)) return;
+                        navStartRef.current =
+                          typeof performance !== 'undefined' ? performance.now() : 0;
+                        setActiveTab(m.viewId);
+                      }}
+                      className={`w-full p-2 rounded-xl border text-start transition cursor-pointer ${
+                        isCurrent
+                          ? 'haseb-btn-primary text-white border-transparent'
+                          : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200/80'
+                      }`}
+                    >
                     <div className="flex items-center justify-between text-[11px]">
                       <div className="flex items-center gap-1.5 truncate">
                         <span

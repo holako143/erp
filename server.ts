@@ -12,7 +12,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
-import { execSync } from 'child_process';
+import { execSync, execFileSync } from 'child_process';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
 import { parseStructuredVendorInvoiceText } from './src/core/inventoryEngine';
@@ -22,12 +22,28 @@ import {
   createCleanWhatsAppDefaultAccount,
   createNewWhatsAppAccountInstance,
   appendMessageToWhatsAppChats,
-  createDefaultUsbConnectedDevice,
+  createDisconnectedUsbDevice,
   runUsbAutoDiagnostics,
+  isUsbDeviceReady,
   calculateCrossBranchStockMatrix,
   createInterBranchTransferDocAndJournal,
   generateUniqueWhatsAppMessageId,
 } from './src/core/communicationsEngine';
+import {
+  generateLinuxMacSetupSh,
+  generateWindowsSetupBat,
+} from './src/core/installerEngine';
+import {
+  applyHostPermissionsAndServices,
+  buildPortableOfflineZipBundle,
+  dispatchSmsViaHostAdb,
+  dispatchSmsViaHostSerialPort,
+  getLanIpv4Addresses,
+  inspectSystemReadiness,
+  probeHostUsbMobileBridgeState,
+  resolveAdbExecutablePath,
+  startUsbCableHotplugWatcher,
+} from './src/server/usbAndInstallerHost';
 import {
   generateSmartErpBotResponse,
   classifyWhatsAppBotIntent,
@@ -621,44 +637,76 @@ app.get('/api/v1/hardware/windows-scanner.bat', (_req, res) => {
   res.send(batContent);
 });
 
-// 1c-2. Downloadable 1-Click Windows Native Desktop Application Launcher & LAN Firewall Enabler (.bat)
+// 1c-2. Downloadable 1-Click Windows Native Desktop & All-In-One Installer + Firewall Enabler (.bat)
 app.get('/api/v1/desktop/windows-launcher.bat', (_req, res) => {
-  const nets = os.networkInterfaces();
-  const lanIps: string[] = [];
-  for (const name of Object.keys(nets)) {
-    for (const net of nets[name] || []) {
-      if (!net.internal && net.family === 'IPv4' && net.address) {
-        lanIps.push(net.address);
-      }
-    }
-  }
-  const lanHintUrl = lanIps[0] ? `http://${lanIps[0]}:${PORT}` : `http://YOUR-PC-LAN-IP:${PORT}`;
-  const batContent = [
-    '@echo off',
-    'chcp 65001 >nul',
-    'title Haseb ERP - Windows Native Desktop App & LAN Server Launcher',
-    'color 1F',
-    'echo ===============================================================================',
-    'echo   HASEB ENTERPRISE ERP (حاسب) - WINDOWS DESKTOP APPLICATION & LAN SERVER',
-    'echo ===============================================================================',
-    'echo.',
-    'echo [1/3] Enabling Local Area Network (LAN) Access on Windows Firewall (TCP Port 3000)...',
-    'netsh advfirewall firewall add rule name="Haseb ERP LAN Server (Port 3000)" dir=in action=allow protocol=TCP localport=3000 >nul 2>&1',
-    `echo       [OK] Port ${PORT} is open for Phones, Tablets, and Secondary PCs on your Wi-Fi/LAN.`,
-    `echo       [LAN URL] Open from any phone/tablet on same Wi-Fi: ${lanHintUrl}`,
-    'echo.',
-    'echo [2/3] Creating Native Windows Desktop Shortcut (حاسب ERP)...',
-    'powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([Environment]::GetFolderPath(\'Desktop\') + \'\\Haseb ERP - حاسب.lnk\'); $edge = \'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe\'; if (!(Test-Path $edge)) { $edge = \'msedge.exe\' }; $s.TargetPath = $edge; $s.Arguments = \'--app=http://localhost:3000 --start-maximized\'; $s.Description = \'Haseb Enterprise ERP Desktop Application\'; $s.Save()" >nul 2>&1',
-    'echo       [OK] Desktop shortcut created successfully!',
-    'echo.',
-    'echo [3/3] Launching Haseb ERP in Frameless Windows Native Desktop Mode...',
-    'start "" msedge.exe --app=http://localhost:3000 --start-maximized 2>nul || start "" chrome.exe --app=http://localhost:3000 --start-maximized 2>nul || start "" http://localhost:3000',
-    'exit',
-  ].join('\r\n');
-
+  const lanIps = getLanIpv4Addresses();
+  const batContent = generateWindowsSetupBat({
+    port: Number(PORT),
+    httpsPort: Number(HTTPS_PORT),
+    primaryLanIp: lanIps[0] || '',
+  });
   res.setHeader('Content-Type', 'application/x-bat; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="Haseb_Windows_Desktop_App.bat"');
   res.send(batContent);
+});
+
+app.get('/api/v1/installer/windows-setup.bat', (_req, res) => {
+  const lanIps = getLanIpv4Addresses();
+  const batContent = generateWindowsSetupBat({
+    port: Number(PORT),
+    httpsPort: Number(HTTPS_PORT),
+    primaryLanIp: lanIps[0] || '',
+  });
+  res.setHeader('Content-Type', 'application/x-bat; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="Haseb_ERP_Windows_Installer.bat"');
+  res.send(batContent);
+});
+
+app.get('/api/v1/installer/linux-setup.sh', (_req, res) => {
+  const shContent = generateLinuxMacSetupSh({
+    port: Number(PORT),
+    httpsPort: Number(HTTPS_PORT),
+  });
+  res.setHeader('Content-Type', 'application/x-sh; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="Haseb_ERP_Linux_Mac_Installer.sh"');
+  res.send(shContent);
+});
+
+app.get('/api/v1/installer/portable-bundle.zip', async (_req, res) => {
+  try {
+    const zip = await buildPortableOfflineZipBundle({
+      port: Number(PORT),
+      httpsPort: Number(HTTPS_PORT),
+    });
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="Haseb_ERP_Portable_Offline_Bundle.zip"'
+    );
+    res.send(zip.buffer);
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to build offline portable bundle.',
+    });
+  }
+});
+
+app.get('/api/v1/system/readiness', (_req, res) => {
+  const readiness = inspectSystemReadiness({
+    port: Number(PORT),
+    httpsPort: Number(HTTPS_PORT),
+    httpsEnabled: isHttpsActive,
+  });
+  res.json({ success: true, readiness });
+});
+
+app.post('/api/v1/system/apply-permissions', (_req, res) => {
+  const result = applyHostPermissionsAndServices({
+    port: Number(PORT),
+    httpsPort: Number(HTTPS_PORT),
+  });
+  res.json(result);
 });
 
 // ---------------------------------------------------------
@@ -2513,76 +2561,385 @@ ${smartBot.replyText}`;
   });
 });
 
-// 4d. Android USB Mobile Phone Bridge (SMS over USB / ADB) Endpoints
-let usbConnectedDeviceStore = createDefaultUsbConnectedDevice();
+// 4d. Real Android USB / Serial Modem / HTTP Gateway SMS Bridge
+let clientRegisteredUsbDevice: ReturnType<typeof createDisconnectedUsbDevice> | null = null;
+let usbBridgeSentCounter = 0;
+
+function probeHostUsbMobileBridge() {
+  return probeHostUsbMobileBridgeState({
+    sentCounter: usbBridgeSentCounter,
+    clientRegisteredDevice: clientRegisteredUsbDevice,
+  });
+}
 
 app.get('/api/v1/usb/device', (_req, res) => {
+  const device = probeHostUsbMobileBridge();
   res.json({
     success: true,
-    device: usbConnectedDeviceStore,
+    device,
   });
 });
 
-app.post('/api/v1/usb/diagnostics', (req, res) => {
-  const report = runUsbAutoDiagnostics(usbConnectedDeviceStore);
-  usbConnectedDeviceStore = {
-    ...usbConnectedDeviceStore,
-    usbDebuggingEnabled: true,
-    atCommandReady: true,
-    connectionMode: 'ADB_DEBUGGING',
+app.post('/api/v1/usb/register-client-device', (req, res) => {
+  const payload = req.body?.device;
+  if (!payload || typeof payload !== 'object') {
+    res.status(400).json({ success: false, errorAr: 'بيانات الجهاز غير صالحة.' });
+    return;
+  }
+  clientRegisteredUsbDevice = {
+    ...createDisconnectedUsbDevice(),
+    ...payload,
+    lastCheckedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
   };
+  const updatedDevice = probeHostUsbMobileBridge();
+  broadcastWsMessage({ type: 'erp:usb_device_update', device: updatedDevice });
   res.json({
     success: true,
-    report,
-    device: usbConnectedDeviceStore,
-    messageAr: 'تم اكتمال الفحص الذاتي وتصحيح أخطاء USB بنجاح. الجوال جاهز لإرسال SMS فورياً.',
+    device: updatedDevice,
   });
 });
 
-app.post('/api/v1/usb/send-sms', (req, res) => {
-  const { recipientPhone, messageBody, referenceNumber, recipientName } = req.body || {};
+app.post('/api/v1/usb/disconnect', (_req, res) => {
+  clientRegisteredUsbDevice = null;
+  const updatedDevice = probeHostUsbMobileBridge();
+  broadcastWsMessage({ type: 'erp:usb_device_update', device: updatedDevice });
+  res.json({
+    success: true,
+    device: updatedDevice,
+    messageAr: 'تم فصل ربط جهاز الجوال / المودم عن الجسر بنجاح.',
+  });
+});
+
+app.post('/api/v1/usb/diagnostics', async (req, res) => {
+  const requestedMode = req.body?.connectionMode;
+  const gatewayEndpoint =
+    typeof req.body?.gatewayEndpoint === 'string' ? req.body.gatewayEndpoint.trim() : '';
+
+  if (requestedMode === 'ETHERNET_TETHER' && gatewayEndpoint) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 3500);
+      const pingRes = await fetch(gatewayEndpoint, {
+        method: 'OPTIONS',
+        signal: controller.signal,
+      }).catch(async () => {
+        const c2 = new AbortController();
+        const t2 = setTimeout(() => c2.abort(), 3500);
+        try {
+          return await fetch(gatewayEndpoint, { method: 'GET', signal: c2.signal });
+        } finally {
+          clearTimeout(t2);
+        }
+      });
+      clearTimeout(timer);
+
+      if (pingRes && pingRes.status < 500) {
+        const urlHost = (() => {
+          try {
+            return new URL(gatewayEndpoint).host;
+          } catch {
+            return gatewayEndpoint;
+          }
+        })();
+        clientRegisteredUsbDevice = {
+          id: `http-gw-${urlHost}`,
+          model: `بوابة شبكة SMS (${urlHost})`,
+          manufacturer: 'HTTP/LAN SMS Gateway',
+          serialNumber: urlHost,
+          port: gatewayEndpoint,
+          connectionMode: 'ETHERNET_TETHER',
+          simOperator: 'بوابة شبكة LAN نشطة',
+          simSlot: Number(req.body?.simSlot) === 2 ? 2 : 1,
+          signalStrengthPercent: 100,
+          batteryPercent: 100,
+          isCharging: true,
+          usbDebuggingEnabled: false,
+          atCommandReady: true,
+          messagesSentCount: usbBridgeSentCounter,
+          connectedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
+          status: 'CONNECTED',
+          detectionSource: 'HTTP_GATEWAY',
+          gatewayEndpoint,
+          statusReasonAr: `متصل ببوابة الشبكة (${gatewayEndpoint}) وتم التحقق من استجابتها (HTTP ${pingRes.status}).`,
+        };
+      } else {
+        clientRegisteredUsbDevice = null;
+      }
+    } catch (err: any) {
+      const disconnectedGw = {
+        ...createDisconnectedUsbDevice(
+          `تعذر الوصول إلى بوابة الشبكة (${gatewayEndpoint}): ${err?.message || 'انتهت مهلة الاتصال'}`
+        ),
+        connectionMode: 'ETHERNET_TETHER' as const,
+        port: gatewayEndpoint,
+        gatewayEndpoint,
+        status: 'ERROR' as const,
+      };
+      const report = runUsbAutoDiagnostics(disconnectedGw);
+      res.json({
+        success: false,
+        report,
+        device: disconnectedGw,
+        messageAr: disconnectedGw.statusReasonAr,
+      });
+      return;
+    }
+  }
+
+  const device = probeHostUsbMobileBridge();
+  const report = runUsbAutoDiagnostics(device);
+  const ready = isUsbDeviceReady(device);
+
+  res.json({
+    success: ready,
+    report,
+    device,
+    messageAr: ready
+      ? `تم الفحص بنجاح — الجهاز الحقيقي متصل وجاهز (${device.model}).`
+      : device.statusReasonAr || 'لم يتم العثور على جوال أو مودم SMS موصل فعلياً.',
+  });
+});
+
+app.post('/api/v1/usb/send-sms', async (req, res) => {
+  const {
+    recipientPhone,
+    messageBody,
+    referenceNumber,
+    recipientName,
+    dispatchedViaClientSerial,
+    gatewayEndpoint: bodyGatewayEndpoint,
+  } = req.body || {};
   if (!recipientPhone || !messageBody) {
-    res.status(400).json({ success: false, error: 'recipientPhone and messageBody are required.' });
+    res.status(400).json({ success: false, errorAr: 'رقم الهاتف ونص الرسالة مطلوبان.' });
     return;
   }
 
-  usbConnectedDeviceStore = {
-    ...usbConnectedDeviceStore,
-    messagesSentCount: usbConnectedDeviceStore.messagesSentCount + 1,
-  };
+  const device = probeHostUsbMobileBridge();
+  const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 16);
 
-  const outboundRecord = {
-    id: `sms-usb-${Date.now()}`,
-    tenantId: 'ten-1',
-    channel: 'SMS' as const,
-    category: 'CUSTOM_OPERATION' as const,
-    recipientName: recipientName || 'مستلم SMS',
-    recipientPhone,
-    normalizedPhone: recipientPhone,
-    referenceNumber,
-    messageBody,
-    status: 'DELIVERED' as const,
-    deliveryConfirmed: true,
-    dispatchFormat: 'TEXT_ONLY' as const,
-    whatsappUrl: '',
-    smsUri: `sms:${recipientPhone}`,
-    sentBy: `${usbConnectedDeviceStore.model} (USB Modem Bridge - Direct AT+CMGS)`,
-    sentAt: new Date().toISOString().replace('T', ' ').slice(0, 16),
-  };
-
-  if (memoryStore && typeof memoryStore === 'object') {
-    const existing = Array.isArray(memoryStore.outboundMessages) ? memoryStore.outboundMessages : [];
-    writeServerDB({
-      ...memoryStore,
-      outboundMessages: [outboundRecord, ...existing],
+  // If browser already transmitted AT+CMGS directly via Web Serial COM port, persist verified audit/outbound record
+  if (dispatchedViaClientSerial === true) {
+    usbBridgeSentCounter += 1;
+    const outboundRecord = {
+      id: `sms-serial-${Date.now()}`,
+      tenantId: 'ten-1',
+      channel: 'SMS' as const,
+      category: 'CUSTOM_OPERATION' as const,
+      recipientName: recipientName || 'مستلم SMS',
+      recipientPhone,
+      normalizedPhone: recipientPhone,
+      referenceNumber,
+      messageBody,
+      status: 'DELIVERED' as const,
+      deliveryConfirmed: true,
+      dispatchFormat: 'TEXT_ONLY' as const,
+      whatsappUrl: '',
+      smsUri: `sms:${recipientPhone}`,
+      sentBy: `${device.model} (Web Serial AT+CMGS)`,
+      sentAt: nowStr,
+    };
+    if (memoryStore && typeof memoryStore === 'object') {
+      const existing = Array.isArray(memoryStore.outboundMessages) ? memoryStore.outboundMessages : [];
+      writeServerDB({ ...memoryStore, outboundMessages: [outboundRecord, ...existing] });
+    }
+    res.json({
+      success: true,
+      record: outboundRecord,
+      device: { ...device, messagesSentCount: usbBridgeSentCounter },
+      messageAr: `تم إرسال الرسالة النصية فعلياً عبر منفذ المودم التسلسلي (${device.model}).`,
     });
+    return;
   }
 
+  // Try configured HTTP LAN SMS Gateway if provided or connected
+  const effectiveGwUrl =
+    (typeof bodyGatewayEndpoint === 'string' && bodyGatewayEndpoint.trim()) ||
+    (device.detectionSource === 'HTTP_GATEWAY' ? device.gatewayEndpoint : '');
+
+  if (device.detectionSource === 'HTTP_GATEWAY' && effectiveGwUrl) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 7000);
+      const gwRes = await fetch(effectiveGwUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: recipientPhone,
+          phone: recipientPhone,
+          message: messageBody,
+          text: messageBody,
+          simSlot: device.simSlot,
+          referenceNumber,
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (!gwRes.ok) {
+        res.json({
+          success: false,
+          code: 'HTTP_GATEWAY_ERROR',
+          device,
+          errorAr: `بوابة الشبكة (${effectiveGwUrl}) رفضت الإرسال برمز HTTP ${gwRes.status}.`,
+        });
+        return;
+      }
+
+      usbBridgeSentCounter += 1;
+      const outboundRecord = {
+        id: `sms-http-${Date.now()}`,
+        tenantId: 'ten-1',
+        channel: 'SMS' as const,
+        category: 'CUSTOM_OPERATION' as const,
+        recipientName: recipientName || 'مستلم SMS',
+        recipientPhone,
+        normalizedPhone: recipientPhone,
+        referenceNumber,
+        messageBody,
+        status: 'DELIVERED' as const,
+        deliveryConfirmed: true,
+        dispatchFormat: 'TEXT_ONLY' as const,
+        whatsappUrl: '',
+        smsUri: `sms:${recipientPhone}`,
+        sentBy: `${device.model} (HTTP SMS Gateway)`,
+        sentAt: nowStr,
+      };
+      if (memoryStore && typeof memoryStore === 'object') {
+        const existing = Array.isArray(memoryStore.outboundMessages) ? memoryStore.outboundMessages : [];
+        writeServerDB({ ...memoryStore, outboundMessages: [outboundRecord, ...existing] });
+      }
+      res.json({
+        success: true,
+        record: outboundRecord,
+        device: { ...device, messagesSentCount: usbBridgeSentCounter },
+        messageAr: `تم الإرسال الفعلي عبر بوابة الشبكة (${effectiveGwUrl}) بنجاح.`,
+      });
+      return;
+    } catch (err: any) {
+      res.json({
+        success: false,
+        code: 'HTTP_GATEWAY_UNREACHABLE',
+        device,
+        errorAr: `تعذر الاتصال ببوابة SMS الشبكية (${effectiveGwUrl}): ${err?.message || 'فشل الاتصال'}`,
+      });
+      return;
+    }
+  }
+
+  // Try real ADB connected phone dispatch (SDK-aware + Dual-SIM subId routing)
+  if (device.detectionSource === 'SERVER_ADB' && isUsbDeviceReady(device)) {
+    const cleanPhone = String(recipientPhone).replace(/[^\d+]/g, '');
+    const chosenSlot = Number(req.body?.simSlot) === 2 ? 2 : 1;
+    const targetSubId = chosenSlot === 2 ? device.subIds?.sim2 : device.subIds?.sim1;
+    const adbResult = dispatchSmsViaHostAdb({
+      adbPath: resolveAdbExecutablePath(),
+      serialNumber: device.serialNumber,
+      phone: cleanPhone,
+      message: String(messageBody),
+      simSlot: chosenSlot,
+      subId: targetSubId,
+    });
+
+    if (adbResult.success) {
+      usbBridgeSentCounter += 1;
+      const outboundRecord = {
+        id: `sms-adb-${Date.now()}`,
+        tenantId: 'ten-1',
+        channel: 'SMS' as const,
+        category: 'CUSTOM_OPERATION' as const,
+        recipientName: recipientName || 'مستلم SMS',
+        recipientPhone,
+        normalizedPhone: cleanPhone,
+        referenceNumber,
+        messageBody,
+        status: 'DELIVERED' as const,
+        deliveryConfirmed: true,
+        dispatchFormat: 'TEXT_ONLY' as const,
+        whatsappUrl: '',
+        smsUri: `sms:${cleanPhone}`,
+        sentBy: `${device.model} (ADB USB SIM ${chosenSlot})`,
+        sentAt: nowStr,
+      };
+      if (memoryStore && typeof memoryStore === 'object') {
+        const existing = Array.isArray(memoryStore.outboundMessages) ? memoryStore.outboundMessages : [];
+        writeServerDB({ ...memoryStore, outboundMessages: [outboundRecord, ...existing] });
+      }
+      res.json({
+        success: true,
+        record: outboundRecord,
+        device: { ...device, messagesSentCount: usbBridgeSentCounter },
+        messageAr: `تم إرسال الرسالة النصية فعلياً عبر الجوال الموصل (${device.model} — شريحة ${chosenSlot})!`,
+      });
+      return;
+    }
+
+    res.json({
+      success: false,
+      code: adbResult.code,
+      device,
+      errorAr: adbResult.messageAr,
+    });
+    return;
+  }
+
+  // Try direct OS Serial/COM GSM Modem (Windows COM* or Linux /dev/ttyUSB*)
+  if (device.detectionSource === 'SERVER_SERIAL' && isUsbDeviceReady(device)) {
+    const cleanPhone = String(recipientPhone).replace(/[^\d+]/g, '');
+    const serialResult = await dispatchSmsViaHostSerialPort({
+      portPath: device.port,
+      phone: cleanPhone,
+      message: String(messageBody),
+    });
+
+    if (serialResult.success) {
+      usbBridgeSentCounter += 1;
+      const outboundRecord = {
+        id: `sms-com-${Date.now()}`,
+        tenantId: 'ten-1',
+        channel: 'SMS' as const,
+        category: 'CUSTOM_OPERATION' as const,
+        recipientName: recipientName || 'مستلم SMS',
+        recipientPhone,
+        normalizedPhone: cleanPhone,
+        referenceNumber,
+        messageBody,
+        status: 'DELIVERED' as const,
+        deliveryConfirmed: true,
+        dispatchFormat: 'TEXT_ONLY' as const,
+        whatsappUrl: '',
+        smsUri: `sms:${cleanPhone}`,
+        sentBy: `${device.model} (${device.port} AT+CMGS)`,
+        sentAt: nowStr,
+      };
+      if (memoryStore && typeof memoryStore === 'object') {
+        const existing = Array.isArray(memoryStore.outboundMessages) ? memoryStore.outboundMessages : [];
+        writeServerDB({ ...memoryStore, outboundMessages: [outboundRecord, ...existing] });
+      }
+      res.json({
+        success: true,
+        record: outboundRecord,
+        device: { ...device, messagesSentCount: usbBridgeSentCounter },
+        messageAr: serialResult.messageAr,
+      });
+      return;
+    }
+
+    res.json({
+      success: false,
+      code: serialResult.code,
+      device,
+      errorAr: serialResult.messageAr,
+    });
+    return;
+  }
+
+  // No real connected device / gateway -> honestly reject dispatch (never fake delivery!)
   res.json({
-    success: true,
-    record: outboundRecord,
-    device: usbConnectedDeviceStore,
-    messageAr: `تم إرسال الرسالة النصية بنجاح عبر شريحة جوال (${usbConnectedDeviceStore.model}) الموصل بالسلك.`,
+    success: false,
+    code: 'NO_DEVICE_CONNECTED',
+    device,
+    errorAr:
+      device.statusReasonAr ||
+      'لا يوجد جوال أو مودم SMS موصل بالنظام حالياً. وصّل جهازاً عبر USB Debugging أو Web Serial (AT+CMGS) أو بوابة HTTP أولاً.',
   });
 });
 
@@ -3026,6 +3383,20 @@ async function startServer() {
 
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`[Haseb ERP Server] Running on http://0.0.0.0:${PORT}`);
+  });
+
+  // Start Live Plug-and-Play USB Cable Watcher & broadcast instant updates to all connected clients
+  startUsbCableHotplugWatcher({
+    getSentCounter: () => usbBridgeSentCounter,
+    getClientRegisteredDevice: () => clientRegisteredUsbDevice,
+    onDeviceChange: (device) => {
+      broadcastWsMessage({
+        type: 'erp:usb_device_update',
+        device,
+        serverTimestampMs: Date.now(),
+      });
+    },
+    intervalMs: 2500,
   });
 
   // Companion Self-Signed HTTPS Server for Mobile LAN Camera & OS Notifications (Secure Context)

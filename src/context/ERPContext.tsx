@@ -82,8 +82,11 @@ import {
   createNewWhatsAppAccountInstance,
   appendMessageToWhatsAppChats,
   generateUniqueWhatsAppMessageId,
-  createDefaultUsbConnectedDevice,
+  createDisconnectedUsbDevice,
   runUsbAutoDiagnostics,
+  isUsbDeviceReady,
+  lookupUsbVendorName,
+  parseModemAtIdentityResponses,
   calculateCrossBranchStockMatrix,
   createInterBranchTransferDocAndJournal,
   advanceInterBranchTransferStatus,
@@ -869,19 +872,34 @@ interface ERPContextType {
     }>
   ) => void;
 
-  // USB Mobile Phone Bridge (SMS over USB / ADB)
+  // USB Mobile Phone Bridge (SMS over USB / ADB / WebUSB / Web Serial / HTTP Gateway)
   usbConnectedDevice: UsbConnectedDevice;
   updateUsbConnectedDevice: (patch: Partial<UsbConnectedDevice>) => void;
   usbDiagnosticsReport: UsbDiagnosticsReport | null;
-  runUsbDiagnostics: () => Promise<UsbDiagnosticsReport>;
+  refreshUsbConnectedDevice: () => Promise<UsbConnectedDevice>;
+  connectWebUsbDevice: () => Promise<{ success: boolean; messageAr: string }>;
+  connectWebSerialModem: () => Promise<{ success: boolean; messageAr: string }>;
+  disconnectUsbDevice: () => Promise<void>;
+  runUsbDiagnostics: (options?: {
+    connectionMode?: UsbConnectedDevice['connectionMode'];
+    gatewayEndpoint?: string;
+    simSlot?: number;
+  }) => Promise<UsbDiagnosticsReport>;
   sendSmsViaUsb: (
     recipientPhone: string,
     messageBody: string,
     referenceNumber?: string,
     recipientName?: string,
-    category?: MessageTemplateCategory
-  ) => Promise<{ success: boolean; messageAr?: string; record?: OutboundMessageRecord }>;
+    category?: MessageTemplateCategory,
+    gatewayEndpointOverride?: string
+  ) => Promise<{
+    success: boolean;
+    messageAr?: string;
+    record?: OutboundMessageRecord;
+    smsUri?: string;
+  }>;
   launchBulkDebtSmsCampaign: (customPrefix?: string) => {
+    success?: boolean;
     campaignId: string;
     targetedCustomersCount: number;
     totalDebtAmount: number;
@@ -1326,17 +1344,108 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [markWhatsAppChatRead]
   );
 
-  // USB Mobile Phone Bridge (SMS via connected Phone SIM)
+  // USB Mobile Phone Bridge (Real Hardware State — never seeded with fake Samsung data)
   const [usbConnectedDevice, setUsbConnectedDevice] = useState<UsbConnectedDevice>(() =>
-    createDefaultUsbConnectedDevice()
+    createDisconnectedUsbDevice()
   );
-  const [usbDiagnosticsReport, setUsbDiagnosticsReport] = useState<UsbDiagnosticsReport | null>(() =>
-    runUsbAutoDiagnostics(createDefaultUsbConnectedDevice())
-  );
+  const [usbDiagnosticsReport, setUsbDiagnosticsReport] = useState<UsbDiagnosticsReport | null>(null);
+  const activeWebSerialPortRef = useRef<any>(null);
 
   const updateUsbConnectedDevice = (patch: Partial<UsbConnectedDevice>) => {
     setUsbConnectedDevice((prev) => ({ ...prev, ...patch }));
   };
+
+  const refreshUsbConnectedDevice = useCallback(async (): Promise<UsbConnectedDevice> => {
+    // Preserve live Web Serial active session if already connected in browser
+    if (activeWebSerialPortRef.current?.writable) {
+      return usbConnectedDevice;
+    }
+    const mergePreservingSimSlot = (nextDev: UsbConnectedDevice): UsbConnectedDevice => {
+      setUsbConnectedDevice((prev) => {
+        if (prev.id && nextDev.id && prev.id === nextDev.id) {
+          return {
+            ...nextDev,
+            simSlot: prev.simSlot === 2 ? 2 : 1,
+          };
+        }
+        return nextDev;
+      });
+      return nextDev;
+    };
+    try {
+      const res = await fetch('/api/v1/usb/device');
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.device) {
+          return mergePreservingSimSlot(data.device);
+        }
+      }
+    } catch {}
+    // Fallback check for previously granted WebUSB devices in browser
+    try {
+      const usbApi = (navigator as any)?.usb;
+      if (usbApi?.getDevices) {
+        const paired = await usbApi.getDevices();
+        if (Array.isArray(paired) && paired.length > 0) {
+          const d = paired[0];
+          const detected: UsbConnectedDevice = {
+            ...createDisconnectedUsbDevice(
+              'تم التعرف على الجوال عبر متصفح WebUSB. للإرسال المباشر استخدم Web Serial (AT+CMGS) أو ADB أو بوابة HTTP.'
+            ),
+            id: `webusb-${d.vendorId}-${d.productId}`,
+            model: d.productName || `${lookupUsbVendorName(d.vendorId)} USB Device`,
+            manufacturer: d.manufacturerName || lookupUsbVendorName(d.vendorId),
+            serialNumber: d.serialNumber || `VID_${d.vendorId?.toString(16)}`,
+            port: `WebUSB (${d.vendorId?.toString(16).padStart(4, '0')}:${d.productId?.toString(16).padStart(4, '0')})`,
+            connectionMode: 'DIRECT_USB_CABLE',
+            status: 'AUTHORIZING',
+            detectionSource: 'WEB_USB',
+            usbVendorId: d.vendorId,
+            usbProductId: d.productId,
+            connectedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
+          };
+          return mergePreservingSimSlot(detected);
+        }
+      }
+    } catch {}
+    const fallback = createDisconnectedUsbDevice();
+    setUsbConnectedDevice(fallback);
+    return fallback;
+  }, [usbConnectedDevice]);
+
+  useEffect(() => {
+    void refreshUsbConnectedDevice();
+    const usbApi = typeof navigator !== 'undefined' ? (navigator as any).usb : undefined;
+    const serialApi = typeof navigator !== 'undefined' ? (navigator as any).serial : undefined;
+    const handleUsbConnect = () => {
+      void refreshUsbConnectedDevice();
+    };
+    const handleUsbDisconnect = () => {
+      activeWebSerialPortRef.current = null;
+      void fetch('/api/v1/usb/disconnect', { method: 'POST' }).catch(() => {});
+      void refreshUsbConnectedDevice();
+    };
+    usbApi?.addEventListener?.('connect', handleUsbConnect);
+    usbApi?.addEventListener?.('disconnect', handleUsbDisconnect);
+    serialApi?.addEventListener?.('connect', handleUsbConnect);
+    serialApi?.addEventListener?.('disconnect', handleUsbDisconnect);
+    return () => {
+      usbApi?.removeEventListener?.('connect', handleUsbConnect);
+      usbApi?.removeEventListener?.('disconnect', handleUsbDisconnect);
+      serialApi?.removeEventListener?.('connect', handleUsbConnect);
+      serialApi?.removeEventListener?.('disconnect', handleUsbDisconnect);
+    };
+  }, []);
+
+  // Lightweight live cable polling while Communications module is open (complements WebSocket push)
+  useEffect(() => {
+    if (activeTab !== 'communications') return;
+    void refreshUsbConnectedDevice();
+    const timer = setInterval(() => {
+      void refreshUsbConnectedDevice();
+    }, 3500);
+    return () => clearInterval(timer);
+  }, [activeTab]);
 
   // Cross-Branch LAN & WAN Stock Probe & Inter-Branch Transfers
   const [branchNodes, setBranchNodes] = useState<BranchNodeInfo[]>([]);
@@ -3865,6 +3974,20 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   isSelf: d.clientId === syncClientIdRef.current,
                 }))
               );
+              return;
+            }
+
+            if (msg?.type === 'erp:usb_device_update' && msg.device) {
+              if (!activeWebSerialPortRef.current?.writable) {
+                setUsbConnectedDevice((prev) => {
+                  const incoming = msg.device as UsbConnectedDevice;
+                  const preservedSimSlot =
+                    prev.id && incoming.id && prev.id === incoming.id ? prev.simSlot : incoming.simSlot;
+                  const merged = { ...incoming, simSlot: preservedSimSlot };
+                  setUsbDiagnosticsReport(runUsbAutoDiagnostics(merged));
+                  return merged;
+                });
+              }
               return;
             }
 
@@ -7997,25 +8120,239 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  // USB Mobile Phone Bridge (SMS via connected device SIM)
-  const runUsbDiagnostics = async (): Promise<UsbDiagnosticsReport> => {
-    const localReport = runUsbAutoDiagnostics(usbConnectedDevice);
-    setUsbDiagnosticsReport(localReport);
-    setUsbConnectedDevice((prev) => ({
-      ...prev,
-      usbDebuggingEnabled: true,
-      atCommandReady: true,
-    }));
+  // Real WebUSB phone identification from browser
+  const connectWebUsbDevice = async (): Promise<{ success: boolean; messageAr: string }> => {
+    const usbApi = typeof navigator !== 'undefined' ? (navigator as any).usb : undefined;
+    if (!usbApi?.requestDevice) {
+      return {
+        success: false,
+        messageAr:
+          'المتصفح الحالي لا يدعم واجهة WebUSB أو أن الصفحة ليست في سياق آمن (HTTPS/localhost). يمكنك استخدام بوابة HTTP الشبكية أو ADB على الجهاز المضيف.',
+      };
+    }
     try {
-      const res = await fetch('/api/v1/usb/diagnostics', { method: 'POST' });
+      const usbDev = await usbApi.requestDevice({ filters: [] });
+      const brand = usbDev.manufacturerName || lookupUsbVendorName(usbDev.vendorId);
+      const model = usbDev.productName || `${brand} Android/USB Device`;
+      const serial =
+        usbDev.serialNumber ||
+        `VID_${(usbDev.vendorId || 0).toString(16)}_${(usbDev.productId || 0).toString(16)}`;
+      const realDevice: UsbConnectedDevice = {
+        ...createDisconnectedUsbDevice(
+          `تم التعرف على الجوال الحقيقي (${model}). ملاحظة: المتصفحات تمنع إرسال SMS مباشرة عبر WebUSB بدون ADB أو منفذ Serial (AT+CMGS) أو تطبيق بوابة HTTP LAN.`
+        ),
+        id: `webusb-${usbDev.vendorId}-${usbDev.productId}`,
+        model,
+        manufacturer: brand,
+        serialNumber: serial,
+        port: `WebUSB (${Number(usbDev.vendorId || 0).toString(16).padStart(4, '0')}:${Number(usbDev.productId || 0).toString(16).padStart(4, '0')})`,
+        connectionMode: 'DIRECT_USB_CABLE',
+        simOperator: 'تم كشف العتاد (يلزم Serial AT أو ADB للإرسال الآلي)',
+        simSlot: 1,
+        batteryPercent: 0,
+        signalStrengthPercent: 0,
+        usbDebuggingEnabled: false,
+        atCommandReady: false,
+        connectedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
+        status: 'AUTHORIZING',
+        detectionSource: 'WEB_USB',
+        usbVendorId: usbDev.vendorId,
+        usbProductId: usbDev.productId,
+      };
+      setUsbConnectedDevice(realDevice);
+      setUsbDiagnosticsReport(runUsbAutoDiagnostics(realDevice));
+      await fetch('/api/v1/usb/register-client-device', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device: realDevice }),
+      }).catch(() => {});
+      return {
+        success: true,
+        messageAr: `تم التعرف على الجهاز الحقيقي (${model} — ${brand} — S/N: ${serial})!`,
+      };
+    } catch (err: any) {
+      if (err?.name === 'NotFoundError') {
+        return { success: false, messageAr: 'لم يتم اختيار أي جهاز USB من النافذة.' };
+      }
+      return {
+        success: false,
+        messageAr: `تعذر قراءة جهاز WebUSB: ${err?.message || 'غير مصرح'}`,
+      };
+    }
+  };
+
+  // Real Web Serial COM / AT+CMGS modem connection from browser
+  const connectWebSerialModem = async (): Promise<{ success: boolean; messageAr: string }> => {
+    const serialApi = typeof navigator !== 'undefined' ? (navigator as any).serial : undefined;
+    if (!serialApi?.requestPort) {
+      return {
+        success: false,
+        messageAr:
+          'واجهة Web Serial غير مدعومة في هذا المتصفح (يتوفر في Chrome/Edge على سطح المكتب أو عبر HTTPS/localhost).',
+      };
+    }
+    try {
+      const port = await serialApi.requestPort();
+      try {
+        if (!port.readable || !port.writable) {
+          await port.open({ baudRate: 115200 });
+        }
+      } catch (openErr: any) {
+        return {
+          success: false,
+          messageAr: `تعذر فتح المنفذ التسلسلي: ${openErr?.message || 'المنفذ مشغول بتطبيق آخر'}`,
+        };
+      }
+      activeWebSerialPortRef.current = port;
+      const sendAtProbe = async (cmd: string): Promise<string> => {
+        if (!port.writable || !port.readable) return '';
+        const writer = port.writable.getWriter();
+        const encoder = new TextEncoder();
+        await writer.write(encoder.encode(`${cmd}\r\n`));
+        writer.releaseLock();
+
+        const reader = port.readable.getReader();
+        const decoder = new TextDecoder();
+        let output = '';
+        const deadline = Date.now() + 900;
+        try {
+          while (Date.now() < deadline) {
+            const raceRes: any = await Promise.race([
+              reader.read(),
+              new Promise((resolve) => setTimeout(() => resolve({ done: true, timeout: true }), 450)),
+            ]);
+            if (raceRes?.value) {
+              output += decoder.decode(raceRes.value, { stream: true });
+              if (output.includes('OK') || output.includes('ERROR')) break;
+            } else {
+              break;
+            }
+          }
+        } finally {
+          try {
+            reader.releaseLock();
+          } catch {}
+        }
+        return output;
+      };
+
+      const atPing = await sendAtProbe('AT');
+      const atOk = /OK/i.test(atPing);
+      const cgmi = atOk ? await sendAtProbe('AT+CGMI') : '';
+      const cgmm = atOk ? await sendAtProbe('AT+CGMM') : '';
+      const cops = atOk ? await sendAtProbe('AT+COPS?') : '';
+      const csq = atOk ? await sendAtProbe('AT+CSQ') : '';
+      const parsed = parseModemAtIdentityResponses({
+        manufacturer: cgmi,
+        model: cgmm,
+        operator: cops,
+        csq,
+      });
+      const portInfo = port.getInfo?.() || {};
+      const vendorLabel = lookupUsbVendorName(portInfo.usbVendorId);
+
+      const realSerialDevice: UsbConnectedDevice = {
+        id: `webserial-${portInfo.usbVendorId || 'com'}-${portInfo.usbProductId || Date.now()}`,
+        model: parsed.model !== 'Serial AT+CMGS Modem' ? parsed.model : `${vendorLabel} Serial Modem`,
+        manufacturer: parsed.manufacturer !== 'USB GSM/3G/4G Modem' ? parsed.manufacturer : vendorLabel,
+        serialNumber: portInfo.usbVendorId
+          ? `USB_${Number(portInfo.usbVendorId).toString(16)}:${Number(portInfo.usbProductId || 0).toString(16)}`
+          : 'SERIAL_COM_PORT',
+        port: portInfo.usbVendorId
+          ? `WebSerial COM (${Number(portInfo.usbVendorId).toString(16).padStart(4, '0')}:${Number(portInfo.usbProductId || 0).toString(16).padStart(4, '0')})`
+          : 'WebSerial COM Port',
+        connectionMode: 'USB_MODEM_AT',
+        simOperator: parsed.simOperator,
+        simSlot: 1,
+        signalStrengthPercent: parsed.signalStrengthPercent,
+        batteryPercent: 100,
+        isCharging: true,
+        usbDebuggingEnabled: false,
+        atCommandReady: atOk,
+        messagesSentCount: usbConnectedDevice.messagesSentCount || 0,
+        connectedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
+        status: atOk ? 'CONNECTED' : 'ERROR',
+        detectionSource: 'WEB_SERIAL',
+        usbVendorId: portInfo.usbVendorId,
+        usbProductId: portInfo.usbProductId,
+        statusReasonAr: atOk
+          ? `متصل فعلياً عبر المنفذ التسلسلي وجاهز لإرسال أوامر AT+CMGS.`
+          : 'تم فتح المنفذ التسلسلي لكن المودم لم يستجب لأمر AT. تأكد أن المنفذ خاص بمودم GSM/3G/4G.',
+      };
+      setUsbConnectedDevice(realSerialDevice);
+      setUsbDiagnosticsReport(runUsbAutoDiagnostics(realSerialDevice));
+      await fetch('/api/v1/usb/register-client-device', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device: realSerialDevice }),
+      }).catch(() => {});
+
+      return {
+        success: atOk,
+        messageAr: atOk
+          ? `تم الاتصال الفعلي بالمودم التسلسلي (${realSerialDevice.model}) — الشبكة: ${realSerialDevice.simOperator}.`
+          : 'تم فتح المنفذ لكن المودم لم يستجب لأمر الفحص (AT).',
+      };
+    } catch (err: any) {
+      if (err?.name === 'NotFoundError') {
+        return { success: false, messageAr: 'لم يتم اختيار أي منفذ تسلسلي (COM Port).' };
+      }
+      return {
+        success: false,
+        messageAr: `فشل فتح المنفذ التسلسلي: ${err?.message || 'خطأ غير متوقع'}`,
+      };
+    }
+  };
+
+  const disconnectUsbDevice = async (): Promise<void> => {
+    try {
+      if (activeWebSerialPortRef.current?.close) {
+        await activeWebSerialPortRef.current.close();
+      }
+    } catch {}
+    activeWebSerialPortRef.current = null;
+    try {
+      await fetch('/api/v1/usb/disconnect', { method: 'POST' });
+    } catch {}
+    const disconnected = createDisconnectedUsbDevice();
+    setUsbConnectedDevice(disconnected);
+    setUsbDiagnosticsReport(runUsbAutoDiagnostics(disconnected));
+  };
+
+  // Real Hardware Probe Diagnostics (never fakes success when nothing is attached)
+  const runUsbDiagnostics = async (options?: {
+    connectionMode?: UsbConnectedDevice['connectionMode'];
+    gatewayEndpoint?: string;
+    simSlot?: number;
+  }): Promise<UsbDiagnosticsReport> => {
+    // If user is actively using a browser Web Serial port and not probing HTTP gateway
+    if (activeWebSerialPortRef.current?.writable && options?.connectionMode !== 'ETHERNET_TETHER') {
+      const report = runUsbAutoDiagnostics(usbConnectedDevice);
+      setUsbDiagnosticsReport(report);
+      return report;
+    }
+
+    try {
+      const res = await fetch('/api/v1/usb/diagnostics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          connectionMode: options?.connectionMode || usbConnectedDevice.connectionMode,
+          gatewayEndpoint: options?.gatewayEndpoint,
+          simSlot: options?.simSlot || usbConnectedDevice.simSlot,
+        }),
+      });
       const data = await res.json();
-      if (data.report) {
+      if (data?.device) setUsbConnectedDevice(data.device);
+      if (data?.report) {
         setUsbDiagnosticsReport(data.report);
-        if (data.device) setUsbConnectedDevice(data.device);
         return data.report;
       }
     } catch {}
-    return localReport;
+
+    const honestFallback = runUsbAutoDiagnostics(usbConnectedDevice);
+    setUsbDiagnosticsReport(honestFallback);
+    return honestFallback;
   };
 
   const sendSmsViaUsb = async (
@@ -8023,8 +8360,14 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     messageBody: string,
     referenceNumber?: string,
     recipientName?: string,
-    category: MessageTemplateCategory = 'CUSTOM_OPERATION'
-  ): Promise<{ success: boolean; messageAr?: string; record?: OutboundMessageRecord }> => {
+    category: MessageTemplateCategory = 'CUSTOM_OPERATION',
+    gatewayEndpointOverride?: string
+  ): Promise<{
+    success: boolean;
+    messageAr?: string;
+    record?: OutboundMessageRecord;
+    smsUri?: string;
+  }> => {
     const cleanPhone = (recipientPhone || '').trim();
     const cleanBody = (messageBody || '').trim();
     if (!cleanPhone || !cleanBody) {
@@ -8040,80 +8383,201 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       messagingGatewayConfig.defaultCountryDialCode
     );
     const e164Phone = built.valid ? built.normalized.e164Phone : cleanPhone;
+    const smsUri = built.smsUri || `sms:${cleanPhone}?body=${encodeURIComponent(cleanBody)}`;
     const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 16);
-    const newRecord: OutboundMessageRecord = {
-      id: `sms-usb-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      tenantId: currentTenant.id,
-      channel: 'SMS',
-      category,
-      recipientName: recipientName?.trim() || 'عميل / مستلم SMS',
-      recipientPhone: cleanPhone,
-      normalizedPhone: e164Phone,
-      referenceNumber: referenceNumber?.trim() || undefined,
-      messageBody: cleanBody,
-      status: 'DELIVERED',
-      deliveryConfirmed: true,
-      dispatchFormat: 'TEXT_ONLY',
-      whatsappUrl: built.whatsappWebUrl || '',
-      smsUri: built.smsUri || `sms:${cleanPhone}?body=${encodeURIComponent(cleanBody)}`,
-      sentBy: `${usbConnectedDevice.model} (SIM ${usbConnectedDevice.simSlot} • ${usbConnectedDevice.simOperator})`,
-      sentAt: nowStr,
-    };
 
-    // Instant 0ms Write-Through to State & Outbound History
-    setOutboundMessages((prev) => [newRecord, ...prev]);
-    setUsbConnectedDevice((prev) => ({
-      ...prev,
-      messagesSentCount: prev.messagesSentCount + 1,
-    }));
+    // Path A: Direct Browser Web Serial AT+CMGS transmission if COM modem is actively open
+    if (activeWebSerialPortRef.current?.writable && usbConnectedDevice.detectionSource === 'WEB_SERIAL') {
+      try {
+        const port = activeWebSerialPortRef.current;
+        const writer = port.writable.getWriter();
+        const encoder = new TextEncoder();
+        await writer.write(encoder.encode('AT+CMGF=1\r\n'));
+        await new Promise((r) => setTimeout(r, 150));
+        await writer.write(encoder.encode(`AT+CMGS="${e164Phone}"\r\n`));
+        await new Promise((r) => setTimeout(r, 200));
+        await writer.write(encoder.encode(`${cleanBody}\x1A`));
+        writer.releaseLock();
 
-    setAuditLogs((prev) => [
-      {
-        id: `aud-usb-sms-${Date.now()}`,
+        let modemResponse = '';
+        if (port.readable) {
+          const reader = port.readable.getReader();
+          const decoder = new TextDecoder();
+          const deadline = Date.now() + 2500;
+          try {
+            while (Date.now() < deadline) {
+              const chunk: any = await Promise.race([
+                reader.read(),
+                new Promise((resolve) => setTimeout(() => resolve({ done: true }), 800)),
+              ]);
+              if (chunk?.value) {
+                modemResponse += decoder.decode(chunk.value, { stream: true });
+                if (modemResponse.includes('+CMGS:') || modemResponse.includes('OK') || modemResponse.includes('ERROR')) {
+                  break;
+                }
+              } else {
+                break;
+              }
+            }
+          } finally {
+            try {
+              reader.releaseLock();
+            } catch {}
+          }
+        }
+
+        if (modemResponse.includes('ERROR')) {
+          return {
+            success: false,
+            smsUri,
+            messageAr: 'رفض المودم التسلسلي إرسال الرسالة (AT+CMGS ERROR). تحقق من رصيد الشريحة وتغطية الشبكة.',
+          };
+        }
+
+        const serverRes = await fetch('/api/v1/usb/send-sms', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            recipientPhone: cleanPhone,
+            messageBody: cleanBody,
+            referenceNumber,
+            recipientName,
+            dispatchedViaClientSerial: true,
+          }),
+        }).then((r) => r.json()).catch(() => null);
+
+        const newRecord: OutboundMessageRecord = serverRes?.record || {
+          id: `sms-serial-${Date.now()}`,
+          tenantId: currentTenant.id,
+          channel: 'SMS',
+          category,
+          recipientName: recipientName?.trim() || 'عميل / مستلم SMS',
+          recipientPhone: cleanPhone,
+          normalizedPhone: e164Phone,
+          referenceNumber: referenceNumber?.trim() || undefined,
+          messageBody: cleanBody,
+          status: 'DELIVERED',
+          deliveryConfirmed: true,
+          dispatchFormat: 'TEXT_ONLY',
+          whatsappUrl: built.whatsappWebUrl || '',
+          smsUri,
+          sentBy: `${usbConnectedDevice.model} (Web Serial AT+CMGS)`,
+          sentAt: nowStr,
+        };
+        setOutboundMessages((prev) => [newRecord, ...prev]);
+        setUsbConnectedDevice((prev) => ({
+          ...prev,
+          messagesSentCount: prev.messagesSentCount + 1,
+        }));
+        return {
+          success: true,
+          record: newRecord,
+          smsUri,
+          messageAr: `تم إرسال الرسالة النصية فعلياً عبر المودم التسلسلي (${usbConnectedDevice.model}) إلى ${e164Phone}.`,
+        };
+      } catch (err: any) {
+        return {
+          success: false,
+          smsUri,
+          messageAr: `فشل الإرسال عبر المنفذ التسلسلي: ${err?.message || 'تحقق من اتصال المودم'}`,
+        };
+      }
+    }
+
+    // Path B: Dispatch through verified Server ADB or LAN HTTP SMS Gateway (NO fake optimistic success!)
+    try {
+      const serverRes = await fetch('/api/v1/usb/send-sms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipientPhone: cleanPhone,
+          messageBody: cleanBody,
+          referenceNumber,
+          recipientName,
+          simSlot: usbConnectedDevice.simSlot,
+          subId:
+            usbConnectedDevice.simSlot === 2
+              ? usbConnectedDevice.subIds?.sim2
+              : usbConnectedDevice.subIds?.sim1,
+          simOperator: usbConnectedDevice.simOperator,
+          gatewayEndpoint: gatewayEndpointOverride || usbConnectedDevice.gatewayEndpoint,
+        }),
+      });
+      const data = await serverRes.json().catch(() => null);
+      if (data?.device) {
+        setUsbConnectedDevice(data.device);
+      }
+
+      if (!serverRes.ok || !data?.success) {
+        return {
+          success: false,
+          smsUri,
+          messageAr:
+            data?.errorAr ||
+            'لا يوجد جوال أو مودم SMS موصل بالنظام حالياً. وصّل جوالاً عبر USB / Web Serial / بوابة HTTP أو استخدم تطبيق الرسائل أدناه.',
+        };
+      }
+
+      const persistedRecord: OutboundMessageRecord = {
+        ...(data.record || {}),
+        id: data.record?.id || `sms-usb-${Date.now()}`,
         tenantId: currentTenant.id,
-        userId: currentUser.id,
-        userName: currentUser.name,
-        action: 'SEND_USB_SMS',
-        module: 'COMMUNICATIONS',
-        entityType: 'OutboundMessage',
-        entityId: newRecord.id,
-        details: `Dispatched direct USB SIM${usbConnectedDevice.simSlot} SMS to ${newRecord.recipientName} [${e164Phone}]${referenceNumber ? ` Ref: ${referenceNumber}` : ''}.`,
-        timestamp: new Date().toISOString(),
-      },
-      ...prev,
-    ]);
-
-    // Non-blocking background sync with server USB endpoint
-    fetch('/api/v1/usb/send-sms', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+        channel: 'SMS',
+        category,
+        recipientName: recipientName?.trim() || 'عميل / مستلم SMS',
         recipientPhone: cleanPhone,
+        normalizedPhone: e164Phone,
+        referenceNumber: referenceNumber?.trim() || undefined,
         messageBody: cleanBody,
-        referenceNumber,
-        recipientName,
-        simSlot: usbConnectedDevice.simSlot,
-        simOperator: usbConnectedDevice.simOperator,
-      }),
-    }).catch(() => {});
+        status: 'DELIVERED',
+        deliveryConfirmed: true,
+        dispatchFormat: 'TEXT_ONLY',
+        whatsappUrl: built.whatsappWebUrl || '',
+        smsUri,
+        sentBy: data.record?.sentBy || `${usbConnectedDevice.model} (SIM ${usbConnectedDevice.simSlot})`,
+        sentAt: nowStr,
+      };
 
-    pushLiveNotification({
-      category: 'LIVE_EVENTS',
-      severity: 'success',
-      titleAr: `إرسال رسالة SMS عبر SIM ${usbConnectedDevice.simSlot}`,
-      titleEn: `SMS Sent via SIM ${usbConnectedDevice.simSlot}`,
-      messageAr: `تم الإرسال إلى ${newRecord.recipientName} (${e164Phone})${
-        referenceNumber ? ` — ${referenceNumber}` : ''
-      }`,
-      messageEn: `Sent SMS to ${newRecord.recipientName} (${e164Phone})`,
-      actionType: 'COMMUNICATIONS',
-    });
+      setOutboundMessages((prev) => [persistedRecord, ...prev]);
+      setAuditLogs((prev) => [
+        {
+          id: `aud-usb-sms-${Date.now()}`,
+          tenantId: currentTenant.id,
+          userId: currentUser.id,
+          userName: currentUser.name,
+          action: 'SEND_USB_SMS',
+          module: 'COMMUNICATIONS',
+          entityType: 'OutboundMessage',
+          entityId: persistedRecord.id,
+          details: `Dispatched real SMS via ${persistedRecord.sentBy} to ${persistedRecord.recipientName} [${e164Phone}]${referenceNumber ? ` Ref: ${referenceNumber}` : ''}.`,
+          timestamp: new Date().toISOString(),
+        },
+        ...prev,
+      ]);
 
-    return {
-      success: true,
-      record: newRecord,
-      messageAr: `تم إرسال الرسالة النصية إلى (${newRecord.recipientName} — ${e164Phone}) فوراً عبر شريحة SIM ${usbConnectedDevice.simSlot} (${usbConnectedDevice.model}) بنجاح!`,
-    };
+      pushLiveNotification({
+        category: 'LIVE_EVENTS',
+        severity: 'success',
+        titleAr: `إرسال رسالة SMS عبر ${usbConnectedDevice.model}`,
+        titleEn: `SMS Dispatched`,
+        messageAr: `تم الإرسال إلى ${persistedRecord.recipientName} (${e164Phone})`,
+        messageEn: `Sent SMS to ${persistedRecord.recipientName} (${e164Phone})`,
+        actionType: 'COMMUNICATIONS',
+      });
+
+      return {
+        success: true,
+        record: persistedRecord,
+        smsUri,
+        messageAr: data.messageAr || `تم إرسال الرسالة النصية إلى (${persistedRecord.recipientName} — ${e164Phone}) بنجاح!`,
+      };
+    } catch {
+      return {
+        success: false,
+        smsUri,
+        messageAr: 'تعذر الوصول إلى خادم جسر SMS للتحقق من الجوال الموصل.',
+      };
+    }
   };
 
   // Cross-Branch Stock Probe & Transfers
@@ -8226,11 +8690,23 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const launchBulkDebtSmsCampaign = (
     customPrefix?: string
   ): {
+    success?: boolean;
     campaignId: string;
     targetedCustomersCount: number;
     totalDebtAmount: number;
     messageAr: string;
   } => {
+    if (!isUsbDeviceReady(usbConnectedDevice)) {
+      return {
+        success: false,
+        campaignId: '',
+        targetedCustomersCount: 0,
+        totalDebtAmount: 0,
+        messageAr:
+          'تعذر إطلاق الحملة الجماعية: لا يوجد جوال أندرويد أو مودم SMS موصل وجاهز حالياً. قم بتوصيل الجوال عبر USB / Web Serial أو بوابة الشبكة أولاً.',
+      };
+    }
+
     const campaign = buildBulkDebtSmsCampaign(customers, usbConnectedDevice, customPrefix);
     setUsbConnectedDevice(campaign.updatedDevice);
 
@@ -8248,7 +8724,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       status: 'DELIVERED',
       whatsappUrl: '',
       smsUri: `sms:${item.phone}`,
-      sentBy: `${usbConnectedDevice.model} (USB Bulk Queue)`,
+      sentBy: `${usbConnectedDevice.model} (Bulk Queue)`,
       sentAt: nowStr,
     }));
 
@@ -8264,7 +8740,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         module: 'COMMUNICATIONS',
         entityType: 'DebtCampaign',
         entityId: campaign.campaignId,
-        details: `Dispatched bulk debt reminders via USB Mobile SIM to ${campaign.targetedCustomersCount} debtors (Total Debt: ${campaign.totalDebtAmount} ${currency}).`,
+        details: `Dispatched bulk debt reminders via ${usbConnectedDevice.model} to ${campaign.targetedCustomersCount} debtors (Total Debt: ${campaign.totalDebtAmount} ${currency}).`,
         timestamp: new Date().toISOString(),
       },
       ...prev,
@@ -8275,16 +8751,17 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       severity: 'success',
       titleAr: `حملة SMS جماعية (${campaign.targetedCustomersCount} عملاء)`,
       titleEn: `Bulk SMS Campaign (${campaign.targetedCustomersCount} recipients)`,
-      messageAr: `تم إطلاق تذكير المديونيات عبر شريحة SIM ${usbConnectedDevice.simSlot} بإجمالي ${campaign.totalDebtAmount.toLocaleString()} ${currency}.`,
+      messageAr: `تم إطلاق تذكير المديونيات عبر (${usbConnectedDevice.model}) بإجمالي ${campaign.totalDebtAmount.toLocaleString()} ${currency}.`,
       messageEn: `Bulk debt SMS campaign sent to ${campaign.targetedCustomersCount} debtors.`,
       actionType: 'COMMUNICATIONS',
     });
 
     return {
+      success: true,
       campaignId: campaign.campaignId,
       targetedCustomersCount: campaign.targetedCustomersCount,
       totalDebtAmount: campaign.totalDebtAmount,
-      messageAr: `تم إطلاق حملة التذكير بنجاح وإرسال ${campaign.targetedCustomersCount} رسالة نصية عبر شريحة الجوال الموصول بالـ USB!`,
+      messageAr: `تم إطلاق حملة التذكير بنجاح وتجهيز ${campaign.targetedCustomersCount} رسالة نصية عبر (${usbConnectedDevice.model})!`,
     };
   };
 
@@ -8701,6 +9178,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         usbConnectedDevice,
         updateUsbConnectedDevice,
         usbDiagnosticsReport,
+        refreshUsbConnectedDevice,
+        connectWebUsbDevice,
+        connectWebSerialModem,
+        disconnectUsbDevice,
         runUsbDiagnostics,
         sendSmsViaUsb,
         launchBulkDebtSmsCampaign,

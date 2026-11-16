@@ -82,8 +82,14 @@ export function useOnlineStatus() {
   return isOnline;
 }
 
-export const PWAInstallButton: React.FC<{ compactForDrawer?: boolean }> = ({
+export const PWAInstallButton: React.FC<{
+  compactForDrawer?: boolean;
+  alwaysVisible?: boolean;
+  className?: string;
+}> = ({
   compactForDrawer = false,
+  alwaysVisible = false,
+  className = '',
 }) => {
   const { language } = useERP();
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
@@ -93,10 +99,20 @@ export const PWAInstallButton: React.FC<{ compactForDrawer?: boolean }> = ({
   if (isInstalled) {
     return (
       <span
-        data-testid={compactForDrawer ? 'mobile-pwa-installed-badge' : 'pwa-installed-badge'}
+        data-testid={
+          compactForDrawer
+            ? 'mobile-pwa-installed-badge'
+            : alwaysVisible
+            ? 'inline-pwa-installed-badge'
+            : 'pwa-installed-badge'
+        }
         className={`${
-          compactForDrawer ? 'inline-flex w-full justify-center py-2' : 'hidden xl:inline-flex'
-        } items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold`}
+          compactForDrawer
+            ? 'inline-flex w-full justify-center py-2'
+            : alwaysVisible
+            ? 'inline-flex w-full justify-center py-2'
+            : 'hidden xl:inline-flex'
+        } items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold ${className}`}
       >
         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
         <span className="truncate">{language === 'ar' ? 'مثبت كتطبيق' : 'Installed'}</span>
@@ -108,7 +124,13 @@ export const PWAInstallButton: React.FC<{ compactForDrawer?: boolean }> = ({
     <>
       <button
         type="button"
-        data-testid={compactForDrawer ? 'mobile-pwa-install-btn' : 'navbar-pwa-install-btn'}
+        data-testid={
+          compactForDrawer
+            ? 'mobile-pwa-install-btn'
+            : alwaysVisible
+            ? 'inline-pwa-install-btn'
+            : 'navbar-pwa-install-btn'
+        }
         onClick={async () => {
           if (isInstallable) {
             await install();
@@ -123,12 +145,14 @@ export const PWAInstallButton: React.FC<{ compactForDrawer?: boolean }> = ({
         }
         className={
           compactForDrawer
-            ? 'w-full px-2.5 py-2.5 rounded-xl haseb-btn-primary text-white text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer'
-            : 'hidden xl:inline-flex items-center gap-1.5 px-2.5 h-8 rounded-md bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold transition cursor-pointer'
+            ? `w-full px-2.5 py-2.5 rounded-xl haseb-btn-primary text-white text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer ${className}`
+            : alwaysVisible
+            ? `w-full py-2.5 px-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 text-xs font-bold inline-flex items-center justify-center gap-2 transition cursor-pointer whitespace-nowrap ${className}`
+            : `hidden xl:inline-flex items-center gap-1.5 px-2.5 h-8 rounded-md bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold transition cursor-pointer ${className}`
         }
       >
         <Download className="w-3.5 h-3.5 shrink-0" />
-        <span className="truncate">{language === 'ar' ? 'تثبيت كتطبيق' : 'Install App'}</span>
+        <span className="truncate">{language === 'ar' ? 'تثبيت كتطبيق مستقل (PWA)' : 'Install App'}</span>
       </button>
 
       {showModal && (

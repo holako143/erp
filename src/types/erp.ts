@@ -1336,6 +1336,22 @@ export interface UsbConnectedDevice {
   atCommandReady: boolean;
   messagesSentCount: number;
   connectedAt: string;
+  status?: UsbDeviceStatus;
+  detectionSource?: 'NONE' | 'SERVER_ADB' | 'SERVER_SERIAL' | 'WEB_USB' | 'WEB_SERIAL' | 'HTTP_GATEWAY';
+  statusReasonAr?: string;
+  lastCheckedAt?: string;
+  usbVendorId?: number;
+  usbProductId?: number;
+  gatewayEndpoint?: string;
+  hasUsbToolsOnHost?: boolean;
+  dualSimOperators?: {
+    sim1: string;
+    sim2?: string;
+  };
+  subIds?: {
+    sim1?: number;
+    sim2?: number;
+  };
 }
 
 export interface UsbDiagnosticsReport {

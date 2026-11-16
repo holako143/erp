@@ -29,6 +29,13 @@ export interface PerformanceSummary {
   overallStatus: RenderHealthStatus;
 }
 
+export const HIDDEN_PERFORMANCE_VIEWS = new Set<string>(['security', 'masterAdmin']);
+
+export function isHiddenPerformanceView(viewId: string): boolean {
+  const cleanId = (viewId || '').trim();
+  return HIDDEN_PERFORMANCE_VIEWS.has(cleanId);
+}
+
 export const VIEW_LABELS_MAP: Record<string, { ar: string; en: string }> = {
   pos: { ar: 'نقطة البيع POS', en: 'POS Register' },
   inventory: { ar: 'المخزون والجرد', en: 'Inventory & WMS' },
@@ -36,12 +43,10 @@ export const VIEW_LABELS_MAP: Record<string, { ar: string; en: string }> = {
   accounting: { ar: 'المحاسبة المالية', en: 'Accounting' },
   reportsAndAI: { ar: 'التقارير والتحليلات', en: 'Reports & Analytics' },
   communications: { ar: 'خدمات التواصل وواتساب', en: 'Communications Hub' },
-  security: { ar: 'مركز الحماية والعضويات', en: 'Security & DRM Center' },
   settings: { ar: 'الإعدادات والقوالب', en: 'System Settings' },
   dashboard: { ar: 'لوحة القيادة', en: 'Executive Dashboard' },
   purchasing: { ar: 'المشتريات والموردين', en: 'Purchasing' },
   barcodeEngine: { ar: 'محرك الباركود GS1', en: 'Barcode Engine' },
-  masterAdmin: { ar: 'الإدارة السيادية', en: 'Master Admin' },
 };
 
 export function classifyRenderDuration(durationMs: number): RenderHealthStatus {
@@ -64,6 +69,9 @@ export function recordViewRenderSample(
   timestampStr?: string
 ): Record<string, ViewRenderMetric> {
   const cleanId = (viewId || 'pos').trim();
+  if (isHiddenPerformanceView(cleanId)) {
+    return history;
+  }
   const labels = VIEW_LABELS_MAP[cleanId] || { ar: cleanId, en: cleanId };
   const roundedMs = roundMetricMs(actualDurationMs);
   const existing = history[cleanId];
@@ -124,22 +132,26 @@ export function summarizePerformanceMetrics(
   history: Record<string, ViewRenderMetric>,
   activeViewId: string
 ): PerformanceSummary {
-  const list = Object.values(history).sort((a, b) => b.lastRenderMs - a.lastRenderMs);
-  const labels = VIEW_LABELS_MAP[activeViewId] || { ar: activeViewId, en: activeViewId };
+  const safeActiveId = isHiddenPerformanceView(activeViewId) ? 'pos' : activeViewId || 'pos';
+  const list = Object.values(history)
+    .filter((item) => !isHiddenPerformanceView(item.viewId))
+    .sort((a, b) => b.lastRenderMs - a.lastRenderMs);
+  const labels = VIEW_LABELS_MAP[safeActiveId] || { ar: safeActiveId, en: safeActiveId };
 
-  const activeViewMetric: ViewRenderMetric = history[activeViewId] || {
-    viewId: activeViewId,
-    labelAr: labels.ar,
-    labelEn: labels.en,
-    lastRenderMs: 1.2,
-    avgRenderMs: 1.2,
-    maxRenderMs: 1.2,
-    minRenderMs: 1.2,
-    renderCount: 1,
-    phase: 'mount',
-    status: 'OPTIMAL',
-    updatedAt: 'الآن',
-  };
+  const activeViewMetric: ViewRenderMetric =
+    (!isHiddenPerformanceView(safeActiveId) ? history[safeActiveId] : undefined) || {
+      viewId: safeActiveId,
+      labelAr: labels.ar,
+      labelEn: labels.en,
+      lastRenderMs: 1.2,
+      avgRenderMs: 1.2,
+      maxRenderMs: 1.2,
+      minRenderMs: 1.2,
+      renderCount: 1,
+      phase: 'mount',
+      status: 'OPTIMAL',
+      updatedAt: 'الآن',
+    };
 
   if (list.length === 0) {
     return {
@@ -157,7 +169,7 @@ export function summarizePerformanceMetrics(
   const overallAvgMs = roundMetricMs(totalAvg);
   const slowestView = list.reduce(
     (slowest, item) => (!slowest || item.maxRenderMs > slowest.maxRenderMs ? item : slowest),
-     null as ViewRenderMetric | null
+    null as ViewRenderMetric | null
   );
   const bottleneckCount = list.filter((m) => m.status === 'BOTTLENECK').length;
   const hasWarning = list.some((m) => m.status === 'WARNING');
@@ -188,6 +200,7 @@ class PerformanceTelemetryStore {
     actualDurationMs: number,
     phase: 'mount' | 'update' | 'nested-update' = 'mount'
   ): void {
+    if (isHiddenPerformanceView(viewId)) return;
     const interactiveFrameMs =
       actualDurationMs > 15.5
         ? Math.min(13.8, Math.max(2.1, actualDurationMs * 0.14))

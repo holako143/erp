@@ -53,8 +53,14 @@ import {
   RefreshCw,
   Clock,
   HardDrive,
+  Laptop,
+  Wifi,
+  Terminal,
+  Smartphone,
 } from 'lucide-react';
 import { useAlertSound } from '../hooks/useAlertSound';
+import { PWAInstallButton } from '../components/layout/PWAInstallBanner';
+import type { SystemReadinessReport } from '../core/installerEngine';
 
 export const SettingsView: React.FC = () => {
   const {
@@ -104,9 +110,9 @@ export const SettingsView: React.FC = () => {
     preferences: soundAlertPrefs,
   });
 
-  // Top-level tabs: central hub, templates, company profile, sound alerts, backup
+  // Top-level tabs: central hub, templates, company profile, sound alerts, backup, system_setup
   const [activeSettingsTab, setActiveSettingsTab] = useState<
-    'central_hub' | 'templates' | 'company' | 'sound_alerts' | 'backup'
+    'central_hub' | 'templates' | 'company' | 'sound_alerts' | 'backup' | 'system_setup'
   >('central_hub');
 
   // Sub-segmented view inside the Central Branches & Warehouses Hub
@@ -204,11 +210,49 @@ export const SettingsView: React.FC = () => {
     }
   }, []);
 
+  // Zero-download installer, firewall, port & ADB USB readiness inspection state
+  const [systemReadiness, setSystemReadiness] = useState<SystemReadinessReport | null>(null);
+  const [isCheckingReadiness, setIsCheckingReadiness] = useState(false);
+  const [isApplyingPermissions, setIsApplyingPermissions] = useState(false);
+  const [permissionActionsLog, setPermissionActionsLog] = useState<string[]>([]);
+
+  const loadSystemReadiness = React.useCallback(async () => {
+    setIsCheckingReadiness(true);
+    try {
+      const res = await fetch('/api/v1/system/readiness');
+      if (!res.ok) return;
+      const json = await res.json();
+      if (json?.readiness) setSystemReadiness(json.readiness);
+    } catch {
+      // ignore offline
+    } finally {
+      setIsCheckingReadiness(false);
+    }
+  }, []);
+
+  const handleApplyHostPermissions = async () => {
+    setIsApplyingPermissions(true);
+    try {
+      const res = await fetch('/api/v1/system/apply-permissions', { method: 'POST' });
+      const json = await res.json().catch(() => null);
+      if (json?.readiness) setSystemReadiness(json.readiness);
+      if (Array.isArray(json?.actionsTakenAr)) {
+        setPermissionActionsLog(json.actionsTakenAr);
+      }
+    } catch {
+      setPermissionActionsLog(['تعذر الاتصال بالخادم المحلي لتطبيق الصلاحيات.']);
+    } finally {
+      setIsApplyingPermissions(false);
+    }
+  };
+
   React.useEffect(() => {
     if (activeSettingsTab === 'backup') {
       loadServerBackupsStatus();
+    } else if (activeSettingsTab === 'system_setup') {
+      loadSystemReadiness();
     }
-  }, [activeSettingsTab, loadServerBackupsStatus]);
+  }, [activeSettingsTab, loadServerBackupsStatus, loadSystemReadiness]);
 
   // ============================================================================
   // BRANCH CRUD HANDLERS
@@ -739,6 +783,11 @@ export const SettingsView: React.FC = () => {
             id: 'backup',
             label: 'النسخ الاحتياطي والأمان المحلي',
             icon: Download,
+          },
+          {
+            id: 'system_setup',
+            label: 'ملف التسطيب والصلاحيات',
+            icon: Laptop,
           },
         ].map((tab) => {
           const Icon = tab.icon;
@@ -2807,6 +2856,199 @@ export const SettingsView: React.FC = () => {
                     إلغاء
                   </button>
                 </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================================
+          TAB 6: ZERO-DOWNLOAD INSTALLER, PORT & FIREWALL PERMISSIONS, USB BRIDGE
+      ==================================================================== */}
+      {activeSettingsTab === 'system_setup' && (
+        <div
+          data-testid="settings-system-setup-panel"
+          className="max-w-5xl space-y-4 min-w-0"
+        >
+          {/* Offline Portable Bundle & Installers Card */}
+          <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-start gap-2.5 min-w-0">
+                <div className="w-9 h-9 rounded-xl haseb-btn-primary text-white flex items-center justify-center shrink-0">
+                  <Laptop className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">
+                    ملف التسطيب والحزمة المتكاملة بدون إنترنت (Zero-Download Setup)
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    تشغيل مباشر على أي جهاز بدون تحميل حزم npm — يفتح تلقائياً منافذ الشبكة (3000/3443)، جدار الحماية، صلاحيات URL ACL، وخدمة ADB للجوال
+                  </p>
+                </div>
+              </div>
+              <span className="text-[11px] font-mono px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 shrink-0 tabular-nums">
+                {systemReadiness?.zeroDownloadReady ? 'جاهز بدون إنترنت ✓' : 'وضع المعاينة / التجهيز'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+              <a
+                href="/api/v1/installer/portable-bundle.zip"
+                download="Haseb_ERP_Portable_Offline_Bundle.zip"
+                data-testid="settings-download-portable-zip-btn"
+                className="py-2.5 px-3 rounded-xl haseb-btn-primary text-white font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer whitespace-nowrap"
+              >
+                <Download className="w-4 h-4 text-emerald-300 shrink-0" />
+                <span className="truncate">الحزمة المتكاملة (.zip)</span>
+              </a>
+
+              <a
+                href="/api/v1/installer/windows-setup.bat"
+                download="Haseb_ERP_Windows_Installer.bat"
+                data-testid="settings-download-win-installer-btn"
+                className="py-2.5 px-3 rounded-xl bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer whitespace-nowrap"
+              >
+                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span className="truncate">مثبت Windows (.bat)</span>
+              </a>
+
+              <a
+                href="/api/v1/installer/linux-setup.sh"
+                download="Haseb_ERP_Linux_Mac_Installer.sh"
+                data-testid="settings-download-linux-installer-btn"
+                className="py-2.5 px-3 rounded-xl bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer whitespace-nowrap"
+              >
+                <Terminal className="w-4 h-4 text-blue-600 shrink-0" />
+                <span className="truncate">مثبت Linux / Mac (.sh)</span>
+              </a>
+
+              <PWAInstallButton alwaysVisible />
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+              توجد نسخ المثبت أيضاً في مجلد النظام الرئيسي باسم{' '}
+              <code className="font-mono font-bold text-slate-900 dark:text-slate-100" dir="ltr">
+                installer_windows.bat
+              </code>{' '}
+              و{' '}
+              <code className="font-mono font-bold text-slate-900 dark:text-slate-100" dir="ltr">
+                installer_linux_mac.sh
+              </code>
+              . عند تشغيل المثبت على Windows يطلب صلاحيات المسؤول تلقائياً ويفتح منافذ جدار الحماية (3000، 3443، 5037) ويشغّل جسر USB بدون تحميل أي ملفات إضافية.
+            </div>
+          </div>
+
+          {/* Live Host Readiness & 1-Click Permission Engine */}
+          <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="min-w-0">
+                <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <Wifi className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>فحص جاهزية المنفذ، جدار الحماية، والحزمة الصفرية</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  تطبيق تلقائي لصلاحيات المنفذ وتهيئة خدمة ADB للتعرف الفوري على أي جوال USB
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  data-testid="btn-refresh-system-readiness"
+                  disabled={isCheckingReadiness}
+                  onClick={() => void loadSystemReadiness()}
+                  className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 text-xs font-bold flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isCheckingReadiness ? 'animate-spin' : ''}`} />
+                  <span>تحديث الفحص</span>
+                </button>
+
+                <button
+                  type="button"
+                  data-testid="btn-apply-host-permissions"
+                  disabled={isApplyingPermissions}
+                  onClick={() => void handleApplyHostPermissions()}
+                  className="px-3.5 py-2 rounded-xl haseb-btn-primary text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer whitespace-nowrap disabled:opacity-60"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                  <span>
+                    {isApplyingPermissions
+                      ? 'جاري التطبيق...'
+                      : 'فحص وتطبيق صلاحيات المنفذ وجدار الحماية وADB'}
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {systemReadiness && (
+              <div
+                data-testid="system-readiness-grid"
+                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 tabular-nums text-xs"
+              >
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-1">
+                  <div className="text-[11px] text-slate-500">حزمة التشغيل الصفرية (Offline Bundle)</div>
+                  <div className="font-bold text-slate-900 dark:text-slate-100 font-mono">
+                    dist: {systemReadiness.distReady ? 'جاهز ✓' : 'غير مبني'} · bundle:{' '}
+                    {systemReadiness.bundleReady ? 'جاهز ✓' : 'غير مبني'}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-1">
+                  <div className="text-[11px] text-slate-500">جدار الحماية والمنافذ (Ports)</div>
+                  <div className="font-bold text-slate-900 dark:text-slate-100">
+                    {systemReadiness.firewallStatus === 'CONFIGURED' ||
+                    systemReadiness.firewallStatus === 'CONTAINER_MANAGED'
+                      ? `مفتوح وجاهز (${systemReadiness.port})`
+                      : `يتطلب تشغيل المثبت كمسؤول`}
+                  </div>
+                  <div className="text-[10.5px] text-slate-500 truncate" title={systemReadiness.firewallDetailsAr}>
+                    {systemReadiness.firewallDetailsAr}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-1">
+                  <div className="text-[11px] text-slate-500">رابط الشبكة المحلية (LAN)</div>
+                  <div className="font-bold text-emerald-700 dark:text-emerald-400 font-mono truncate" dir="ltr">
+                    {systemReadiness.primaryLanUrl}
+                  </div>
+                  <div className="text-[10.5px] text-slate-500">
+                    نظام التشغيل: {systemReadiness.platform} ({systemReadiness.arch})
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-1 sm:col-span-2 lg:col-span-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-slate-100">
+                      <Smartphone className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>جسر USB / ADB ومنافذ المودم التسلسلية (COM/TTY)</span>
+                    </div>
+                    <span className="font-mono text-[11px] text-slate-600 dark:text-slate-300">
+                      ADB: {systemReadiness.adbAvailable ? (systemReadiness.adbDaemonRunning ? 'نشط ✓' : 'متاح ✓') : 'غير مثبت في PATH'} · منافذ تسلسلية: {systemReadiness.serialPortsCount}
+                    </span>
+                  </div>
+                  {systemReadiness.adbPath && (
+                    <div className="text-[11px] font-mono text-slate-500 truncate" dir="ltr">
+                      ADB Binary: {systemReadiness.adbPath}
+                    </div>
+                  )}
+                  {systemReadiness.serialPorts.length > 0 && (
+                    <div className="text-[11px] font-mono text-slate-500 truncate" dir="ltr">
+                      Serial Hardware: {systemReadiness.serialPorts.join(' | ')}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {permissionActionsLog.length > 0 && (
+              <div
+                data-testid="permission-actions-log"
+                className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 space-y-1.5 text-xs text-emerald-900 dark:text-emerald-200"
+              >
+                {permissionActionsLog.map((line, i) => (
+                  <div key={i} className="font-medium leading-relaxed">
+                    {line}
+                  </div>
+                ))}
               </div>
             )}
           </div>

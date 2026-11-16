@@ -21,6 +21,7 @@ import {
   Zap,
   Globe,
 } from 'lucide-react';
+import { PWAInstallButton } from '../layout/PWAInstallBanner';
 
 export const MobileLanPortalModal: React.FC = () => {
   const {
@@ -557,50 +558,72 @@ export const MobileLanPortalModal: React.FC = () => {
             </div>
           </div>
 
-          {/* Windows Native Desktop Launcher Section */}
+          {/* Windows / Linux Zero-Download Installer & Portable Offline Bundle */}
           <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Laptop className="w-4 h-4 text-slate-800" />
+              <div className="flex items-center gap-2 min-w-0">
+                <Laptop className="w-4 h-4 text-slate-800 shrink-0" />
                 <h4 className="text-xs font-bold text-slate-900">
-                  تشغيل كبرنامج سطح مكتب مستقل على Windows + فتح جدار الحماية للشبكة (Port 3000)
+                  ملفات التسطيب المتكاملة بدون إنترنت + صلاحيات المنافذ وجدار الحماية وADB
                 </h4>
               </div>
-              <span className="text-[10px] font-mono bg-white border border-slate-200 px-2 py-0.5 rounded text-slate-600">
-                Windows 10 / 11 Native App
+              <span className="text-[10px] font-mono bg-white border border-slate-200 px-2 py-0.5 rounded text-slate-600 shrink-0">
+                Zero-Download Portable Setup
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
               <a
-                href="/api/v1/desktop/windows-launcher.bat"
-                download="Haseb_Windows_Desktop_App.bat"
-                data-testid="download-windows-launcher-btn"
-                className="py-2.5 px-3.5 rounded-xl haseb-btn-primary text-white font-bold text-xs flex items-center justify-center gap-2 shadow-2xs transition cursor-pointer"
+                href="/api/v1/installer/portable-bundle.zip"
+                download="Haseb_ERP_Portable_Offline_Bundle.zip"
+                data-testid="lan-download-portable-zip-btn"
+                className="py-2.5 px-3 rounded-xl haseb-btn-primary text-white font-bold text-xs flex items-center justify-center gap-2 shadow-2xs transition cursor-pointer"
               >
                 <Download className="w-4 h-4 text-emerald-300 shrink-0" />
-                <span>مشغل سطح المكتب والشبكة (.bat)</span>
+                <span className="truncate">الحزمة المتكاملة بدون إنترنت (.zip)</span>
+              </a>
+
+              <a
+                href="/api/v1/installer/windows-setup.bat"
+                download="Haseb_ERP_Windows_Installer.bat"
+                data-testid="download-windows-launcher-btn"
+                className="py-2.5 px-3 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer"
+              >
+                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span className="truncate">مثبت Windows + الجدار الناري (.bat)</span>
+              </a>
+
+              <a
+                href="/api/v1/installer/linux-setup.sh"
+                download="Haseb_ERP_Linux_Mac_Installer.sh"
+                data-testid="lan-download-linux-installer-btn"
+                className="py-2.5 px-3 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer"
+              >
+                <Terminal className="w-4 h-4 text-blue-600 shrink-0" />
+                <span className="truncate">مثبت Linux / Mac وصلاحيات USB (.sh)</span>
               </a>
 
               <a
                 href="/api/v1/local-db/postgres-schema.sql"
                 download="Haseb_PostgreSQL18_Schema.sql"
                 data-testid="download-postgres-schema-btn"
-                className="py-2.5 px-3.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer"
+                className="py-2.5 px-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer"
               >
                 <Server className="w-4 h-4 text-indigo-600 shrink-0" />
-                <span>هيكلة وبيانات PostgreSQL 18 (.sql)</span>
+                <span className="truncate">هيكلة PostgreSQL 18 (.sql)</span>
               </a>
 
               <button
                 type="button"
                 data-testid="launch-frameless-window-btn"
                 onClick={handleLaunchFramelessPopup}
-                className="py-2.5 px-3.5 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer"
+                className="py-2.5 px-3 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer"
               >
                 <ExternalLink className="w-4 h-4 text-blue-600 shrink-0" />
-                <span>فتح في نافذة كاشير مستقلة الآن</span>
+                <span className="truncate">فتح نافذة كاشير مستقلة</span>
               </button>
+
+              <PWAInstallButton alwaysVisible />
             </div>
 
             <div className="flex items-center justify-between gap-2 bg-white px-3 py-2 rounded-xl border border-slate-200/80">
