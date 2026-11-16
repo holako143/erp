@@ -42,17 +42,49 @@
     font-size: calc(var(--erp-root-font-px, 15.5px) * 0.86);
   }
 
-  /* Native Mobile Viewport Guard: prevent desktop window-scale / font-scale from overflowing small phone viewports */
-  @media (max-width: 639px) {
-    :root {
-      --erp-spacing-unit: 0.25rem;
-      --erp-tab-px: 0.65rem;
-      --erp-tab-py: 0.35rem;
-      --erp-tab-font-size: 0.72rem;
-      --erp-tab-min-h: 32px;
+  /* Native Mobile & Tablet Viewport Guard: proportional fluid scaling for all phone sizes (320px - 1023px) */
+  @media (max-width: 1023px) {
+    :root,
+    html {
+      --erp-spacing-unit: 0.232rem !important;
+      --erp-window-scale: 0.92 !important;
+      --erp-tab-px: 0.68rem !important;
+      --erp-tab-py: 0.3rem !important;
+      --erp-tab-font-size: 0.72rem !important;
+      --erp-tab-min-h: 30px !important;
     }
     html {
-      font-size: clamp(13.5px, 3.6vw, 15px) !important;
+      font-size: clamp(12.75px, 2.2vw, 14.25px) !important;
+    }
+  }
+
+  @media (max-width: 639px) {
+    :root,
+    html {
+      --erp-spacing-unit: 0.214rem !important;
+      --erp-window-scale: 0.86 !important;
+      --erp-tab-px: 0.56rem !important;
+      --erp-tab-py: 0.25rem !important;
+      --erp-tab-font-size: 0.68rem !important;
+      --erp-tab-min-h: 28px !important;
+    }
+    html {
+      font-size: clamp(11.75px, 3.25vw, 13.25px) !important;
+    }
+  }
+
+  @media (max-width: 379px) {
+    :root,
+    html {
+      --erp-spacing-unit: 0.2rem !important;
+      --erp-window-scale: 0.82 !important;
+      --erp-tab-px: 0.48rem !important;
+      --erp-tab-py: 0.22rem !important;
+      --erp-tab-font-size: 0.65rem !important;
+      --erp-tab-min-h: 26px !important;
+    }
+    html {
+      font-size: clamp(11.25px, 3.35vw, 12.25px) !important;
     }
   }
 
@@ -113,6 +145,20 @@
   main table thead th {
     font-size: 0.75rem;
     letter-spacing: -0.01em;
+  }
+
+  @media (max-width: 639px) {
+    main table th,
+    main table td {
+      padding-top: 0.36rem !important;
+      padding-bottom: 0.36rem !important;
+      padding-inline: 0.42rem !important;
+      font-size: 0.7rem !important;
+    }
+    main table thead th {
+      font-size: 0.66rem !important;
+      white-space: nowrap;
+    }
   }
 
   /* ============================================================================
@@ -698,16 +744,25 @@ label[for],
 }
 
 @media (max-width: 1023px) {
-  /* Comfortable touch hit-targets & padding on mobile and tablet screens */
-  main button:not(.sr-only),
-  header button:not(.sr-only),
-  nav button:not(.sr-only) {
-    min-height: 38px;
+  .haseb-mobile-btn-pad {
+    padding: 0.5rem 0.75rem !important;
+    min-height: 38px !important;
   }
 
-  .haseb-mobile-btn-pad {
-    padding: 0.625rem 0.875rem !important;
-    min-height: 44px !important;
+  /* Guarantee all scrollable table & tab wrappers stay strictly bounded inside mobile screens */
+  main,
+  main > *,
+  main .overflow-x-auto {
+    max-width: 100%;
+    min-width: 0;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Hide desktop-only split-pane resizer bars on small phones where columns stack vertically */
+  @media (max-width: 639px) {
+    [data-testid$="-resizer-bar"] {
+      display: none !important;
+    }
   }
 }
 

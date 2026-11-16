@@ -592,7 +592,7 @@ export function Sidebar() {
       {/* Mobile & Tablet Bottom Navigation Bar (lg:hidden) — Native App Feel with Double-Tap Quick Actions */}
       <nav
         data-testid="mobile-bottom-nav"
-        className={`lg:hidden fixed bottom-0 inset-x-0 z-40 px-1.5 pt-1.5 pb-[max(0.45rem,env(safe-area-inset-bottom))] border-t grid grid-cols-6 gap-1 items-center shadow-lg backdrop-blur-md ${
+        className={`lg:hidden fixed bottom-0 inset-x-0 z-40 px-1 pt-1 pb-[max(0.35rem,env(safe-area-inset-bottom))] border-t grid grid-cols-6 gap-0.5 items-center shadow-lg backdrop-blur-md ${
           isDarkRail
             ? 'bg-[#080C14]/95 border-slate-800 text-slate-200'
             : isSandRail
@@ -629,7 +629,7 @@ export function Sidebar() {
                   ? `${item.label} (انقر مرتين للإجراءات السريعة ⚡)`
                   : `${item.label} (Double-tap for quick actions ⚡)`
               }
-              className={`haseb-touch-list-item flex flex-col items-center justify-center gap-1 py-2 px-1 min-h-[48px] rounded-xl text-[10px] font-bold transition-all cursor-pointer min-w-0 w-full touch-manipulation ${
+              className={`haseb-touch-list-item flex flex-col items-center justify-center gap-0.5 py-1.5 px-0.5 min-h-[42px] rounded-xl text-[9.5px] sm:text-[10px] font-bold transition-all cursor-pointer min-w-0 w-full touch-manipulation ${
                 isActive
                   ? 'haseb-nav-active'
                   : isDarkRail
@@ -637,8 +637,8 @@ export function Sidebar() {
                   : 'text-slate-500 hover:text-slate-900'
               }`}
             >
-              <Icon className="w-4 h-4 shrink-0" />
-              <span className="truncate max-w-full">{item.label}</span>
+              <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+              <span className="truncate max-w-full leading-tight">{item.label}</span>
             </button>
           );
         })}
@@ -646,12 +646,12 @@ export function Sidebar() {
           type="button"
           data-testid="mobile-nav-more-btn"
           onClick={() => setIsMobileMenuOpen(true)}
-          className={`flex flex-col items-center justify-center gap-1 py-2 px-1 min-h-[48px] rounded-xl text-[10px] font-bold cursor-pointer min-w-0 w-full touch-manipulation ${
+          className={`flex flex-col items-center justify-center gap-0.5 py-1.5 px-0.5 min-h-[42px] rounded-xl text-[9.5px] sm:text-[10px] font-bold cursor-pointer min-w-0 w-full touch-manipulation ${
             isDarkRail ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-900'
           }`}
         >
-          <Menu className="w-4 h-4 shrink-0" />
-          <span className="truncate max-w-full">{language === 'ar' ? 'المزيد' : 'More'}</span>
+          <Menu className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+          <span className="truncate max-w-full leading-tight">{language === 'ar' ? 'المزيد' : 'More'}</span>
         </button>
       </nav>
 

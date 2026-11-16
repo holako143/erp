@@ -3816,6 +3816,42 @@ test('Track 46 Developer Activation Password ("AbuSaif143"), Security Center Pas
   assert.equal(cartExpandedSplit.cartMobileHeightClass, 'h-[62%]');
 });
 
+test('Track 47 Viewport-Aware Mobile & Tablet Fluid UI Scaling Engine prevents oversized elements on any phone width', async () => {
+  const {
+    computeViewportAwareScaleCssVars,
+    DEFAULT_FONT_SCALE,
+    DEFAULT_WINDOW_SCALE,
+  } = await import('./uiScaleEngine');
+
+  // 1. Compact phone (320px width, e.g., iPhone SE)
+  const compactPhone = computeViewportAwareScaleCssVars(DEFAULT_FONT_SCALE, DEFAULT_WINDOW_SCALE, 320);
+  assert.equal(compactPhone.deviceClass, 'COMPACT_PHONE');
+  assert.ok(compactPhone.rootFontSizePx <= 13.25 && compactPhone.rootFontSizePx >= 11.5);
+  assert.ok(compactPhone.spacingUnitRem <= 0.22);
+  assert.equal(compactPhone.windowScaleRatio, 0.85);
+  assert.equal(compactPhone.tabMinHeightPx, 28);
+
+  // 2. Standard smartphone (390px width)
+  const standardPhone = computeViewportAwareScaleCssVars(DEFAULT_FONT_SCALE, DEFAULT_WINDOW_SCALE, 390);
+  assert.equal(standardPhone.deviceClass, 'PHONE');
+  assert.ok(standardPhone.rootFontSizePx <= 14.0 && standardPhone.rootFontSizePx >= 12.0);
+  assert.ok(standardPhone.spacingUnitRem <= 0.23);
+  assert.equal(standardPhone.windowScaleRatio, 0.88);
+  assert.equal(standardPhone.tabMinHeightPx, 30);
+
+  // 3. Tablet (768px width)
+  const tablet = computeViewportAwareScaleCssVars(DEFAULT_FONT_SCALE, DEFAULT_WINDOW_SCALE, 768);
+  assert.equal(tablet.deviceClass, 'TABLET');
+  assert.ok(tablet.rootFontSizePx < 16 && tablet.rootFontSizePx >= 13.5);
+  assert.ok(tablet.spacingUnitRem < 0.25);
+
+  // 4. Desktop (1440px width) preserves full desktop scale
+  const desktop = computeViewportAwareScaleCssVars(DEFAULT_FONT_SCALE, DEFAULT_WINDOW_SCALE, 1440);
+  assert.equal(desktop.deviceClass, 'DESKTOP');
+  assert.ok(desktop.rootFontSizePx > 16.5);
+  assert.ok(desktop.spacingUnitRem >= 0.25);
+});
+
 
 
 

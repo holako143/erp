@@ -222,7 +222,7 @@ import {
   DEFAULT_WINDOW_SCALE,
   clampFontScale,
   clampWindowScale,
-  computeHarmonizedScaleCssVars,
+  computeViewportAwareScaleCssVars,
 } from '../core/uiScaleEngine';
 import {
   DEFAULT_TAB_SCALE,
@@ -1366,42 +1366,69 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
-    const vars = computeHarmonizedScaleCssVars(fontScalePercent, windowScalePercent);
-    const root = document.documentElement;
-    root.style.setProperty('--erp-font-scale', String(vars.fontScaleRatio));
-    root.style.setProperty('--erp-window-scale', String(vars.windowScaleRatio));
-    root.style.setProperty('--erp-root-font-px', `${vars.rootFontSizePx}px`);
-    root.style.setProperty('--erp-spacing-unit', `${vars.spacingUnitRem}rem`);
-    root.style.setProperty('--erp-sidebar-width', `${vars.sidebarWidthPx}px`);
-    root.style.setProperty('--erp-navbar-height', `${vars.navbarHeightPx}px`);
-    root.dataset.erpFontScale = String(fontScalePercent);
-    root.dataset.erpWindowScale = String(windowScalePercent);
+    const applyResponsiveScaleVars = () => {
+      const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
+      const vars = computeViewportAwareScaleCssVars(fontScalePercent, windowScalePercent, vw);
+      const tabVars = computeTabLayoutCssVars(tabScalePercent);
+      const isMobileOrTablet = vw < 1024;
+      const root = document.documentElement;
+      root.style.setProperty('--erp-font-scale', String(vars.fontScaleRatio));
+      root.style.setProperty('--erp-window-scale', String(vars.windowScaleRatio));
+      root.style.setProperty('--erp-root-font-px', `${vars.rootFontSizePx}px`);
+      root.style.setProperty('--erp-spacing-unit', `${vars.spacingUnitRem}rem`);
+      root.style.setProperty('--erp-sidebar-width', `${vars.sidebarWidthPx}px`);
+      root.style.setProperty('--erp-navbar-height', `${vars.navbarHeightPx}px`);
+      root.style.setProperty(
+        '--erp-tab-scale',
+        String(isMobileOrTablet ? vars.windowScaleRatio : tabVars.tabScaleRatio)
+      );
+      root.style.setProperty(
+        '--erp-tab-py',
+        `${isMobileOrTablet ? vars.tabPadYRem : tabVars.tabPadYRem}rem`
+      );
+      root.style.setProperty(
+        '--erp-tab-px',
+        `${isMobileOrTablet ? vars.tabPadXRem : tabVars.tabPadXRem}rem`
+      );
+      root.style.setProperty(
+        '--erp-tab-font-size',
+        `${isMobileOrTablet ? vars.tabFontSizeRem : tabVars.tabFontSizeRem}rem`
+      );
+      root.style.setProperty(
+        '--erp-tab-min-h',
+        `${isMobileOrTablet ? vars.tabMinHeightPx : tabVars.tabMinHeightPx}px`
+      );
+      root.style.setProperty(
+        '--erp-card-gap',
+        `${isMobileOrTablet ? 0.5 : tabVars.cardGapRem}rem`
+      );
+      root.style.setProperty(
+        '--erp-section-padding',
+        `${isMobileOrTablet ? 0.65 : tabVars.sectionPaddingRem}rem`
+      );
+      root.dataset.erpFontScale = String(fontScalePercent);
+      root.dataset.erpWindowScale = String(windowScalePercent);
+      root.dataset.erpTabScale = String(tabScalePercent);
+      root.dataset.erpDeviceClass = vars.deviceClass;
+    };
+
+    applyResponsiveScaleVars();
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', applyResponsiveScaleVars);
+    }
     try {
       localStorage.setItem('haseb_font_scale_percent', String(fontScalePercent));
       localStorage.setItem('haseb_window_scale_percent', String(windowScalePercent));
-    } catch {
-      // ignore
-    }
-  }, [fontScalePercent, windowScalePercent]);
-
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-    const vars = computeTabLayoutCssVars(tabScalePercent);
-    const root = document.documentElement;
-    root.style.setProperty('--erp-tab-scale', String(vars.tabScaleRatio));
-    root.style.setProperty('--erp-tab-py', `${vars.tabPadYRem}rem`);
-    root.style.setProperty('--erp-tab-px', `${vars.tabPadXRem}rem`);
-    root.style.setProperty('--erp-tab-font-size', `${vars.tabFontSizeRem}rem`);
-    root.style.setProperty('--erp-tab-min-h', `${vars.tabMinHeightPx}px`);
-    root.style.setProperty('--erp-card-gap', `${vars.cardGapRem}rem`);
-    root.style.setProperty('--erp-section-padding', `${vars.sectionPaddingRem}rem`);
-    root.dataset.erpTabScale = String(tabScalePercent);
-    try {
       localStorage.setItem('haseb_tab_scale_percent', String(tabScalePercent));
     } catch {
       // ignore
     }
-  }, [tabScalePercent]);
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('resize', applyResponsiveScaleVars);
+      }
+    };
+  }, [fontScalePercent, windowScalePercent, tabScalePercent]);
 
   const setLanguage = (lang: Language) => {
     setLanguageState(lang);

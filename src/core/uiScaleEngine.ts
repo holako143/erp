@@ -123,3 +123,117 @@ export function computeHarmonizedScaleCssVars(
     navbarHeightPx,
   };
 }
+
+export interface ViewportAwareScaleResult extends HarmonizedScaleCssVariables {
+  deviceClass: 'COMPACT_PHONE' | 'PHONE' | 'TABLET' | 'DESKTOP';
+  viewportWidthPx: number;
+  tabPadYRem: number;
+  tabPadXRem: number;
+  tabFontSizeRem: number;
+  tabMinHeightPx: number;
+}
+
+/**
+ * Computes viewport-aware CSS variables that automatically adapt font scale, spacing units,
+ * table/card density, and tab dimensions to ANY phone or tablet screen size (320px -> 1024px+)
+ * so elements never overflow or look oversized on mobile devices.
+ */
+export function computeViewportAwareScaleCssVars(
+  fontScalePercent: number,
+  windowScalePercent: number,
+  viewportWidthPx = 1280
+): ViewportAwareScaleResult {
+  const desktopBase = computeHarmonizedScaleCssVars(fontScalePercent, windowScalePercent);
+  const safeWidth = Number.isFinite(viewportWidthPx) && viewportWidthPx > 0 ? viewportWidthPx : 1280;
+
+  // Relative user preference delta from default (110% font, 105% window)
+  const clampedFont = clampFontScale(fontScalePercent);
+  const clampedWindow = clampWindowScale(windowScalePercent);
+  const userFontDeltaRatio = (clampedFont - DEFAULT_FONT_SCALE) / 100;
+  const userWindowDeltaRatio = (clampedWindow - DEFAULT_WINDOW_SCALE) / 100;
+
+  if (safeWidth < 380) {
+    // Compact phones (320px - 379px, e.g. iPhone SE / compact Androids)
+    const fluidBasePx = Math.max(11.75, Math.min(12.75, safeWidth * 0.0355));
+    const rootFontSizePx = Number(
+      Math.max(11.5, Math.min(13.25, fluidBasePx * (1 + userFontDeltaRatio * 0.3))).toFixed(2)
+    );
+    const spacingUnitRem = Number(
+      Math.max(0.195, Math.min(0.22, 0.208 * (1 + userWindowDeltaRatio * 0.25))).toFixed(4)
+    );
+    return {
+      fontScaleRatio: Number((rootFontSizePx / 16).toFixed(3)),
+      windowScaleRatio: 0.85,
+      rootFontSizePx,
+      spacingUnitRem,
+      sidebarWidthPx: 240,
+      navbarHeightPx: 46,
+      deviceClass: 'COMPACT_PHONE',
+      viewportWidthPx: safeWidth,
+      tabPadYRem: 0.26,
+      tabPadXRem: 0.52,
+      tabFontSizeRem: 0.68,
+      tabMinHeightPx: 28,
+    };
+  }
+
+  if (safeWidth < 640) {
+    // Standard & large smartphones (380px - 639px)
+    const fluidBasePx = Math.max(12.5, Math.min(13.6, safeWidth * 0.034));
+    const rootFontSizePx = Number(
+      Math.max(12.0, Math.min(14.0, fluidBasePx * (1 + userFontDeltaRatio * 0.35))).toFixed(2)
+    );
+    const spacingUnitRem = Number(
+      Math.max(0.205, Math.min(0.23, 0.218 * (1 + userWindowDeltaRatio * 0.3))).toFixed(4)
+    );
+    return {
+      fontScaleRatio: Number((rootFontSizePx / 16).toFixed(3)),
+      windowScaleRatio: 0.88,
+      rootFontSizePx,
+      spacingUnitRem,
+      sidebarWidthPx: 248,
+      navbarHeightPx: 48,
+      deviceClass: 'PHONE',
+      viewportWidthPx: safeWidth,
+      tabPadYRem: 0.28,
+      tabPadXRem: 0.6,
+      tabFontSizeRem: 0.7,
+      tabMinHeightPx: 30,
+    };
+  }
+
+  if (safeWidth < 1024) {
+    // Tablets & foldable screens (640px - 1023px)
+    const rootFontSizePx = Number(
+      Math.max(13.5, Math.min(15.5, 14.4 * (1 + userFontDeltaRatio * 0.45))).toFixed(2)
+    );
+    const spacingUnitRem = Number(
+      Math.max(0.22, Math.min(0.245, 0.234 * (1 + userWindowDeltaRatio * 0.4))).toFixed(4)
+    );
+    return {
+      fontScaleRatio: Number((rootFontSizePx / 16).toFixed(3)),
+      windowScaleRatio: 0.94,
+      rootFontSizePx,
+      spacingUnitRem,
+      sidebarWidthPx: 252,
+      navbarHeightPx: 52,
+      deviceClass: 'TABLET',
+      viewportWidthPx: safeWidth,
+      tabPadYRem: 0.34,
+      tabPadXRem: 0.72,
+      tabFontSizeRem: 0.73,
+      tabMinHeightPx: 32,
+    };
+  }
+
+  return {
+    ...desktopBase,
+    deviceClass: 'DESKTOP',
+    viewportWidthPx: safeWidth,
+    tabPadYRem: 0.4,
+    tabPadXRem: 0.85,
+    tabFontSizeRem: 0.75,
+    tabMinHeightPx: 34,
+  };
+}
+

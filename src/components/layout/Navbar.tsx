@@ -391,7 +391,7 @@ export const Navbar: React.FC = () => {
 
   return (
     <header
-      className={`w-full max-w-full h-13 sm:h-14 border-b px-2 sm:px-5 flex items-center justify-between gap-1.5 sm:gap-2 shrink-0 z-30 transition-colors duration-200 relative overflow-x-clip ${
+      className={`w-full max-w-full h-11 sm:h-13 border-b px-2 sm:px-5 flex items-center justify-between gap-1 sm:gap-2 shrink-0 z-30 transition-colors duration-200 relative overflow-x-clip ${
         isDark
           ? 'bg-[#0B111E] border-slate-800/90 text-slate-100'
           : isSand
@@ -415,15 +415,15 @@ export const Navbar: React.FC = () => {
             <img
               src={company.logo}
               alt={company.nameAr || 'Logo'}
-              className="w-8 h-8 rounded-xl object-cover border border-slate-200 dark:border-slate-700 shrink-0"
+              className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl object-cover border border-slate-200 dark:border-slate-700 shrink-0"
             />
           ) : (
-            <HasebBrandLogo size="sm" theme={uiTheme} className="shrink-0" />
+            <HasebBrandLogo size="sm" theme={uiTheme} className="shrink-0 scale-90 sm:scale-100 origin-right" />
           )}
-          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+          <div className="flex items-center gap-1 sm:gap-2 min-w-0">
             <span
               data-testid="navbar-company-name"
-              className="font-bold text-xs sm:text-sm tracking-tight text-slate-900 dark:text-white truncate max-w-[110px] sm:max-w-[220px]"
+              className="font-bold text-[11px] sm:text-sm tracking-tight text-slate-900 dark:text-white truncate max-w-[100px] sm:max-w-[220px]"
             >
               {(language === 'ar' ? company.nameAr : company.name) ||
                 company.nameAr ||
@@ -473,7 +473,7 @@ export const Navbar: React.FC = () => {
       </div>
 
       {/* Left: Mobile Search Button, Notifications Bell, Logged-in Membership Capsule */}
-      <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0 relative">
+      <div className="flex items-center gap-1 sm:gap-2 shrink-0 relative">
         {/* Mobile Quick Search Trigger (< md) */}
         <button
           type="button"
@@ -484,13 +484,13 @@ export const Navbar: React.FC = () => {
             setIsCommandPaletteOpen(true);
           }}
           title={language === 'ar' ? 'بحث سريع (Ctrl+K)' : 'Quick Search'}
-          className={`md:hidden flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-full border transition cursor-pointer ${
+          className={`md:hidden flex items-center justify-center w-7.5 h-7.5 sm:w-9 sm:h-9 rounded-full border transition cursor-pointer ${
             isDark
               ? 'bg-slate-900 border-slate-700 text-slate-200'
               : 'bg-slate-50 hover:bg-slate-100 border-slate-200/80 text-slate-700'
           }`}
         >
-          <Search className="w-4 h-4" />
+          <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
         </button>
 
         {/* System Notifications Bell Button (Anchored Downward Dropdown) */}
@@ -510,7 +510,7 @@ export const Navbar: React.FC = () => {
                 ? `مركز الإشعارات والتنبيهات التشغيلية (${totalAlertsCount})`
                 : `System Notifications (${totalAlertsCount})`
             }
-            className={`relative flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-full border transition cursor-pointer ${
+            className={`relative flex items-center justify-center w-7.5 h-7.5 sm:w-9 sm:h-9 rounded-full border transition cursor-pointer ${
               isNotificationsOpen
                 ? 'haseb-btn-primary border-transparent'
                 : isDark
@@ -518,11 +518,11 @@ export const Navbar: React.FC = () => {
                 : 'bg-slate-50 hover:bg-slate-100 border-slate-200/80 text-slate-700'
             }`}
           >
-            <Bell className="w-4 h-4" />
+            <Bell className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             {totalAlertsCount > 0 && (
               <span
                 data-testid="navbar-notifications-badge"
-                className="absolute -top-1 -end-1 px-1 min-w-4 h-4 rounded-full bg-rose-600 text-white text-[10px] font-mono font-bold flex items-center justify-center shadow-2xs"
+                className="absolute -top-1 -end-1 px-1 min-w-3.5 h-3.5 sm:min-w-4 sm:h-4 rounded-full bg-rose-600 text-white text-[9px] sm:text-[10px] font-mono font-bold flex items-center justify-center shadow-2xs"
               >
                 {totalAlertsCount}
               </span>
@@ -554,7 +554,7 @@ export const Navbar: React.FC = () => {
                 ? `العضوية الحالية: ${currentAccount.nameAr} — التحكم السريع والمظهر والخطوط والحجم`
                 : `Current Account: ${currentAccount.name} — Quick Controls, Themes, Fonts & Scale`
             }
-            className={`flex items-center gap-1 sm:gap-2 p-1 sm:pl-2.5 sm:pr-1 rounded-full border transition cursor-pointer shrink-0 ${
+            className={`flex items-center gap-1 sm:gap-2 p-0.5 sm:p-1 sm:pl-2.5 sm:pr-1 rounded-full border transition cursor-pointer shrink-0 ${
               isProfileMenuOpen
                 ? isDark
                   ? 'bg-slate-800 border-blue-500 text-white'
@@ -587,7 +587,7 @@ export const Navbar: React.FC = () => {
           {isProfileMenuOpen && (
             <div
               data-testid="navbar-profile-dropdown-menu"
-              className={`fixed inset-x-3 top-14 sm:inset-x-auto sm:absolute sm:top-11 sm:left-0 w-auto sm:w-[400px] max-h-[calc(100vh-4.75rem)] overflow-y-auto overflow-x-hidden rounded-2xl border shadow-2xl p-3 z-50 text-xs space-y-2 ${
+              className={`fixed inset-x-2 top-12 sm:inset-x-auto sm:absolute sm:top-11 sm:left-0 w-auto sm:w-[400px] max-w-[calc(100vw-1rem)] max-h-[calc(100dvh-3.75rem)] overflow-y-auto overflow-x-hidden rounded-2xl border shadow-2xl p-2.5 sm:p-3 z-50 text-xs space-y-2 ${
                 isDark
                   ? 'bg-[#0f172a] border-slate-700 text-slate-100'
                   : 'bg-white border-slate-200 text-slate-800'
