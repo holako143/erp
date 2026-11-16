@@ -66,6 +66,8 @@ import {
 } from '../core/whatsappAiBotEngine';
 import { calculateDynamicFinancialStatements } from '../core/accountingEngine';
 import { CameraBarcodeScannerModal } from '../components/common/CameraBarcodeScannerModal';
+import { MobileQuickActionsSheet, useDoubleTapGesture } from '../components/common/MobileQuickActionsSheet';
+import { MobileQuickActionDescriptor, MobileQuickActionTarget } from '../core/mobileTouchEngine';
 
 export const CommunicationsView: React.FC = () => {
   const {
@@ -110,6 +112,8 @@ export const CommunicationsView: React.FC = () => {
   const [mobileWaPanel, setMobileWaPanel] = useState<'CHATS' | 'ACTIVE_CHAT' | 'PAIRING' | 'DOCS'>('CHATS');
   const [isQrPanelCollapsed, setIsQrPanelCollapsed] = useState<boolean>(false);
   const [isChatsPanelCollapsed, setIsChatsPanelCollapsed] = useState<boolean>(false);
+  const [commQuickActionTarget, setCommQuickActionTarget] = useState<MobileQuickActionTarget | null>(null);
+  const { registerTap } = useDoubleTapGesture();
   const [chatFilterMode, setChatFilterMode] = useState<'ALL' | 'UNREAD' | 'DEBTORS'>('ALL');
   const [pinnedChatIds, setPinnedChatIds] = useState<string[]>(() => {
     try {
@@ -2059,10 +2063,25 @@ export const CommunicationsView: React.FC = () => {
                     const isSelected = chat.id === activeChat.id;
                     const isPinned = pinnedChatIds.includes(chat.id);
                     const matchedCust = getMatchedCustomerForChat(chat.contactName, chat.contactPhone);
+                    const openChatQuickActions = () => {
+                      setCommQuickActionTarget({
+                        contextType: 'WHATSAPP_CHAT',
+                        itemId: chat.id,
+                        chatId: chat.id,
+                        titleAr: chat.contactName,
+                        subtitleAr: `${chat.contactPhone} • ${chat.lastMessage || 'محادثة واتساب نشطة'}`,
+                        badgeAr:
+                          matchedCust && Number(matchedCust.balance) > 0
+                            ? formatCurrency(matchedCust.balance)
+                            : 'واتساب',
+                      });
+                    };
                     return (
                       <div
                         key={chat.id}
-                        className={`w-full p-3 text-right flex items-start gap-2.5 transition-colors ${
+                        data-testid={`comm-chat-item-${chat.id}`}
+                        onDoubleClick={() => openChatQuickActions()}
+                        className={`haseb-touch-list-item w-full p-3 text-right flex items-start gap-2.5 transition-colors ${
                           isSelected
                             ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-r-4 border-emerald-500'
                             : 'hover:bg-slate-100/80 dark:hover:bg-slate-800/40'
@@ -2071,10 +2090,16 @@ export const CommunicationsView: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => {
+                            const wasDoubleTapped = registerTap(`wa-chat-${chat.id}`, () => {
+                              openChatQuickActions();
+                            });
+                            if (wasDoubleTapped) {
+                              return;
+                            }
                             setActiveWhatsAppChatId(chat.id);
                             setMobileWaPanel('ACTIVE_CHAT');
                           }}
-                          className="flex-1 min-w-0 flex items-start gap-2.5 text-right cursor-pointer"
+                          className="flex-1 min-w-0 flex items-start gap-2.5 text-right cursor-pointer py-0.5"
                         >
                           <div className="w-9 h-9 rounded-xl bg-slate-200/80 dark:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center justify-center font-bold text-xs shrink-0">
                             {Array.from(chat.contactName.trim())[0] || '💬'}
@@ -2105,18 +2130,32 @@ export const CommunicationsView: React.FC = () => {
                             )}
                           </div>
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => togglePinChat(chat.id)}
-                          title={isPinned ? 'إلغاء تثبيت المحادثة' : 'تثبيت المحادثة بالأعلى'}
-                          className={`p-1 rounded-lg transition cursor-pointer shrink-0 ${
-                            isPinned
-                              ? 'text-emerald-600 bg-emerald-100 dark:bg-emerald-950/60'
-                              : 'text-slate-400 hover:text-slate-600'
-                          }`}
-                        >
-                          <Pin className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            data-testid={`comm-chat-quick-${chat.id}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openChatQuickActions();
+                            }}
+                            title="إجراءات سريعة للمحادثة (أو انقر مرتين)"
+                            className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition cursor-pointer"
+                          >
+                            <Zap className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => togglePinChat(chat.id)}
+                            title={isPinned ? 'إلغاء تثبيت المحادثة' : 'تثبيت المحادثة بالأعلى'}
+                            className={`w-8 h-8 rounded-lg flex items-center justify-center transition cursor-pointer shrink-0 ${
+                              isPinned
+                                ? 'text-emerald-600 bg-emerald-100 dark:bg-emerald-950/60'
+                                : 'text-slate-400 hover:text-slate-600'
+                            }`}
+                          >
+                            <Pin className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     );
                   })
@@ -4052,6 +4091,24 @@ export const CommunicationsView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Mobile Double-Tap Quick Actions Sheet for WhatsApp Chats */}
+      <MobileQuickActionsSheet
+        target={commQuickActionTarget}
+        onClose={() => setCommQuickActionTarget(null)}
+        onSelectAction={(action: MobileQuickActionDescriptor, target: MobileQuickActionTarget) => {
+          const targetChatId = target.chatId || target.itemId;
+          setActiveWhatsAppChatId(targetChatId);
+          setMobileWaPanel('ACTIVE_CHAT');
+          if (action.id === 'wa-chat-send-invoice') {
+            handleQuickComposerDocAction('INVOICE');
+          } else if (action.id === 'wa-chat-send-statement') {
+            handleQuickComposerDocAction('STATEMENT');
+          } else if (action.id === 'wa-chat-toggle-pin') {
+            togglePinChat(targetChatId);
+          }
+        }}
+      />
     </div>
   );
 };

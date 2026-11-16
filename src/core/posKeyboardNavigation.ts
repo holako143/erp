@@ -279,20 +279,25 @@ export function sumCartItemQuantities(
 }
 
 export type MobilePosViewMode = 'CATALOG' | 'SPLIT' | 'CART';
+export type MobilePosSplitBalance = 'BALANCED_50_50' | 'CATALOG_60_40' | 'CART_40_60';
 
 /**
  * Pure layout calculator for the responsive mobile POS workspace.
- * Supports seamless toggling between full Product Catalog, vertical Split-View,
+ * Supports seamless toggling between full Product Catalog, ergonomic vertical Split-View,
  * and full Cart Checkout pane without losing active search or cart context.
  */
 export function computeMobilePosLayoutMetrics(
   mode: MobilePosViewMode,
-  cartUnitCount: number
+  cartUnitCount: number,
+  splitBalance: MobilePosSplitBalance = 'BALANCED_50_50'
 ): {
   mode: MobilePosViewMode;
+  splitBalance: MobilePosSplitBalance;
   showCatalogOnMobile: boolean;
   showCartOnMobile: boolean;
   isSplitViewOnMobile: boolean;
+  catalogMobileHeightClass: string;
+  cartMobileHeightClass: string;
   cartUnitCount: number;
   hasItems: boolean;
 } {
@@ -300,14 +305,37 @@ export function computeMobilePosLayoutMetrics(
   const resolvedMode: MobilePosViewMode =
     mode === 'CART' || mode === 'SPLIT' || mode === 'CATALOG' ? mode : 'CATALOG';
 
+  const resolvedBalance: MobilePosSplitBalance =
+    splitBalance === 'CATALOG_60_40' || splitBalance === 'CART_40_60'
+      ? splitBalance
+      : 'BALANCED_50_50';
+
+  const catalogMobileHeightClass =
+    resolvedBalance === 'CATALOG_60_40'
+      ? 'h-[56%]'
+      : resolvedBalance === 'CART_40_60'
+      ? 'h-[38%]'
+      : 'h-[47%]';
+
+  const cartMobileHeightClass =
+    resolvedBalance === 'CATALOG_60_40'
+      ? 'h-[44%]'
+      : resolvedBalance === 'CART_40_60'
+      ? 'h-[62%]'
+      : 'h-[53%]';
+
   return {
     mode: resolvedMode,
+    splitBalance: resolvedBalance,
     showCatalogOnMobile: resolvedMode === 'CATALOG' || resolvedMode === 'SPLIT',
     showCartOnMobile: resolvedMode === 'CART' || resolvedMode === 'SPLIT',
     isSplitViewOnMobile: resolvedMode === 'SPLIT',
+    catalogMobileHeightClass,
+    cartMobileHeightClass,
     cartUnitCount: safeCount,
     hasItems: safeCount > 0,
   };
 }
+
 
 

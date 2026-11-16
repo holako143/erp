@@ -39,6 +39,15 @@ import {
   TAB_SCALE_MIN,
   TAB_SCALE_MAX,
 } from '../../core/workspaceLayoutEngine';
+import {
+  MobileQuickActionsSheet,
+  useDoubleTapGesture,
+} from '../common/MobileQuickActionsSheet';
+import {
+  MobileQuickActionTarget,
+  MobileQuickActionDescriptor,
+} from '../../core/mobileTouchEngine';
+import { Zap } from 'lucide-react';
 
 export interface SidebarMenuItem {
   id: string;
@@ -118,12 +127,56 @@ export function Sidebar() {
     currentWarehouse,
     lockTerminal,
     openLanPortal,
+    openShiftModal,
+    openQuickSendModal,
+    openCrossBranchModal,
     tabScalePercent: sidebarTabScale,
     setTabScalePercent,
     notificationPermission,
     requestBrowserNotificationPermission,
   } = useERP();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [navQuickActionTarget, setNavQuickActionTarget] = useState<MobileQuickActionTarget | null>(
+    null
+  );
+  const { registerTap } = useDoubleTapGesture();
+
+  const handleOpenNavQuickActions = (item: { id: string; label: string; subtitle?: string }) => {
+    setNavQuickActionTarget({
+      contextType: 'NAV_MODULE',
+      itemId: item.id,
+      moduleId: item.id,
+      titleAr: item.label,
+      subtitleAr: item.subtitle || 'إجراءات سريعة للوصول الفوري في الجوال',
+    });
+  };
+
+  const handleSelectNavQuickAction = (
+    action: MobileQuickActionDescriptor,
+    target: MobileQuickActionTarget
+  ) => {
+    const modId = target.moduleId || target.itemId;
+    setIsMobileMenuOpen(false);
+    if (action.id === 'nav-pos-shift') {
+      setActiveTab('pos');
+      openShiftModal();
+      return;
+    }
+    if (action.id === 'nav-inv-probe-branches') {
+      setActiveTab('inventory');
+      openCrossBranchModal(products[0]?.sku || 'SOL-PNL-585W');
+      return;
+    }
+    if (action.id === 'nav-comm-quick-send' || action.id === 'nav-generic-quick-send') {
+      openQuickSendModal();
+      return;
+    }
+    if (action.id === 'nav-generic-lan') {
+      openLanPortal();
+      return;
+    }
+    setActiveTab(modId);
+  };
 
   const handleStepSidebarTabScale = (dir: 'INC' | 'DEC') => {
     const next = stepTabScale(sidebarTabScale, dir);
@@ -536,10 +589,10 @@ export function Sidebar() {
         </div>
       </aside>
 
-      {/* Mobile & Tablet Bottom Navigation Bar (lg:hidden) — Native App Feel */}
+      {/* Mobile & Tablet Bottom Navigation Bar (lg:hidden) — Native App Feel with Double-Tap Quick Actions */}
       <nav
         data-testid="mobile-bottom-nav"
-        className={`lg:hidden fixed bottom-0 inset-x-0 z-40 px-1 pt-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] border-t grid grid-cols-6 gap-0.5 items-center shadow-lg backdrop-blur-md ${
+        className={`lg:hidden fixed bottom-0 inset-x-0 z-40 px-1.5 pt-1.5 pb-[max(0.45rem,env(safe-area-inset-bottom))] border-t grid grid-cols-6 gap-1 items-center shadow-lg backdrop-blur-md ${
           isDarkRail
             ? 'bg-[#080C14]/95 border-slate-800 text-slate-200'
             : isSandRail
@@ -561,8 +614,22 @@ export function Sidebar() {
               key={item.id}
               type="button"
               data-testid={`mobile-nav-${item.id}`}
-              onClick={() => setActiveTab(item.id)}
-              className={`flex flex-col items-center justify-center gap-0.5 py-1 px-0.5 rounded-xl text-[10px] font-bold transition-all cursor-pointer min-w-0 w-full ${
+              onClick={() => {
+                if (registerTap(`mob-nav-${item.id}`, () => handleOpenNavQuickActions(item))) {
+                  return;
+                }
+                setActiveTab(item.id);
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                handleOpenNavQuickActions(item);
+              }}
+              title={
+                language === 'ar'
+                  ? `${item.label} (انقر مرتين للإجراءات السريعة ⚡)`
+                  : `${item.label} (Double-tap for quick actions ⚡)`
+              }
+              className={`haseb-touch-list-item flex flex-col items-center justify-center gap-1 py-2 px-1 min-h-[48px] rounded-xl text-[10px] font-bold transition-all cursor-pointer min-w-0 w-full touch-manipulation ${
                 isActive
                   ? 'haseb-nav-active'
                   : isDarkRail
@@ -579,7 +646,7 @@ export function Sidebar() {
           type="button"
           data-testid="mobile-nav-more-btn"
           onClick={() => setIsMobileMenuOpen(true)}
-          className={`flex flex-col items-center justify-center gap-0.5 py-1 px-0.5 rounded-xl text-[10px] font-bold cursor-pointer min-w-0 w-full ${
+          className={`flex flex-col items-center justify-center gap-1 py-2 px-1 min-h-[48px] rounded-xl text-[10px] font-bold cursor-pointer min-w-0 w-full touch-manipulation ${
             isDarkRail ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-900'
           }`}
         >
@@ -597,7 +664,7 @@ export function Sidebar() {
           className="lg:hidden fixed inset-0 z-50 bg-slate-950/65 backdrop-blur-xs flex justify-end"
         >
           <div
-            className={`w-72 max-w-[85vw] h-full p-4 overflow-y-auto flex flex-col justify-between border-s shadow-2xl ${
+            className={`w-76 max-w-[88vw] h-full p-4 overflow-y-auto flex flex-col justify-between border-s shadow-2xl ${
               isDarkRail
                 ? 'bg-[#0B111E] text-slate-100 border-slate-800'
                 : isSandRail
@@ -607,37 +674,55 @@ export function Sidebar() {
           >
             <div>
               <div
-                className={`flex items-center justify-between pb-3 mb-3 border-b ${
+                className={`flex items-center justify-between pb-3 mb-2 border-b ${
                   isDarkRail ? 'border-slate-800' : 'border-slate-200'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
                   <HasebBrandLogo size="sm" theme={uiTheme} />
-                  <span className="font-bold text-sm">حاسب — القائمة الكاملة</span>
+                  <div>
+                    <span className="font-bold text-sm block">حاسب — القائمة الكاملة</span>
+                    <span className="text-[10px] text-slate-400 font-medium">
+                      {language === 'ar'
+                        ? 'انقر مرتين على أي عنصر للإجراءات السريعة ⚡'
+                        : 'Double-tap any item for quick actions ⚡'}
+                    </span>
+                  </div>
                 </div>
                 <button
                   type="button"
                   data-testid="mobile-drawer-close-btn"
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer touch-manipulation"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 {visibleMenuItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = activeTab === item.id;
                   return (
-                    <button
+                    <div
                       key={item.id}
-                      type="button"
+                      data-testid={`mobile-drawer-item-${item.id}`}
                       onClick={() => {
+                        if (
+                          registerTap(`drawer-item-${item.id}`, () =>
+                            handleOpenNavQuickActions(item)
+                          )
+                        ) {
+                          return;
+                        }
                         setActiveTab(item.id);
                         setIsMobileMenuOpen(false);
                       }}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenNavQuickActions(item);
+                      }}
+                      className={`haseb-touch-list-item w-full min-h-[48px] flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer touch-manipulation ${
                         isActive
                           ? 'haseb-nav-active'
                           : isDarkRail
@@ -645,16 +730,35 @@ export function Sidebar() {
                           : 'hover:bg-slate-100 text-slate-700'
                       }`}
                     >
-                      <div className="flex items-center gap-2.5">
-                        <Icon className="w-4 h-4" />
-                        <span>{item.label}</span>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <Icon className="w-4 h-4 shrink-0" />
+                        <span className="truncate">{item.label}</span>
                       </div>
-                      {item.count !== null && (
-                        <span className="px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-mono text-[10px]">
-                          {item.count}
-                        </span>
-                      )}
-                    </button>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {item.count !== null && (
+                          <span className="px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-mono text-[10px]">
+                            {item.count}
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          data-testid={`mobile-drawer-quick-${item.id}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenNavQuickActions(item);
+                          }}
+                          title="فتح قائمة الإجراءات السريعة"
+                          aria-label={`الإجراءات السريعة لوحدة ${item.label}`}
+                          className={`w-8 h-8 rounded-lg flex items-center justify-center transition cursor-pointer touch-manipulation ${
+                            isActive
+                              ? 'bg-white/20 text-white hover:bg-white/30'
+                              : 'bg-slate-100 dark:bg-slate-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50'
+                          }`}
+                        >
+                          <Zap className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
                   );
                 })}
               </div>
@@ -668,16 +772,16 @@ export function Sidebar() {
                 isSandRail={isSandRail}
                 isMobileDrawer
               />
-              <div className="grid grid-cols-2 gap-1.5">
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={() => {
                     setIsMobileMenuOpen(false);
                     openLanPortal();
                   }}
-                  className="px-2.5 py-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="px-3 py-3 min-h-[46px] rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation"
                 >
-                  <MonitorSmartphone className="w-3.5 h-3.5" />
+                  <MonitorSmartphone className="w-4 h-4" />
                   <span>الشبكة LAN</span>
                 </button>
                 <button
@@ -686,13 +790,13 @@ export function Sidebar() {
                     setIsMobileMenuOpen(false);
                     lockTerminal();
                   }}
-                  className="px-2.5 py-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="px-3 py-3 min-h-[46px] rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation"
                 >
-                  <Lock className="w-3.5 h-3.5" />
+                  <Lock className="w-4 h-4" />
                   <span>قفل الشاشة</span>
                 </button>
               </div>
-              <div className="grid grid-cols-2 gap-1.5">
+              <div className="grid grid-cols-2 gap-2">
                 <PWAInstallButton compactForDrawer />
                 <button
                   type="button"
@@ -700,13 +804,13 @@ export function Sidebar() {
                   onClick={() => {
                     requestBrowserNotificationPermission().catch(() => {});
                   }}
-                  className={`px-2.5 py-2.5 rounded-xl border text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer ${
+                  className={`px-3 py-3 min-h-[46px] rounded-xl border text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation ${
                     notificationPermission === 'granted'
                       ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
                       : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
                   }`}
                 >
-                  <BellRing className="w-3.5 h-3.5 shrink-0" />
+                  <BellRing className="w-4 h-4 shrink-0" />
                   <span className="truncate">
                     {notificationPermission === 'granted'
                       ? language === 'ar'
@@ -725,6 +829,14 @@ export function Sidebar() {
           </div>
         </div>
       )}
+
+      {/* Mobile Double-Tap Quick Actions Sheet for Navigation Items */}
+      <MobileQuickActionsSheet
+        target={navQuickActionTarget}
+        onClose={() => setNavQuickActionTarget(null)}
+        onSelectAction={handleSelectNavQuickAction}
+        language={language}
+      />
     </>
   );
 }

@@ -678,3 +678,36 @@
     opacity: 0.65;
   }
 }
+
+/* ============================================================================
+   MOBILE TOUCH ERGONOMICS & DOUBLE-TAP LIST ITEM INTERACTION
+   - Eliminates 300ms tap delay via touch-action: manipulation
+   - Expands button hit targets and surrounding comfort padding on mobile (< 1024px)
+   ============================================================================ */
+button,
+[role="button"],
+label[for],
+.haseb-touch-target,
+.haseb-touch-list-item {
+  touch-action: manipulation;
+}
+
+.haseb-touch-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+@media (max-width: 1023px) {
+  /* Comfortable touch hit-targets & padding on mobile and tablet screens */
+  main button:not(.sr-only),
+  header button:not(.sr-only),
+  nav button:not(.sr-only) {
+    min-height: 38px;
+  }
+
+  .haseb-mobile-btn-pad {
+    padding: 0.625rem 0.875rem !important;
+    min-height: 44px !important;
+  }
+}
+

@@ -1,6 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useERP, ALL_ERP_MODULES } from '../context/ERPContext';
-import { LicenseDurationPreset, evaluatePasswordStrength } from '../core/securityEngine';
+import {
+  LicenseDurationPreset,
+  evaluatePasswordStrength,
+  verifySecurityCenterPasscode,
+} from '../core/securityEngine';
 import { UserAccount, UserRole } from '../types/erp';
 import {
   ShieldCheck,
@@ -64,7 +68,39 @@ export const SecurityCenterView: React.FC = () => {
     blockedInspectCount,
     recordBlockedInspectAttempt,
     lastAutoSavedAt,
+    setActiveTab,
   } = useERP();
+
+  // Security Center Passcode Gate ("414334") to prevent accidental entry via 7-tap logo gesture
+  const [isSecurityCenterUnlocked, setIsSecurityCenterUnlocked] = useState<boolean>(false);
+  const [securityPinInput, setSecurityPinInput] = useState<string>('');
+  const [securityPinError, setSecurityPinError] = useState<string | null>(null);
+  const [showSecurityPin, setShowSecurityPin] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleLockEvent = () => {
+      setIsSecurityCenterUnlocked(false);
+      setSecurityPinInput('');
+      setSecurityPinError(null);
+    };
+    window.addEventListener('haseb-lock-security-center', handleLockEvent);
+    return () => window.removeEventListener('haseb-lock-security-center', handleLockEvent);
+  }, []);
+
+  const handleUnlockSecurityCenter = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (verifySecurityCenterPasscode(securityPinInput)) {
+      setIsSecurityCenterUnlocked(true);
+      setSecurityPinError(null);
+      setSecurityPinInput('');
+    } else {
+      setSecurityPinError(
+        language === 'ar'
+          ? 'كلمة سر مركز الحماية غير صحيحة! يرجى إدخال كلمة السر المعتمدة لفتح المركز.'
+          : 'Invalid Security Center passcode! Please enter the authorized passcode.'
+      );
+    }
+  };
 
   const [subTab, setSubTab] = useState<'memberships' | 'hardware' | 'keygen' | 'antitheft'>('memberships');
   const [instantSavePulse, setInstantSavePulse] = useState<string | null>(null);
@@ -263,6 +299,98 @@ export const SecurityCenterView: React.FC = () => {
     }
   };
 
+  if (!isSecurityCenterUnlocked) {
+    const isAr = language === 'ar';
+    return (
+      <div
+        dir={isAr ? 'rtl' : 'ltr'}
+        data-testid="security-center-pin-gate"
+        className="min-h-[72vh] flex items-center justify-center p-4"
+      >
+        <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-xl overflow-hidden">
+          <div className="px-6 py-5 bg-slate-50/80 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl haseb-btn-primary text-white flex items-center justify-center shrink-0 shadow-xs">
+              <Lock className="w-6 h-6" />
+            </div>
+            <div>
+              <span className="inline-block text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/80 mb-1">
+                {isAr ? 'منطقة محمية بكلمة سر' : 'Password Protected Area'}
+              </span>
+              <h1 className="text-base font-black text-slate-900 dark:text-white">
+                {isAr ? 'قفل مركز الحماية والصلاحيات' : 'Security Center Lock'}
+              </h1>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                {isAr
+                  ? 'يرجى إدخال كلمة سر مركز الحماية لمنع الدخول بالصدفة'
+                  : 'Enter the Security Center passcode to prevent accidental entry'}
+              </p>
+            </div>
+          </div>
+
+          <form onSubmit={handleUnlockSecurityCenter} className="p-6 space-y-4">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-200">
+                {isAr ? 'كلمة سر مركز الحماية:' : 'Security Center Passcode:'}
+              </label>
+              <div className="relative">
+                <input
+                  type={showSecurityPin ? 'text' : 'password'}
+                  data-testid="security-center-pin-input"
+                  autoFocus
+                  value={securityPinInput}
+                  onChange={(e) => {
+                    setSecurityPinInput(e.target.value);
+                    if (securityPinError) setSecurityPinError(null);
+                  }}
+                  placeholder="••••••"
+                  dir="ltr"
+                  className="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 text-slate-900 dark:text-white font-mono text-base tracking-widest text-center focus:bg-white focus:outline-none focus:border-blue-600 transition"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowSecurityPin((prev) => !prev)}
+                  className="absolute inset-y-0 end-3 text-[11px] font-bold text-slate-500 hover:text-slate-900 cursor-pointer"
+                >
+                  {showSecurityPin ? (isAr ? 'إخفاء' : 'Hide') : isAr ? 'إظهار' : 'Show'}
+                </button>
+              </div>
+            </div>
+
+            {securityPinError && (
+              <div
+                data-testid="security-center-pin-error"
+                className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-bold flex items-center gap-2"
+              >
+                <ShieldAlert className="w-4 h-4 shrink-0 text-rose-600" />
+                <span>{securityPinError}</span>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2.5 pt-1">
+              <button
+                type="submit"
+                data-testid="security-center-pin-submit-btn"
+                className="flex-1 py-3 px-4 rounded-xl haseb-btn-primary text-white font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-xs"
+              >
+                <Unlock className="w-4 h-4" />
+                <span>{isAr ? 'فتح مركز الحماية' : 'Unlock Security Center'}</span>
+              </button>
+
+              <button
+                type="button"
+                data-testid="security-center-pin-cancel-btn"
+                onClick={() => setActiveTab('pos')}
+                className="py-3 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition cursor-pointer"
+              >
+                {isAr ? 'رجوع لنقطة البيع' : 'Back to POS'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       {/* Unified Lumina POS Header Card */}
@@ -311,6 +439,19 @@ export const SecurityCenterView: React.FC = () => {
               </span>
             </div>
           </div>
+
+          <button
+            type="button"
+            data-testid="security-relock-btn"
+            onClick={() => {
+              setIsSecurityCenterUnlocked(false);
+              setSecurityPinInput('');
+            }}
+            className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200/80 text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
+          >
+            <Lock className="w-3.5 h-3.5" />
+            <span>{language === 'ar' ? 'قفل المركز بكلمة السر' : 'Lock Center'}</span>
+          </button>
 
           <button
             type="button"

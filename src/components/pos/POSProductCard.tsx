@@ -1,8 +1,9 @@
 import React from 'react';
-import { Plus, Camera } from 'lucide-react';
+import { Plus, Camera, Zap } from 'lucide-react';
 import { Product } from '../../types/erp';
 import { getProductVisualIllustrationUri } from '../../core/inventoryEngine';
 import { formatCleanNumber } from '../../core/systemConfigEngine';
+import { useDoubleTapGesture } from '../common/MobileQuickActionsSheet';
 
 export interface POSProductCardProps {
   product: Product;
@@ -15,6 +16,7 @@ export interface POSProductCardProps {
   onAddToCart: (product: Product) => void;
   onProbeBranches: (sku: string) => void;
   onUpdateProductImage: (product: Product, imageDataUri: string) => void;
+  onOpenQuickActions?: (product: Product) => void;
 }
 
 export const POSProductCard: React.FC<POSProductCardProps> = React.memo(
@@ -29,7 +31,9 @@ export const POSProductCard: React.FC<POSProductCardProps> = React.memo(
     onAddToCart,
     onProbeBranches,
     onUpdateProductImage,
+    onOpenQuickActions,
   }) => {
+    const { registerTap } = useDoubleTapGesture();
     const warrantyMonths = p.warrantyMonths || 12;
     const warrantyBadgeClass =
       warrantyMonths >= 100
@@ -46,8 +50,22 @@ export const POSProductCard: React.FC<POSProductCardProps> = React.memo(
     return (
       <div
         data-testid={`pos-product-card-${p.sku}`}
-        onClick={() => onAddToCart(p)}
-        className={`bg-white rounded-2xl border transition-all cursor-pointer flex flex-col justify-between group shadow-2xs hover:shadow-md select-none overflow-hidden relative ${
+        onClick={() => {
+          if (
+            onOpenQuickActions &&
+            registerTap(`pos-prod-${p.id}`, () => onOpenQuickActions(p))
+          ) {
+            return;
+          }
+          onAddToCart(p);
+        }}
+        onDoubleClick={(e) => {
+          if (onOpenQuickActions) {
+            e.stopPropagation();
+            onOpenQuickActions(p);
+          }
+        }}
+        className={`haseb-touch-list-item bg-white rounded-2xl border transition-all cursor-pointer flex flex-col justify-between group shadow-2xs hover:shadow-md select-none overflow-hidden relative ${
           isInCart
             ? 'border-blue-600 ring-2 ring-blue-500/15'
             : 'border-slate-200/80 hover:border-blue-500/50'
@@ -76,32 +94,50 @@ export const POSProductCard: React.FC<POSProductCardProps> = React.memo(
               )}
             </div>
 
-            {/* Direct Quick Image Upload Button on Product Card */}
-            <label
-              data-testid={`pos-card-attach-image-${p.sku}`}
-              onClick={(e) => e.stopPropagation()}
-              title="إرفاق أو تغيير صورة الصنف مباشرة"
-              className="absolute bottom-1.5 left-1.5 w-6 h-6 rounded-lg bg-white/90 hover:bg-blue-600 text-slate-600 hover:text-white border border-slate-200/80 flex items-center justify-center shadow-2xs opacity-85 group-hover:opacity-100 transition cursor-pointer"
-            >
-              <Camera className="w-3 h-3" />
-              <input
-                type="file"
-                accept="image/*"
-                className="sr-only"
-                onChange={(e) => {
-                  e.stopPropagation();
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  const reader = new FileReader();
-                  reader.onload = () => {
-                    if (typeof reader.result === 'string') {
-                      onUpdateProductImage(p, reader.result);
-                    }
-                  };
-                  reader.readAsDataURL(file);
-                }}
-              />
-            </label>
+            {/* Direct Quick Image Upload Button & Quick Actions Trigger (Generous Touch Area) */}
+            <div className="absolute bottom-1.5 inset-x-1.5 flex items-center justify-between gap-1.5">
+              <label
+                data-testid={`pos-card-attach-image-${p.sku}`}
+                onClick={(e) => e.stopPropagation()}
+                title="إرفاق أو تغيير صورة الصنف مباشرة"
+                className="w-8 h-8 sm:w-7 sm:h-7 rounded-xl bg-white/95 hover:bg-blue-600 text-slate-600 hover:text-white border border-slate-200/80 flex items-center justify-center shadow-2xs opacity-90 group-hover:opacity-100 transition cursor-pointer touch-manipulation"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      if (typeof reader.result === 'string') {
+                        onUpdateProductImage(p, reader.result);
+                      }
+                    };
+                    reader.readAsDataURL(file);
+                  }}
+                />
+              </label>
+
+              {onOpenQuickActions && (
+                <button
+                  type="button"
+                  data-testid={`pos-card-quick-actions-${p.sku}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenQuickActions(p);
+                  }}
+                  title="قائمة الإجراءات السريعة للصنف (أو انقر مرتين)"
+                  aria-label={`الإجراءات السريعة للصنف ${displayName}`}
+                  className="w-8 h-8 sm:w-7 sm:h-7 rounded-xl bg-white/95 hover:bg-blue-600 text-blue-600 hover:text-white border border-slate-200/80 flex items-center justify-center shadow-2xs opacity-90 group-hover:opacity-100 transition cursor-pointer touch-manipulation"
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           </div>
         )}
 
@@ -115,11 +151,28 @@ export const POSProductCard: React.FC<POSProductCardProps> = React.memo(
                 {p.sku}
               </span>
               {displayMode === 'DATA_ONLY' && (
-                <span
-                  className={`px-2 py-0.5 rounded-full text-[10px] font-medium border shrink-0 ${warrantyBadgeClass}`}
-                >
-                  ضمان {warrantyMonths} شهر
-                </span>
+                <div className="flex items-center gap-1 shrink-0">
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${warrantyBadgeClass}`}
+                  >
+                    ضمان {warrantyMonths} شهر
+                  </span>
+                  {onOpenQuickActions && (
+                    <button
+                      type="button"
+                      data-testid={`pos-card-quick-actions-${p.sku}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenQuickActions(p);
+                      }}
+                      title="قائمة الإجراءات السريعة للصنف"
+                      aria-label={`الإجراءات السريعة للصنف ${displayName}`}
+                      className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-blue-600 text-blue-600 hover:text-white flex items-center justify-center transition cursor-pointer touch-manipulation"
+                    >
+                      <Zap className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               )}
             </div>
 
@@ -152,7 +205,7 @@ export const POSProductCard: React.FC<POSProductCardProps> = React.memo(
             </div>
           </div>
 
-          <div className="pt-2.5 border-t border-slate-100 flex items-end justify-between gap-1">
+          <div className="pt-2.5 border-t border-slate-100 flex items-end justify-between gap-2">
             <div>
               <span className="block text-[9px] sm:text-[10px] text-slate-400">السعر النقدي</span>
               <span className="text-sm sm:text-base font-black text-slate-900 font-mono" dir="ltr">
@@ -161,7 +214,7 @@ export const POSProductCard: React.FC<POSProductCardProps> = React.memo(
               </span>
             </div>
 
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-2">
               <span className="text-[10px] text-slate-500">
                 المتوفر:{' '}
                 <strong
@@ -179,7 +232,8 @@ export const POSProductCard: React.FC<POSProductCardProps> = React.memo(
                   e.stopPropagation();
                   onAddToCart(p);
                 }}
-                className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-slate-100 group-hover:bg-blue-600 text-slate-700 group-hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                aria-label={`إضافة ${displayName} للسلة`}
+                className="w-9 h-9 sm:w-8 sm:h-8 rounded-xl bg-slate-100 group-hover:bg-blue-600 text-slate-700 group-hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0 touch-manipulation"
               >
                 <Plus className="w-4 h-4" />
               </button>

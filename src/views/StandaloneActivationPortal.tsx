@@ -12,36 +12,10 @@ import {
   Fingerprint,
 } from 'lucide-react';
 import { useERP } from '../context/ERPContext';
-import { LicenseDurationPreset } from '../core/securityEngine';
-
-// Precomputed SHA-256 hex digest for authorized developer secret PIN verification (zero plaintext secret in bundle)
-const DEVELOPER_PIN_SHA256 = '28fd4549718b7093a4d7fd7041d8a3efd2e8597f65c82f5d7588e51359096468';
-
-async function verifyDeveloperPinSha256(candidate: string): Promise<boolean> {
-  const normalized = candidate.trim();
-  if (!normalized) return false;
-  if (typeof crypto !== 'undefined' && crypto.subtle) {
-    try {
-      const encoded = new TextEncoder().encode(normalized);
-      const digest = await crypto.subtle.digest('SHA-256', encoded);
-      const hex = Array.from(new Uint8Array(digest))
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('');
-      if (hex === DEVELOPER_PIN_SHA256) return true;
-    } catch {
-      // fallback below for insecure HTTP LAN contexts where SubtleCrypto is restricted
-    }
-  }
-  // Deterministic FNV-1a 64-bit check for non-HTTPS local LAN HTTP origins
-  let h1 = 0x811c9dc5;
-  let h2 = 0x9e3779b9;
-  for (let i = 0; i < normalized.length; i += 1) {
-    const c = normalized.charCodeAt(i);
-    h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
-    h2 = Math.imul(h2 ^ (c + i), 0x85ebca6b) >>> 0;
-  }
-  return `${h1.toString(16).padStart(8, '0')}-${h2.toString(16).padStart(8, '0')}` === 'b480456f-da6e57e1';
-}
+import {
+  LicenseDurationPreset,
+  verifyDeveloperActivationPin,
+} from '../core/securityEngine';
 
 export const StandaloneActivationPortal: React.FC = () => {
   const {
@@ -79,7 +53,7 @@ export const StandaloneActivationPortal: React.FC = () => {
 
   const handleUnlockPortal = async (e: React.FormEvent) => {
     e.preventDefault();
-    const ok = await verifyDeveloperPinSha256(pinInput);
+    const ok = await verifyDeveloperActivationPin(pinInput);
     if (ok) {
       setIsUnlocked(true);
       setPinError(null);
@@ -87,8 +61,8 @@ export const StandaloneActivationPortal: React.FC = () => {
     } else {
       setPinError(
         isAr
-          ? 'رمز المطور غير صحيح! يرجى التأكد من إدخال الرمز السري المعتمد.'
-          : 'Invalid Developer PIN! Please enter the authorized secret PIN.'
+          ? 'كلمة سر المطور غير صحيحة! يرجى التأكد من إدخال كلمة السر المعتمدة.'
+          : 'Invalid Developer Password! Please enter the authorized developer password.'
       );
     }
   };

@@ -55,6 +55,11 @@ import {
 import { InventoryProductRow } from '../components/inventory/InventoryProductRow';
 import { StockTakingRow } from '../components/inventory/StockTakingRow';
 import { HasebBrandLogo } from '../components/common/HasebBrandLogo';
+import { MobileQuickActionsSheet } from '../components/common/MobileQuickActionsSheet';
+import {
+  MobileQuickActionTarget,
+  MobileQuickActionDescriptor,
+} from '../core/mobileTouchEngine';
 
 const CameraBarcodeScannerModal = lazy(() =>
   import('../components/common/CameraBarcodeScannerModal').then((m) => ({
@@ -694,6 +699,55 @@ export const InventoryView: React.FC = React.memo(() => {
       setTimeout(() => setImportBanner(null), 4000);
     },
     [deleteProduct]
+  );
+
+  const [invQuickActionTarget, setInvQuickActionTarget] = useState<MobileQuickActionTarget | null>(null);
+
+  const handleOpenInventoryQuickActions = useCallback(
+    (p: Product) => {
+      setInvQuickActionTarget({
+        contextType: 'INVENTORY_PRODUCT',
+        itemId: p.id,
+        productId: p.id,
+        sku: p.sku,
+        titleAr: p.nameAr,
+        subtitleAr: `SKU: ${p.sku} • الرصيد: ${p.stockQty} ${p.uom}`,
+        badgeAr: formatCurrency(p.salePrice),
+      });
+    },
+    [formatCurrency]
+  );
+
+  const handleSelectInvQuickAction = useCallback(
+    (action: MobileQuickActionDescriptor, target: MobileQuickActionTarget) => {
+      const matchedProduct = products.find(
+        (p) => p.id === (target.productId || target.itemId) || p.sku === target.sku
+      );
+      if (!matchedProduct) return;
+
+      if (action.id === 'inv-prod-sell-pos') {
+        handleSellInPos(matchedProduct);
+      } else if (action.id === 'inv-prod-edit') {
+        handleOpenEditModal(matchedProduct);
+      } else if (action.id === 'inv-prod-stock-inc') {
+        handleQuickStockStep(matchedProduct, 1);
+      } else if (action.id === 'inv-prod-stock-take') {
+        handleGoToStockTake(matchedProduct);
+      } else if (action.id === 'inv-prod-branches') {
+        handleProbeCrossBranch(matchedProduct.sku);
+      } else if (action.id === 'inv-prod-delete') {
+        handleDeleteProduct(matchedProduct);
+      }
+    },
+    [
+      products,
+      handleSellInPos,
+      handleOpenEditModal,
+      handleQuickStockStep,
+      handleGoToStockTake,
+      handleProbeCrossBranch,
+      handleDeleteProduct,
+    ]
   );
 
   const handleStepStockCount = useCallback((p: Product, delta: number) => {
@@ -1400,6 +1454,7 @@ export const InventoryView: React.FC = React.memo(() => {
                         onSellInPos={handleSellInPos}
                         onProbeCrossBranch={handleProbeCrossBranch}
                         onDeleteProduct={handleDeleteProduct}
+                        onOpenQuickActions={handleOpenInventoryQuickActions}
                       />
                     ))
                   )}
@@ -2800,6 +2855,14 @@ export const InventoryView: React.FC = React.memo(() => {
           />
         </Suspense>
       )}
+
+      {/* Mobile Double-Tap Quick Actions Sheet for Inventory Products */}
+      <MobileQuickActionsSheet
+        target={invQuickActionTarget}
+        onClose={() => setInvQuickActionTarget(null)}
+        onSelectAction={handleSelectInvQuickAction}
+        language={language}
+      />
     </div>
   );
 });

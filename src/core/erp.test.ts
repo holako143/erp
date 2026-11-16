@@ -3668,6 +3668,156 @@ test('Track 44: Footer Pending Sync Queue Engine & Theme-Appropriate POS Sound A
   assert.equal(themeInfoFreqs.size, VALID_UI_THEMES.length);
 });
 
+test('Track 45 Mobile Double-Tap Gesture Engine, Contextual Quick Actions & Touch Target Ergonomics', async () => {
+  const {
+    DOUBLE_TAP_THRESHOLD_MS,
+    MIN_TOUCH_TARGET_PX,
+    evaluateDoubleTapGesture,
+    buildMobileQuickActionsForTarget,
+    computeTouchTargetMetrics,
+  } = await import('./mobileTouchEngine');
+
+  assert.equal(DOUBLE_TAP_THRESHOLD_MS, 320);
+  assert.equal(MIN_TOUCH_TARGET_PX, 44);
+
+  // 1. First tap on an item registers as single tap and stores state
+  const firstTap = evaluateDoubleTapGesture(0, null, 1000, 'pos-item-1');
+  assert.equal(firstTap.isDoubleTap, false);
+  assert.equal(firstTap.deltaMs, -1);
+  assert.equal(firstTap.nextLastTapTimestampMs, 1000);
+  assert.equal(firstTap.nextLastTapItemId, 'pos-item-1');
+
+  // 2. Second tap within 320ms on the SAME target triggers double-tap and resets state
+  const secondTapFast = evaluateDoubleTapGesture(
+    firstTap.nextLastTapTimestampMs,
+    firstTap.nextLastTapItemId,
+    1210,
+    'pos-item-1'
+  );
+  assert.equal(secondTapFast.isDoubleTap, true);
+  assert.equal(secondTapFast.deltaMs, 210);
+  assert.equal(secondTapFast.nextLastTapTimestampMs, 0);
+  assert.equal(secondTapFast.nextLastTapItemId, null);
+
+  // 3. Second tap on a DIFFERENT target within 320ms does NOT trigger double-tap
+  const differentTargetTap = evaluateDoubleTapGesture(
+    firstTap.nextLastTapTimestampMs,
+    firstTap.nextLastTapItemId,
+    1150,
+    'pos-item-2'
+  );
+  assert.equal(differentTargetTap.isDoubleTap, false);
+  assert.equal(differentTargetTap.nextLastTapTimestampMs, 1150);
+  assert.equal(differentTargetTap.nextLastTapItemId, 'pos-item-2');
+
+  // 4. Second tap after threshold (> 320ms) does NOT trigger double-tap
+  const slowTap = evaluateDoubleTapGesture(
+    firstTap.nextLastTapTimestampMs,
+    firstTap.nextLastTapItemId,
+    1450,
+    'pos-item-1'
+  );
+  assert.equal(slowTap.isDoubleTap, false);
+  assert.equal(slowTap.deltaMs, 450);
+  assert.equal(slowTap.nextLastTapTimestampMs, 1450);
+  assert.equal(slowTap.nextLastTapItemId, 'pos-item-1');
+
+  // 5. Contextual quick actions builder for all 5 mobile list item kinds
+  const navActions = buildMobileQuickActionsForTarget({
+    contextType: 'NAV_MODULE',
+    itemId: 'pos',
+    moduleId: 'pos',
+    titleAr: 'نقطة البيع والكاشير',
+  });
+  assert.equal(navActions.length, 4);
+  assert.equal(navActions[0].id, 'nav-pos-open');
+
+  const posProductActions = buildMobileQuickActionsForTarget({
+    contextType: 'POS_PRODUCT',
+    itemId: 'prod-1',
+    titleAr: 'لوح طاقة شمسية 585W',
+  });
+  assert.equal(posProductActions.length, 4);
+  assert.ok(posProductActions.some((a) => a.id === 'pos-prod-add-1'));
+  assert.ok(posProductActions.some((a) => a.id === 'pos-prod-add-5'));
+  assert.ok(posProductActions.some((a) => a.id === 'pos-prod-probe'));
+
+  const cartActions = buildMobileQuickActionsForTarget({
+    contextType: 'POS_CART_ITEM',
+    itemId: 'prod-1',
+    titleAr: 'لوح طاقة شمسية 585W',
+  });
+  assert.equal(cartActions.length, 4);
+  assert.ok(cartActions.some((a) => a.id === 'cart-item-double'));
+  assert.ok(cartActions.some((a) => a.id === 'cart-item-remove' && a.tone === 'rose'));
+
+  const invActions = buildMobileQuickActionsForTarget({
+    contextType: 'INVENTORY_PRODUCT',
+    itemId: 'prod-1',
+    titleAr: 'لوح طاقة شمسية 585W',
+  });
+  assert.equal(invActions.length, 6);
+  assert.ok(invActions.some((a) => a.id === 'inv-prod-sell-pos'));
+  assert.ok(invActions.some((a) => a.id === 'inv-prod-edit'));
+
+  const chatActions = buildMobileQuickActionsForTarget({
+    contextType: 'WHATSAPP_CHAT',
+    itemId: 'chat-1',
+    titleAr: 'مؤسسة الآفاق',
+  });
+  assert.equal(chatActions.length, 4);
+  assert.ok(chatActions.some((a) => a.id === 'wa-chat-send-invoice'));
+
+  // 6. Touch target ergonomics metrics
+  const desktopMetrics = computeTouchTargetMetrics(1440);
+  const mobileMetrics = computeTouchTargetMetrics(390);
+  assert.equal(desktopMetrics.isMobileTouchViewport, false);
+  assert.equal(mobileMetrics.isMobileTouchViewport, true);
+  assert.ok(mobileMetrics.minButtonHeightPx >= MIN_TOUCH_TARGET_PX);
+  assert.ok(mobileMetrics.minButtonHeightPx > desktopMetrics.minButtonHeightPx);
+  assert.ok(mobileMetrics.surroundingGapPx > desktopMetrics.surroundingGapPx);
+});
+
+test('Track 46 Developer Activation Password ("AbuSaif143"), Security Center Passcode ("414334"), and Mobile POS Split Balance', async () => {
+  const {
+    verifyDeveloperActivationPinSync,
+    verifyDeveloperActivationPin,
+    verifySecurityCenterPasscode,
+  } = await import('./securityEngine');
+  const { computeMobilePosLayoutMetrics } = await import('./posKeyboardNavigation');
+
+  // 1. Developer Activation Portal password ("AbuSaif143") succeeds and old "RLM-DEV-9999" fails
+  assert.equal(verifyDeveloperActivationPinSync('AbuSaif143'), true);
+  assert.equal(verifyDeveloperActivationPinSync('  AbuSaif143  '), true);
+  assert.equal(await verifyDeveloperActivationPin('AbuSaif143'), true);
+  assert.equal(verifyDeveloperActivationPinSync('RLM-DEV-9999'), false);
+  assert.equal(verifyDeveloperActivationPinSync('abusaif143'), false);
+  assert.equal(verifyDeveloperActivationPinSync(''), false);
+
+  // 2. Security Center Passcode ("414334") required on 7-tap logo entry
+  assert.equal(verifySecurityCenterPasscode('414334'), true);
+  assert.equal(verifySecurityCenterPasscode(' 414334 '), true);
+  assert.equal(verifySecurityCenterPasscode('000000'), false);
+  assert.equal(verifySecurityCenterPasscode('AbuSaif143'), false);
+  assert.equal(verifySecurityCenterPasscode(''), false);
+
+  // 3. Mobile POS Split Balance ratios
+  const balancedSplit = computeMobilePosLayoutMetrics('SPLIT', 2, 'BALANCED_50_50');
+  assert.equal(balancedSplit.isSplitViewOnMobile, true);
+  assert.equal(balancedSplit.catalogMobileHeightClass, 'h-[47%]');
+  assert.equal(balancedSplit.cartMobileHeightClass, 'h-[53%]');
+
+  const catalogExpandedSplit = computeMobilePosLayoutMetrics('SPLIT', 2, 'CATALOG_60_40');
+  assert.equal(catalogExpandedSplit.catalogMobileHeightClass, 'h-[56%]');
+  assert.equal(catalogExpandedSplit.cartMobileHeightClass, 'h-[44%]');
+
+  const cartExpandedSplit = computeMobilePosLayoutMetrics('SPLIT', 2, 'CART_40_60');
+  assert.equal(cartExpandedSplit.catalogMobileHeightClass, 'h-[38%]');
+  assert.equal(cartExpandedSplit.cartMobileHeightClass, 'h-[62%]');
+});
+
+
+
 
 
 

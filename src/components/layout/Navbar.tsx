@@ -314,6 +314,7 @@ export const Navbar: React.FC = () => {
 
     if (recentClicks.length >= 7) {
       brandClickTimestampsRef.current = [];
+      window.dispatchEvent(new CustomEvent('haseb-lock-security-center'));
       setActiveTab('security');
     } else {
       brandClickTimeoutRef.current = setTimeout(() => {

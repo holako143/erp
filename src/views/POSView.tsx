@@ -59,10 +59,16 @@ import {
   sumCartItemQuantities,
   computeMobilePosLayoutMetrics,
   MobilePosViewMode,
+  MobilePosSplitBalance,
   DEFAULT_WALKIN_CUSTOMER_LABEL_AR,
 } from '../core/posKeyboardNavigation';
 import { POSProductCard } from '../components/pos/POSProductCard';
 import { POSCartItemRow } from '../components/pos/POSCartItemRow';
+import { MobileQuickActionsSheet } from '../components/common/MobileQuickActionsSheet';
+import {
+  MobileQuickActionTarget,
+  MobileQuickActionDescriptor,
+} from '../core/mobileTouchEngine';
 
 const CameraBarcodeScannerModal = lazy(() =>
   import('../components/common/CameraBarcodeScannerModal').then((m) => ({
@@ -136,6 +142,8 @@ export const POSView: React.FC = React.memo(() => {
   const [barcodeInput, setBarcodeInput] = useState('');
   const [posDisplayMode, setPosDisplayMode] = useState<'WITH_IMAGES' | 'DATA_ONLY'>('WITH_IMAGES');
   const [mobilePosPane, setMobilePosPane] = useState<MobilePosViewMode>('CATALOG');
+  const [mobileSplitBalance, setMobileSplitBalance] = useState<MobilePosSplitBalance>('BALANCED_50_50');
+  const [isMobileSplitCustomerExpanded, setIsMobileSplitCustomerExpanded] = useState<boolean>(false);
 
   // Solar & Battery Engineering Calculator Modal State (calculation state lives inside lazy modal)
   const [isSolarCalcOpen, setIsSolarCalcOpen] = useState(false);
@@ -182,6 +190,106 @@ export const POSView: React.FC = React.memo(() => {
 
   // Fast Beneficiary Customer Picker Modal (Triggered by clicking "العميل المستفيد" tab or pressing F8)
   const [isCustomerPickerOpen, setIsCustomerPickerOpen] = useState<boolean>(false);
+
+  // Double-Tap Quick Actions Sheet State for POS Product Cards & Cart Items
+  const [posQuickActionTarget, setPosQuickActionTarget] = useState<MobileQuickActionTarget | null>(
+    null
+  );
+
+  const handleOpenProductQuickActions = useCallback(
+    (product: Product) => {
+      setPosQuickActionTarget({
+        contextType: 'POS_PRODUCT',
+        itemId: product.sku,
+        productId: product.id,
+        sku: product.sku,
+        titleAr: product.nameAr || product.name,
+        subtitleAr: `السعر: ${formatCleanNumber(product.salePrice)} ${currency} • المتوفر: ${product.stockQty}`,
+        badgeAr: product.sku,
+      });
+    },
+    [currency]
+  );
+
+  const handleOpenCartItemQuickActions = useCallback(
+    (item: { productId: string; sku: string; productName: string; quantity: number; unitPrice: number }) => {
+      setPosQuickActionTarget({
+        contextType: 'POS_CART_ITEM',
+        itemId: item.productId,
+        productId: item.productId,
+        sku: item.sku,
+        titleAr: item.productName,
+        subtitleAr: `الكمية الحالية: ${item.quantity} • سعر الوحدة: ${formatCleanNumber(item.unitPrice)} ${currency}`,
+        badgeAr: `×${item.quantity}`,
+      });
+    },
+    [currency]
+  );
+
+  const handleSelectPosQuickAction = useCallback(
+    (action: MobileQuickActionDescriptor, target: MobileQuickActionTarget) => {
+      if (target.contextType === 'POS_PRODUCT') {
+        const prod = products.find((p) => p.id === target.productId || p.sku === target.sku);
+        if (!prod) return;
+        if (action.id === 'pos-prod-add-1') {
+          addToPOSCart(prod, 1);
+          showBanner('success', `تمت إضافة قطعة واحدة (+1) من (${prod.nameAr}) للسلة`);
+        } else if (action.id === 'pos-prod-add-5') {
+          addToPOSCart(prod, 5);
+          showBanner('success', `تمت إضافة (5) وحدات من (${prod.nameAr}) للسلة دفعة واحدة`);
+        } else if (action.id === 'pos-prod-probe') {
+          openCrossBranchModal(prod.sku);
+        } else if (action.id === 'pos-prod-whatsapp') {
+          openQuickSendModal({
+            channel: 'WHATSAPP',
+            category: 'INVOICE',
+            recipientName: warrantyCustomerName,
+            recipientPhone: warrantyCustomerPhone,
+            referenceNumber: prod.sku,
+            messageBody: `🌟 *عرض سعر رسمي — ${company.nameAr || 'حاسب ERP'}*\nالصنف: *${prod.nameAr}*\nالكود: ${prod.sku}\nالسعر النقدي: *${formatCleanNumber(prod.salePrice)} ${currency}*\nالضمان المعتمد: ${prod.warrantyMonths || 12} شهر`,
+          });
+        }
+        return;
+      }
+
+      if (target.contextType === 'POS_CART_ITEM' && target.productId) {
+        const cartItem = posCart.find((it) => it.productId === target.productId);
+        if (!cartItem) return;
+        if (action.id === 'cart-item-inc') {
+          updatePOSCartQty(cartItem.productId, cartItem.quantity + 1);
+          showBanner('success', `تمت زيادة كمية (${cartItem.productName}) إلى ${cartItem.quantity + 1}`);
+        } else if (action.id === 'cart-item-double') {
+          const doubled = Math.max(2, cartItem.quantity * 2);
+          updatePOSCartQty(cartItem.productId, doubled);
+          showBanner('success', `تمت مضاعفة كمية (${cartItem.productName}) إلى ${doubled}`);
+        } else if (action.id === 'cart-item-focus-sn') {
+          const snField = `pos-cart-serial-${cartItem.productId}`;
+          setActivePosFieldId(snField);
+          setTimeout(() => {
+            const el = document.querySelector(`[data-testid="${snField}"]`) as HTMLInputElement | null;
+            el?.focus();
+          }, 60);
+        } else if (action.id === 'cart-item-remove') {
+          removeFromPOSCart(cartItem.productId);
+          showBanner('success', `تم حذف (${cartItem.productName}) من السلة`);
+        }
+      }
+    },
+    [
+      products,
+      posCart,
+      addToPOSCart,
+      updatePOSCartQty,
+      removeFromPOSCart,
+      openCrossBranchModal,
+      openQuickSendModal,
+      warrantyCustomerName,
+      warrantyCustomerPhone,
+      company.nameAr,
+      currency,
+      showBanner,
+    ]
+  );
 
   const handleSelectBeneficiaryCustomer = useCallback(
     (cust: {
@@ -307,8 +415,8 @@ export const POSView: React.FC = React.memo(() => {
   );
   const cartTotalUnits = useMemo(() => sumCartItemQuantities(posCart), [posCart]);
   const mobilePosLayout = useMemo(
-    () => computeMobilePosLayoutMetrics(mobilePosPane, cartTotalUnits),
-    [mobilePosPane, cartTotalUnits]
+    () => computeMobilePosLayoutMetrics(mobilePosPane, cartTotalUnits, mobileSplitBalance),
+    [mobilePosPane, cartTotalUnits, mobileSplitBalance]
   );
 
   // Cart Totals with Live Discount (Percent or Fixed Amount)
@@ -893,11 +1001,11 @@ export const POSView: React.FC = React.memo(() => {
         data-testid="pos-catalog-pane"
         className={`${posSplitLayout.primaryColClass} ${
           mobilePosLayout.isSplitViewOnMobile
-            ? 'flex flex-none h-[46%] lg:h-auto lg:flex-1 border-b border-slate-200/80 lg:border-b-0'
+            ? `flex flex-none ${mobilePosLayout.catalogMobileHeightClass} lg:h-auto lg:flex-1 p-2 sm:p-4 gap-1.5 sm:gap-3`
             : mobilePosLayout.showCatalogOnMobile
-            ? 'flex flex-1'
-            : 'hidden lg:flex flex-1'
-        } flex-col min-w-0 min-h-0 p-2.5 sm:p-4 gap-2 sm:gap-3.5 overflow-hidden`}
+            ? 'flex flex-1 p-2.5 sm:p-4 gap-2 sm:gap-3.5'
+            : 'hidden lg:flex flex-1 p-2.5 sm:p-4 gap-2 sm:gap-3.5'
+        } flex-col min-w-0 min-h-0 overflow-hidden`}
       >
         {posBanner && (
           <div
@@ -938,9 +1046,9 @@ export const POSView: React.FC = React.memo(() => {
           </div>
         )}
 
-        {/* Top Row: Barcode Scanner + Compact Controls on Mobile */}
-        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-1.5 sm:gap-2 shrink-0 min-w-0 max-w-full">
-          <form onSubmit={handleBarcodeSubmit} className="pos-focus-group relative flex-1 min-w-0 sm:min-w-[200px]">
+        {/* Top Row: Barcode Scanner + Compact Controls (De-duplicated: Shift is in Navbar, Beneficiary Customer is in Cart) */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 min-w-0 max-w-full">
+          <form onSubmit={handleBarcodeSubmit} className="pos-focus-group relative flex-1 min-w-0">
             <Barcode className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
@@ -954,7 +1062,7 @@ export const POSView: React.FC = React.memo(() => {
               }}
               onChange={(e) => setBarcodeInput(e.target.value)}
               placeholder="امسح الباركود أو أدخل رمز الصنف SKU..."
-              className="w-full bg-white border border-slate-200/80 hover:border-slate-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-500/15 rounded-xl py-2 pr-9 pl-16 text-xs outline-hidden transition-all shadow-2xs"
+              className="w-full bg-white border border-slate-200/80 hover:border-slate-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-500/15 rounded-xl py-1.5 sm:py-2 pr-9 pl-12 sm:pl-16 text-xs outline-hidden transition-all shadow-2xs"
             />
             <div className="absolute left-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
               <button
@@ -972,28 +1080,7 @@ export const POSView: React.FC = React.memo(() => {
             </div>
           </form>
 
-          <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5 min-w-0 max-w-full shrink-0">
-            {/* Beneficiary Customer Quick Tab Button (Opens Customer Picker on Click or F8) */}
-            <button
-              type="button"
-              data-testid="pos-top-beneficiary-customer-btn"
-              onClick={() => setIsCustomerPickerOpen(true)}
-              title="اضغط هنا أو اضغط F8 لاختيار العميل المستفيد من قائمة العملاء"
-              className="px-2.5 sm:px-3 py-1.5 bg-white hover:bg-blue-50/70 border border-slate-200/80 hover:border-blue-400 rounded-xl text-[11px] sm:text-xs font-bold text-slate-800 flex items-center gap-1.5 sm:gap-2 transition shadow-2xs shrink-0 cursor-pointer"
-            >
-              <UserCheck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-              <span className="text-slate-400 font-medium hidden md:inline">العميل المستفيد:</span>
-              <span
-                data-testid="pos-active-beneficiary-label"
-                className="truncate max-w-[95px] sm:max-w-[150px] text-slate-900"
-              >
-                {warrantyCustomerName.trim() || DEFAULT_WALKIN_CUSTOMER_LABEL_AR}
-              </span>
-              <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono font-bold text-blue-700 bg-blue-50 rounded border border-blue-200/80">
-                F8
-              </kbd>
-            </button>
-
+          <div className="flex items-center gap-1.5 shrink-0">
             {/* 2-Mode POS Product Display Toggle: WITH_IMAGES vs DATA_ONLY */}
             <div
               data-testid="pos-display-mode-switcher"
@@ -1108,36 +1195,6 @@ export const POSView: React.FC = React.memo(() => {
               <Filter className="w-3.5 h-3.5 text-slate-400" />
               <span>تصفية</span>
             </button>
-
-            {currentShift.status !== 'OPEN' ? (
-              <button
-                type="button"
-                data-testid="btn-open-new-shift-header"
-                onClick={openShiftModal}
-                title="النظام يعمل بالوضع المرن (بدون وردية) — اضغط لفتح وردية اختيارية"
-                className="px-2.5 py-1.5 sm:py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/80 font-semibold text-[11px] sm:text-xs flex items-center gap-1 cursor-pointer transition shrink-0 whitespace-nowrap"
-              >
-                <Play className="w-3.5 h-3.5 shrink-0" />
-                <span>فتح وردية</span>
-                <span
-                  data-testid="pos-shiftless-badge"
-                  className="hidden xl:inline text-[10px] font-medium text-emerald-600/90"
-                >
-                  (وضع مرن)
-                </span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                data-testid="btn-close-shift-header"
-                onClick={openShiftModal}
-                title="إغلاق وتسليم الوردية (Z-Report)"
-                className="px-2.5 py-1.5 sm:py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/80 font-semibold text-[11px] sm:text-xs flex items-center gap-1 cursor-pointer transition shrink-0 whitespace-nowrap"
-              >
-                <Lock className="w-3.5 h-3.5 shrink-0" />
-                <span>إغلاق الوردية</span>
-              </button>
-            )}
           </div>
         </div>
 
@@ -1333,6 +1390,7 @@ export const POSView: React.FC = React.memo(() => {
                     onAddToCart={handleAddProductToCart}
                     onProbeBranches={handleProbeBranches}
                     onUpdateProductImage={handleUpdateProductImage}
+                    onOpenQuickActions={handleOpenProductQuickActions}
                   />
                 );
               })
@@ -1342,9 +1400,63 @@ export const POSView: React.FC = React.memo(() => {
       </div>
 
       {/* ====================================================================
+          MOBILE SPLIT-MODE INTERACTIVE DIVIDER & PROPORTION BAR (< lg)
+      ==================================================================== */}
+      {mobilePosLayout.isSplitViewOnMobile && (
+        <div
+          data-testid="pos-mobile-split-bar"
+          className="lg:hidden shrink-0 px-3 py-1.5 bg-slate-100 dark:bg-slate-900 border-y border-slate-200/90 dark:border-slate-800 flex items-center justify-between gap-2 z-20"
+        >
+          <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-600 dark:text-slate-300">
+            <Columns2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+            <span>وضع التقسيم المباشر:</span>
+          </div>
+
+          <div className="flex items-center bg-white dark:bg-slate-800 rounded-lg p-0.5 border border-slate-200/80 dark:border-slate-700 gap-0.5">
+            <button
+              type="button"
+              data-testid="pos-mobile-split-ratio-catalog"
+              onClick={() => setMobileSplitBalance('CATALOG_60_40')}
+              className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition cursor-pointer ${
+                mobileSplitBalance === 'CATALOG_60_40'
+                  ? 'haseb-btn-primary text-white'
+                  : 'text-slate-600 dark:text-slate-300'
+              }`}
+            >
+              توسيع الكتالوج
+            </button>
+            <button
+              type="button"
+              data-testid="pos-mobile-split-ratio-balanced"
+              onClick={() => setMobileSplitBalance('BALANCED_50_50')}
+              className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition cursor-pointer ${
+                mobileSplitBalance === 'BALANCED_50_50'
+                  ? 'haseb-btn-primary text-white'
+                  : 'text-slate-600 dark:text-slate-300'
+              }`}
+            >
+              50 / 50
+            </button>
+            <button
+              type="button"
+              data-testid="pos-mobile-split-ratio-cart"
+              onClick={() => setMobileSplitBalance('CART_40_60')}
+              className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition cursor-pointer ${
+                mobileSplitBalance === 'CART_40_60'
+                  ? 'haseb-btn-primary text-white'
+                  : 'text-slate-600 dark:text-slate-300'
+              }`}
+            >
+              توسيع السلة
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================================
           LEFT AREA: SALES CART & CHECKOUT DRAWER
           - Desktop: Hidden by default when empty, pops open as soon as any item is added or pinned
-          - Mobile (< lg): Supports full CART view OR simultaneous SPLIT view
+          - Mobile (< lg): Supports full CART view OR simultaneous ergonomic SPLIT view
       ==================================================================== */}
       <aside
         data-testid="pos-cart-pane"
@@ -1352,9 +1464,7 @@ export const POSView: React.FC = React.memo(() => {
         data-mobile-view-mode={mobilePosPane}
         className={`${
           mobilePosLayout.isSplitViewOnMobile
-            ? cartVisibility.isVisible
-              ? 'flex flex-none h-[54%] lg:h-auto lg:flex'
-              : 'flex flex-none h-[54%] lg:hidden'
+            ? `flex flex-none ${mobilePosLayout.cartMobileHeightClass} lg:h-auto lg:flex`
             : mobilePosLayout.showCartOnMobile
             ? cartVisibility.isVisible
               ? 'flex flex-1 lg:flex-none lg:flex'
@@ -1364,21 +1474,25 @@ export const POSView: React.FC = React.memo(() => {
             : 'hidden'
         } w-full lg:w-[380px] xl:w-[390px] bg-white border-r border-slate-200/70 flex-col justify-between shrink-0 z-20 overflow-hidden transition-all`}
       >
-        {/* Cart Header */}
-        <div className="p-3.5 sm:p-4 border-b border-slate-200/70 space-y-3">
+        {/* Cart Header (Compact in Mobile Split Mode, Full in Cart/Desktop Mode) */}
+        <div
+          className={`${
+            mobilePosLayout.isSplitViewOnMobile ? 'p-2.5 lg:p-4 space-y-2' : 'p-3.5 sm:p-4 space-y-3'
+          } border-b border-slate-200/70 shrink-0`}
+        >
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold text-slate-900">سلة المبيعات</h2>
+            <div className="flex items-center gap-2 min-w-0">
+              <h2 className="text-xs sm:text-sm font-bold text-slate-900 shrink-0">سلة المبيعات</h2>
               <span
                 data-testid="pos-cart-items-count-badge"
-                className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[11px] font-mono font-semibold"
+                className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[11px] font-mono font-semibold shrink-0"
               >
                 {cartTotalUnits} صنف
               </span>
             </div>
 
-            <div className="flex items-center gap-1.5">
-              {/* Permanent Pin Toggle Button inside Cart Header */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* Permanent Pin Toggle Button inside Cart Header (Desktop & Full Cart) */}
               <button
                 type="button"
                 data-testid="pos-cart-pin-toggle-btn"
@@ -1396,7 +1510,9 @@ export const POSView: React.FC = React.memo(() => {
                     ? 'السلة مثبتة دائماً (انقر لتفعيل الإخفاء التلقائي عند الفراغ)'
                     : 'تثبيت السلة لتبقى ظاهرة دائماً حتى وهي فارغة'
                 }
-                className={`px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 border transition cursor-pointer ${
+                className={`${
+                  mobilePosLayout.isSplitViewOnMobile ? 'hidden lg:flex' : 'flex'
+                } px-2 py-1 rounded-lg text-[10px] font-bold items-center gap-1 border transition cursor-pointer ${
                   isCartPinnedOpen
                     ? 'bg-blue-50 text-blue-700 border-blue-200'
                     : 'bg-slate-50 text-slate-500 border-slate-200/80 hover:text-slate-900'
@@ -1435,41 +1551,66 @@ export const POSView: React.FC = React.memo(() => {
             </div>
           </div>
 
-          {/* Beneficiary Customer Tab & Quick Inputs (Click Tab or Press F8 to Open Fast Customer Picker) */}
-          <div className="pos-focus-group bg-slate-50/80 p-2.5 rounded-xl border border-slate-200/80 space-y-2">
+          {/* Beneficiary Customer Tab & Quick Inputs (Kept EXCLUSIVELY in Sales Cart) */}
+          <div className="pos-focus-group bg-slate-50/80 p-2 rounded-xl border border-slate-200/80 space-y-2">
             <div className="flex items-center justify-between gap-2">
               <button
                 type="button"
                 data-testid="pos-cart-beneficiary-tab-btn"
                 onClick={() => setIsCustomerPickerOpen(true)}
-                className="flex items-center gap-1.5 text-[11px] font-bold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100/80 px-2.5 py-1 rounded-lg border border-blue-200/80 transition cursor-pointer"
+                className="flex items-center gap-1.5 text-[11px] font-bold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100/80 px-2.5 py-1 rounded-lg border border-blue-200/80 transition cursor-pointer min-w-0"
                 title="انقر هنا أو اضغط F8 لاختيار العميل المستفيد من قائمة العملاء"
               >
-                <Users className="w-3.5 h-3.5 text-blue-600" />
-                <span>العميل المستفيد (اختر عميل)</span>
-                <kbd className="px-1 py-0.2 bg-white rounded text-[9px] font-mono text-blue-700 border border-blue-200">
+                <Users className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <span className="shrink-0">العميل المستفيد:</span>
+                <span
+                  data-testid="pos-active-beneficiary-label"
+                  className="truncate max-w-[115px] sm:max-w-[140px] text-slate-900 font-black"
+                >
+                  {warrantyCustomerName.trim() || DEFAULT_WALKIN_CUSTOMER_LABEL_AR}
+                </span>
+                <kbd className="hidden sm:inline-block px-1 py-0.2 bg-white rounded text-[9px] font-mono text-blue-700 border border-blue-200">
                   F8
                 </kbd>
               </button>
 
-              {warrantyCustomerName &&
-                warrantyCustomerName !== DEFAULT_WALKIN_CUSTOMER_LABEL_AR && (
+              <div className="flex items-center gap-1.5 shrink-0">
+                {warrantyCustomerName &&
+                  warrantyCustomerName !== DEFAULT_WALKIN_CUSTOMER_LABEL_AR && (
+                    <button
+                      type="button"
+                      data-testid="pos-reset-walkin-customer-btn"
+                      onClick={() => {
+                        setSelectedCustomerId('cust-pos-walkin');
+                        setWarrantyCustomerName(DEFAULT_WALKIN_CUSTOMER_LABEL_AR);
+                        setWarrantyCustomerPhone('');
+                      }}
+                      className="text-[10px] font-semibold text-slate-500 hover:text-slate-900 underline cursor-pointer"
+                    >
+                      نقدي عام
+                    </button>
+                  )}
+
+                {mobilePosLayout.isSplitViewOnMobile && (
                   <button
                     type="button"
-                    data-testid="pos-reset-walkin-customer-btn"
-                    onClick={() => {
-                      setSelectedCustomerId('cust-pos-walkin');
-                      setWarrantyCustomerName(DEFAULT_WALKIN_CUSTOMER_LABEL_AR);
-                      setWarrantyCustomerPhone('');
-                    }}
-                    className="text-[10px] font-semibold text-slate-500 hover:text-slate-900 underline cursor-pointer"
+                    data-testid="pos-mobile-split-toggle-cust-fields-btn"
+                    onClick={() => setIsMobileSplitCustomerExpanded((prev) => !prev)}
+                    className="lg:hidden px-2 py-0.5 rounded-md bg-white border border-slate-200 text-[10px] font-bold text-slate-600 cursor-pointer"
                   >
-                    إرجاع لعميل نقدي عام
+                    {isMobileSplitCustomerExpanded ? 'طي الحقول' : 'تعديل الاسم/الهاتف'}
                   </button>
                 )}
+              </div>
             </div>
 
-            <div className="grid grid-cols-5 gap-2">
+            <div
+              className={`${
+                mobilePosLayout.isSplitViewOnMobile && !isMobileSplitCustomerExpanded
+                  ? 'hidden lg:grid'
+                  : 'grid'
+              } grid-cols-5 gap-2`}
+            >
               <div className="col-span-3">
                 <div className="relative">
                   <select
@@ -1540,10 +1681,19 @@ export const POSView: React.FC = React.memo(() => {
         </div>
 
         {/* Cart Items List + Quick Discount Box */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
+        <div
+          data-testid="pos-cart-items-scroll"
+          className={`flex-1 overflow-y-auto min-h-0 ${
+            mobilePosLayout.isSplitViewOnMobile ? 'p-2.5 lg:p-4 space-y-2' : 'p-4 space-y-3'
+          }`}
+        >
           {posCart.length === 0 ? (
-            <div className="py-10 flex flex-col items-center justify-center text-slate-400 text-xs space-y-2">
-              <ShieldCheck className="w-8 h-8 text-slate-300 stroke-1" />
+            <div
+              className={`${
+                mobilePosLayout.isSplitViewOnMobile ? 'py-4 lg:py-10' : 'py-10'
+              } flex flex-col items-center justify-center text-slate-400 text-xs space-y-1.5`}
+            >
+              <ShieldCheck className="w-7 h-7 text-slate-300 stroke-1" />
               <span className="font-medium text-slate-400">
                 السلة فارغة — اختر الأصناف لإصدار الفاتورة
               </span>
@@ -1558,12 +1708,17 @@ export const POSView: React.FC = React.memo(() => {
                 onUpdateQty={handleUpdateCartQty}
                 onUpdateMeta={handleUpdateCartMeta}
                 onFocusField={handleFocusCartField}
+                onOpenQuickActions={handleOpenCartItemQuickActions}
               />
             ))
           )}
 
-          {/* Quick Discount Options (Matching code_9f7cabf7.html) */}
-          <div className="pos-focus-group bg-slate-50/60 rounded-2xl p-3 border border-slate-200/60 space-y-2">
+          {/* Quick Discount Options */}
+          <div
+            className={`pos-focus-group bg-slate-50/60 rounded-2xl p-2.5 sm:p-3 border border-slate-200/60 space-y-2 ${
+              mobilePosLayout.isSplitViewOnMobile && posCart.length === 0 ? 'hidden lg:block' : ''
+            }`}
+          >
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-medium text-slate-600 flex items-center gap-1">
                 <span>%</span>
@@ -1605,7 +1760,7 @@ export const POSView: React.FC = React.memo(() => {
               </button>
             </div>
 
-            {/* Custom Discount Input Drawer (Visible when 'مخصص' is clicked, kept in DOM for keyboard/tests) */}
+            {/* Custom Discount Input Drawer */}
             <div className={isDiscountPanelOpen ? 'pt-2 space-y-2 border-t border-slate-200/60' : 'sr-only'}>
               <div className="flex items-center justify-between gap-1.5">
                 <div className="flex items-center bg-white rounded-lg p-0.5 border border-slate-200 text-[11px]">
@@ -1686,13 +1841,19 @@ export const POSView: React.FC = React.memo(() => {
           </div>
         </div>
 
-        {/* Cart Footer & Totals (Clears Mobile Bottom Dock + Bottom Nav cleanly) */}
+        {/* Cart Footer & Totals (Streamlined in Mobile Split Mode so items have generous height) */}
         <div
-          className={`p-3 sm:p-4 border-t border-slate-200/70 bg-slate-50/50 space-y-2 sm:space-y-3 ${
-            mobilePosLayout.isSplitViewOnMobile ? 'pb-28 lg:pb-4' : 'pb-28 lg:pb-4'
-          }`}
+          className={`${
+            mobilePosLayout.isSplitViewOnMobile
+              ? 'px-2.5 pt-2 pb-28 lg:p-4 lg:pb-4 space-y-1.5 lg:space-y-3'
+              : 'p-3 sm:p-4 pb-28 lg:pb-4 space-y-2 sm:space-y-3'
+          } border-t border-slate-200/70 bg-slate-50/50 shrink-0`}
         >
-          <div className="space-y-1 text-xs">
+          <div
+            className={`${
+              mobilePosLayout.isSplitViewOnMobile ? 'hidden lg:block' : 'block'
+            } space-y-1 text-xs`}
+          >
             <div className="flex items-center justify-between text-slate-500">
               <span>المجموع الفرعي:</span>
               <span className="font-mono font-medium text-slate-700" dir="ltr">
@@ -1728,8 +1889,8 @@ export const POSView: React.FC = React.memo(() => {
             </div>
           </div>
 
-          {/* Primary Action Button */}
-          <div className="pt-0.5">
+          {/* Primary Action Button (Desktop & Full Cart View; Mobile Split Mode uses the sticky bottom dock CTA) */}
+          <div className={mobilePosLayout.isSplitViewOnMobile ? 'hidden lg:block pt-0.5' : 'pt-0.5'}>
             <button
               type="button"
               data-testid="pos-checkout-btn"
@@ -1760,7 +1921,7 @@ export const POSView: React.FC = React.memo(() => {
               type="button"
               disabled={posCart.length === 0}
               onClick={() => holdCurrentPOSBill(undefined, selectedTable)}
-              className="py-2 px-3 rounded-xl border border-slate-200/80 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40"
+              className="py-1.5 sm:py-2 px-2.5 sm:px-3 rounded-xl border border-slate-200/80 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40"
             >
               <PauseCircle className="w-3.5 h-3.5 text-slate-500" />
               <span>تعليق</span>
@@ -1770,7 +1931,7 @@ export const POSView: React.FC = React.memo(() => {
               type="button"
               disabled={posCart.length === 0}
               onClick={handlePreviewDraftWarrantyCertificate}
-              className="py-2 px-3 rounded-xl border border-slate-200/80 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40"
+              className="py-1.5 sm:py-2 px-2.5 sm:px-3 rounded-xl border border-slate-200/80 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40"
             >
               <Printer className="w-3.5 h-3.5 text-slate-500" />
               <span>طباعة</span>
@@ -1789,7 +1950,7 @@ export const POSView: React.FC = React.memo(() => {
                   messageBody: `فاتورة مبيعات وشهادة ضمان حاسب ERP — الإجمالي: ${formatCleanNumber(grandTotal)} ${currency}`,
                 });
               }}
-              className="py-2 px-3 rounded-xl border border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100/70 text-emerald-800 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40"
+              className="py-1.5 sm:py-2 px-2.5 sm:px-3 rounded-xl border border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100/70 text-emerald-800 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40"
             >
               <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
               <span>واتساب</span>
@@ -2676,6 +2837,14 @@ export const POSView: React.FC = React.memo(() => {
           />
         </Suspense>
       )}
+
+      {/* Mobile Double-Tap Quick Actions Sheet for POS Products & Cart Items */}
+      <MobileQuickActionsSheet
+        target={posQuickActionTarget}
+        onClose={() => setPosQuickActionTarget(null)}
+        onSelectAction={handleSelectPosQuickAction}
+        language={language}
+      />
     </div>
   );
 });

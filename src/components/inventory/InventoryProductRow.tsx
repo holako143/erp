@@ -7,9 +7,11 @@ import {
   ShoppingCart,
   Network,
   Trash2,
+  Zap,
 } from 'lucide-react';
 import { Product } from '../../types/erp';
 import { getProductVisualIllustrationUri } from '../../core/inventoryEngine';
+import { useDoubleTapGesture } from '../common/MobileQuickActionsSheet';
 
 export interface InventoryProductRowProps {
   product: Product;
@@ -23,6 +25,7 @@ export interface InventoryProductRowProps {
   onSellInPos: (product: Product) => void;
   onProbeCrossBranch: (sku: string) => void;
   onDeleteProduct: (product: Product) => void;
+  onOpenQuickActions?: (product: Product) => void;
 }
 
 export const InventoryProductRow: React.FC<InventoryProductRowProps> = React.memo(
@@ -38,12 +41,28 @@ export const InventoryProductRow: React.FC<InventoryProductRowProps> = React.mem
     onSellInPos,
     onProbeCrossBranch,
     onDeleteProduct,
+    onOpenQuickActions,
   }) => {
+    const { registerTap } = useDoubleTapGesture();
     const isReorder = p.stockQty <= p.reorderPoint;
 
     return (
-      <tr className="hover:bg-slate-50/70 transition">
-        <td className="py-3 px-4">
+      <tr
+        data-testid={`inventory-row-${p.sku}`}
+        onClick={() => {
+          if (onOpenQuickActions) {
+            registerTap(`inv-row-${p.id}`, () => onOpenQuickActions(p));
+          }
+        }}
+        onDoubleClick={(e) => {
+          if (onOpenQuickActions) {
+            e.stopPropagation();
+            onOpenQuickActions(p);
+          }
+        }}
+        className="haseb-touch-list-item hover:bg-slate-50/70 transition cursor-pointer"
+      >
+        <td className="py-3.5 px-4">
           <div className="flex items-start gap-2.5">
             <img
               src={getProductVisualIllustrationUri(p)}
@@ -117,7 +136,7 @@ export const InventoryProductRow: React.FC<InventoryProductRowProps> = React.mem
             </div>
           )}
         </td>
-        <td className="py-3 px-4">
+        <td className="py-3.5 px-4">
           <span
             data-testid={`product-specific-category-${p.sku}`}
             className="inline-block bg-blue-50 text-blue-900 border border-blue-200 font-bold px-2.5 py-0.5 rounded-xs text-[11px]"
@@ -141,33 +160,36 @@ export const InventoryProductRow: React.FC<InventoryProductRowProps> = React.mem
             )}
           </div>
         </td>
-        <td className="py-3 px-4 font-mono tabular-nums font-bold text-slate-800" dir="ltr">
+        <td className="py-3.5 px-4 font-mono tabular-nums font-bold text-slate-800" dir="ltr">
           {p.barcode}
         </td>
         {showCostPrice && (
           <td
-            className="py-3 px-4 text-end font-semibold font-mono tabular-nums text-slate-700"
+            className="py-3.5 px-4 text-end font-semibold font-mono tabular-nums text-slate-700"
             dir="ltr"
           >
             {p.costPrice.toLocaleString()} {currency}
           </td>
         )}
         <td
-          className="py-3 px-4 text-end font-bold font-mono tabular-nums text-slate-900"
+          className="py-3.5 px-4 text-end font-bold font-mono tabular-nums text-slate-900"
           dir="ltr"
         >
           {p.salePrice.toLocaleString()} {currency}
         </td>
-        <td className="py-3 px-4 text-center">
-          <div className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-md px-1.5 py-1">
+        <td className="py-3.5 px-4 text-center">
+          <div className="inline-flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-2 py-1">
             <button
               type="button"
               data-testid={`quick-stock-dec-${p.sku}`}
-              onClick={() => onQuickStockStep(p, -1)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onQuickStockStep(p, -1);
+              }}
               title="إنقاص الرصيد (-1)"
-              className="w-5 h-5 rounded bg-white hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200 flex items-center justify-center font-bold transition cursor-pointer"
+              className="w-8 h-8 rounded-lg bg-white hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200 flex items-center justify-center font-bold transition cursor-pointer touch-manipulation"
             >
-              <Minus className="w-3 h-3" />
+              <Minus className="w-3.5 h-3.5" />
             </button>
             <div className="px-1.5 min-w-[3rem] text-center">
               <span
@@ -181,15 +203,18 @@ export const InventoryProductRow: React.FC<InventoryProductRowProps> = React.mem
             <button
               type="button"
               data-testid={`quick-stock-inc-${p.sku}`}
-              onClick={() => onQuickStockStep(p, 1)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onQuickStockStep(p, 1);
+              }}
               title="زيادة الرصيد (+1)"
-              className="w-5 h-5 rounded bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 flex items-center justify-center font-bold transition cursor-pointer"
+              className="w-8 h-8 rounded-lg bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 flex items-center justify-center font-bold transition cursor-pointer touch-manipulation"
             >
-              <Plus className="w-3 h-3" />
+              <Plus className="w-3.5 h-3.5" />
             </button>
           </div>
         </td>
-        <td className="py-3 px-4 text-center">
+        <td className="py-3.5 px-4 text-center">
           <span
             className={`inline-block px-2 py-0.5 rounded-xs text-[10px] font-bold border ${
               isReorder
@@ -200,13 +225,31 @@ export const InventoryProductRow: React.FC<InventoryProductRowProps> = React.mem
             {isReorder ? 'إعادة طلب' : 'متوفر'}
           </span>
         </td>
-        <td className="py-3 px-4 text-center">
-          <div className="flex flex-wrap items-center justify-center gap-1">
+        <td className="py-3.5 px-4 text-center">
+          <div className="flex flex-wrap items-center justify-center gap-1.5">
+            {onOpenQuickActions && (
+              <button
+                type="button"
+                data-testid={`inv-row-quick-actions-${p.sku}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenQuickActions(p);
+                }}
+                className="px-2.5 py-1.5 min-h-[34px] bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer touch-manipulation"
+                title="قائمة الإجراءات السريعة (أو انقر مرتين على الصف)"
+              >
+                <Zap className="w-3 h-3" />
+                <span>سريع</span>
+              </button>
+            )}
             <button
               type="button"
               data-testid={`edit-product-btn-${p.sku}`}
-              onClick={() => onOpenEditModal(p)}
-              className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenEditModal(p);
+              }}
+              className="px-2.5 py-1.5 min-h-[34px] bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer touch-manipulation"
               title="تعديل بيانات الصنف، السعر، الكود، الباركود، أو التصنيف المخزني"
             >
               <Edit3 className="w-3 h-3 text-blue-600" />
@@ -214,8 +257,11 @@ export const InventoryProductRow: React.FC<InventoryProductRowProps> = React.mem
             </button>
             <button
               type="button"
-              onClick={() => onGoToStockTake(p)}
-              className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
+              onClick={(e) => {
+                e.stopPropagation();
+                onGoToStockTake(p);
+              }}
+              className="px-2.5 py-1.5 min-h-[34px] bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer touch-manipulation"
               title="جرد وتسوية الرصيد الفعلي للصنف"
             >
               <ClipboardCheck className="w-3 h-3 text-indigo-600" />
@@ -223,8 +269,11 @@ export const InventoryProductRow: React.FC<InventoryProductRowProps> = React.mem
             </button>
             <button
               type="button"
-              onClick={() => onSellInPos(p)}
-              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSellInPos(p);
+              }}
+              className="px-2.5 py-1.5 min-h-[34px] bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer touch-manipulation"
               title="إضافة مباشرة لسلة نقطة البيع والانتقال للكاشير"
             >
               <ShoppingCart className="w-3 h-3 text-slate-700" />
@@ -232,8 +281,11 @@ export const InventoryProductRow: React.FC<InventoryProductRowProps> = React.mem
             </button>
             <button
               type="button"
-              onClick={() => onProbeCrossBranch(p.sku)}
-              className="px-2 py-1 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
+              onClick={(e) => {
+                e.stopPropagation();
+                onProbeCrossBranch(p.sku);
+              }}
+              className="px-2.5 py-1.5 min-h-[34px] bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer touch-manipulation"
               title="فحص توفر الصنف في باقي الفروع والشبكة المحلية (LAN)"
             >
               <Network className="w-3 h-3 text-sky-600" />
@@ -242,8 +294,11 @@ export const InventoryProductRow: React.FC<InventoryProductRowProps> = React.mem
             <button
               type="button"
               data-testid={`delete-product-btn-${p.sku}`}
-              onClick={() => onDeleteProduct(p)}
-              className="p-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded text-[11px] font-bold inline-flex items-center transition cursor-pointer"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteProduct(p);
+              }}
+              className="p-1.5 min-h-[34px] min-w-[34px] bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-[11px] font-bold inline-flex items-center justify-center transition cursor-pointer touch-manipulation"
               title="حذف الصنف من المخزون"
             >
               <Trash2 className="w-3.5 h-3.5" />

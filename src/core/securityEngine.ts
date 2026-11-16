@@ -1131,3 +1131,53 @@ export function verifyClockHighWaterIntegrityTag(
   if (!tag || !Number.isFinite(maxClockMs) || maxClockMs <= 0) return false;
   return tag === computeClockHighWaterIntegrityTag(maxClockMs, machineRequestCode);
 }
+
+// ============================================================================
+// Developer Keygen PIN ("AbuSaif143") & Security Center Logo Passcode ("414334")
+// ============================================================================
+
+const EXPECTED_DEV_PIN_HASH_A = cryptoHash32('AbuSaif143', 'DEVELOPER-KEYGEN-PIN-SALT-V2-A');
+const EXPECTED_DEV_PIN_HASH_B = cryptoHash32('AbuSaif143', 'DEVELOPER-KEYGEN-PIN-SALT-V2-B');
+
+/**
+ * Synchronous deterministic verification for the Standalone Developer Activation Portal password ("AbuSaif143").
+ */
+export function verifyDeveloperActivationPinSync(candidate: string): boolean {
+  const normalized = (candidate || '').trim();
+  if (!normalized) return false;
+  const hashA = cryptoHash32(normalized, 'DEVELOPER-KEYGEN-PIN-SALT-V2-A');
+  const hashB = cryptoHash32(normalized, 'DEVELOPER-KEYGEN-PIN-SALT-V2-B');
+  return hashA === EXPECTED_DEV_PIN_HASH_A && hashB === EXPECTED_DEV_PIN_HASH_B;
+}
+
+/**
+ * Async wrapper for Developer Activation Portal password verification.
+ */
+export async function verifyDeveloperActivationPin(candidate: string): Promise<boolean> {
+  return verifyDeveloperActivationPinSync(candidate);
+}
+
+const EXPECTED_SECURITY_CENTER_PASSCODE_HASH_A = cryptoHash32(
+  '414334',
+  'SECURITY-CENTER-LOGO-GATE-V1-A'
+);
+const EXPECTED_SECURITY_CENTER_PASSCODE_HASH_B = cryptoHash32(
+  '414334',
+  'SECURITY-CENTER-LOGO-GATE-V1-B'
+);
+
+/**
+ * Verifies the 6-digit Security Center access passcode ("414334") required when opening
+ * the Security Center via the 7-tap logo gesture so it cannot be entered accidentally.
+ */
+export function verifySecurityCenterPasscode(candidate: string): boolean {
+  const normalized = (candidate || '').trim();
+  if (!normalized) return false;
+  const hashA = cryptoHash32(normalized, 'SECURITY-CENTER-LOGO-GATE-V1-A');
+  const hashB = cryptoHash32(normalized, 'SECURITY-CENTER-LOGO-GATE-V1-B');
+  return (
+    hashA === EXPECTED_SECURITY_CENTER_PASSCODE_HASH_A &&
+    hashB === EXPECTED_SECURITY_CENTER_PASSCODE_HASH_B
+  );
+}
+
