@@ -172,6 +172,8 @@ const MainLayout: React.FC = () => {
     isServerSyncing,
     flushPendingSyncQueue,
     realtimeSyncStatus,
+    isInitialServerSyncDone,
+    connectedLanDevices,
     soundAlertPrefs,
   } = useERP();
 
@@ -600,7 +602,29 @@ const MainLayout: React.FC = () => {
       )}
 
       {/* Mandatory First-Launch Welcome Wizard OR Encrypted Login / Terminal Unlock Gate */}
-      {!isAuthenticated ? (
+      {!isInitialServerSyncDone && !isAuthenticated ? (
+        <div
+          data-testid="initial-server-sync-loader"
+          dir={language === 'ar' ? 'rtl' : 'ltr'}
+          className={`min-h-[100dvh] w-full flex flex-col items-center justify-center p-6 ${
+            uiTheme === 'obsidian_dark'
+              ? 'bg-[#080c14] text-slate-100'
+              : 'bg-[#f8fafc] text-slate-900'
+          }`}
+        >
+          <div className="w-10 h-10 rounded-full border-2 border-emerald-500/30 border-t-emerald-500 animate-spin mb-3" />
+          <p className="text-sm font-bold">
+            {language === 'ar'
+              ? 'جاري مزامنة النظام الموحد مع الخادم...'
+              : 'Synchronizing unified ERP state...'}
+          </p>
+          <p className="text-xs text-slate-400 mt-1">
+            {language === 'ar'
+              ? 'يتم ربط الجلسة ببيانات المنشأة والمخزون والفواتير لحظياً'
+              : 'Connecting session to live company & inventory data'}
+          </p>
+        </div>
+      ) : !isAuthenticated ? (
         !isOnboardingCompleted ? (
           <Suspense fallback={<ViewLoadingFallback language={language} uiTheme={uiTheme} />}>
             <OnboardingWizardModal isOpen isMandatoryFirstRun onClose={closeOnboarding} />
@@ -794,7 +818,8 @@ const MainLayout: React.FC = () => {
                   <button
                     type="button"
                     onClick={openLanPortal}
-                    className={`font-mono text-[10px] font-medium hover:underline cursor-pointer ${
+                    data-testid="footer-lan-portal-trigger"
+                    className={`font-mono text-[10px] font-medium hover:underline cursor-pointer flex items-center gap-1 ${
                       footerSyncMeta.tone === 'emerald'
                         ? 'text-emerald-600 dark:text-emerald-400'
                         : footerSyncMeta.tone === 'blue'
@@ -803,11 +828,19 @@ const MainLayout: React.FC = () => {
                     }`}
                     title={
                       language === 'ar'
-                        ? 'انقر لفتح مركز سطح المكتب والشبكة المحلية'
-                        : 'Click to open Windows Desktop & LAN Hub'
+                        ? 'انقر لفتح مركز الشبكة وتعدد الأجهزة المتصلة'
+                        : 'Click to open Multi-Device LAN Hub'
                     }
                   >
-                    Local LAN Sync OK
+                    <span>Local LAN Sync OK</span>
+                    {connectedLanDevices.length > 0 && (
+                      <span
+                        data-testid="footer-connected-devices-count"
+                        className="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-sans font-bold text-[9px]"
+                      >
+                        {connectedLanDevices.length} {language === 'ar' ? 'جهاز' : 'dev'}
+                      </span>
+                    )}
                   </button>
                   <button
                     type="button"

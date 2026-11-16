@@ -44,6 +44,12 @@ import {
   TimeIntegrityState,
 } from './src/core/licensing_core/index';
 import { HasebLocalSqliteEngine } from './src/server/localSqliteDb';
+import {
+  applyThreeWayPatchMerge,
+  detectDeviceLabelFromUserAgent,
+  mergeStateDeltaPatch,
+  ConnectedLanDevice,
+} from './src/core/realtimeSyncEngine';
 
 dotenv.config();
 
@@ -105,6 +111,66 @@ let pendingFlush = false;
 let isHttpsActive = false;
 const sseClients = new Set<express.Response>();
 const wsClients = new Set<WebSocket>();
+const wsDevicePresence = new Map<WebSocket, ConnectedLanDevice>();
+
+const MAX_REVISION_HISTORY = 60;
+const revisionHistoryMap = new Map<number, Record<string, any>>();
+const revisionPatchLog = new Map<
+  number,
+  { dbRevision: number; originClientId?: string; changedKeys: string[]; patch: Record<string, any> }
+>();
+
+function recordRevisionSnapshot(
+  rev: number,
+  state: Record<string, any> | null,
+  patch?: Record<string, any>,
+  changedKeys?: string[],
+  originClientId?: string
+) {
+  if (state && typeof state === 'object') {
+    revisionHistoryMap.set(rev, state);
+  }
+  if (patch && typeof patch === 'object') {
+    revisionPatchLog.set(rev, {
+      dbRevision: rev,
+      originClientId,
+      changedKeys: changedKeys || Object.keys(patch),
+      patch,
+    });
+  }
+  const minKeep = rev - MAX_REVISION_HISTORY;
+  if (minKeep > 0) {
+    for (const k of revisionHistoryMap.keys()) {
+      if (k < minKeep) revisionHistoryMap.delete(k);
+    }
+    for (const k of revisionPatchLog.keys()) {
+      if (k < minKeep) revisionPatchLog.delete(k);
+    }
+  }
+}
+
+function getConnectedLanDevicesSnapshot(): ConnectedLanDevice[] {
+  const byClientId = new Map<string, ConnectedLanDevice>();
+  for (const [ws, info] of wsDevicePresence.entries()) {
+    if (ws.readyState !== WebSocket.OPEN) continue;
+    const prev = byClientId.get(info.clientId);
+    if (!prev || info.lastSeenAt >= prev.lastSeenAt) {
+      byClientId.set(info.clientId, info);
+    }
+  }
+  return Array.from(byClientId.values()).sort((a, b) =>
+    a.connectedAt.localeCompare(b.connectedAt)
+  );
+}
+
+function broadcastPresenceList() {
+  broadcastWsMessage({
+    type: 'erp:presence_list',
+    dbRevision,
+    devices: getConnectedLanDevicesSnapshot(),
+    serverTimestampMs: Date.now(),
+  });
+}
 
 function broadcastWsMessage(messageObj: Record<string, any>) {
   if (wsClients.size === 0) return;
@@ -115,9 +181,11 @@ function broadcastWsMessage(messageObj: Record<string, any>) {
         ws.send(serialized);
       } else if (ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
         wsClients.delete(ws);
+        wsDevicePresence.delete(ws);
       }
     } catch {
       wsClients.delete(ws);
+      wsDevicePresence.delete(ws);
     }
   }
 }
@@ -148,12 +216,14 @@ try {
   if (sqliteLoaded.state && typeof sqliteLoaded.state === 'object') {
     memoryStore = sqliteLoaded.state;
     dbRevision = sqliteLoaded.revision;
+    recordRevisionSnapshot(dbRevision, memoryStore);
   } else if (fs.existsSync(DB_FILE)) {
     const raw = fs.readFileSync(DB_FILE, 'utf-8');
     const parsed = JSON.parse(raw);
     if (parsed && parsed.schemaVersion === CURRENT_SCHEMA_VERSION) {
       memoryStore = parsed;
       dbRevision = Number(parsed.dbRevision) || 1;
+      recordRevisionSnapshot(dbRevision, memoryStore);
       localSqliteEngine.savePrimaryStateTransaction(
         parsed,
         CURRENT_SCHEMA_VERSION,
@@ -216,6 +286,7 @@ function writeServerDB(
     dbRevision,
     lastSyncedAt: new Date().toISOString(),
   };
+  recordRevisionSnapshot(dbRevision, memoryStore, undefined, undefined, originClientId);
   const nowMs = Date.now();
   broadcastSseRevision(dbRevision, 'state_commit', originClientId);
   broadcastWsMessage({
@@ -231,24 +302,47 @@ function writeServerDB(
 
 function patchServerDB(
   patch: Record<string, any>,
-  originClientId?: string
-): { dbRevision: number; changedKeys: string[] } {
-  dbRevision += 1;
+  originClientId?: string,
+  baseRevision?: number
+): {
+  dbRevision: number;
+  changedKeys: string[];
+  mergedPatch: Record<string, any>;
+  wasMerged: boolean;
+} {
+  const previousRev = dbRevision;
   const cleanPatch: Record<string, any> = {};
   for (const [k, v] of Object.entries(patch)) {
     if (v !== undefined && k !== 'schemaVersion' && k !== 'dbRevision') {
       cleanPatch[k] = v;
     }
   }
+
+  const baseState =
+    typeof baseRevision === 'number' && baseRevision > 0 && baseRevision < previousRev
+      ? revisionHistoryMap.get(baseRevision) || null
+      : null;
+
+  const { mergedPatch, wasMerged } = applyThreeWayPatchMerge({
+    baseState,
+    currentServerState: memoryStore,
+    incomingPatch: cleanPatch,
+    baseRevision,
+    currentDbRevision: previousRev,
+  });
+
+  dbRevision += 1;
   const nowIso = new Date().toISOString();
   memoryStore = {
     ...(memoryStore || {}),
-    ...cleanPatch,
+    ...mergedPatch,
     schemaVersion: CURRENT_SCHEMA_VERSION,
     dbRevision,
     lastSyncedAt: nowIso,
   };
-  const changedKeys = Object.keys(cleanPatch);
+  const changedKeys = Object.keys(mergedPatch);
+  recordRevisionSnapshot(dbRevision, memoryStore, mergedPatch, changedKeys, originClientId);
+
   const nowMs = Date.now();
   broadcastSseRevision(dbRevision, 'patch_commit', originClientId);
   broadcastWsMessage({
@@ -256,11 +350,12 @@ function patchServerDB(
     dbRevision,
     originClientId: originClientId || null,
     changedKeys,
-    patch: cleanPatch,
+    patch: mergedPatch,
+    wasMerged,
     serverTimestampMs: nowMs,
   });
   flushMemoryStoreToDiskAsync().catch(() => {});
-  return { dbRevision, changedKeys };
+  return { dbRevision, changedKeys, mergedPatch, wasMerged };
 }
 
 // Helper to safely read a Linux DMI / machine-id file or run Windows WMI if on local Windows host
@@ -492,7 +587,17 @@ app.get('/api/v1/network/info', (req, res) => {
       serverTimestampMs: Date.now(),
       dbRevision,
       memoryStoreSizeKb: sizeKb,
+      connectedDevicesCount: getConnectedLanDevicesSnapshot().length,
     },
+  });
+});
+
+app.get('/api/v1/network/devices', (_req, res) => {
+  res.json({
+    success: true,
+    dbRevision,
+    devices: getConnectedLanDevicesSnapshot(),
+    serverTimestampMs: Date.now(),
   });
 });
 
@@ -1010,6 +1115,59 @@ app.get('/api/v1/erp/state', (req, res) => {
   });
 });
 
+// 2c. Fast Catch-Up Delta Endpoint (Bridges skipped revisions cleanly for mobile clients)
+app.get('/api/v1/erp/catchup', (req, res) => {
+  const sinceRevision = Number(req.query.sinceRevision || 0);
+  if (!memoryStore) {
+    res.json({
+      success: true,
+      mode: 'EMPTY',
+      dbRevision,
+      data: null,
+    });
+    return;
+  }
+  if (sinceRevision >= dbRevision) {
+    res.json({
+      success: true,
+      mode: 'UP_TO_DATE',
+      dbRevision,
+    });
+    return;
+  }
+
+  let canComposeDelta = sinceRevision > 0 && dbRevision - sinceRevision <= MAX_REVISION_HISTORY;
+  let composedPatch: Record<string, any> = {};
+  if (canComposeDelta) {
+    for (let r = sinceRevision + 1; r <= dbRevision; r++) {
+      const logEntry = revisionPatchLog.get(r);
+      if (!logEntry) {
+        canComposeDelta = false;
+        break;
+      }
+      composedPatch = mergeStateDeltaPatch(composedPatch, logEntry.patch);
+    }
+  }
+
+  if (canComposeDelta) {
+    res.json({
+      success: true,
+      mode: 'DELTA',
+      dbRevision,
+      patch: composedPatch,
+      changedKeys: Object.keys(composedPatch),
+    });
+    return;
+  }
+
+  res.json({
+    success: true,
+    mode: 'FULL',
+    dbRevision,
+    data: memoryStore,
+  });
+});
+
 // 3. Save / Sync Persistent ERP State (0ms RAM Commit + Async Atomic Disk Flush) with Backend Guard
 app.post('/api/v1/erp/state', verifyCommercialOperationGuard, (req, res) => {
   const startHr = process.hrtime.bigint();
@@ -1021,6 +1179,28 @@ app.post('/api/v1/erp/state', verifyCommercialOperationGuard, (req, res) => {
   const originClientId = String(req.headers['x-erp-client-id'] || payload.__originClientId || '');
   const cleanPayload = { ...payload };
   delete (cleanPayload as any).__originClientId;
+
+  // Split-Brain Protection: prevent an unconfigured or stale onboarding client from wiping an active server company
+  const forceOverwrite = req.headers['x-erp-force-overwrite'] === '1';
+  if (
+    !forceOverwrite &&
+    memoryStore &&
+    memoryStore.isOnboardingCompleted === true &&
+    cleanPayload.isOnboardingCompleted === false
+  ) {
+    const elapsedMs = Number(process.hrtime.bigint() - startHr) / 1_000_000;
+    res.json({
+      success: true,
+      preservedExistingServerState: true,
+      message: 'Authoritative server company preserved; client should hydrate server state.',
+      dbRevision,
+      data: memoryStore,
+      latencyMs: Math.round(elapsedMs * 100) / 100,
+      syncedAt: new Date().toISOString(),
+    });
+    return;
+  }
+
   const rev = writeServerDB(cleanPayload, originClientId || undefined);
   const elapsedMs = Number(process.hrtime.bigint() - startHr) / 1_000_000;
   res.json({
@@ -1032,7 +1212,7 @@ app.post('/api/v1/erp/state', verifyCommercialOperationGuard, (req, res) => {
   });
 });
 
-// 3b. Ultra-Fast Delta Patch Sync Endpoint (Broadcasts changed keys over WebSocket immediately)
+// 3b. Ultra-Fast Delta Patch Sync Endpoint (Conflict-free 3-Way Merge + Immediate WS Broadcast)
 app.post('/api/v1/erp/patch', verifyCommercialOperationGuard, (req, res) => {
   const startHr = process.hrtime.bigint();
   const body = req.body;
@@ -1044,15 +1224,23 @@ app.post('/api/v1/erp/patch', verifyCommercialOperationGuard, (req, res) => {
   const originClientId = String(
     body?.originClientId || req.headers['x-erp-client-id'] || ''
   );
-  const { dbRevision: rev, changedKeys } = patchServerDB(
+  const baseRevision =
+    typeof body?.baseRevision === 'number' && Number.isFinite(body.baseRevision)
+      ? body.baseRevision
+      : undefined;
+
+  const { dbRevision: rev, changedKeys, mergedPatch, wasMerged } = patchServerDB(
     patch,
-    originClientId || undefined
+    originClientId || undefined,
+    baseRevision
   );
   const elapsedMs = Number(process.hrtime.bigint() - startHr) / 1_000_000;
   res.json({
     success: true,
     dbRevision: rev,
     changedKeys,
+    wasMerged,
+    mergedPatch: wasMerged ? mergedPatch : undefined,
     latencyMs: Math.round(elapsedMs * 100) / 100,
     syncedAt: new Date().toISOString(),
   });
@@ -1063,6 +1251,8 @@ app.post('/api/v1/erp/reset', (_req, res) => {
   try {
     memoryStore = null;
     dbRevision = 1;
+    revisionHistoryMap.clear();
+    revisionPatchLog.clear();
     whatsappAccountsStore = [createCleanWhatsAppDefaultAccount()];
     activeWhatsAppAccountIdStore = whatsappAccountsStore[0]?.id || 'wa-acc-primary';
     whatsappChatsStore = [];
@@ -1072,6 +1262,12 @@ app.post('/api/v1/erp/reset', (_req, res) => {
       fs.unlinkSync(DB_FILE);
     }
     broadcastSseRevision(dbRevision, 'reset');
+    broadcastWsMessage({
+      type: 'erp:state_commit',
+      dbRevision,
+      originClientId: null,
+      serverTimestampMs: Date.now(),
+    });
     res.json({ success: true, message: 'Server database reset to clean initial state' });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
@@ -1101,9 +1297,18 @@ app.post('/api/v1/erp/reset-blank', (_req, res) => {
       lastSyncedAt: new Date().toISOString(),
     };
     dbRevision = 1;
+    revisionHistoryMap.clear();
+    revisionPatchLog.clear();
+    recordRevisionSnapshot(dbRevision, memoryStore);
     localSqliteEngine.savePrimaryStateTransaction(memoryStore, CURRENT_SCHEMA_VERSION, 1);
     fs.writeFileSync(DB_FILE, JSON.stringify(memoryStore, null, 2), 'utf-8');
     broadcastSseRevision(dbRevision, 'reset_blank');
+    broadcastWsMessage({
+      type: 'erp:state_commit',
+      dbRevision,
+      originClientId: null,
+      serverTimestampMs: Date.now(),
+    });
     res.json({ success: true, message: 'Server database initialized to clean blank state' });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
@@ -1646,11 +1851,13 @@ setTimeout(async () => {
 
 function syncWhatsAppStoresToPersistence() {
   if (memoryStore && typeof memoryStore === 'object') {
-    writeServerDB({
-      ...memoryStore,
-      whatsappAccounts: whatsappAccountsStore,
-      activeWhatsAppAccountId: activeWhatsAppAccountIdStore,
-    });
+    patchServerDB(
+      {
+        whatsappAccounts: whatsappAccountsStore,
+        activeWhatsAppAccountId: activeWhatsAppAccountIdStore,
+      },
+      'server-whatsapp-gateway'
+    );
   }
 }
 
@@ -2685,19 +2892,96 @@ async function startServer() {
   const httpServer = http.createServer(app);
   const wss = new WebSocketServer({ noServer: true });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req) => {
     wsClients.add(ws);
+    const rawIp = String(
+      (req?.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+        req?.socket?.remoteAddress ||
+        '127.0.0.1'
+    ).replace(/^::ffff:/, '');
+    const uaInfo = detectDeviceLabelFromUserAgent(String(req?.headers['user-agent'] || ''));
+    const nowIso = new Date().toISOString();
+    let clientIdFromUrl = `ws-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    let userNameFromUrl = 'مستخدم متصل';
+    let activeTabFromUrl = 'pos';
+    try {
+      const parsedUrl = new URL(String(req?.url || '/ws/erp-sync'), 'http://localhost');
+      clientIdFromUrl = parsedUrl.searchParams.get('clientId') || clientIdFromUrl;
+      userNameFromUrl = parsedUrl.searchParams.get('userName') || userNameFromUrl;
+      activeTabFromUrl = parsedUrl.searchParams.get('activeTab') || activeTabFromUrl;
+    } catch {}
+
+    wsDevicePresence.set(ws, {
+      clientId: clientIdFromUrl,
+      deviceLabel: uaInfo.deviceLabel,
+      platformType: uaInfo.platformType,
+      userName: userNameFromUrl,
+      activeTab: activeTabFromUrl,
+      ip: rawIp || '127.0.0.1',
+      connectedAt: nowIso,
+      lastSeenAt: nowIso,
+    });
+
     try {
       ws.send(
         JSON.stringify({
           type: 'erp:hello',
           dbRevision,
+          hasSavedState: Boolean(memoryStore),
+          devices: getConnectedLanDevicesSnapshot(),
           serverTimestampMs: Date.now(),
         })
       );
     } catch {
       wsClients.delete(ws);
+      wsDevicePresence.delete(ws);
     }
+    broadcastPresenceList();
+
+    ws.on('message', (rawBuf) => {
+      try {
+        const msg = JSON.parse(String(rawBuf || '{}'));
+        if (msg?.type === 'erp:ping') {
+          if (ws.readyState === WebSocket.OPEN) {
+            const existing = wsDevicePresence.get(ws);
+            if (existing) {
+              wsDevicePresence.set(ws, { ...existing, lastSeenAt: new Date().toISOString() });
+            }
+            ws.send(
+              JSON.stringify({
+                type: 'erp:pong',
+                dbRevision,
+                sentAtMs: msg.sentAtMs || Date.now(),
+                serverTimestampMs: Date.now(),
+              })
+            );
+          }
+          return;
+        }
+        if (msg?.type === 'erp:presence') {
+          const prev = wsDevicePresence.get(ws);
+          wsDevicePresence.set(ws, {
+            clientId: String(msg.clientId || prev?.clientId || clientIdFromUrl),
+            deviceLabel: String(msg.deviceLabel || prev?.deviceLabel || uaInfo.deviceLabel),
+            platformType:
+              msg.platformType === 'MOBILE' ||
+              msg.platformType === 'TABLET' ||
+              msg.platformType === 'DESKTOP'
+                ? msg.platformType
+                : prev?.platformType || uaInfo.platformType,
+            userName: String(msg.userName || prev?.userName || 'مستخدم'),
+            activeTab: String(msg.activeTab || prev?.activeTab || 'pos'),
+            ip: prev?.ip || rawIp || '127.0.0.1',
+            connectedAt: prev?.connectedAt || nowIso,
+            lastSeenAt: new Date().toISOString(),
+          });
+          broadcastPresenceList();
+        }
+      } catch {
+        // ignore malformed frames
+      }
+    });
+
     const pingTimer = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
         try {
@@ -2708,14 +2992,18 @@ async function startServer() {
       } else {
         clearInterval(pingTimer);
       }
-    }, 25000);
+    }, 20000);
     ws.on('close', () => {
       clearInterval(pingTimer);
       wsClients.delete(ws);
+      wsDevicePresence.delete(ws);
+      broadcastPresenceList();
     });
     ws.on('error', () => {
       clearInterval(pingTimer);
       wsClients.delete(ws);
+      wsDevicePresence.delete(ws);
+      broadcastPresenceList();
     });
   });
 

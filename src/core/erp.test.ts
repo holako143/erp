@@ -4094,6 +4094,131 @@ test('Track 49 Offline IndexedDB Queue Engine & Safe Fallback Helpers', async ()
   assert.ok(snapRes.sizeBytes > 0);
 });
 
+test('Track 50: Conflict-free 3-way entity merge preserves concurrent mobile & desktop additions and edits', async () => {
+  const {
+    mergeEntityArraysThreeWay,
+    applyThreeWayPatchMerge,
+    classifyIncomingRevision,
+    detectDeviceLabelFromUserAgent,
+    formatLanDeviceSummary,
+  } = await import('./realtimeSyncEngine');
+
+  const baseProducts = [
+    { id: 'p-1', nameAr: 'لوح شمسي 550W', salePrice: 45000, stockQty: 10 },
+    { id: 'p-2', nameAr: 'بطارية جل 200Ah', salePrice: 72000, stockQty: 6 },
+    { id: 'p-3', nameAr: 'محول قديم', salePrice: 12000, stockQty: 1 },
+  ];
+
+  // PC updated p-1 price and added p-pc concurrently (at rev 6)
+  const currentServerProducts = [
+    { id: 'p-pc', nameAr: 'كيبل DC نحاس 6مم', salePrice: 8000, stockQty: 50 },
+    { id: 'p-1', nameAr: 'لوح شمسي 550W', salePrice: 48000, stockQty: 10 },
+    { id: 'p-2', nameAr: 'بطارية جل 200Ah', salePrice: 72000, stockQty: 6 },
+    { id: 'p-3', nameAr: 'محول قديم', salePrice: 12000, stockQty: 1 },
+  ];
+
+  // Mobile (starting from baseRevision 5) added p-mob, edited p-2 qty, and deleted p-3
+  const incomingMobileProducts = [
+    { id: 'p-mob', nameAr: 'انفرتر هايبرد 5KW', salePrice: 210000, stockQty: 3 },
+    { id: 'p-1', nameAr: 'لوح شمسي 550W', salePrice: 45000, stockQty: 10 }, // untouched on mobile
+    { id: 'p-2', nameAr: 'بطارية جل 200Ah', salePrice: 72000, stockQty: 8 }, // edited on mobile
+  ];
+
+  const merged = mergeEntityArraysThreeWay({
+    base: baseProducts,
+    currentServer: currentServerProducts,
+    incomingClient: incomingMobileProducts,
+  });
+
+  const ids = merged.map((p) => p.id);
+  assert.ok(ids.includes('p-pc'), 'PC concurrent addition must be preserved');
+  assert.ok(ids.includes('p-mob'), 'Mobile new addition must be included');
+  assert.equal(ids.includes('p-3'), false, 'Intentional mobile deletion must be honored');
+  assert.equal(merged.find((p) => p.id === 'p-1')?.salePrice, 48000, 'Untouched item keeps PC update');
+  assert.equal(merged.find((p) => p.id === 'p-2')?.stockQty, 8, 'Mobile edit applies cleanly');
+
+  const patchMerge = applyThreeWayPatchMerge({
+    baseState: { products: baseProducts },
+    currentServerState: { products: currentServerProducts },
+    incomingPatch: { products: incomingMobileProducts },
+    baseRevision: 5,
+    currentDbRevision: 6,
+  });
+  assert.equal(patchMerge.wasMerged, true);
+  assert.equal(patchMerge.mergedPatch.products.length, 4);
+
+  // Incoming revision classification prevents skipped revisions
+  assert.equal(
+    classifyIncomingRevision({
+      incomingRevision: 7,
+      currentRevision: 7,
+      originClientId: 'cli-other',
+      localClientId: 'cli-me',
+    }),
+    'IGNORE'
+  );
+  assert.equal(
+    classifyIncomingRevision({
+      incomingRevision: 8,
+      currentRevision: 7,
+      originClientId: 'cli-me',
+      localClientId: 'cli-me',
+    }),
+    'IGNORE'
+  );
+  assert.equal(
+    classifyIncomingRevision({
+      incomingRevision: 8,
+      currentRevision: 7,
+      originClientId: 'cli-other',
+      localClientId: 'cli-me',
+    }),
+    'APPLY_PATCH'
+  );
+  assert.equal(
+    classifyIncomingRevision({
+      incomingRevision: 12,
+      currentRevision: 7,
+      originClientId: 'cli-other',
+      localClientId: 'cli-me',
+    }),
+    'FETCH_CATCHUP'
+  );
+
+  // Device platform & summary detection
+  const iphone = detectDeviceLabelFromUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)');
+  assert.equal(iphone.platformType, 'MOBILE');
+  const win = detectDeviceLabelFromUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
+  assert.equal(win.platformType, 'DESKTOP');
+
+  const summary = formatLanDeviceSummary([
+    {
+      clientId: 'c1',
+      deviceLabel: win.deviceLabel,
+      platformType: win.platformType,
+      userName: 'المدير العام',
+      activeTab: 'pos',
+      ip: '192.168.1.10',
+      connectedAt: '2026-11-16T08:00:00Z',
+      lastSeenAt: '2026-11-16T08:01:00Z',
+    },
+    {
+      clientId: 'c2',
+      deviceLabel: iphone.deviceLabel,
+      platformType: iphone.platformType,
+      userName: 'كاشير الجوال',
+      activeTab: 'inventory',
+      ip: '192.168.1.42',
+      connectedAt: '2026-11-16T08:00:30Z',
+      lastSeenAt: '2026-11-16T08:01:05Z',
+    },
+  ]);
+  assert.equal(summary.total, 2);
+  assert.equal(summary.mobileCount, 1);
+  assert.equal(summary.desktopCount, 1);
+});
+
+
 
 
 

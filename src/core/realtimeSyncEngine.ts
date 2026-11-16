@@ -394,3 +394,390 @@ export function computeFooterSyncStatusMeta(input: {
   };
 }
 
+// ============================================================================
+// Multi-Device Conflict-Free 3-Way Entity Merge & Revision Catch-Up Engine
+// ============================================================================
+
+export const ENTITY_COLLECTION_KEYS: readonly string[] = [
+  'categories',
+  'products',
+  'barcodes',
+  'traceabilityEvents',
+  'suppliers',
+  'purchaseOrders',
+  'goodsReceipts',
+  'purchaseReturns',
+  'customers',
+  'salesInvoices',
+  'salesReturns',
+  'warrantyTickets',
+  'salesPipelineDocs',
+  'chartAccounts',
+  'journalEntries',
+  'bankStatementLines',
+  'postDatedChecks',
+  'exchangeRates',
+  'costCenterBudgets',
+  'employees',
+  'fixedAssets',
+  'productionOrders',
+  'projects',
+  'fleetVehicles',
+  'qualityInspections',
+  'crmLeads',
+  'ecommerceOrders',
+  'workflowApprovals',
+  'auditLogs',
+  'tenants',
+  'branches',
+  'warehouses',
+  'userAccounts',
+  'promoCoupons',
+  'promotionalOffers',
+  'outboundMessages',
+  'whatsappAccounts',
+  'shiftHistory',
+  'posCart',
+  'holdBills',
+  'interBranchTransfers',
+  'liveEventNotifications',
+] as const;
+
+const ENTITY_COLLECTION_KEY_SET = new Set<string>(ENTITY_COLLECTION_KEYS);
+
+function areJsonValuesEqual(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') {
+    return false;
+  }
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+
+function defaultEntityKey(item: any, fallbackIdx: number): string {
+  if (item && typeof item === 'object') {
+    if (typeof item.id === 'string' && item.id.length > 0) return `id:${item.id}`;
+    if (typeof item.productId === 'string' && item.productId.length > 0) {
+      return `pid:${item.productId}`;
+    }
+    if (typeof item.code === 'string' && item.code.length > 0) return `code:${item.code}`;
+    try {
+      return `json:${JSON.stringify(item)}`;
+    } catch {
+      return `idx:${fallbackIdx}`;
+    }
+  }
+  return `prim:${String(item)}:${fallbackIdx}`;
+}
+
+/**
+ * Conflict-free 3-way merge for ID-keyed entity arrays across concurrent LAN devices.
+ * Preserves concurrent additions and untouched edits made on other devices after baseRevision,
+ * while applying the incoming client's additions, updates, and intentional deletions.
+ */
+export function mergeEntityArraysThreeWay<T = any>(params: {
+  base: T[];
+  currentServer: T[];
+  incomingClient: T[];
+  getItemKey?: (item: T, idx: number) => string;
+}): T[] {
+  const getKey = params.getItemKey || defaultEntityKey;
+  const baseArr = Array.isArray(params.base) ? params.base : [];
+  const serverArr = Array.isArray(params.currentServer) ? params.currentServer : [];
+  const clientArr = Array.isArray(params.incomingClient) ? params.incomingClient : [];
+
+  const baseMap = new Map<string, T>();
+  baseArr.forEach((item, idx) => {
+    baseMap.set(getKey(item, idx), item);
+  });
+
+  const serverMap = new Map<string, T>();
+  serverArr.forEach((item, idx) => {
+    serverMap.set(getKey(item, idx), item);
+  });
+
+  const clientMap = new Map<string, T>();
+  clientArr.forEach((item, idx) => {
+    clientMap.set(getKey(item, idx), item);
+  });
+
+  const result: T[] = [];
+  const seenKeys = new Set<string>();
+
+  // 1. Preserve concurrent server-only additions (added after baseRevision by another device)
+  const serverOnlyAdditions: { key: string; item: T }[] = [];
+  serverArr.forEach((srvItem, idx) => {
+    const key = getKey(srvItem, idx);
+    if (!clientMap.has(key) && !baseMap.has(key)) {
+      serverOnlyAdditions.push({ key, item: srvItem });
+    }
+  });
+
+  // Prepend server additions made after baseRevision if server uses newest-first convention,
+  // or keep them cleanly merged without duplicate keys.
+  for (const added of serverOnlyAdditions) {
+    if (!seenKeys.has(added.key)) {
+      seenKeys.add(added.key);
+      result.push(added.item);
+    }
+  }
+
+  // 2. Process incoming client array in its chosen order
+  clientArr.forEach((cliItem, idx) => {
+    const key = getKey(cliItem, idx);
+    if (seenKeys.has(key)) return;
+    const baseItem = baseMap.get(key);
+    const hasServer = serverMap.has(key);
+    const srvItem = serverMap.get(key);
+
+    if (baseItem === undefined) {
+      // Newly added on this client (or also concurrently added on server)
+      seenKeys.add(key);
+      result.push(cliItem);
+      return;
+    }
+
+    if (!areJsonValuesEqual(cliItem, baseItem)) {
+      // Client intentionally modified this item -> take client's update
+      seenKeys.add(key);
+      result.push(cliItem);
+      return;
+    }
+
+    // Client left this item untouched relative to base:
+    if (hasServer && srvItem !== undefined) {
+      // Preserve any concurrent edit performed by another device on the server
+      seenKeys.add(key);
+      result.push(srvItem);
+    }
+    // If server deleted it after base and client didn't touch it, keep server's deletion.
+  });
+
+  return result;
+}
+
+function mergeWhatsAppAccountsThreeWay(
+  baseAccounts: any[],
+  serverAccounts: any[],
+  clientAccounts: any[]
+): any[] {
+  const mergedTop = mergeEntityArraysThreeWay({
+    base: baseAccounts,
+    currentServer: serverAccounts,
+    incomingClient: clientAccounts,
+  });
+
+  const baseById = new Map<string, any>(
+    (Array.isArray(baseAccounts) ? baseAccounts : []).map((a) => [String(a?.id || ''), a])
+  );
+  const serverById = new Map<string, any>(
+    (Array.isArray(serverAccounts) ? serverAccounts : []).map((a) => [String(a?.id || ''), a])
+  );
+  const clientById = new Map<string, any>(
+    (Array.isArray(clientAccounts) ? clientAccounts : []).map((a) => [String(a?.id || ''), a])
+  );
+
+  return mergedTop.map((acc) => {
+    const id = String(acc?.id || '');
+    const bAcc = baseById.get(id);
+    const sAcc = serverById.get(id);
+    const cAcc = clientById.get(id);
+    if (!bAcc || !sAcc || !cAcc) return acc;
+
+    const mergedChats = mergeEntityArraysThreeWay({
+      base: Array.isArray(bAcc.chats) ? bAcc.chats : [],
+      currentServer: Array.isArray(sAcc.chats) ? sAcc.chats : [],
+      incomingClient: Array.isArray(cAcc.chats) ? cAcc.chats : [],
+    }).map((chat: any) => {
+      const chatId = String(chat?.id || '');
+      const bChat = (bAcc.chats || []).find((c: any) => c.id === chatId);
+      const sChat = (sAcc.chats || []).find((c: any) => c.id === chatId);
+      const cChat = (cAcc.chats || []).find((c: any) => c.id === chatId);
+      if (!bChat || !sChat || !cChat) return chat;
+      const mergedMsgs = mergeEntityArraysThreeWay({
+        base: Array.isArray(bChat.messages) ? bChat.messages : [],
+        currentServer: Array.isArray(sChat.messages) ? sChat.messages : [],
+        incomingClient: Array.isArray(cChat.messages) ? cChat.messages : [],
+      });
+      const lastMsg = mergedMsgs[mergedMsgs.length - 1];
+      return {
+        ...chat,
+        messages: mergedMsgs,
+        ...(lastMsg ? { lastMessage: lastMsg.text || chat.lastMessage, lastMessageTime: lastMsg.timestamp || chat.lastMessageTime } : {}),
+      };
+    });
+
+    return {
+      ...acc,
+      chats: mergedChats,
+    };
+  });
+}
+
+/**
+ * Applies a 3-way conflict-free merge over a partial delta patch when a client's
+ * baseRevision lags behind the server's current dbRevision.
+ */
+export function applyThreeWayPatchMerge(params: {
+  baseState: Record<string, any> | null | undefined;
+  currentServerState: Record<string, any> | null | undefined;
+  incomingPatch: Record<string, any>;
+  baseRevision?: number;
+  currentDbRevision: number;
+}): { mergedPatch: Record<string, any>; wasMerged: boolean } {
+  const { baseState, currentServerState, incomingPatch, baseRevision, currentDbRevision } = params;
+  const mergedPatch: Record<string, any> = { ...incomingPatch };
+
+  if (
+    !baseState ||
+    !currentServerState ||
+    !Number.isFinite(baseRevision) ||
+    !baseRevision ||
+    baseRevision <= 0 ||
+    baseRevision >= currentDbRevision
+  ) {
+    return { mergedPatch, wasMerged: false };
+  }
+
+  let wasMerged = false;
+
+  for (const [key, clientVal] of Object.entries(incomingPatch)) {
+    if (!ENTITY_COLLECTION_KEY_SET.has(key)) continue;
+    if (!Array.isArray(clientVal)) continue;
+
+    const serverVal = currentServerState[key];
+    const baseVal = baseState[key];
+    if (!Array.isArray(serverVal)) continue;
+
+    // Skip expensive merge if server did not touch this slice since baseRevision
+    if (Array.isArray(baseVal) && areJsonValuesEqual(baseVal, serverVal)) {
+      continue;
+    }
+
+    let mergedArr: any[];
+    if (key === 'whatsappAccounts') {
+      mergedArr = mergeWhatsAppAccountsThreeWay(
+        Array.isArray(baseVal) ? baseVal : [],
+        serverVal,
+        clientVal
+      );
+    } else if (key === 'posCart') {
+      mergedArr = mergeEntityArraysThreeWay({
+        base: Array.isArray(baseVal) ? baseVal : [],
+        currentServer: serverVal,
+        incomingClient: clientVal,
+        getItemKey: (item, idx) =>
+          item && typeof item === 'object'
+            ? `cart:${String(item.productId || item.id || idx)}:${String(item.unitName || '')}`
+            : defaultEntityKey(item, idx),
+      });
+    } else {
+      mergedArr = mergeEntityArraysThreeWay({
+        base: Array.isArray(baseVal) ? baseVal : [],
+        currentServer: serverVal,
+        incomingClient: clientVal,
+      });
+    }
+
+    if (!areJsonValuesEqual(mergedArr, clientVal)) {
+      wasMerged = true;
+    }
+    mergedPatch[key] = mergedArr;
+  }
+
+  return { mergedPatch, wasMerged };
+}
+
+/**
+ * Classifies an incoming real-time server revision against local state so clients
+ * never miss intermediate revisions (e.g. after mobile sleep/reconnect).
+ */
+export function classifyIncomingRevision(input: {
+  incomingRevision: number;
+  currentRevision: number;
+  originClientId?: string | null;
+  localClientId: string;
+}): 'IGNORE' | 'APPLY_PATCH' | 'FETCH_CATCHUP' {
+  if (!Number.isFinite(input.incomingRevision) || input.incomingRevision <= 0) {
+    return 'IGNORE';
+  }
+  if (input.originClientId && input.originClientId === input.localClientId) {
+    return 'IGNORE';
+  }
+  if (input.incomingRevision <= input.currentRevision) {
+    return 'IGNORE';
+  }
+  if (input.incomingRevision === input.currentRevision + 1) {
+    return 'APPLY_PATCH';
+  }
+  return 'FETCH_CATCHUP';
+}
+
+export interface ConnectedLanDevice {
+  clientId: string;
+  deviceLabel: string;
+  platformType: 'MOBILE' | 'TABLET' | 'DESKTOP';
+  userName: string;
+  activeTab: string;
+  ip: string;
+  connectedAt: string;
+  lastSeenAt: string;
+  isSelf?: boolean;
+}
+
+export function detectDeviceLabelFromUserAgent(uaRaw?: string | null): {
+  deviceLabel: string;
+  platformType: 'MOBILE' | 'TABLET' | 'DESKTOP';
+} {
+  const ua = String(uaRaw || '');
+  if (/iPad|Tablet/i.test(ua) || (/Android/i.test(ua) && !/Mobile/i.test(ua))) {
+    return {
+      deviceLabel: /iPad/i.test(ua) ? 'iPad (جهاز لوحي)' : 'Android Tablet (لوحي)',
+      platformType: 'TABLET',
+    };
+  }
+  if (/iPhone/i.test(ua)) {
+    return { deviceLabel: 'iPhone (جوال)', platformType: 'MOBILE' };
+  }
+  if (/Android/i.test(ua)) {
+    return { deviceLabel: 'Android (جوال)', platformType: 'MOBILE' };
+  }
+  if (/Windows/i.test(ua)) {
+    return { deviceLabel: 'Windows (كمبيوتر)', platformType: 'DESKTOP' };
+  }
+  if (/Macintosh|Mac OS/i.test(ua)) {
+    return { deviceLabel: 'Mac (كمبيوتر)', platformType: 'DESKTOP' };
+  }
+  if (/Linux/i.test(ua)) {
+    return { deviceLabel: 'Linux / Headless (متصفح)', platformType: 'DESKTOP' };
+  }
+  return { deviceLabel: 'متصفح شبكة متصل', platformType: 'DESKTOP' };
+}
+
+export function formatLanDeviceSummary(
+  devices: ConnectedLanDevice[],
+  language: 'ar' | 'en' = 'ar'
+): { total: number; mobileCount: number; desktopCount: number; summaryLabel: string } {
+  const list = Array.isArray(devices) ? devices : [];
+  const mobileCount = list.filter(
+    (d) => d.platformType === 'MOBILE' || d.platformType === 'TABLET'
+  ).length;
+  const desktopCount = list.length - mobileCount;
+  const summaryLabel =
+    language === 'ar'
+      ? list.length <= 1
+        ? 'جهاز واحد نشط'
+        : `${list.length} أجهزة متصلة (${mobileCount} جوال • ${desktopCount} كمبيوتر)`
+      : `${list.length} live device(s)`;
+  return {
+    total: list.length,
+    mobileCount,
+    desktopCount,
+    summaryLabel,
+  };
+}
+
+

@@ -223,6 +223,7 @@ import {
   computeStateDeltaPatch,
   mergeStateDeltaPatch,
   shouldApplyRemoteRevision,
+  classifyIncomingRevision,
   resolveSyncedOnboardingStatus,
   getOrCreateSyncClientId,
   buildErpSyncWebSocketUrl,
@@ -230,6 +231,8 @@ import {
   loadPendingSyncQueue,
   savePendingSyncQueue,
   enqueuePendingSyncEntry,
+  ConnectedLanDevice,
+  detectDeviceLabelFromUserAgent,
 } from '../core/realtimeSyncEngine';
 import {
   SoundAlertPreferences,
@@ -467,9 +470,11 @@ interface ERPContextType {
   isCommandPaletteOpen: boolean;
   setIsCommandPaletteOpen: (open: boolean) => void;
   backendConnected: boolean;
+  isInitialServerSyncDone: boolean;
   realtimeSyncStatus: 'WS_LIVE' | 'SSE_LIVE' | 'POLLING' | 'RECONNECTING';
   syncLatencyMs: number;
   dbRevision: number;
+  connectedLanDevices: ConnectedLanDevice[];
   pendingSyncTransactionsCount: number;
   isServerSyncing: boolean;
   flushPendingSyncQueue: () => Promise<boolean>;
@@ -1010,11 +1015,13 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return false;
   });
   const [backendConnected, setBackendConnected] = useState(false);
+  const [isInitialServerSyncDone, setIsInitialServerSyncDone] = useState(false);
   const [realtimeSyncStatus, setRealtimeSyncStatus] = useState<
     'WS_LIVE' | 'SSE_LIVE' | 'POLLING' | 'RECONNECTING'
   >('POLLING');
   const [syncLatencyMs, setSyncLatencyMs] = useState<number>(0.4);
   const [dbRevision, setDbRevision] = useState<number>(1);
+  const [connectedLanDevices, setConnectedLanDevices] = useState<ConnectedLanDevice[]>([]);
   const [pendingSyncQueue, setPendingSyncQueue] = useState<PendingSyncTransaction[]>(() =>
     typeof window !== 'undefined' ? loadPendingSyncQueue(window.localStorage) : []
   );
@@ -1807,6 +1814,13 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const effectiveTrialStartMs =
     trialBaseTimestamp - simulatedTrialDaysElapsed * 86400000;
 
+  const isLanRemoteClient =
+    typeof window !== 'undefined' &&
+    window.location.hostname !== 'localhost' &&
+    window.location.hostname !== '127.0.0.1' &&
+    !isSimulatedForeignDevice &&
+    simulatedTamperedComponent === 'NONE';
+
   const protectionState: SystemProtectionEvaluation = evaluateSystemProtectionState({
     hardware: hardwareFingerprint,
     boundHardware,
@@ -1817,6 +1831,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     lastSeenClockMs: lastObservedMaxClockMs,
     forceTrialExpired: isSimulatedTrialExpired,
     forceClockTampered: isSimulatedClockTampered,
+    isLanRemoteClient,
   });
 
   const login = (usernameInput: string, passwordInput: string) => {
@@ -2462,6 +2477,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isAILoading, setIsAILoading] = useState(false);
 
   const isHydratedRef = useRef(false);
+  const remoteSyncInFlightRef = useRef<boolean>(false);
+  const remoteSyncedKeysRef = useRef<Set<string>>(new Set());
 
   // Switch Industry Mode and auto-adapt default invoice templates, headers, and footers from IndustryBlueprint
   const setActiveIndustry = (ind: IndustryType) => {
@@ -3288,9 +3305,59 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const applyRemoteSyncedPayload = useCallback(
+    (payload: Record<string, any>, isFullState: boolean) => {
+      remoteSyncInFlightRef.current = true;
+      if (isFullState) {
+        remoteSyncedKeysRef.current.add('__ALL__');
+      } else {
+        for (const k of Object.keys(payload)) {
+          remoteSyncedKeysRef.current.add(k);
+        }
+      }
+      applyHydratedState(payload);
+    },
+    []
+  );
+
   const syncClientIdRef = useRef<string>(
     typeof window !== 'undefined' ? getOrCreateSyncClientId(window.sessionStorage) : 'cli-ssr'
   );
+  const wsSocketRef = useRef<WebSocket | null>(null);
+  const activeTabRef = useRef<string>(activeTab);
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+  const currentUserNameRef = useRef<string>(currentAccount?.nameAr || currentUser?.nameAr || 'المدير العام');
+  useEffect(() => {
+    currentUserNameRef.current =
+      currentAccount?.nameAr || currentAccount?.username || currentUser?.nameAr || 'المدير العام';
+  }, [currentAccount, currentUser]);
+
+  const sendLivePresenceFrame = useCallback(() => {
+    const ws = wsSocketRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const uaInfo = detectDeviceLabelFromUserAgent(
+      typeof navigator !== 'undefined' ? navigator.userAgent : ''
+    );
+    try {
+      ws.send(
+        JSON.stringify({
+          type: 'erp:presence',
+          clientId: syncClientIdRef.current,
+          deviceLabel: uaInfo.deviceLabel,
+          platformType: uaInfo.platformType,
+          userName: currentUserNameRef.current,
+          activeTab: activeTabRef.current,
+        })
+      );
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    sendLivePresenceFrame();
+  }, [activeTab, currentAccount?.nameAr, currentAccount?.username, sendLivePresenceFrame]);
+
   const localRevisionRef = useRef<number>(1);
   const isSavingRef = useRef<boolean>(false);
   const hasSeededServerRef = useRef<boolean>(false);
@@ -3356,7 +3423,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ? latestSnapshotRef.current || {}
           : {
               originClientId: syncClientIdRef.current,
-              baseRevision: localRevisionRef.current,
+              baseRevision: head.baseRevision > 0 ? head.baseRevision : localRevisionRef.current,
               patch: head.patchPayload,
             };
 
@@ -3381,6 +3448,28 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const rtt = Number((performance.now() - tStart).toFixed(1));
           if (Number.isFinite(rtt)) setSyncLatencyMs(rtt);
           setBackendConnected((prev) => (prev ? prev : true));
+
+          // If server preserved existing company state against a cold client, hydrate authoritative server state
+          if (resp.preservedExistingServerState && resp.data && typeof resp.data === 'object') {
+            lastPushedSnapshotRef.current = resp.data;
+            lastQueuedSnapshotRef.current = resp.data;
+            applyRemoteSyncedPayload(resp.data, true);
+            commitPendingQueue([]);
+            break;
+          }
+
+          // If server 3-way merged concurrent multi-device changes, converge sender immediately
+          if (resp.wasMerged && resp.mergedPatch && typeof resp.mergedPatch === 'object') {
+            lastPushedSnapshotRef.current = mergeStateDeltaPatch(
+              lastPushedSnapshotRef.current || {},
+              resp.mergedPatch
+            );
+            lastQueuedSnapshotRef.current = mergeStateDeltaPatch(
+              lastQueuedSnapshotRef.current || {},
+              resp.mergedPatch
+            );
+            applyRemoteSyncedPayload(resp.mergedPatch, false);
+          }
         }
 
         if (isFullStateEntry) {
@@ -3390,7 +3479,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           commitPendingQueue([]);
           break;
         } else {
-          if (head.patchPayload) {
+          if (head.patchPayload && !resp?.wasMerged) {
             lastPushedSnapshotRef.current = mergeStateDeltaPatch(
               lastPushedSnapshotRef.current || {},
               head.patchPayload
@@ -3405,10 +3494,15 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } finally {
       isSavingRef.current = false;
       setIsServerSyncing(false);
+      if (allSucceeded && pendingSyncQueueRef.current.length > 0 && navigator.onLine !== false) {
+        setTimeout(() => {
+          flushPendingSyncQueue().catch(() => {});
+        }, 0);
+      }
     }
 
     return allSucceeded;
-  }, [commitPendingQueue]);
+  }, [commitPendingQueue, applyRemoteSyncedPayload]);
 
   // Keep a live ref to dispatchToastAndPushNotification so WS handler always uses current preferences
   const dispatchRemoteToastRef = useRef(dispatchToastAndPushNotification);
@@ -3431,7 +3525,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         hasSeededServerRef.current = true;
         lastPushedSnapshotRef.current = json.data;
         lastQueuedSnapshotRef.current = json.data;
-        applyHydratedState(json.data);
+        applyRemoteSyncedPayload(json.data, true);
         idbSaveOfflineSnapshot('haseb_erp_clean_v8', json.data)
           .then((snapRes) => {
             if (snapRes.saved) {
@@ -3444,19 +3538,25 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {
       return false;
     }
-  }, []);
+  }, [applyRemoteSyncedPayload]);
 
   // Load persisted state from 0ms LocalStorage + IndexedDB fallback + Express RAM/SQLite backend on mount
   useEffect(() => {
     let active = true;
     const INSTANT_CACHE_KEY = 'haseb_erp_clean_v8';
+    const bootSyncSafetyTimer = setTimeout(() => {
+      if (active) {
+        isHydratedRef.current = true;
+        setIsInitialServerSyncDone(true);
+      }
+    }, 1500);
 
     try {
       const cachedRaw = localStorage.getItem(INSTANT_CACHE_KEY);
       if (cachedRaw) {
         const cached = JSON.parse(cachedRaw);
         if (cached && typeof cached === 'object') {
-          applyHydratedState(cached);
+          applyRemoteSyncedPayload(cached, true);
         }
       }
     } catch {
@@ -3481,7 +3581,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           updatedAt: snapRecord.updatedAt,
         });
         if (!hasSeededServerRef.current && snapRecord.data && typeof snapRecord.data === 'object') {
-          applyHydratedState(snapRecord.data);
+          applyRemoteSyncedPayload(snapRecord.data, true);
         }
       })
       .catch(() => {});
@@ -3489,44 +3589,55 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     fetch('/api/v1/erp/state')
       .then((res) => (res.ok ? res.json() : null))
       .then((json) => {
-        if (!active || !json) return;
-        setBackendConnected(true);
-        if (typeof json.dbRevision === 'number') {
-          localRevisionRef.current = json.dbRevision;
-          setDbRevision(json.dbRevision);
-        }
-        if (json.data && typeof json.data === 'object') {
-          hasSeededServerRef.current = true;
-          lastPushedSnapshotRef.current = json.data;
-          lastQueuedSnapshotRef.current = json.data;
-          applyHydratedState(json.data);
-          idbSaveOfflineSnapshot(INSTANT_CACHE_KEY, json.data)
-            .then((snapRes) => {
-              if (active && snapRes.saved) {
-                setOfflineSnapshotStats({ sizeBytes: snapRes.sizeBytes, updatedAt: snapRes.updatedAt });
-              }
-            })
-            .catch(() => {});
+        if (!active) return;
+        clearTimeout(bootSyncSafetyTimer);
+        if (json) {
+          setBackendConnected(true);
+          if (typeof json.dbRevision === 'number') {
+            localRevisionRef.current = json.dbRevision;
+            setDbRevision(json.dbRevision);
+          }
+          if (json.data && typeof json.data === 'object') {
+            hasSeededServerRef.current = true;
+            lastPushedSnapshotRef.current = json.data;
+            lastQueuedSnapshotRef.current = json.data;
+            applyRemoteSyncedPayload(json.data, true);
+            idbSaveOfflineSnapshot(INSTANT_CACHE_KEY, json.data)
+              .then((snapRes) => {
+                if (active && snapRes.saved) {
+                  setOfflineSnapshotStats({ sizeBytes: snapRes.sizeBytes, updatedAt: snapRes.updatedAt });
+                }
+              })
+              .catch(() => {});
+          }
         }
         isHydratedRef.current = true;
+        setIsInitialServerSyncDone(true);
       })
       .catch(() => {
-        isHydratedRef.current = true;
+        clearTimeout(bootSyncSafetyTimer);
+        if (active) {
+          isHydratedRef.current = true;
+          setIsInitialServerSyncDone(true);
+        }
       });
     return () => {
       active = false;
+      clearTimeout(bootSyncSafetyTimer);
     };
-  }, []);
+  }, [applyRemoteSyncedPayload]);
 
-  // Real-Time Full-Duplex LAN WebSocket + SSE + Visibility Catch-Up Sync Engine
+  // Real-Time Full-Duplex LAN WebSocket + SSE + Fast Catch-Up + Live Presence Sync Engine
   useEffect(() => {
     let isDisposed = false;
     let ws: WebSocket | null = null;
     let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let wsRetryDelayMs = 1000;
+    let wsPingTimer: ReturnType<typeof setInterval> | null = null;
+    let wsRetryDelayMs = 800;
+    let catchupInFlight = false;
 
-    const pullFullStateIfStale = (incomingRev: number, originClientId?: string | null) => {
-      if (!isHydratedRef.current || isDisposed) return;
+    const catchUpFromServer = (incomingRev: number, originClientId?: string | null) => {
+      if (!isHydratedRef.current || isDisposed || catchupInFlight) return;
       if (
         !shouldApplyRemoteRevision({
           incomingRevision: incomingRev,
@@ -3538,52 +3649,90 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return;
       }
 
-      fetch('/api/v1/erp/state')
+      catchupInFlight = true;
+      const sinceRev = localRevisionRef.current;
+      fetch(`/api/v1/erp/catchup?sinceRevision=${encodeURIComponent(sinceRev)}`)
         .then((res) => (res.ok ? res.json() : null))
-        .then((stateJson) => {
-          if (
-            !isDisposed &&
-            stateJson?.data &&
-            stateJson.dbRevision > localRevisionRef.current
-          ) {
-            const changedDelta = computeStateDeltaPatch(
-              lastPushedSnapshotRef.current,
-              stateJson.data
-            );
-            localRevisionRef.current = stateJson.dbRevision;
-            setDbRevision(stateJson.dbRevision);
+        .then((resp) => {
+          if (isDisposed || !resp?.success) return;
+          if (typeof resp.dbRevision !== 'number' || resp.dbRevision <= localRevisionRef.current) {
+            return;
+          }
+
+          if (resp.mode === 'DELTA' && resp.patch && typeof resp.patch === 'object') {
+            localRevisionRef.current = resp.dbRevision;
+            setDbRevision(resp.dbRevision);
             hasSeededServerRef.current = true;
             lastPushedSnapshotRef.current = mergeStateDeltaPatch(
               lastPushedSnapshotRef.current || {},
-              stateJson.data
+              resp.patch
             );
             lastQueuedSnapshotRef.current = mergeStateDeltaPatch(
               lastQueuedSnapshotRef.current || {},
-              stateJson.data
+              resp.patch
             );
-            applyHydratedState(stateJson.data);
+            applyRemoteSyncedPayload(resp.patch, false);
+            const changedKeys = Array.isArray(resp.changedKeys)
+              ? resp.changedKeys
+              : Object.keys(resp.patch);
+            if (changedKeys.length > 0) {
+              const toastSpec = buildRemotePatchToastMeta(changedKeys);
+              if (toastSpec) dispatchRemoteToastRef.current(toastSpec);
+            }
+            return;
+          }
+
+          if (resp.data && typeof resp.data === 'object') {
+            const changedDelta = computeStateDeltaPatch(
+              lastPushedSnapshotRef.current,
+              resp.data
+            );
+            localRevisionRef.current = resp.dbRevision;
+            setDbRevision(resp.dbRevision);
+            hasSeededServerRef.current = true;
+            lastPushedSnapshotRef.current = mergeStateDeltaPatch(
+              lastPushedSnapshotRef.current || {},
+              resp.data
+            );
+            lastQueuedSnapshotRef.current = mergeStateDeltaPatch(
+              lastQueuedSnapshotRef.current || {},
+              resp.data
+            );
+            applyRemoteSyncedPayload(resp.data, true);
             if (changedDelta.changedKeys.length > 0) {
               const toastSpec = buildRemotePatchToastMeta(changedDelta.changedKeys);
-              if (toastSpec) {
-                dispatchRemoteToastRef.current(toastSpec);
-              }
+              if (toastSpec) dispatchRemoteToastRef.current(toastSpec);
             }
           }
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => {
+          catchupInFlight = false;
+        });
     };
 
     const connectWebSocket = () => {
       if (isDisposed || typeof WebSocket === 'undefined') return;
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
       try {
-        const wsUrl = buildErpSyncWebSocketUrl(window.location);
+        const baseWsUrl = buildErpSyncWebSocketUrl(window.location);
+        const sep = baseWsUrl.includes('?') ? '&' : '?';
+        const wsUrl = `${baseWsUrl}${sep}clientId=${encodeURIComponent(
+          syncClientIdRef.current
+        )}&userName=${encodeURIComponent(currentUserNameRef.current)}&activeTab=${encodeURIComponent(
+          activeTabRef.current
+        )}`;
         ws = new WebSocket(wsUrl);
+        wsSocketRef.current = ws;
 
         ws.onopen = () => {
           if (isDisposed) return;
-          wsRetryDelayMs = 1000;
+          wsRetryDelayMs = 800;
           setRealtimeSyncStatus('WS_LIVE');
           setBackendConnected(true);
+          sendLivePresenceFrame();
           if (pendingSyncQueueRef.current.length > 0) {
             flushPendingSyncQueue().catch(() => {});
           }
@@ -3592,37 +3741,81 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             .then((r) => (r.ok ? r.json() : null))
             .then((revJson) => {
               if (revJson?.success && typeof revJson.dbRevision === 'number') {
-                pullFullStateIfStale(revJson.dbRevision, null);
+                catchUpFromServer(revJson.dbRevision, null);
               }
             })
             .catch(() => {});
+
+          if (wsPingTimer) clearInterval(wsPingTimer);
+          wsPingTimer = setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              try {
+                ws.send(
+                  JSON.stringify({
+                    type: 'erp:ping',
+                    clientId: syncClientIdRef.current,
+                    sentAtMs: Date.now(),
+                  })
+                );
+              } catch {}
+            }
+          }, 12000);
         };
 
         ws.onmessage = (event) => {
           if (isDisposed) return;
           try {
             const msg = JSON.parse(String(event.data || '{}'));
-            if (typeof msg?.dbRevision !== 'number') return;
 
-            if (msg.type === 'erp:hello') {
-              if (msg.dbRevision > localRevisionRef.current) {
-                pullFullStateIfStale(msg.dbRevision, null);
+            if (msg?.type === 'erp:pong') {
+              if (typeof msg.sentAtMs === 'number') {
+                const rtt = Math.max(0.2, Number((Date.now() - msg.sentAtMs).toFixed(1)));
+                if (Number.isFinite(rtt) && rtt < 10000) setSyncLatencyMs(rtt);
               }
               return;
             }
 
-            if (
-              !shouldApplyRemoteRevision({
-                incomingRevision: msg.dbRevision,
-                currentRevision: localRevisionRef.current,
-                originClientId: msg.originClientId,
-                localClientId: syncClientIdRef.current,
-              })
-            ) {
+            if (msg?.type === 'erp:presence_list' && Array.isArray(msg.devices)) {
+              setConnectedLanDevices(
+                msg.devices.map((d: ConnectedLanDevice) => ({
+                  ...d,
+                  isSelf: d.clientId === syncClientIdRef.current,
+                }))
+              );
               return;
             }
 
-            if (msg.type === 'erp:patch' && msg.patch && typeof msg.patch === 'object') {
+            if (typeof msg?.dbRevision !== 'number') return;
+
+            if (msg.type === 'erp:hello') {
+              if (Array.isArray(msg.devices)) {
+                setConnectedLanDevices(
+                  msg.devices.map((d: ConnectedLanDevice) => ({
+                    ...d,
+                    isSelf: d.clientId === syncClientIdRef.current,
+                  }))
+                );
+              }
+              if (msg.dbRevision > localRevisionRef.current) {
+                catchUpFromServer(msg.dbRevision, null);
+              }
+              return;
+            }
+
+            const decision = classifyIncomingRevision({
+              incomingRevision: msg.dbRevision,
+              currentRevision: localRevisionRef.current,
+              originClientId: msg.originClientId,
+              localClientId: syncClientIdRef.current,
+            });
+            if (decision === 'IGNORE') return;
+
+            if (
+              decision === 'APPLY_PATCH' &&
+              msg.type === 'erp:patch' &&
+              msg.patch &&
+              typeof msg.patch === 'object'
+            ) {
               localRevisionRef.current = msg.dbRevision;
               setDbRevision(msg.dbRevision);
               hasSeededServerRef.current = true;
@@ -3634,7 +3827,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 lastQueuedSnapshotRef.current || {},
                 msg.patch
               );
-              applyHydratedState(msg.patch);
+              applyRemoteSyncedPayload(msg.patch, false);
 
               const changedKeys = Array.isArray(msg.changedKeys)
                 ? msg.changedKeys
@@ -3646,20 +3839,24 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               return;
             }
 
-            if (msg.type === 'erp:state_commit') {
-              pullFullStateIfStale(msg.dbRevision, msg.originClientId);
-            }
+            // Skipped intermediate revisions or full state_commit -> seamless catch-up
+            catchUpFromServer(msg.dbRevision, msg.originClientId);
           } catch {
             // ignore malformed frame
           }
         };
 
         ws.onclose = () => {
+          if (wsPingTimer) {
+            clearInterval(wsPingTimer);
+            wsPingTimer = null;
+          }
+          if (wsSocketRef.current === ws) wsSocketRef.current = null;
           if (isDisposed) return;
           setRealtimeSyncStatus('RECONNECTING');
           if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
           wsReconnectTimer = setTimeout(() => {
-            wsRetryDelayMs = Math.min(5000, Math.round(wsRetryDelayMs * 1.5));
+            wsRetryDelayMs = Math.min(4000, Math.round(wsRetryDelayMs * 1.5));
             connectWebSocket();
           }, wsRetryDelayMs);
         };
@@ -3685,7 +3882,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           try {
             const parsed = JSON.parse(ev.data);
             if (typeof parsed?.dbRevision === 'number') {
-              pullFullStateIfStale(parsed.dbRevision, parsed.originClientId || null);
+              catchUpFromServer(parsed.dbRevision, parsed.originClientId || null);
             }
           } catch {}
         });
@@ -3694,6 +3891,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const triggerCatchupCheck = () => {
       if (!isHydratedRef.current || isSavingRef.current || isDisposed) return;
+      if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+        wsRetryDelayMs = 800;
+        connectWebSocket();
+      }
       if (pendingSyncQueueRef.current.length > 0) {
         flushPendingSyncQueue().catch(() => {});
       }
@@ -3701,7 +3902,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         .then((r) => (r.ok ? r.json() : null))
         .then((revJson) => {
           if (revJson?.success && typeof revJson.dbRevision === 'number') {
-            pullFullStateIfStale(revJson.dbRevision, null);
+            catchUpFromServer(revJson.dbRevision, null);
           }
         })
         .catch(() => {});
@@ -3715,6 +3916,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     window.addEventListener('focus', triggerCatchupCheck);
     window.addEventListener('online', triggerCatchupCheck);
+    window.addEventListener('pageshow', triggerCatchupCheck);
     document.addEventListener('visibilitychange', handleVisibilityOrFocus);
 
     const syncInterval = setInterval(triggerCatchupCheck, 4000);
@@ -3722,16 +3924,19 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => {
       isDisposed = true;
       if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
+      if (wsPingTimer) clearInterval(wsPingTimer);
       try {
         ws?.close();
       } catch {}
+      wsSocketRef.current = null;
       eventSource?.close();
       clearInterval(syncInterval);
       window.removeEventListener('focus', triggerCatchupCheck);
       window.removeEventListener('online', triggerCatchupCheck);
+      window.removeEventListener('pageshow', triggerCatchupCheck);
       document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
     };
-  }, []);
+  }, [applyRemoteSyncedPayload, sendLivePresenceFrame, flushPendingSyncQueue]);
 
   // Ensure any pending snapshot is flushed synchronously if tab closes or reloads
   useEffect(() => {
@@ -3827,6 +4032,33 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     latestSnapshotRef.current = stateSnapshot;
 
+    // Absorb post-remote-hydration normalizations before diffing so remote syncs produce zero echo patches
+    if (remoteSyncInFlightRef.current) {
+      const syncedKeys = Array.from(remoteSyncedKeysRef.current);
+      remoteSyncInFlightRef.current = false;
+      remoteSyncedKeysRef.current.clear();
+      if (syncedKeys.includes('__ALL__')) {
+        lastQueuedSnapshotRef.current = stateSnapshot;
+        lastPushedSnapshotRef.current = stateSnapshot;
+      } else if (syncedKeys.length > 0) {
+        const nextQueued = { ...(lastQueuedSnapshotRef.current || {}) };
+        const nextPushed = { ...(lastPushedSnapshotRef.current || {}) };
+        for (const key of syncedKeys) {
+          if (key in stateSnapshot) {
+            (nextQueued as Record<string, any>)[key] = (stateSnapshot as Record<string, any>)[key];
+            (nextPushed as Record<string, any>)[key] = (stateSnapshot as Record<string, any>)[key];
+          }
+        }
+        lastQueuedSnapshotRef.current = nextQueued;
+        lastPushedSnapshotRef.current = nextPushed;
+      }
+    }
+
+    // Do not push unconfigured blank defaults to an unseeded/remote server before onboarding/auth
+    if (!hasSeededServerRef.current && !isOnboardingCompleted && !isAuthenticated) {
+      return;
+    }
+
     // Compute delta against last queued snapshot — prevents echo loops & duplicate queue entries
     const baselineForDelta = lastQueuedSnapshotRef.current || lastPushedSnapshotRef.current;
     const delta = computeStateDeltaPatch(baselineForDelta, stateSnapshot);
@@ -3837,7 +4069,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (pendingSyncQueueRef.current.length > 0 && navigator.onLine !== false) {
         const retryTimer = setTimeout(() => {
           flushPendingSyncQueue().catch(() => {});
-        }, 1500);
+        }, 1200);
         return () => clearTimeout(retryTimer);
       }
       return;
@@ -3879,7 +4111,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const timer = setTimeout(() => {
       flushPendingSyncQueue().catch(() => {});
-    }, 10);
+    }, 0);
     return () => clearTimeout(timer);
   }, [
     categories,
@@ -3950,6 +4182,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     posCart,
     holdBills,
     interBranchTransfers,
+    isInitialServerSyncDone,
+    isAuthenticated,
   ]);
 
   // Tenant Switcher
@@ -8095,9 +8329,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         isCommandPaletteOpen,
         setIsCommandPaletteOpen,
         backendConnected,
+        isInitialServerSyncDone,
         realtimeSyncStatus,
         syncLatencyMs,
         dbRevision,
+        connectedLanDevices,
         pendingSyncTransactionsCount: pendingSyncQueue.length,
         isServerSyncing,
         flushPendingSyncQueue,

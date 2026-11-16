@@ -28,9 +28,12 @@ export const MobileLanPortalModal: React.FC = () => {
     closeLanPortal,
     networkInfo,
     refreshNetworkInfo,
+    reloadStateFromServer,
     dbRevision,
     syncLatencyMs,
     backendConnected,
+    realtimeSyncStatus,
+    connectedLanDevices,
   } = useERP();
 
   const [copiedUrl, setCopiedUrl] = useState(false);
@@ -208,6 +211,7 @@ export const MobileLanPortalModal: React.FC = () => {
   const handleInstantSyncPulse = () => {
     setSyncPulse(true);
     refreshNetworkInfo();
+    reloadStateFromServer().catch(() => {});
     setTimeout(() => setSyncPulse(false), 800);
   };
 
@@ -475,7 +479,13 @@ export const MobileLanPortalModal: React.FC = () => {
                     <div className="text-[10px] text-slate-400">حالة الخادم</div>
                     <div className="text-xs font-bold text-emerald-700 mt-0.5 flex items-center justify-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                      <span>{backendConnected ? 'نشط (Online)' : 'ذاكرة فورية'}</span>
+                      <span>
+                        {realtimeSyncStatus === 'WS_LIVE'
+                          ? 'مباشر (WS)'
+                          : backendConnected
+                          ? 'نشط (Online)'
+                          : 'ذاكرة فورية'}
+                      </span>
                     </div>
                   </div>
                   <div className="p-2 rounded-xl bg-white border border-slate-200/80">
@@ -489,6 +499,58 @@ export const MobileLanPortalModal: React.FC = () => {
                     <div className="text-xs font-mono font-bold text-emerald-700 mt-0.5" dir="ltr">
                       {syncLatencyMs || 1} ms
                     </div>
+                  </div>
+                </div>
+
+                {/* Live Connected LAN Devices Roster */}
+                <div
+                  data-testid="connected-lan-devices-list"
+                  className="pt-2 border-t border-slate-200/80 space-y-1.5"
+                >
+                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                    <span>الأجهزة المتصلة الآن بالنظام الموحد</span>
+                    <span
+                      data-testid="lan-connected-count-badge"
+                      className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-mono text-[10px]"
+                    >
+                      {connectedLanDevices.length || 1} متصل لحظياً
+                    </span>
+                  </div>
+                  <div className="max-h-28 overflow-y-auto space-y-1 pr-0.5">
+                    {connectedLanDevices.length === 0 ? (
+                      <div className="text-[10px] text-slate-500 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200/70">
+                        هذا الجهاز متصل بالخادم الرئيسي عبر الشبكة المحلية.
+                      </div>
+                    ) : (
+                      connectedLanDevices.map((dev) => (
+                        <div
+                          key={dev.clientId}
+                          data-testid={`lan-device-row-${dev.clientId}`}
+                          className="flex items-center justify-between gap-2 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200/70 text-[10px]"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 animate-pulse" />
+                            {dev.platformType === 'MOBILE' || dev.platformType === 'TABLET' ? (
+                              <Smartphone className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            ) : (
+                              <Monitor className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                            )}
+                            <span className="font-bold text-slate-800 truncate">
+                              {dev.deviceLabel}
+                            </span>
+                            <span className="text-slate-400 truncate">• {dev.userName}</span>
+                            {dev.isSelf && (
+                              <span className="px-1.5 py-0.2 rounded bg-slate-900 text-white text-[9px] font-bold shrink-0">
+                                هذا الجهاز
+                              </span>
+                            )}
+                          </div>
+                          <span className="font-mono text-[9px] text-slate-500 shrink-0" dir="ltr">
+                            {dev.ip} • {dev.activeTab}
+                          </span>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
               </div>

@@ -447,6 +447,7 @@ export function evaluateSystemProtectionState(params: {
   lastSeenClockMs?: number;
   forceTrialExpired?: boolean;
   forceClockTampered?: boolean;
+  isLanRemoteClient?: boolean;
 }): SystemProtectionEvaluation {
   const {
     hardware,
@@ -458,6 +459,7 @@ export function evaluateSystemProtectionState(params: {
     lastSeenClockMs = 0,
     forceTrialExpired = false,
     forceClockTampered = false,
+    isLanRemoteClient = false,
   } = params;
 
   const machineRequestCode = generateMachineRequestCode(hardware);
@@ -496,7 +498,7 @@ export function evaluateSystemProtectionState(params: {
   // 3. If an activation serial is installed, validate it against the current machine
   if (activeSerial && activeSerial.trim().length > 0) {
     const verification = verifyActivationSerial(activeSerial, machineRequestCode, nowMs);
-    if (verification.valid) {
+    if (verification.valid || (isLanRemoteClient && verification.reason === 'DEVICE_MISMATCH')) {
       return {
         status: 'LICENSE_ACTIVE',
         isLocked: false,
