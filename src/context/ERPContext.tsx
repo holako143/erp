@@ -17,6 +17,8 @@ import {
   Supplier,
   Customer,
   PurchaseOrder,
+  GoodsReceiptNote,
+  PurchaseReturn,
   SalesInvoice,
   ChartAccount,
   JournalEntry,
@@ -142,6 +144,24 @@ import {
   evaluateSerialWarrantyStatus,
   parseStructuredVendorInvoiceText,
 } from '../core/inventoryEngine';
+import {
+  computePartialGrnResult,
+  createGrnReceiptJournal,
+  computePurchaseReturnResult,
+  createPurchaseReturnJournal,
+  resolveProductUnitOption,
+  computeBaseStockDelta,
+  PartialGrnInputLine,
+  PurchaseReturnInputLine,
+} from '../core/multiUnitAndProcurementEngine';
+import {
+  computeOfflineStorageMetrics,
+  idbLoadOfflineSnapshot,
+  idbLoadPendingSyncQueue,
+  idbReplacePendingSyncQueue,
+  idbSaveOfflineSnapshot,
+  OfflineIndexedDbMetrics,
+} from '../core/offlineIndexedDbEngine';
 import {
   HardwareFingerprint,
   LicenseDurationPreset,
@@ -453,6 +473,8 @@ interface ERPContextType {
   pendingSyncTransactionsCount: number;
   isServerSyncing: boolean;
   flushPendingSyncQueue: () => Promise<boolean>;
+  offlineStorageMetrics: OfflineIndexedDbMetrics;
+  reloadStateFromServer: () => Promise<boolean>;
   uiTheme: 'corporate_slate' | 'swiss_light' | 'haseb_royal' | 'haseb_sand' | 'obsidian_dark';
   setUiTheme: (theme: 'corporate_slate' | 'swiss_light' | 'haseb_royal' | 'haseb_sand' | 'obsidian_dark') => void;
   uiDensity: 'comfortable' | 'compact';
@@ -601,8 +623,22 @@ interface ERPContextType {
     referenceNumber?: string;
   }) => { success: boolean; entryNumber?: string; newBalance?: number };
   purchaseOrders: PurchaseOrder[];
+  goodsReceipts: GoodsReceiptNote[];
+  purchaseReturns: PurchaseReturn[];
   addPurchaseOrder: (po: Omit<PurchaseOrder, 'id' | 'poNumber'>) => void;
   approvePurchaseOrder: (poId: string) => { success: boolean; entryNumber?: string };
+  receivePurchaseOrderPartial: (
+    poId: string,
+    receiptLines: PartialGrnInputLine[],
+    notes?: string
+  ) => { success: boolean; grn?: GoodsReceiptNote; entryNumber?: string; messageAr?: string };
+  createPurchaseReturn: (params: {
+    supplierId: string;
+    returnLines: PurchaseReturnInputLine[];
+    purchaseOrderId?: string;
+    poNumber?: string;
+    reason?: string;
+  }) => { success: boolean; purchaseReturn?: PurchaseReturn; entryNumber?: string; messageAr?: string };
   applyLandedCostToProducts: (
     allocations: { productId: string; newEffectiveUnitCost: number }[]
   ) => { success: boolean; entryNumber?: string; totalCapitalized?: number };
@@ -662,10 +698,11 @@ interface ERPContextType {
   currentShift: POSShift;
   shiftHistory: POSShift[];
   posCart: InvoiceItem[];
-  addToPOSCart: (product: Product, quantity?: number, customNotes?: string) => void;
+  addToPOSCart: (product: Product, quantity?: number, customNotes?: string, unitName?: string) => void;
   addSolarSystemKitToPOSCart: (sizing: SolarSystemSizingOutput) => { addedItemsCount: number; totalAmount: number };
   removeFromPOSCart: (productId: string) => void;
   updatePOSCartQty: (productId: string, qty: number) => void;
+  updatePOSCartItemUnit: (productId: string, unitName: string) => void;
   updatePOSCartItemMeta: (productId: string, patch: Partial<InvoiceItem>) => void;
   clearPOSCart: () => void;
   checkoutPOS: (
@@ -983,6 +1020,19 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
   const pendingSyncQueueRef = useRef<PendingSyncTransaction[]>(pendingSyncQueue);
   const [isServerSyncing, setIsServerSyncing] = useState<boolean>(false);
+  const [offlineSnapshotStats, setOfflineSnapshotStats] = useState<{
+    sizeBytes: number;
+    updatedAt: string | null;
+  }>({ sizeBytes: 0, updatedAt: null });
+  const offlineStorageMetrics = useMemo(
+    () =>
+      computeOfflineStorageMetrics({
+        queue: pendingSyncQueue,
+        snapshotSizeBytes: offlineSnapshotStats.sizeBytes,
+        snapshotUpdatedAt: offlineSnapshotStats.updatedAt,
+      }),
+    [pendingSyncQueue, offlineSnapshotStats]
+  );
   const soundAlertPrefs = useMemo(
     () => normalizeSoundAlertPreferences(masterSystemConfig),
     [masterSystemConfig]
@@ -2300,6 +2350,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Purchasing & Suppliers
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
+  const [goodsReceipts, setGoodsReceipts] = useState<GoodsReceiptNote[]>([]);
+  const [purchaseReturns, setPurchaseReturns] = useState<PurchaseReturn[]>([]);
 
   // Sales, Commercial Pipeline, Returns, Warranty & POS
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -2961,6 +3013,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (Array.isArray(d.traceabilityEvents)) setTraceabilityEvents(d.traceabilityEvents);
     if (Array.isArray(d.suppliers)) setSuppliers(d.suppliers);
     if (Array.isArray(d.purchaseOrders)) setPurchaseOrders(d.purchaseOrders);
+    if (Array.isArray(d.goodsReceipts)) setGoodsReceipts(d.goodsReceipts);
+    if (Array.isArray(d.purchaseReturns)) setPurchaseReturns(d.purchaseReturns);
     if (Array.isArray(d.customers)) setCustomers(d.customers);
     if (Array.isArray(d.salesInvoices)) setSalesInvoices(d.salesInvoices);
     if (Array.isArray(d.salesReturns)) setSalesReturns(d.salesReturns);
@@ -3253,6 +3307,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setPendingSyncQueue(nextQueue);
     if (typeof window !== 'undefined') {
       savePendingSyncQueue(window.localStorage, nextQueue);
+      idbReplacePendingSyncQueue(nextQueue).catch(() => {});
     }
   }, []);
 
@@ -3361,7 +3416,37 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     dispatchRemoteToastRef.current = dispatchToastAndPushNotification;
   }, [dispatchToastAndPushNotification]);
 
-  // Load persisted state from 0ms LocalStorage cache + Express RAM/SQLite backend on mount
+  const reloadStateFromServer = useCallback(async (): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/v1/erp/state');
+      if (!res.ok) return false;
+      const json = await res.json();
+      if (!json) return false;
+      setBackendConnected(true);
+      if (typeof json.dbRevision === 'number') {
+        localRevisionRef.current = json.dbRevision;
+        setDbRevision(json.dbRevision);
+      }
+      if (json.data && typeof json.data === 'object') {
+        hasSeededServerRef.current = true;
+        lastPushedSnapshotRef.current = json.data;
+        lastQueuedSnapshotRef.current = json.data;
+        applyHydratedState(json.data);
+        idbSaveOfflineSnapshot('haseb_erp_clean_v8', json.data)
+          .then((snapRes) => {
+            if (snapRes.saved) {
+              setOfflineSnapshotStats({ sizeBytes: snapRes.sizeBytes, updatedAt: snapRes.updatedAt });
+            }
+          })
+          .catch(() => {});
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  // Load persisted state from 0ms LocalStorage + IndexedDB fallback + Express RAM/SQLite backend on mount
   useEffect(() => {
     let active = true;
     const INSTANT_CACHE_KEY = 'haseb_erp_clean_v8';
@@ -3378,6 +3463,29 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // ignore local storage quota or parse errors
     }
 
+    // Hydrate pending sync queue & large snapshot from IndexedDB if available
+    idbLoadPendingSyncQueue()
+      .then((idbQueue) => {
+        if (!active) return;
+        if (idbQueue.length > 0 && pendingSyncQueueRef.current.length === 0) {
+          commitPendingQueue(idbQueue);
+        }
+      })
+      .catch(() => {});
+
+    idbLoadOfflineSnapshot(INSTANT_CACHE_KEY)
+      .then((snapRecord) => {
+        if (!active || !snapRecord) return;
+        setOfflineSnapshotStats({
+          sizeBytes: snapRecord.payloadSizeBytes,
+          updatedAt: snapRecord.updatedAt,
+        });
+        if (!hasSeededServerRef.current && snapRecord.data && typeof snapRecord.data === 'object') {
+          applyHydratedState(snapRecord.data);
+        }
+      })
+      .catch(() => {});
+
     fetch('/api/v1/erp/state')
       .then((res) => (res.ok ? res.json() : null))
       .then((json) => {
@@ -3392,6 +3500,13 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           lastPushedSnapshotRef.current = json.data;
           lastQueuedSnapshotRef.current = json.data;
           applyHydratedState(json.data);
+          idbSaveOfflineSnapshot(INSTANT_CACHE_KEY, json.data)
+            .then((snapRes) => {
+              if (active && snapRes.saved) {
+                setOfflineSnapshotStats({ sizeBytes: snapRes.sizeBytes, updatedAt: snapRes.updatedAt });
+              }
+            })
+            .catch(() => {});
         }
         isHydratedRef.current = true;
       })
@@ -3646,6 +3761,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       traceabilityEvents,
       suppliers,
       purchaseOrders,
+      goodsReceipts,
+      purchaseReturns,
       customers,
       salesInvoices,
       salesReturns,
@@ -3749,6 +3866,15 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // ignore storage quota limits
     }
 
+    // Async mirror full snapshot into IndexedDB (no 5MB localStorage ceiling)
+    idbSaveOfflineSnapshot(INSTANT_CACHE_KEY, stateSnapshot)
+      .then((res) => {
+        if (res.saved) {
+          setOfflineSnapshotStats({ sizeBytes: res.sizeBytes, updatedAt: res.updatedAt });
+        }
+      })
+      .catch(() => {});
+
     commitPendingQueue(enqueuePendingSyncEntry(pendingSyncQueueRef.current, queuedEntry));
 
     const timer = setTimeout(() => {
@@ -3762,6 +3888,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     traceabilityEvents,
     suppliers,
     purchaseOrders,
+    goodsReceipts,
+    purchaseReturns,
     customers,
     salesInvoices,
     salesReturns,
@@ -4432,6 +4560,246 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     return { success: true, entryNumber };
+  };
+
+  const receivePurchaseOrderPartial = (
+    poId: string,
+    receiptLines: PartialGrnInputLine[],
+    notes?: string
+  ): { success: boolean; grn?: GoodsReceiptNote; entryNumber?: string; messageAr?: string } => {
+    const targetPO = purchaseOrders.find((p) => p.id === poId);
+    if (!targetPO) {
+      return { success: false, messageAr: 'أمر الشراء غير موجود.' };
+    }
+
+    const result = computePartialGrnResult({
+      purchaseOrder: targetPO,
+      receiptLines,
+      products,
+      warehouseId: currentWarehouse.id,
+      operatorName: currentUser.name,
+      userId: currentUser.id,
+      notes,
+    });
+
+    if (!result.success || !result.grn || !result.updatedPO) {
+      return { success: false, messageAr: result.errorAr || 'تعذر تنفيذ الاستلام الجزئي.' };
+    }
+
+    const entryNumber = `JE-GRN-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const grnJournal = createGrnReceiptJournal({
+      grn: result.grn,
+      tenantId: currentTenant.id,
+      entryNumber,
+      operatorName: currentUser.name,
+    });
+
+    const savedGrn: GoodsReceiptNote = {
+      ...result.grn,
+      journalEntryNumber: entryNumber,
+    };
+
+    const patchMap = new Map(
+      result.productStockPatches.map((patch) => [patch.productId, patch])
+    );
+
+    setProducts((prev) =>
+      prev.map((prod) => {
+        const patch = patchMap.get(prod.id);
+        if (!patch) return prod;
+        return {
+          ...prod,
+          stockQty: patch.newStockQty,
+          costPrice: patch.newBaseCostPrice,
+        };
+      })
+    );
+
+    setSuppliers((prev) =>
+      prev.map((s) =>
+        s.id === targetPO.supplierId
+          ? {
+              ...s,
+              balance: Math.round((s.balance + result.supplierPayableDelta) * 100) / 100,
+            }
+          : s
+      )
+    );
+
+    setPurchaseOrders((prev) =>
+      prev.map((po) => (po.id === poId ? result.updatedPO! : po))
+    );
+    setGoodsReceipts((prev) => [savedGrn, ...prev]);
+    setJournalEntries((prev) => [grnJournal, ...prev]);
+
+    savedGrn.lines.forEach((line) => {
+      addTraceabilityEvent({
+        tenantId: currentTenant.id,
+        serialNumber: `${savedGrn.grnNumber}-${line.sku}`,
+        productName: line.productName,
+        eventType: 'RECEIVED',
+        location: currentWarehouse.nameAr || currentWarehouse.name,
+        operator: currentUser.name,
+        referenceDoc: savedGrn.grnNumber,
+        notes: `استلام جزئي بموجب ${savedGrn.grnNumber}: ${line.receivedQty} ${line.unitName || ''} (${line.baseQtyAdded} وحدة أساسية)`,
+      });
+    });
+
+    setAuditLogs((prev) => [
+      {
+        id: `aud-grn-${Date.now()}`,
+        tenantId: currentTenant.id,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        action: 'RECEIVE_PARTIAL_GRN',
+        module: 'PURCHASING',
+        entityType: 'GoodsReceiptNote',
+        entityId: savedGrn.grnNumber,
+        details: `Received partial GRN [${savedGrn.grnNumber}] against PO [${targetPO.poNumber}] totaling ${savedGrn.total} ${currency} (Journal: ${entryNumber}).`,
+        timestamp: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
+
+    pushLiveNotification({
+      category: 'LIVE_EVENTS',
+      severity: 'success',
+      titleAr: `سند استلام مخزني (${savedGrn.grnNumber})`,
+      titleEn: `Goods Receipt (${savedGrn.grnNumber})`,
+      messageAr: `تم استلام دفعة لأمر الشراء (${targetPO.poNumber}) بقيمة ${Math.round(savedGrn.total).toLocaleString('en-US')} ${currency} — القيد: [${entryNumber}].`,
+      messageEn: `Recorded partial GRN ${savedGrn.grnNumber} for PO ${targetPO.poNumber}.`,
+      actionType: 'PURCHASING',
+      actionLabelAr: 'عرض المشتريات ↗',
+      actionLabelEn: 'View Purchasing ↗',
+    });
+
+    return {
+      success: true,
+      grn: savedGrn,
+      entryNumber,
+      messageAr: `تم إصدار سند الاستلام (${savedGrn.grnNumber}) وترحيل القيد (${entryNumber}) بنجاح.`,
+    };
+  };
+
+  const createPurchaseReturn = (params: {
+    supplierId: string;
+    returnLines: PurchaseReturnInputLine[];
+    purchaseOrderId?: string;
+    poNumber?: string;
+    reason?: string;
+  }): {
+    success: boolean;
+    purchaseReturn?: PurchaseReturn;
+    entryNumber?: string;
+    messageAr?: string;
+  } => {
+    const supplier = suppliers.find((s) => s.id === params.supplierId);
+    if (!supplier) {
+      return { success: false, messageAr: 'يرجى اختيار المورد أولاً.' };
+    }
+
+    const result = computePurchaseReturnResult({
+      supplier,
+      returnLines: params.returnLines,
+      products,
+      warehouseId: currentWarehouse.id,
+      tenantId: currentTenant.id,
+      operatorName: currentUser.name,
+      userId: currentUser.id,
+      purchaseOrderId: params.purchaseOrderId,
+      poNumber: params.poNumber,
+      reason: params.reason,
+    });
+
+    if (!result.success || !result.purchaseReturn) {
+      return { success: false, messageAr: result.errorAr || 'تعذر تنفيذ مرتجع المشتريات.' };
+    }
+
+    const entryNumber = `JE-PRN-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const prnJournal = createPurchaseReturnJournal({
+      purchaseReturn: result.purchaseReturn,
+      tenantId: currentTenant.id,
+      entryNumber,
+      operatorName: currentUser.name,
+    });
+
+    const savedReturn: PurchaseReturn = {
+      ...result.purchaseReturn,
+      journalEntryNumber: entryNumber,
+    };
+
+    const patchMap = new Map(
+      result.productStockPatches.map((patch) => [patch.productId, patch])
+    );
+
+    setProducts((prev) =>
+      prev.map((prod) => {
+        const patch = patchMap.get(prod.id);
+        return patch ? { ...prod, stockQty: patch.newStockQty } : prod;
+      })
+    );
+
+    setSuppliers((prev) =>
+      prev.map((s) =>
+        s.id === supplier.id
+          ? {
+              ...s,
+              balance: Math.round((s.balance - result.supplierPayableReduction) * 100) / 100,
+            }
+          : s
+      )
+    );
+
+    setPurchaseReturns((prev) => [savedReturn, ...prev]);
+    setJournalEntries((prev) => [prnJournal, ...prev]);
+
+    savedReturn.lines.forEach((line) => {
+      addTraceabilityEvent({
+        tenantId: currentTenant.id,
+        serialNumber: `${savedReturn.returnNumber}-${line.sku}`,
+        productName: line.productName,
+        eventType: 'RETURNED',
+        location: currentWarehouse.nameAr || currentWarehouse.name,
+        operator: currentUser.name,
+        referenceDoc: savedReturn.returnNumber,
+        notes: `مرتجع مشتريات (${savedReturn.returnNumber}): ${line.quantity} ${line.unitName || ''} (${line.baseQtyDeducted} وحدة أساسية)`,
+      });
+    });
+
+    setAuditLogs((prev) => [
+      {
+        id: `aud-prn-${Date.now()}`,
+        tenantId: currentTenant.id,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        action: 'CREATE_PURCHASE_RETURN',
+        module: 'PURCHASING',
+        entityType: 'PurchaseReturn',
+        entityId: savedReturn.returnNumber,
+        details: `Issued Purchase Return [${savedReturn.returnNumber}] to ${supplier.nameAr || supplier.name} for ${savedReturn.total} ${currency} (Journal: ${entryNumber}).`,
+        timestamp: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
+
+    pushLiveNotification({
+      category: 'LIVE_EVENTS',
+      severity: 'info',
+      titleAr: `مرتجع مشتريات (${savedReturn.returnNumber})`,
+      titleEn: `Purchase Return (${savedReturn.returnNumber})`,
+      messageAr: `تم خصم المرتجع للمورد (${supplier.nameAr || supplier.name}) بقيمة ${Math.round(savedReturn.total).toLocaleString('en-US')} ${currency} وترحيل القيد [${entryNumber}].`,
+      messageEn: `Purchase return ${savedReturn.returnNumber} posted.`,
+      actionType: 'PURCHASING',
+      actionLabelAr: 'عرض المشتريات ↗',
+      actionLabelEn: 'View Purchasing ↗',
+    });
+
+    return {
+      success: true,
+      purchaseReturn: savedReturn,
+      entryNumber,
+      messageAr: `تم اعتماد مرتجع المشتريات (${savedReturn.returnNumber}) وتخفيض رصيد المورد وترحيل القيد (${entryNumber}).`,
+    };
   };
 
   const recordSupplierPaymentVoucher = (params: {
@@ -5134,17 +5502,30 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { success: false };
   };
 
-  // POS Cart (Zero-Tax / Tax-Exempt Haseb Mode)
-  const addToPOSCart = (product: Product, quantity = 1, customNotes?: string) => {
+  // POS Cart (Zero-Tax / Tax-Exempt Haseb Mode + Multi-Unit UOM Conversions)
+  const addToPOSCart = (
+    product: Product,
+    quantity = 1,
+    customNotes?: string,
+    unitName?: string
+  ) => {
+    const resolvedUnit = resolveProductUnitOption(product, unitName);
     setPosCart((prev) => {
       const existing = prev.find((item) => item.productId === product.id);
       if (existing) {
         return prev.map((item) => {
           if (item.productId === product.id) {
+            const activeFactor = unitName ? resolvedUnit.conversionFactor : item.conversionFactor || 1;
+            const activeUnitName = unitName ? resolvedUnit.unitNameAr : item.unitName || resolvedUnit.unitNameAr;
+            const activeUnitPrice = unitName ? resolvedUnit.salePrice : item.unitPrice;
             const newQty = Math.round((item.quantity + quantity) * 1000) / 1000;
-            const sub = Math.max(0, newQty * item.unitPrice - item.discount);
+            const sub = Math.max(0, newQty * activeUnitPrice - item.discount);
             return {
               ...item,
+              unitName: activeUnitName,
+              conversionFactor: activeFactor,
+              baseQtyDeducted: computeBaseStockDelta(newQty, activeFactor),
+              unitPrice: activeUnitPrice,
               quantity: newQty,
               taxRate: 0,
               taxAmount: 0,
@@ -5156,7 +5537,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
       }
 
-      const sub = quantity * product.salePrice;
+      const sub = quantity * resolvedUnit.salePrice;
       const autoSerial = product.hasSerials
         ? generateUniqueSerialNumber('IMEI', currentTenant.code)
         : undefined;
@@ -5167,9 +5548,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           productId: product.id,
           productName: language === 'ar' ? product.nameAr : product.name,
           sku: product.sku,
-          barcode: product.barcode,
+          barcode: resolvedUnit.barcode || product.barcode,
+          unitName: resolvedUnit.unitNameAr,
+          conversionFactor: resolvedUnit.conversionFactor,
+          baseQtyDeducted: computeBaseStockDelta(quantity, resolvedUnit.conversionFactor),
           quantity,
-          unitPrice: product.salePrice,
+          unitPrice: resolvedUnit.salePrice,
           discount: 0,
           taxRate: 0,
           taxAmount: 0,
@@ -5259,10 +5643,41 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       prev.map((item) => {
         if (item.productId === productId) {
           const roundedQty = Math.round(qty * 1000) / 1000;
+          const factor = item.conversionFactor || 1;
           const sub = Math.max(0, roundedQty * item.unitPrice - item.discount);
-          return { ...item, quantity: roundedQty, taxRate: 0, taxAmount: 0, total: sub };
+          return {
+            ...item,
+            quantity: roundedQty,
+            baseQtyDeducted: computeBaseStockDelta(roundedQty, factor),
+            taxRate: 0,
+            taxAmount: 0,
+            total: sub,
+          };
         }
         return item;
+      })
+    );
+  };
+
+  const updatePOSCartItemUnit = (productId: string, unitName: string) => {
+    const targetProduct = products.find((p) => p.id === productId);
+    if (!targetProduct) return;
+    const resolvedUnit = resolveProductUnitOption(targetProduct, unitName);
+    setPosCart((prev) =>
+      prev.map((item) => {
+        if (item.productId !== productId) return item;
+        const sub = Math.max(0, item.quantity * resolvedUnit.salePrice - item.discount);
+        return {
+          ...item,
+          unitName: resolvedUnit.unitNameAr,
+          conversionFactor: resolvedUnit.conversionFactor,
+          baseQtyDeducted: computeBaseStockDelta(item.quantity, resolvedUnit.conversionFactor),
+          unitPrice: resolvedUnit.salePrice,
+          barcode: resolvedUnit.barcode || item.barcode,
+          taxRate: 0,
+          taxAmount: 0,
+          total: sub,
+        };
       })
     );
   };
@@ -5468,7 +5883,14 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       prev.map((prod) => {
         const cartItem = posCart.find((ci) => ci.productId === prod.id);
         if (cartItem) {
-          return { ...prod, stockQty: Math.max(0, Math.round((prod.stockQty - cartItem.quantity) * 100) / 100) };
+          const baseDeduct = computeBaseStockDelta(
+            cartItem.quantity,
+            cartItem.conversionFactor || 1
+          );
+          return {
+            ...prod,
+            stockQty: Math.max(0, Math.round((prod.stockQty - baseDeduct) * 1000) / 1000),
+          };
         }
         return prod;
       })
@@ -5482,8 +5904,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const totalPosCogs = Math.round(
       posCart.reduce((sum, item) => {
         const matchedProd = products.find((p) => p.id === item.productId);
-        const unitCost = matchedProd?.costPrice || Math.round(item.unitPrice * 0.72 * 100) / 100;
-        return sum + unitCost * item.quantity;
+        const deductBaseQty = computeBaseStockDelta(item.quantity, item.conversionFactor || 1);
+        const unitCost =
+          matchedProd?.costPrice ||
+          Math.round((item.unitPrice / (item.conversionFactor || 1)) * 0.72 * 100) / 100;
+        return sum + unitCost * deductBaseQty;
       }, 0) * 100
     ) / 100;
 
@@ -6622,6 +7047,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setJournalEntries(SEED_JOURNAL_ENTRIES);
     setSalesInvoices(SEED_SALES_INVOICES);
     setPurchaseOrders(SEED_PURCHASE_ORDERS);
+    setGoodsReceipts([]);
+    setPurchaseReturns([]);
     setEmployees(SEED_EMPLOYEES);
     setFixedAssets(SEED_FIXED_ASSETS);
     setProductionOrders(SEED_PRODUCTION_ORDERS);
@@ -6780,6 +7207,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCustomers([]);
     setSalesInvoices([]);
     setPurchaseOrders([]);
+    setGoodsReceipts([]);
+    setPurchaseReturns([]);
     setSalesReturns([]);
     setWarrantyTickets([]);
     setSalesPipelineDocs([]);
@@ -7672,6 +8101,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         pendingSyncTransactionsCount: pendingSyncQueue.length,
         isServerSyncing,
         flushPendingSyncQueue,
+        offlineStorageMetrics,
+        reloadStateFromServer,
         uiTheme,
         setUiTheme,
         uiDensity,
@@ -7794,8 +8225,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addSupplier,
         recordSupplierPaymentVoucher,
         purchaseOrders,
+        goodsReceipts,
+        purchaseReturns,
         addPurchaseOrder,
         approvePurchaseOrder,
+        receivePurchaseOrderPartial,
+        createPurchaseReturn,
         applyLandedCostToProducts,
 
         customers,
@@ -7818,6 +8253,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addSolarSystemKitToPOSCart,
         removeFromPOSCart,
         updatePOSCartQty,
+        updatePOSCartItemUnit,
         updatePOSCartItemMeta,
         clearPOSCart,
         checkoutPOS,

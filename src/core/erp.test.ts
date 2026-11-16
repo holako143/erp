@@ -3852,6 +3852,249 @@ test('Track 47 Viewport-Aware Mobile & Tablet Fluid UI Scaling Engine prevents o
   assert.ok(desktop.spacingUnitRem >= 0.25);
 });
 
+test('Track 48 Multi-Unit Conversions (حبة / درزن / كرتون), Partial GRN Batch Receipt & Purchase Return Debit Notes', async () => {
+  const {
+    resolveProductUnitOption,
+    findProductAndUnitByBarcodeOrSku,
+    computeBaseStockDelta,
+    sanitizeProductUnitOptions,
+    computePartialGrnResult,
+    createGrnReceiptJournal,
+    computePurchaseReturnResult,
+    createPurchaseReturnJournal,
+  } = await import('./multiUnitAndProcurementEngine');
+  const { validateJournalBalance } = await import('./accountingEngine');
+
+  const sampleProduct: any = {
+    id: 'prod-uom-1',
+    tenantId: 'tenant-alnoor',
+    sku: 'SOL-CBL-6MM',
+    barcode: '6281001001001',
+    name: 'Solar DC Cable 6mm',
+    nameAr: 'كيبل طاقة شمسية 6 ملم',
+    categoryId: 'cat-solar-acc',
+    uom: 'PCS',
+    costPrice: 100,
+    salePrice: 150,
+    taxRate: 0,
+    stockQty: 50,
+    minStock: 10,
+    maxStock: 500,
+    reorderPoint: 20,
+    warehouseId: 'wh-ruh-main',
+    hasSerials: false,
+    hasBatches: false,
+    isActive: true,
+    units: sanitizeProductUnitOptions(
+      [
+        { unitNameAr: 'درزن', unitNameEn: 'DOZEN', barcode: '6281001001012', conversionFactor: 12, salePrice: 1700, costPrice: 1150 },
+        { unitNameAr: 'كرتون', unitNameEn: 'CARTON', barcode: '6281001001024', conversionFactor: 24, salePrice: 3200, costPrice: 2200 },
+      ],
+      100,
+      150
+    ),
+  };
+
+  // 1. Multi-Unit resolution & barcode lookup
+  const baseUnit = resolveProductUnitOption(sampleProduct);
+  assert.equal(baseUnit.conversionFactor, 1);
+  assert.equal(baseUnit.salePrice, 150);
+
+  const cartonUnit = resolveProductUnitOption(sampleProduct, 'كرتون');
+  assert.equal(cartonUnit.conversionFactor, 24);
+  assert.equal(cartonUnit.salePrice, 3200);
+  assert.equal(computeBaseStockDelta(2, cartonUnit.conversionFactor), 48);
+
+  const barcodeHit = findProductAndUnitByBarcodeOrSku([sampleProduct], '6281001001012');
+  assert.ok(barcodeHit);
+  assert.equal(barcodeHit?.unit.unitNameAr, 'درزن');
+  assert.equal(barcodeHit?.unit.conversionFactor, 12);
+
+  // 2. Partial GRN Batch 1 (4 out of 10 cartons received) -> PO becomes PARTIALLY_RECEIVED
+  const po: any = {
+    id: 'po-grn-1',
+    tenantId: 'tenant-alnoor',
+    poNumber: 'PO-2026-9001',
+    supplierId: 'sup-1',
+    supplierName: 'مؤسسة الطاقة الدولية',
+    orderDate: '2026-11-16',
+    expectedDate: '2026-11-30',
+    items: [
+      {
+        productId: sampleProduct.id,
+        productName: sampleProduct.nameAr,
+        sku: sampleProduct.sku,
+        quantity: 10,
+        unitName: 'كرتون',
+        conversionFactor: 24,
+        unitCost: 2200,
+        taxRate: 0.15,
+        taxAmount: 3300,
+        total: 25300,
+      },
+    ],
+    subtotal: 22000,
+    taxAmount: 3300,
+    total: 25300,
+    status: 'APPROVED',
+    warehouseId: 'wh-ruh-main',
+  };
+
+  const batch1 = computePartialGrnResult({
+    purchaseOrder: po,
+    receiptLines: [{ productId: sampleProduct.id, receiveQty: 4 }],
+    products: [sampleProduct],
+    warehouseId: 'wh-ruh-main',
+    operatorName: 'المدير العام',
+    receiptDate: '2026-11-16',
+  });
+  assert.equal(batch1.success, true);
+  assert.equal(batch1.updatedPO?.status, 'PARTIALLY_RECEIVED');
+  assert.equal(batch1.updatedPO?.items[0].receivedQty, 4);
+  assert.equal(batch1.productStockPatches[0].addedBaseQty, 96); // 4 cartons * 24 = 96 pcs
+  assert.equal(batch1.productStockPatches[0].newStockQty, 146); // 50 + 96
+  assert.equal(batch1.grn?.subtotal, 8800); // 4 * 2200
+  assert.equal(batch1.grn?.taxAmount, 1320); // 15%
+  assert.equal(batch1.grn?.total, 10120);
+
+  const grnJournal1 = createGrnReceiptJournal({
+    grn: batch1.grn!,
+    tenantId: 'tenant-alnoor',
+    entryNumber: 'JE-GRN-001',
+    operatorName: 'المدير العام',
+  });
+  assert.equal(validateJournalBalance(grnJournal1.lines).isValid, true);
+  assert.equal(grnJournal1.totalDebit, 10120);
+  assert.equal(grnJournal1.totalCredit, 10120);
+
+  // Reject over-receiving beyond remaining quantity (remaining = 6, asking 7)
+  const updatedProductAfterBatch1 = { ...sampleProduct, stockQty: 146 };
+  const overReceive = computePartialGrnResult({
+    purchaseOrder: batch1.updatedPO!,
+    receiptLines: [{ productId: sampleProduct.id, receiveQty: 7 }],
+    products: [updatedProductAfterBatch1],
+    warehouseId: 'wh-ruh-main',
+    operatorName: 'المدير العام',
+  });
+  assert.equal(overReceive.success, false);
+
+  // Batch 2 (remaining 6 cartons) -> PO transitions to RECEIVED
+  const batch2 = computePartialGrnResult({
+    purchaseOrder: batch1.updatedPO!,
+    receiptLines: [{ productId: sampleProduct.id, receiveQty: 6 }],
+    products: [updatedProductAfterBatch1],
+    warehouseId: 'wh-ruh-main',
+    operatorName: 'المدير العام',
+  });
+  assert.equal(batch2.success, true);
+  assert.equal(batch2.updatedPO?.status, 'RECEIVED');
+  assert.equal(batch2.updatedPO?.items[0].receivedQty, 10);
+  assert.equal(batch2.productStockPatches[0].addedBaseQty, 144); // 6 * 24
+  assert.equal(batch2.productStockPatches[0].newStockQty, 290); // 146 + 144
+
+  // 3. Purchase Return (1 Carton = 24 base units returned to supplier) + Balanced Reversal Journal
+  const updatedProductAfterBatch2 = { ...sampleProduct, stockQty: 290 };
+  const prnRes = computePurchaseReturnResult({
+    supplier: {
+      id: 'sup-1',
+      tenantId: 'tenant-alnoor',
+      name: 'Intl Solar Supply',
+      nameAr: 'مؤسسة الطاقة الدولية',
+      taxNumber: '300111222',
+      phone: '777000111',
+      email: 'sup@solar.com',
+      paymentTermsDays: 30,
+      balance: 25300,
+      creditLimit: 100000,
+    },
+    returnLines: [
+      {
+        productId: sampleProduct.id,
+        quantity: 1,
+        unitName: 'كرتون',
+        conversionFactor: 24,
+        unitCost: 2200,
+        taxRate: 0.15,
+      },
+    ],
+    products: [updatedProductAfterBatch2],
+    warehouseId: 'wh-ruh-main',
+    tenantId: 'tenant-alnoor',
+    operatorName: 'المدير العام',
+    purchaseOrderId: po.id,
+    poNumber: po.poNumber,
+    reason: 'تلف تغليف كرتون أثناء النقل',
+  });
+  assert.equal(prnRes.success, true);
+  assert.equal(prnRes.productStockPatches[0].deductedBaseQty, 24);
+  assert.equal(prnRes.productStockPatches[0].newStockQty, 266);
+  assert.equal(prnRes.supplierPayableReduction, 2530); // 2200 + 330 VAT
+
+  const prnJournal = createPurchaseReturnJournal({
+    purchaseReturn: prnRes.purchaseReturn!,
+    tenantId: 'tenant-alnoor',
+    entryNumber: 'JE-PRN-001',
+    operatorName: 'المدير العام',
+  });
+  assert.equal(validateJournalBalance(prnJournal.lines).isValid, true);
+  assert.equal(prnJournal.totalDebit, 2530);
+  assert.equal(prnJournal.totalCredit, 2530);
+});
+
+test('Track 49 Offline IndexedDB Queue Engine & Safe Fallback Helpers', async () => {
+  const {
+    HASEB_OFFLINE_DB_NAME,
+    buildOfflineQueueRecord,
+    computeOfflineStorageMetrics,
+    idbLoadPendingSyncQueue,
+    idbSaveOfflineSnapshot,
+  } = await import('./offlineIndexedDbEngine');
+
+  assert.equal(HASEB_OFFLINE_DB_NAME, 'haseb_offline_db_v1');
+
+  const sampleQueue = [
+    {
+      id: 'sync-1',
+      createdAt: '2026-11-16T08:00:00.000Z',
+      endpoint: '/api/v1/erp/patch' as const,
+      changedKeys: ['salesInvoices', 'products'],
+      baseRevision: 12,
+      patchPayload: { products: [] },
+    },
+    {
+      id: 'sync-2',
+      createdAt: '2026-11-16T08:02:00.000Z',
+      endpoint: '/api/v1/erp/patch' as const,
+      changedKeys: ['posCart'],
+      baseRevision: 13,
+      patchPayload: { posCart: [] },
+    },
+  ];
+
+  const ordered = buildOfflineQueueRecord(sampleQueue[1], 1);
+  assert.equal(ordered.sequenceOrder, 1);
+  assert.equal(ordered.id, 'sync-2');
+
+  const metrics = computeOfflineStorageMetrics({
+    queue: sampleQueue,
+    snapshotSizeBytes: 245760,
+    snapshotUpdatedAt: '2026-11-16T08:03:00.000Z',
+    indexedDbSupported: true,
+  });
+  assert.equal(metrics.pendingCount, 2);
+  assert.equal(metrics.oldestPendingAt, '2026-11-16T08:00:00.000Z');
+  assert.equal(metrics.snapshotSizeBytes, 245760);
+  assert.equal(metrics.indexedDbSupported, true);
+
+  // Graceful fallback when running inside Node test environment (no window.indexedDB)
+  const emptyQueue = await idbLoadPendingSyncQueue();
+  assert.deepEqual(emptyQueue, []);
+  const snapRes = await idbSaveOfflineSnapshot('test', { ok: true });
+  assert.equal(snapRes.saved, false);
+  assert.ok(snapRes.sizeBytes > 0);
+});
+
+
 
 
 

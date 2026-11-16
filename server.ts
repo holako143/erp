@@ -11,6 +11,7 @@ import { createServer as createViteServer } from 'vite';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import crypto from 'crypto';
 import { execSync } from 'child_process';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -1106,6 +1107,373 @@ app.post('/api/v1/erp/reset-blank', (_req, res) => {
     res.json({ success: true, message: 'Server database initialized to clean blank state' });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ============================================================================
+// 4a. Scheduled Auto-Backup Manager & One-Click Restore Engine
+// ============================================================================
+const BACKUP_DIR = path.join(DATA_DIR, 'backups');
+const BACKUP_CONFIG_FILE = path.join(DATA_DIR, 'backup-config.json');
+
+if (!fs.existsSync(BACKUP_DIR)) {
+  fs.mkdirSync(BACKUP_DIR, { recursive: true });
+}
+
+type BackupScheduleMode = 'OFF' | 'HOURLY' | 'EVERY_6_HOURS' | 'DAILY';
+
+interface ServerBackupConfigState {
+  schedule: BackupScheduleMode;
+  maxRetentionCount: number;
+  includeSqliteCopy: boolean;
+  lastBackupAt?: string;
+  nextBackupAt?: string;
+}
+
+function getScheduleIntervalMs(schedule: BackupScheduleMode): number {
+  switch (schedule) {
+    case 'HOURLY':
+      return 3600 * 1000;
+    case 'EVERY_6_HOURS':
+      return 6 * 3600 * 1000;
+    case 'DAILY':
+      return 24 * 3600 * 1000;
+    case 'OFF':
+    default:
+      return 0;
+  }
+}
+
+function computeNextBackupIso(schedule: BackupScheduleMode, fromMs = Date.now()): string | undefined {
+  const intervalMs = getScheduleIntervalMs(schedule);
+  if (intervalMs <= 0) return undefined;
+  return new Date(fromMs + intervalMs).toISOString();
+}
+
+function loadBackupConfig(): ServerBackupConfigState {
+  const fallback: ServerBackupConfigState = {
+    schedule: 'EVERY_6_HOURS',
+    maxRetentionCount: 15,
+    includeSqliteCopy: true,
+    nextBackupAt: computeNextBackupIso('EVERY_6_HOURS'),
+  };
+  try {
+    if (fs.existsSync(BACKUP_CONFIG_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(BACKUP_CONFIG_FILE, 'utf-8'));
+      const schedule: BackupScheduleMode = ['OFF', 'HOURLY', 'EVERY_6_HOURS', 'DAILY'].includes(
+        parsed?.schedule
+      )
+        ? parsed.schedule
+        : 'EVERY_6_HOURS';
+      return {
+        schedule,
+        maxRetentionCount: Math.max(3, Math.min(100, Number(parsed?.maxRetentionCount) || 15)),
+        includeSqliteCopy:
+          typeof parsed?.includeSqliteCopy === 'boolean' ? parsed.includeSqliteCopy : true,
+        lastBackupAt: typeof parsed?.lastBackupAt === 'string' ? parsed.lastBackupAt : undefined,
+        nextBackupAt:
+          schedule === 'OFF'
+            ? undefined
+            : typeof parsed?.nextBackupAt === 'string'
+            ? parsed.nextBackupAt
+            : computeNextBackupIso(schedule),
+      };
+    }
+  } catch {
+    // fallback
+  }
+  return fallback;
+}
+
+let backupConfigState: ServerBackupConfigState = loadBackupConfig();
+
+function saveBackupConfig() {
+  try {
+    fs.writeFileSync(BACKUP_CONFIG_FILE, JSON.stringify(backupConfigState, null, 2), 'utf-8');
+  } catch {
+    // ignore write failure
+  }
+}
+
+function listServerBackupsMetadata() {
+  try {
+    if (!fs.existsSync(BACKUP_DIR)) return [];
+    const files = fs
+      .readdirSync(BACKUP_DIR)
+      .filter((name) => name.endsWith('.json') && name.startsWith('haseb-backup-'))
+      .sort()
+      .reverse();
+
+    const list: Array<{
+      filename: string;
+      createdAt: string;
+      sizeBytes: number;
+      checksumSha256: string;
+      trigger: 'AUTO' | 'MANUAL';
+      dbRevision: number;
+      productsCount: number;
+      invoicesCount: number;
+      journalsCount: number;
+    }> = [];
+
+    for (const filename of files) {
+      try {
+        const fullPath = path.join(BACKUP_DIR, filename);
+        const stat = fs.statSync(fullPath);
+        const parsed = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
+        const data = parsed?.data || parsed || {};
+        list.push({
+          filename,
+          createdAt: parsed?.createdAt || stat.mtime.toISOString(),
+          sizeBytes: stat.size,
+          checksumSha256: parsed?.checksumSha256 || '',
+          trigger: parsed?.trigger === 'AUTO' ? 'AUTO' : 'MANUAL',
+          dbRevision: Number(parsed?.dbRevision) || Number(data?.dbRevision) || 1,
+          productsCount: Array.isArray(data.products) ? data.products.length : 0,
+          invoicesCount: Array.isArray(data.salesInvoices) ? data.salesInvoices.length : 0,
+          journalsCount: Array.isArray(data.journalEntries) ? data.journalEntries.length : 0,
+        });
+      } catch {
+        // skip corrupted entry
+      }
+    }
+    return list;
+  } catch {
+    return [];
+  }
+}
+
+function pruneOldBackups(maxKeep: number) {
+  try {
+    const files = fs
+      .readdirSync(BACKUP_DIR)
+      .filter((name) => name.endsWith('.json') && name.startsWith('haseb-backup-'))
+      .sort()
+      .reverse();
+    if (files.length <= maxKeep) return;
+    for (const oldFile of files.slice(maxKeep)) {
+      const jsonPath = path.join(BACKUP_DIR, oldFile);
+      const sqliteCopyPath = jsonPath.replace(/\.json$/, '.sqlite');
+      if (fs.existsSync(jsonPath)) fs.unlinkSync(jsonPath);
+      if (fs.existsSync(sqliteCopyPath)) fs.unlinkSync(sqliteCopyPath);
+    }
+  } catch {
+    // ignore prune error
+  }
+}
+
+function createVerifiedServerBackup(trigger: 'AUTO' | 'MANUAL') {
+  const snapshotData = readServerDB() || {
+    products: [],
+    salesInvoices: [],
+    purchaseOrders: [],
+    journalEntries: [],
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    dbRevision,
+  };
+  const nowIso = new Date().toISOString();
+  const safeStamp = nowIso.replace(/[:.]/g, '-');
+  const filename = `haseb-backup-${safeStamp}-${trigger.toLowerCase()}.json`;
+  const dataJson = JSON.stringify(snapshotData);
+  const checksumSha256 = crypto.createHash('sha256').update(dataJson, 'utf8').digest('hex');
+
+  const envelope = {
+    backupFormat: 'HASEB-SERVER-BACKUP-V1',
+    createdAt: nowIso,
+    trigger,
+    dbRevision,
+    checksumSha256,
+    data: snapshotData,
+  };
+
+  const fullPath = path.join(BACKUP_DIR, filename);
+  fs.writeFileSync(fullPath, JSON.stringify(envelope, null, 2), 'utf-8');
+
+  if (backupConfigState.includeSqliteCopy) {
+    try {
+      localSqliteEngine.optimizeDatabase();
+      const sqlitePath = localSqliteEngine.getDatabaseFilePath();
+      if (fs.existsSync(sqlitePath)) {
+        fs.copyFileSync(sqlitePath, fullPath.replace(/\.json$/, '.sqlite'));
+      }
+    } catch {
+      // ignore sqlite copy error
+    }
+  }
+
+  backupConfigState = {
+    ...backupConfigState,
+    lastBackupAt: nowIso,
+    nextBackupAt: computeNextBackupIso(backupConfigState.schedule, Date.now()),
+  };
+  saveBackupConfig();
+  pruneOldBackups(backupConfigState.maxRetentionCount);
+
+  return {
+    filename,
+    createdAt: nowIso,
+    checksumSha256,
+    trigger,
+    dbRevision,
+  };
+}
+
+// Background Auto-Backup Scheduler Tick (checks every 60s)
+setInterval(() => {
+  try {
+    if (backupConfigState.schedule === 'OFF') return;
+    if (!memoryStore) return;
+    const dueMs = backupConfigState.nextBackupAt
+      ? Date.parse(backupConfigState.nextBackupAt)
+      : 0;
+    if (!dueMs || Date.now() >= dueMs) {
+      createVerifiedServerBackup('AUTO');
+    }
+  } catch {
+    // ignore scheduler tick error
+  }
+}, 60_000);
+
+app.get('/api/v1/backups/status', (_req, res) => {
+  res.json({
+    success: true,
+    config: backupConfigState,
+    backups: listServerBackupsMetadata(),
+  });
+});
+
+app.post('/api/v1/backups/config', (req, res) => {
+  const { schedule, maxRetentionCount, includeSqliteCopy } = req.body || {};
+  const validSchedule: BackupScheduleMode = ['OFF', 'HOURLY', 'EVERY_6_HOURS', 'DAILY'].includes(
+    schedule
+  )
+    ? schedule
+    : backupConfigState.schedule;
+
+  backupConfigState = {
+    ...backupConfigState,
+    schedule: validSchedule,
+    maxRetentionCount:
+      typeof maxRetentionCount === 'number'
+        ? Math.max(3, Math.min(100, Math.round(maxRetentionCount)))
+        : backupConfigState.maxRetentionCount,
+    includeSqliteCopy:
+      typeof includeSqliteCopy === 'boolean'
+        ? includeSqliteCopy
+        : backupConfigState.includeSqliteCopy,
+    nextBackupAt: computeNextBackupIso(validSchedule, Date.now()),
+  };
+  saveBackupConfig();
+  pruneOldBackups(backupConfigState.maxRetentionCount);
+
+  res.json({
+    success: true,
+    config: backupConfigState,
+    backups: listServerBackupsMetadata(),
+  });
+});
+
+app.post('/api/v1/backups/run-now', (_req, res) => {
+  try {
+    const created = createVerifiedServerBackup('MANUAL');
+    res.json({
+      success: true,
+      created,
+      config: backupConfigState,
+      backups: listServerBackupsMetadata(),
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err?.message || 'Backup creation failed' });
+  }
+});
+
+app.get('/api/v1/backups/download/:filename', (req, res) => {
+  const safeName = path.basename(String(req.params.filename || ''));
+  if (!safeName.startsWith('haseb-backup-') || !safeName.endsWith('.json')) {
+    res.status(400).json({ success: false, message: 'Invalid backup filename' });
+    return;
+  }
+  const targetPath = path.join(BACKUP_DIR, safeName);
+  if (!fs.existsSync(targetPath)) {
+    res.status(404).json({ success: false, message: 'Backup file not found' });
+    return;
+  }
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+  fs.createReadStream(targetPath).pipe(res);
+});
+
+app.post('/api/v1/backups/restore', (req, res) => {
+  try {
+    const { filename, payload } = req.body || {};
+    let parsedEnvelope: any = null;
+
+    if (typeof filename === 'string' && filename.trim()) {
+      const safeName = path.basename(filename.trim());
+      if (!safeName.startsWith('haseb-backup-') || !safeName.endsWith('.json')) {
+        res.status(400).json({ success: false, messageAr: 'اسم ملف النسخة غير صالح.' });
+        return;
+      }
+      const targetPath = path.join(BACKUP_DIR, safeName);
+      if (!fs.existsSync(targetPath)) {
+        res.status(404).json({ success: false, messageAr: 'ملف النسخة الاحتياطية غير موجود.' });
+        return;
+      }
+      parsedEnvelope = JSON.parse(fs.readFileSync(targetPath, 'utf-8'));
+    } else if (payload && typeof payload === 'object') {
+      parsedEnvelope = payload;
+    } else if (typeof payload === 'string') {
+      parsedEnvelope = JSON.parse(payload);
+    }
+
+    if (!parsedEnvelope || typeof parsedEnvelope !== 'object') {
+      res.status(400).json({ success: false, messageAr: 'تعذر قراءة بيانات النسخة الاحتياطية.' });
+      return;
+    }
+
+    // Verify integrity checksum when restoring from server backup envelope
+    if (
+      parsedEnvelope.backupFormat === 'HASEB-SERVER-BACKUP-V1' &&
+      parsedEnvelope.checksumSha256 &&
+      parsedEnvelope.data
+    ) {
+      const calculatedSha = crypto
+        .createHash('sha256')
+        .update(JSON.stringify(parsedEnvelope.data), 'utf8')
+        .digest('hex');
+      if (calculatedSha !== parsedEnvelope.checksumSha256) {
+        res.status(422).json({
+          success: false,
+          messageAr: 'فشل فحص التكامل الرقمي (SHA-256) — قد يكون ملف النسخة الاحتياطية تالفاً أو معدلاً.',
+        });
+        return;
+      }
+    }
+
+    const restoredData = parsedEnvelope.data && typeof parsedEnvelope.data === 'object'
+      ? parsedEnvelope.data
+      : parsedEnvelope;
+
+    if (!restoredData || typeof restoredData !== 'object') {
+      res.status(400).json({ success: false, messageAr: 'هيكل النسخة الاحتياطية غير متوافق.' });
+      return;
+    }
+
+    const newRev = writeServerDB(restoredData);
+    res.json({
+      success: true,
+      dbRevision: newRev,
+      restoredAt: new Date().toISOString(),
+      productsCount: Array.isArray(restoredData.products) ? restoredData.products.length : 0,
+      invoicesCount: Array.isArray(restoredData.salesInvoices) ? restoredData.salesInvoices.length : 0,
+      messageAr: `تمت استعادة النسخة الاحتياطية وتحديث كافة الأجهزة على الشبكة بنجاح (الإصدار #${newRev}).`,
+      data: restoredData,
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      messageAr: `فشل استعادة النسخة الاحتياطية: ${err?.message || 'خطأ داخلي'}`,
+    });
   }
 });
 

@@ -1,14 +1,17 @@
 import React from 'react';
 import { CheckCircle2, Zap } from 'lucide-react';
-import { InvoiceItem } from '../../types/erp';
+import { InvoiceItem, Product } from '../../types/erp';
 import { formatCleanNumber } from '../../core/systemConfigEngine';
+import { getAllProductUnitChoices } from '../../core/multiUnitAndProcurementEngine';
 import { useDoubleTapGesture } from '../common/MobileQuickActionsSheet';
 
 export interface POSCartItemRowProps {
   item: InvoiceItem;
+  product?: Product;
   currency: string;
   onRemove: (productId: string) => void;
   onUpdateQty: (productId: string, newQty: number) => void;
+  onUpdateUnit?: (productId: string, unitName: string) => void;
   onUpdateMeta: (
     productId: string,
     meta: { serialNumber?: string; warrantyMonths?: number }
@@ -18,10 +21,23 @@ export interface POSCartItemRowProps {
 }
 
 export const POSCartItemRow: React.FC<POSCartItemRowProps> = React.memo(
-  ({ item, currency, onRemove, onUpdateQty, onUpdateMeta, onFocusField, onOpenQuickActions }) => {
+  ({
+    item,
+    product,
+    currency,
+    onRemove,
+    onUpdateQty,
+    onUpdateUnit,
+    onUpdateMeta,
+    onFocusField,
+    onOpenQuickActions,
+  }) => {
     const { registerTap } = useDoubleTapGesture();
     const serialFieldId = `pos-cart-serial-${item.productId}`;
     const warrantyFieldId = `pos-cart-warranty-${item.productId}`;
+    const unitChoices = product && product.units && product.units.length > 0
+      ? getAllProductUnitChoices(product)
+      : [];
 
     return (
       <div
@@ -48,6 +64,8 @@ export const POSCartItemRow: React.FC<POSCartItemRowProps> = React.memo(
             </h4>
             <span className="text-[9.5px] sm:text-[10px] text-slate-400 font-mono block mt-0.5 truncate" dir="ltr">
               {item.sku} • {formatCleanNumber(item.unitPrice)} {currency}
+              {item.unitName ? ` / ${item.unitName}` : ''}
+              {item.conversionFactor && item.conversionFactor > 1 ? ` (×${item.conversionFactor})` : ''}
             </span>
           </div>
           <div className="flex items-center gap-1 shrink-0">
@@ -79,37 +97,55 @@ export const POSCartItemRow: React.FC<POSCartItemRowProps> = React.memo(
           </div>
         </div>
 
-        {/* Quantity Stepper & Line Total */}
-        <div className="flex items-center justify-between pt-0.5 gap-2">
-          <div className="flex items-center gap-0.5 sm:gap-1 bg-white border border-slate-200/80 rounded-lg sm:rounded-xl p-0.5 sm:p-1">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onUpdateQty(item.productId, item.quantity - 1);
-              }}
-              className="w-6.5 h-6.5 sm:w-7.5 sm:h-7.5 rounded-md sm:rounded-lg hover:bg-slate-100 active:bg-slate-200 text-slate-700 flex items-center justify-center text-xs sm:text-sm font-bold cursor-pointer touch-manipulation"
-              aria-label="إنقاص الكمية"
-            >
-              -
-            </button>
-            <span
-              className="w-7 sm:w-8 text-center text-[11px] sm:text-xs font-mono font-bold text-slate-800"
-              dir="ltr"
-            >
-              {item.quantity}
-            </span>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onUpdateQty(item.productId, item.quantity + 1);
-              }}
-              className="w-6.5 h-6.5 sm:w-7.5 sm:h-7.5 rounded-md sm:rounded-lg hover:bg-slate-100 active:bg-slate-200 text-slate-700 flex items-center justify-center text-xs sm:text-sm font-bold cursor-pointer touch-manipulation"
-              aria-label="زيادة الكمية"
-            >
-              +
-            </button>
+        {/* Quantity Stepper, Multi-Unit Switcher & Line Total */}
+        <div className="flex items-center justify-between pt-0.5 gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <div className="flex items-center gap-0.5 sm:gap-1 bg-white border border-slate-200/80 rounded-lg sm:rounded-xl p-0.5 sm:p-1">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUpdateQty(item.productId, item.quantity - 1);
+                }}
+                className="w-6.5 h-6.5 sm:w-7.5 sm:h-7.5 rounded-md sm:rounded-lg hover:bg-slate-100 active:bg-slate-200 text-slate-700 flex items-center justify-center text-xs sm:text-sm font-bold cursor-pointer touch-manipulation"
+                aria-label="إنقاص الكمية"
+              >
+                -
+              </button>
+              <span
+                className="w-7 sm:w-8 text-center text-[11px] sm:text-xs font-mono font-bold text-slate-800"
+                dir="ltr"
+              >
+                {item.quantity}
+              </span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUpdateQty(item.productId, item.quantity + 1);
+                }}
+                className="w-6.5 h-6.5 sm:w-7.5 sm:h-7.5 rounded-md sm:rounded-lg hover:bg-slate-100 active:bg-slate-200 text-slate-700 flex items-center justify-center text-xs sm:text-sm font-bold cursor-pointer touch-manipulation"
+                aria-label="زيادة الكمية"
+              >
+                +
+              </button>
+            </div>
+            {unitChoices.length > 1 && onUpdateUnit && (
+              <select
+                data-testid={`pos-cart-unit-${item.productId}`}
+                value={item.unitName || unitChoices[0].unitNameAr}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => onUpdateUnit(item.productId, e.target.value)}
+                className="px-2 py-1 rounded-lg bg-white border border-slate-200/90 text-[10.5px] font-bold text-slate-700 outline-hidden focus:border-blue-500 cursor-pointer"
+                aria-label="تغيير وحدة البيع"
+              >
+                {unitChoices.map((u) => (
+                  <option key={u.unitId} value={u.unitNameAr}>
+                    {u.unitNameAr} (×{u.conversionFactor})
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
           <div className="text-left">
             <span className="text-xs sm:text-sm font-bold text-slate-900 font-mono" dir="ltr">

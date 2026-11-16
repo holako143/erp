@@ -261,6 +261,16 @@ export type ElectronicsSubCategory =
   | 'COMPUTING_MOBILE'
   | 'SOLAR_ACCESSORY';
 
+export interface ProductUnitOption {
+  id: string;
+  unitNameAr: string;
+  unitNameEn?: string;
+  barcode?: string;
+  conversionFactor: number;
+  salePrice: number;
+  costPrice: number;
+}
+
 export interface Product {
   id: string;
   tenantId: string;
@@ -272,6 +282,7 @@ export interface Product {
   industry?: IndustryType;
   subCategory?: ElectronicsSubCategory;
   uom: string;
+  units?: ProductUnitOption[];
   costPrice: number;
   salePrice: number;
   taxRate: number;
@@ -360,6 +371,9 @@ export interface PurchaseOrderItem {
   productName: string;
   sku: string;
   quantity: number;
+  receivedQty?: number;
+  unitName?: string;
+  conversionFactor?: number;
   unitCost: number;
   taxRate: number;
   taxAmount: number;
@@ -378,9 +392,109 @@ export interface PurchaseOrder {
   subtotal: number;
   taxAmount: number;
   total: number;
-  status: 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'RECEIVED' | 'BILLED' | 'CANCELLED';
+  status:
+    | 'DRAFT'
+    | 'PENDING_APPROVAL'
+    | 'APPROVED'
+    | 'PARTIALLY_RECEIVED'
+    | 'RECEIVED'
+    | 'BILLED'
+    | 'CANCELLED';
   approvedBy?: string;
+  lastGrnDate?: string;
   warehouseId: string;
+}
+
+export interface GoodsReceiptLine {
+  productId: string;
+  productName: string;
+  sku: string;
+  orderedQty: number;
+  receivedQty: number;
+  unitName?: string;
+  conversionFactor: number;
+  baseQtyAdded: number;
+  unitCost: number;
+  lineSubtotal: number;
+  taxAmount: number;
+  lineTotal: number;
+}
+
+export interface GoodsReceiptNote {
+  id: string;
+  tenantId: string;
+  grnNumber: string;
+  purchaseOrderId: string;
+  poNumber: string;
+  supplierId: string;
+  supplierName: string;
+  warehouseId: string;
+  receiptDate: string;
+  lines: GoodsReceiptLine[];
+  subtotal: number;
+  taxAmount: number;
+  total: number;
+  journalEntryNumber?: string;
+  notes?: string;
+  receivedByName: string;
+  createdAt: string;
+}
+
+export interface PurchaseReturnLine {
+  productId: string;
+  productName: string;
+  sku: string;
+  quantity: number;
+  unitName?: string;
+  conversionFactor: number;
+  baseQtyDeducted: number;
+  unitCost: number;
+  taxRate: number;
+  lineSubtotal: number;
+  taxAmount: number;
+  lineTotal: number;
+}
+
+export interface PurchaseReturn {
+  id: string;
+  tenantId: string;
+  returnNumber: string;
+  supplierId: string;
+  supplierName: string;
+  purchaseOrderId?: string;
+  poNumber?: string;
+  warehouseId: string;
+  returnDate: string;
+  lines: PurchaseReturnLine[];
+  subtotal: number;
+  taxAmount: number;
+  total: number;
+  journalEntryNumber?: string;
+  reason: string;
+  createdByName: string;
+  createdAt: string;
+}
+
+export type AutoBackupSchedule = 'OFF' | 'HOURLY' | 'EVERY_6_HOURS' | 'DAILY';
+
+export interface AutoBackupConfig {
+  schedule: AutoBackupSchedule;
+  maxRetentionCount: number;
+  includeSqliteCopy: boolean;
+  lastBackupAt?: string;
+  nextBackupAt?: string;
+}
+
+export interface ServerBackupMetadata {
+  filename: string;
+  createdAt: string;
+  sizeBytes: number;
+  checksumSha256: string;
+  trigger: 'AUTO' | 'MANUAL';
+  dbRevision: number;
+  productsCount: number;
+  invoicesCount: number;
+  journalsCount: number;
 }
 
 export interface LandedCost {
@@ -417,6 +531,9 @@ export interface InvoiceItem {
   productName: string;
   sku: string;
   barcode?: string;
+  unitName?: string;
+  conversionFactor?: number;
+  baseQtyDeducted?: number;
   quantity: number;
   unitPrice: number;
   discount: number;
@@ -542,7 +659,7 @@ export interface JournalEntry {
   tenantId: string;
   entryNumber: string;
   date: string;
-  referenceType: 'MANUAL' | 'SALES_INVOICE' | 'PURCHASE_BILL' | 'STOCK_MOVE' | 'PAYROLL' | 'DEPRECIATION';
+  referenceType: 'MANUAL' | 'SALES_INVOICE' | 'PURCHASE_BILL' | 'PURCHASE_RETURN' | 'STOCK_MOVE' | 'PAYROLL' | 'DEPRECIATION';
   referenceId?: string;
   description: string;
   lines: JournalLine[];

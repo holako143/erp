@@ -64,6 +64,7 @@ import {
 } from '../core/posKeyboardNavigation';
 import { POSProductCard } from '../components/pos/POSProductCard';
 import { POSCartItemRow } from '../components/pos/POSCartItemRow';
+import { findProductAndUnitByBarcodeOrSku } from '../core/multiUnitAndProcurementEngine';
 import { MobileQuickActionsSheet } from '../components/common/MobileQuickActionsSheet';
 import {
   MobileQuickActionTarget,
@@ -107,6 +108,7 @@ export const POSView: React.FC = React.memo(() => {
     addSolarSystemKitToPOSCart,
     removeFromPOSCart,
     updatePOSCartQty,
+    updatePOSCartItemUnit,
     updatePOSCartItemMeta,
     clearPOSCart,
     checkoutPOS,
@@ -513,6 +515,13 @@ export const POSView: React.FC = React.memo(() => {
     [updatePOSCartItemMeta]
   );
 
+  const handleUpdateCartUnit = useCallback(
+    (productId: string, unitName: string) => {
+      updatePOSCartItemUnit(productId, unitName);
+    },
+    [updatePOSCartItemUnit]
+  );
+
   const handleFocusCartField = useCallback((fieldId: string) => {
     setActivePosFieldId(fieldId);
   }, []);
@@ -565,13 +574,14 @@ export const POSView: React.FC = React.memo(() => {
         }
       }
 
-      const matched = products.find(
-        (p) => p.barcode === raw || p.sku.toLowerCase() === raw.toLowerCase()
-      );
-      if (matched) {
-        addToPOSCart(matched, 1);
+      const unitHit = findProductAndUnitByBarcodeOrSku(products, raw);
+      if (unitHit) {
+        addToPOSCart(unitHit.product, 1, undefined, unitHit.unit.unitNameAr);
         setBarcodeInput('');
-        showBanner('success', `تمت إضافة الصنف: ${matched.nameAr}`);
+        showBanner(
+          'success',
+          `تمت إضافة الصنف: ${unitHit.product.nameAr} (${unitHit.unit.unitNameAr})`
+        );
       } else {
         showBanner(
           'error',
@@ -1703,9 +1713,11 @@ export const POSView: React.FC = React.memo(() => {
               <POSCartItemRow
                 key={item.productId}
                 item={item}
+                product={products.find((p) => p.id === item.productId)}
                 currency={currency}
                 onRemove={handleRemoveCartItem}
                 onUpdateQty={handleUpdateCartQty}
+                onUpdateUnit={handleUpdateCartUnit}
                 onUpdateMeta={handleUpdateCartMeta}
                 onFocusField={handleFocusCartField}
                 onOpenQuickActions={handleOpenCartItemQuickActions}

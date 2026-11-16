@@ -37,7 +37,8 @@ import {
 } from 'lucide-react';
 import type { ScannedBatchItem } from '../components/common/CameraBarcodeScannerModal';
 import { WorkspaceTabResizerBar } from '../components/common/WorkspaceTabResizerBar';
-import { IndustryType, ElectronicsSubCategory, Product } from '../types/erp';
+import { IndustryType, ElectronicsSubCategory, Product, ProductUnitOption } from '../types/erp';
+import { sanitizeProductUnitOptions } from '../core/multiUnitAndProcurementEngine';
 import {
   calculateStockAdjustmentVariance,
   SPECIFIC_INVENTORY_CLASSIFICATIONS,
@@ -281,6 +282,7 @@ export const InventoryView: React.FC = React.memo(() => {
   const [voltageSpec, setVoltageSpec] = useState<string>('48V DC');
   const [screenSizeSpec, setScreenSizeSpec] = useState<string>('');
   const [productImageUrl, setProductImageUrl] = useState<string>('');
+  const [productUnits, setProductUnits] = useState<ProductUnitOption[]>([]);
   const [expiryDate] = useState<string>('2027-09-30');
   const [prepTimeMinutes] = useState<number>(12);
 
@@ -539,6 +541,7 @@ export const InventoryView: React.FC = React.memo(() => {
     setBatteryCapacitySpec('');
     setScreenSizeSpec('');
     setProductImageUrl('');
+    setProductUnits([]);
     setProductIndustry('electronics');
     setIsAddModalOpen(true);
   };
@@ -579,6 +582,7 @@ export const InventoryView: React.FC = React.memo(() => {
       setVoltageSpec(product.voltageSpec || '');
       setScreenSizeSpec(product.screenSizeSpec || '');
       setProductImageUrl(product.imageUrl || '');
+      setProductUnits(Array.isArray(product.units) ? product.units : []);
       setProductIndustry(product.industry || 'electronics');
       setIsAddModalOpen(true);
     },
@@ -930,6 +934,7 @@ export const InventoryView: React.FC = React.memo(() => {
           voltageSpec: voltageSpec.trim() || undefined,
           screenSizeSpec: screenSizeSpec.trim() || undefined,
           imageUrl: productImageUrl.trim() || undefined,
+          units: sanitizeProductUnitOptions(productUnits, Number(costPrice) || 0, Number(salePrice) || 0),
         });
         setImportBanner(
           `✓ تم حفظ التعديلات على الصنف (${effectiveNameAr} — ${cleanSku}) بنجاح!`
@@ -946,6 +951,7 @@ export const InventoryView: React.FC = React.memo(() => {
         categoryId,
         industry: productIndustry,
         uom,
+        units: sanitizeProductUnitOptions(productUnits, Number(costPrice) || 0, Number(salePrice) || 0),
         costPrice: Number(costPrice) || 0,
         salePrice: Number(salePrice) || 0,
         taxRate: 0,
@@ -2599,6 +2605,158 @@ export const InventoryView: React.FC = React.memo(() => {
                     <option value="SET">منظومة متكاملة (SET)</option>
                   </select>
                 </div>
+              </div>
+
+              {/* Multi-Unit Packaging Builder (حبة / درزن / كرتون) */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="text-[11px] font-bold text-slate-800">
+                      وحدات التعبئة والبيع المتعددة (حبة / درزن / كرتون)
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      تُسحب من الرصيد الأساسي تلقائياً وفق معامل التحويل عند البيع أو التوريد
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      data-testid="add-unit-dozen-btn"
+                      onClick={() =>
+                        setProductUnits((prev) => [
+                          ...prev,
+                          {
+                            id: `uom-${Date.now()}-12`,
+                            unitNameAr: 'درزن',
+                            unitNameEn: 'DOZEN',
+                            conversionFactor: 12,
+                            salePrice: Math.round((Number(salePrice) || 0) * 12 * 100) / 100,
+                            costPrice: Math.round((Number(costPrice) || 0) * 12 * 100) / 100,
+                            barcode: '',
+                          },
+                        ])
+                      }
+                      className="px-2 py-1 rounded-lg bg-white hover:bg-blue-50 border border-slate-300 text-[10px] font-bold text-slate-700 cursor-pointer"
+                    >
+                      + درزن (×12)
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="add-unit-carton-btn"
+                      onClick={() =>
+                        setProductUnits((prev) => [
+                          ...prev,
+                          {
+                            id: `uom-${Date.now()}-24`,
+                            unitNameAr: 'كرتون',
+                            unitNameEn: 'CARTON',
+                            conversionFactor: 24,
+                            salePrice: Math.round((Number(salePrice) || 0) * 24 * 100) / 100,
+                            costPrice: Math.round((Number(costPrice) || 0) * 24 * 100) / 100,
+                            barcode: '',
+                          },
+                        ])
+                      }
+                      className="px-2 py-1 rounded-lg bg-white hover:bg-emerald-50 border border-slate-300 text-[10px] font-bold text-slate-700 cursor-pointer"
+                    >
+                      + كرتون (×24)
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="add-unit-custom-btn"
+                      onClick={() =>
+                        setProductUnits((prev) => [
+                          ...prev,
+                          {
+                            id: `uom-${Date.now()}-c`,
+                            unitNameAr: 'شد',
+                            conversionFactor: 6,
+                            salePrice: Math.round((Number(salePrice) || 0) * 6 * 100) / 100,
+                            costPrice: Math.round((Number(costPrice) || 0) * 6 * 100) / 100,
+                            barcode: '',
+                          },
+                        ])
+                      }
+                      className="px-2 py-1 rounded-lg haseb-btn-primary text-white text-[10px] font-bold cursor-pointer"
+                    >
+                      + وحدة مخصصة
+                    </button>
+                  </div>
+                </div>
+
+                {productUnits.length > 0 && (
+                  <div className="space-y-1.5 pt-1">
+                    {productUnits.map((unitRow, idx) => (
+                      <div
+                        key={unitRow.id}
+                        className="grid grid-cols-12 gap-1.5 items-center bg-white p-2 rounded-lg border border-slate-200"
+                      >
+                        <input
+                          type="text"
+                          value={unitRow.unitNameAr}
+                          onChange={(e) =>
+                            setProductUnits((prev) =>
+                              prev.map((u, i) => (i === idx ? { ...u, unitNameAr: e.target.value } : u))
+                            )
+                          }
+                          placeholder="اسم الوحدة (كرتون)"
+                          className="col-span-3 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-[11px] font-bold"
+                        />
+                        <input
+                          type="number"
+                          min="0.01"
+                          step="any"
+                          value={unitRow.conversionFactor}
+                          onChange={(e) =>
+                            setProductUnits((prev) =>
+                              prev.map((u, i) =>
+                                i === idx ? { ...u, conversionFactor: Number(e.target.value) } : u
+                              )
+                            )
+                          }
+                          placeholder="المعامل"
+                          title="معامل التحويل (كم وحدة أساسية)"
+                          className="col-span-2 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-[11px] font-mono font-bold"
+                        />
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={unitRow.salePrice}
+                          onChange={(e) =>
+                            setProductUnits((prev) =>
+                              prev.map((u, i) => (i === idx ? { ...u, salePrice: Number(e.target.value) } : u))
+                            )
+                          }
+                          placeholder="سعر البيع"
+                          title="سعر بيع الوحدة"
+                          className="col-span-3 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-[11px] font-mono font-bold"
+                        />
+                        <input
+                          type="text"
+                          value={unitRow.barcode || ''}
+                          onChange={(e) =>
+                            setProductUnits((prev) =>
+                              prev.map((u, i) => (i === idx ? { ...u, barcode: e.target.value } : u))
+                            )
+                          }
+                          placeholder="باركود الوحدة"
+                          className="col-span-3 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-[10px] font-mono"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setProductUnits((prev) => prev.filter((_, i) => i !== idx))
+                          }
+                          className="col-span-1 h-7 rounded bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs cursor-pointer"
+                          title="حذف الوحدة"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-200 space-y-2.5">

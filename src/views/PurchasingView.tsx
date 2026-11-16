@@ -12,9 +12,15 @@ import {
   Package,
   Calculator,
   Camera,
+  Undo2,
+  PackageCheck,
 } from 'lucide-react';
 import { CameraBarcodeScannerModal } from '../components/common/CameraBarcodeScannerModal';
 import { allocateLandedCost } from '../core/inventoryEngine';
+import {
+  getAllProductUnitChoices,
+  resolveProductUnitOption,
+} from '../core/multiUnitAndProcurementEngine';
 
 export const PurchasingView: React.FC = () => {
   const {
@@ -22,9 +28,13 @@ export const PurchasingView: React.FC = () => {
     addSupplier,
     recordSupplierPaymentVoucher,
     purchaseOrders,
+    goodsReceipts,
+    purchaseReturns,
     products,
     addPurchaseOrder,
     approvePurchaseOrder,
+    receivePurchaseOrderPartial,
+    createPurchaseReturn,
     applyLandedCostToProducts,
     currentWarehouse,
     currency,
@@ -32,9 +42,23 @@ export const PurchasingView: React.FC = () => {
     currentTenant,
   } = useERP();
 
-  const [activeTab, setActiveTab] = useState<'orders' | 'suppliers' | 'landedCost'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'grn_returns' | 'suppliers' | 'landedCost'>('orders');
   const [isNewPOModalOpen, setIsNewPOModalOpen] = useState(false);
   const [purchasingBanner, setPurchasingBanner] = useState<string | null>(null);
+
+  // Partial GRN Modal State
+  const [grnModalPoId, setGrnModalPoId] = useState<string | null>(null);
+  const [grnQuantities, setGrnQuantities] = useState<Record<string, number>>({});
+  const [grnNotes, setGrnNotes] = useState('');
+
+  // Purchase Return Form State
+  const [prSupplierId, setPrSupplierId] = useState<string>(suppliers[0]?.id || '');
+  const [prPoId, setPrPoId] = useState<string>('');
+  const [prProductId, setPrProductId] = useState<string>(products[0]?.id || '');
+  const [prUnitName, setPrUnitName] = useState<string>('');
+  const [prQty, setPrQty] = useState<number>(1);
+  const [prUnitCost, setPrUnitCost] = useState<number>(products[0]?.costPrice || 100);
+  const [prReason, setPrReason] = useState<string>('تلف أو عدم مطابقة مواصفات التوريد');
 
   // Supplier Payment Voucher State
   const [spvSupplierId, setSpvSupplierId] = useState<string>(suppliers[0]?.id || '');
@@ -45,6 +69,7 @@ export const PurchasingView: React.FC = () => {
   // New PO State
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>(suppliers[0]?.id || '');
   const [selectedProductId, setSelectedProductId] = useState<string>(products[0]?.id || '');
+  const [selectedPoUnitName, setSelectedPoUnitName] = useState<string>('');
   const [orderQty, setOrderQty] = useState(50);
   const [unitCost, setUnitCost] = useState(products[0]?.costPrice || 100);
   const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
@@ -52,6 +77,7 @@ export const PurchasingView: React.FC = () => {
   const handleCameraBarcodeScan = (scannedCode: string, matchedProduct?: any, qty = 1) => {
     if (matchedProduct) {
       setSelectedProductId(matchedProduct.id);
+      setSelectedPoUnitName('');
       setUnitCost(matchedProduct.costPrice);
       setPurchasingBanner(`تم تحديد الصنف المطلوب توريده بالكاميرا: ${matchedProduct.nameAr || matchedProduct.name}`);
     } else {
@@ -67,9 +93,42 @@ export const PurchasingView: React.FC = () => {
 
   const selectedSupplier = suppliers.find((s) => s.id === selectedSupplierId) || suppliers[0];
   const targetProduct = products.find((p) => p.id === selectedProductId) || products[0];
+  const activeGrnPO = purchaseOrders.find((p) => p.id === grnModalPoId) || null;
+  const targetPrProduct = products.find((p) => p.id === prProductId) || products[0];
+
+  const openPartialGrnModal = (poId: string) => {
+    const po = purchaseOrders.find((p) => p.id === poId);
+    if (!po) return;
+    const initialMap: Record<string, number> = {};
+    po.items.forEach((it) => {
+      const rem = Math.max(0, Math.round((it.quantity - (it.receivedQty || 0)) * 1000) / 1000);
+      initialMap[it.productId] = rem;
+    });
+    setGrnQuantities(initialMap);
+    setGrnNotes('');
+    setGrnModalPoId(po.id);
+  };
+
+  const handleSubmitPartialGrn = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeGrnPO) return;
+    const lines = activeGrnPO.items.map((it) => ({
+      productId: it.productId,
+      receiveQty: Number(grnQuantities[it.productId] || 0),
+    }));
+    const res = receivePurchaseOrderPartial(activeGrnPO.id, lines, grnNotes);
+    if (res.success) {
+      setPurchasingBanner(res.messageAr || 'تم استلام الدفعة المخزنية بنجاح.');
+      setGrnModalPoId(null);
+    } else {
+      setPurchasingBanner(res.messageAr || 'تعذر تنفيذ الاستلام الجزئي.');
+    }
+  };
 
   const handleCreatePO = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedSupplier || !targetProduct) return;
+    const resolvedUnit = resolveProductUnitOption(targetProduct, selectedPoUnitName);
     const subtotal = orderQty * unitCost;
     const taxAmount = subtotal * 0.15;
     const total = subtotal + taxAmount;
@@ -77,15 +136,18 @@ export const PurchasingView: React.FC = () => {
     addPurchaseOrder({
       tenantId: currentTenant.id,
       supplierId: selectedSupplier.id,
-      supplierName: selectedSupplier.name,
+      supplierName: selectedSupplier.nameAr || selectedSupplier.name,
       orderDate: new Date().toISOString().split('T')[0],
       expectedDate: new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0],
       items: [
         {
           productId: targetProduct.id,
-          productName: targetProduct.name,
+          productName: targetProduct.nameAr || targetProduct.name,
           sku: targetProduct.sku,
           quantity: orderQty,
+          receivedQty: 0,
+          unitName: resolvedUnit.unitNameAr,
+          conversionFactor: resolvedUnit.conversionFactor,
           unitCost,
           taxRate: 0.15,
           taxAmount,
@@ -136,7 +198,7 @@ export const PurchasingView: React.FC = () => {
 
         <div className="flex flex-wrap items-center gap-2">
           {/* Sub tabs (POS Rounded-Full Pills) */}
-          <div className="flex items-center gap-1.5 text-xs">
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
             <button
               type="button"
               onClick={() => setActiveTab('orders')}
@@ -147,6 +209,19 @@ export const PurchasingView: React.FC = () => {
               }`}
             >
               {language === 'ar' ? 'أوامر الشراء' : 'Purchase Orders'}
+            </button>
+            <button
+              type="button"
+              data-testid="tab-grn-returns"
+              onClick={() => setActiveTab('grn_returns')}
+              className={`px-3.5 py-1.5 rounded-full border transition cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'grn_returns'
+                  ? 'haseb-nav-active text-white font-semibold shadow-2xs'
+                  : 'bg-white text-slate-600 border-slate-200/80 hover:border-slate-300 font-medium'
+              }`}
+            >
+              <PackageCheck className="w-3.5 h-3.5" />
+              <span>{language === 'ar' ? 'الاستلام الجزئي والمرتجعات' : 'GRN & Returns'}</span>
             </button>
             <button
               type="button"
@@ -243,6 +318,7 @@ export const PurchasingView: React.FC = () => {
                 ) : (
                   purchaseOrders.map((po) => {
                     const isReceived = po.status === 'RECEIVED';
+                    const isPartial = po.status === 'PARTIALLY_RECEIVED';
                     return (
                       <tr key={po.id} className="hover:bg-slate-50/70 transition">
                         <td className="py-3 px-4">
@@ -255,7 +331,12 @@ export const PurchasingView: React.FC = () => {
                         <td className="py-3 px-4">
                           {po.items.map((item, idx) => (
                             <div key={idx} className="font-medium text-slate-700">
-                              {item.quantity}x {item.productName} ({item.unitCost} {currency})
+                              {item.quantity} {item.unitName || ''} × {item.productName} ({item.unitCost} {currency})
+                              {(item.receivedQty || 0) > 0 && (
+                                <span className="ms-1.5 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                                  مستلم: {item.receivedQty}/{item.quantity}
+                                </span>
+                              )}
                             </div>
                           ))}
                         </td>
@@ -273,31 +354,47 @@ export const PurchasingView: React.FC = () => {
                             className={`inline-block px-2.5 py-0.5 rounded border text-[11px] font-semibold ${
                               isReceived
                                 ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                : isPartial
+                                ? 'bg-amber-50 text-amber-800 border-amber-200'
                                 : 'bg-blue-50 text-blue-800 border-blue-200'
                             }`}
                           >
                             {isReceived
                               ? (language === 'ar' ? 'تم الاستلام والترحيل' : 'Received')
+                              : isPartial
+                              ? (language === 'ar' ? 'مستلم جزئياً (GRN)' : 'Partially Received')
                               : (language === 'ar' ? 'معتمد وقيد الشحن' : 'Approved')}
                           </span>
                         </td>
                         <td className="py-3 px-4 text-center">
                           {!isReceived && (
-                            <button
-                              type="button"
-                              data-testid={`btn-receive-po-${po.id}`}
-                              onClick={() => {
-                                const res = approvePurchaseOrder(po.id);
-                                if (res?.success) {
-                                  setPurchasingBanner(
-                                    `تم استلام بضاعة أمر الشراء (${po.poNumber}) في المستودع وتحديث ذمة المورد وترحيل القيد المحاسبي (${res.entryNumber}) بنجاح.`
-                                  );
-                                }
-                              }}
-                              className="haseb-btn-primary text-white font-semibold text-[11px] px-2.5 py-1 rounded transition cursor-pointer"
-                            >
-                              {language === 'ar' ? 'استلام المخزون وترحيل الفاتورة' : 'Receive Goods'}
-                            </button>
+                            <div className="flex flex-wrap items-center justify-center gap-1.5">
+                              <button
+                                type="button"
+                                data-testid={`btn-partial-grn-${po.id}`}
+                                onClick={() => openPartialGrnModal(po.id)}
+                                className="px-2.5 py-1 rounded bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-semibold text-[11px] transition cursor-pointer"
+                              >
+                                {language === 'ar' ? 'استلام جزئي (GRN)' : 'Partial GRN'}
+                              </button>
+                              {!isPartial && (
+                                <button
+                                  type="button"
+                                  data-testid={`btn-receive-po-${po.id}`}
+                                  onClick={() => {
+                                    const res = approvePurchaseOrder(po.id);
+                                    if (res?.success) {
+                                      setPurchasingBanner(
+                                        `تم استلام بضاعة أمر الشراء (${po.poNumber}) بالكامل في المستودع وتحديث ذمة المورد وترحيل القيد المحاسبي (${res.entryNumber}) بنجاح.`
+                                      );
+                                    }
+                                  }}
+                                  className="haseb-btn-primary text-white font-semibold text-[11px] px-2.5 py-1 rounded transition cursor-pointer"
+                                >
+                                  {language === 'ar' ? 'استلام كلي' : 'Receive All'}
+                                </button>
+                              )}
+                            </div>
                           )}
                         </td>
                       </tr>
@@ -306,6 +403,248 @@ export const PurchasingView: React.FC = () => {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Partial GRN & Purchase Returns Tab */}
+      {activeTab === 'grn_returns' && (
+        <div className="space-y-4">
+          {/* Purchase Return Form (مرتجع مشتريات / إشعار مدين للمورد) */}
+          <div className="bg-white p-5 rounded-xl border border-slate-200 space-y-3">
+            <div className="border-b border-slate-100 pb-3">
+              <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                <Undo2 className="w-4 h-4 text-rose-600" />
+                إصدار مرتجع مشتريات / إشعار مدين للمورد (Purchase Return & Debit Note)
+              </h3>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                يتم خصم الكمية من رصيد المستودع وتخفيض ذمة المورد الدائنة وترحيل قيد يومية عكسي متوازن تلقائياً
+              </p>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const effectiveSupplierId = prSupplierId || suppliers[0]?.id || '';
+                const effectiveProductId = prProductId || products[0]?.id || '';
+                const linkedPo = purchaseOrders.find((p) => p.id === prPoId);
+                const res = createPurchaseReturn({
+                  supplierId: effectiveSupplierId,
+                  purchaseOrderId: linkedPo?.id,
+                  poNumber: linkedPo?.poNumber,
+                  reason: prReason,
+                  returnLines: [
+                    {
+                      productId: effectiveProductId,
+                      quantity: Number(prQty) || 0,
+                      unitName: prUnitName || undefined,
+                      unitCost: Number(prUnitCost) || 0,
+                      taxRate: 0.15,
+                    },
+                  ],
+                });
+                setPurchasingBanner(res.messageAr || null);
+              }}
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 items-end text-xs"
+            >
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">المورد</label>
+                <select
+                  data-testid="pr-supplier-select"
+                  value={prSupplierId || suppliers[0]?.id || ''}
+                  onChange={(e) => setPrSupplierId(e.target.value)}
+                  className="w-full p-2 rounded-lg border border-slate-300 bg-white"
+                >
+                  {suppliers.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.nameAr || s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">الصنف المرتجع</label>
+                <select
+                  data-testid="pr-product-select"
+                  value={prProductId || products[0]?.id || ''}
+                  onChange={(e) => {
+                    const p = products.find((x) => x.id === e.target.value);
+                    setPrProductId(e.target.value);
+                    setPrUnitName('');
+                    if (p) setPrUnitCost(p.costPrice);
+                  }}
+                  className="w-full p-2 rounded-lg border border-slate-300 bg-white"
+                >
+                  {products.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.nameAr || p.name} (متاح: {p.stockQty})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">الوحدة</label>
+                <select
+                  value={prUnitName}
+                  onChange={(e) => {
+                    setPrUnitName(e.target.value);
+                    if (targetPrProduct) {
+                      const resolved = resolveProductUnitOption(targetPrProduct, e.target.value);
+                      setPrUnitCost(resolved.costPrice);
+                    }
+                  }}
+                  className="w-full p-2 rounded-lg border border-slate-300 bg-white"
+                >
+                  {targetPrProduct ? (
+                    getAllProductUnitChoices(targetPrProduct).map((u) => (
+                      <option key={u.unitId} value={u.unitNameAr}>
+                        {u.unitNameAr} (×{u.conversionFactor})
+                      </option>
+                    ))
+                  ) : (
+                    <option value="">حبة (×1)</option>
+                  )}
+                </select>
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">كمية المرتجع</label>
+                <input
+                  data-testid="pr-qty-input"
+                  type="number"
+                  min={0.01}
+                  step="any"
+                  required
+                  value={prQty}
+                  onChange={(e) => setPrQty(Number(e.target.value))}
+                  className="w-full p-2 rounded-lg border border-slate-300 font-mono font-bold"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">سبب الإرجاع</label>
+                <input
+                  type="text"
+                  value={prReason}
+                  onChange={(e) => setPrReason(e.target.value)}
+                  placeholder="سبب المرتجع..."
+                  className="w-full p-2 rounded-lg border border-slate-300"
+                />
+              </div>
+              <button
+                type="submit"
+                data-testid="btn-submit-purchase-return"
+                disabled={suppliers.length === 0 || products.length === 0}
+                className="py-2.5 px-4 bg-rose-600 hover:bg-rose-700 disabled:opacity-40 text-white font-bold rounded-lg transition cursor-pointer"
+              >
+                ترحيل مرتجع مشتريات
+              </button>
+            </form>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* GRN History */}
+            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                <span className="font-bold text-xs text-slate-800">
+                  سجل سندات الاستلام المخزني الجزئي (GRN)
+                </span>
+                <span className="text-[11px] font-mono font-bold text-emerald-700">
+                  {goodsReceipts.length} سند
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-start">
+                  <thead className="bg-slate-50/70 text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th className="py-2 px-3 text-start">رقم GRN</th>
+                      <th className="py-2 px-3 text-start">أمر الشراء / المورد</th>
+                      <th className="py-2 px-3 text-end">الإجمالي</th>
+                      <th className="py-2 px-3 text-center">القيد</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {goodsReceipts.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="py-8 text-center text-slate-400">
+                          لا توجد سندات استلام جزئي مسجلة بعد
+                        </td>
+                      </tr>
+                    ) : (
+                      goodsReceipts.map((grn) => (
+                        <tr key={grn.id}>
+                          <td className="py-2 px-3 font-mono font-bold text-slate-900">
+                            {grn.grnNumber}
+                            <div className="text-[10px] text-slate-400">{grn.receiptDate}</div>
+                          </td>
+                          <td className="py-2 px-3">
+                            <div className="font-bold text-slate-800">{grn.poNumber}</div>
+                            <div className="text-[10px] text-slate-500">{grn.supplierName}</div>
+                          </td>
+                          <td className="py-2 px-3 text-end font-mono font-bold text-emerald-700">
+                            {grn.total.toLocaleString()} {currency}
+                          </td>
+                          <td className="py-2 px-3 text-center font-mono text-[10px] text-slate-600">
+                            {grn.journalEntryNumber || '—'}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Purchase Returns History */}
+            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                <span className="font-bold text-xs text-slate-800">
+                  سجل مرتجعات المشتريات والإشعارات المدينة
+                </span>
+                <span className="text-[11px] font-mono font-bold text-rose-700">
+                  {purchaseReturns.length} مرتجع
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-start">
+                  <thead className="bg-slate-50/70 text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th className="py-2 px-3 text-start">رقم المرتجع</th>
+                      <th className="py-2 px-3 text-start">المورد / الصنف</th>
+                      <th className="py-2 px-3 text-end">قيمة الخصم</th>
+                      <th className="py-2 px-3 text-center">القيد</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {purchaseReturns.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="py-8 text-center text-slate-400">
+                          لا توجد مرتجعات مشتريات مسجلة بعد
+                        </td>
+                      </tr>
+                    ) : (
+                      purchaseReturns.map((prn) => (
+                        <tr key={prn.id}>
+                          <td className="py-2 px-3 font-mono font-bold text-rose-800">
+                            {prn.returnNumber}
+                            <div className="text-[10px] text-slate-400">{prn.returnDate}</div>
+                          </td>
+                          <td className="py-2 px-3">
+                            <div className="font-bold text-slate-800">{prn.supplierName}</div>
+                            <div className="text-[10px] text-slate-500">
+                              {prn.lines.map((l) => `${l.quantity} ${l.unitName || ''} × ${l.productName}`).join('، ')}
+                            </div>
+                          </td>
+                          <td className="py-2 px-3 text-end font-mono font-bold text-rose-700">
+                            -{prn.total.toLocaleString()} {currency}
+                          </td>
+                          <td className="py-2 px-3 text-center font-mono text-[10px] text-slate-600">
+                            {prn.journalEntryNumber || '—'}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -647,6 +986,7 @@ export const PurchasingView: React.FC = () => {
                     value={selectedProductId}
                     onChange={(e) => {
                       setSelectedProductId(e.target.value);
+                      setSelectedPoUnitName('');
                       const p = products.find((x) => x.id === e.target.value);
                       if (p) setUnitCost(p.costPrice);
                     }}
@@ -670,6 +1010,29 @@ export const PurchasingView: React.FC = () => {
                   </button>
                 </div>
               </div>
+
+              {targetProduct && targetProduct.units && targetProduct.units.length > 0 && (
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    وحدة التوريد (معامل التحويل للمستودع)
+                  </label>
+                  <select
+                    value={selectedPoUnitName}
+                    onChange={(e) => {
+                      setSelectedPoUnitName(e.target.value);
+                      const resolved = resolveProductUnitOption(targetProduct, e.target.value);
+                      setUnitCost(resolved.costPrice);
+                    }}
+                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-hidden font-bold"
+                  >
+                    {getAllProductUnitChoices(targetProduct).map((u) => (
+                      <option key={u.unitId} value={u.unitNameAr}>
+                        {u.unitNameAr} (يعادل {u.conversionFactor} وحدة أساسية)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -743,6 +1106,98 @@ export const PurchasingView: React.FC = () => {
           contextMode="PURCHASING"
           title="مسح الباركود والكود بالكاميرا - المشتريات والتوريد"
         />
+      )}
+
+      {/* Partial Goods Receipt Note (GRN) Modal */}
+      {activeGrnPO && (
+        <div
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setGrnModalPoId(null);
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4"
+        >
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden">
+            <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-sm text-slate-900">
+                  سند استلام مخزني جزئي (GRN) — {activeGrnPO.poNumber}
+                </h3>
+                <p className="text-[11px] text-slate-500">المورد: {activeGrnPO.supplierName}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setGrnModalPoId(null)}
+                className="w-8 h-8 rounded-full border border-slate-200 bg-white hover:bg-slate-100 text-slate-500 flex items-center justify-center font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            <form onSubmit={handleSubmitPartialGrn} className="p-5 space-y-3 text-xs">
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {activeGrnPO.items.map((item) => {
+                  const already = item.receivedQty || 0;
+                  const remaining = Math.max(0, Math.round((item.quantity - already) * 1000) / 1000);
+                  return (
+                    <div
+                      key={item.productId}
+                      className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-bold text-slate-900 truncate">{item.productName}</div>
+                        <div className="text-[10.5px] text-slate-500 font-mono">
+                          المطلوب: {item.quantity} {item.unitName || ''} • مستلم سابقاً: {already} • المتبقي: {remaining}
+                        </div>
+                      </div>
+                      <input
+                        data-testid={`grn-qty-input-${item.productId}`}
+                        type="number"
+                        min={0}
+                        max={remaining}
+                        step="any"
+                        value={grnQuantities[item.productId] ?? remaining}
+                        onChange={(e) =>
+                          setGrnQuantities((prev) => ({
+                            ...prev,
+                            [item.productId]: Number(e.target.value),
+                          }))
+                        }
+                        className="w-24 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white font-mono font-bold text-center"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">ملاحظات الدفعة (اختياري)</label>
+                <input
+                  type="text"
+                  value={grnNotes}
+                  onChange={(e) => setGrnNotes(e.target.value)}
+                  placeholder="مثال: استلام الدفعة الأولى بموجب بوليصة شحن #442"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setGrnModalPoId(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="submit"
+                  data-testid="btn-confirm-partial-grn"
+                  className="px-4 py-2 rounded-xl haseb-btn-primary text-white font-bold cursor-pointer"
+                >
+                  اعتماد سند الاستلام (GRN) وترحيل القيد
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );
