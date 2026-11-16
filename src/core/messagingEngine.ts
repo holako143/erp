@@ -488,3 +488,63 @@ export function composeExecutiveReportMessageText(params: {
     `تم التوليد والإرسال آلياً من نظام RLM ERP المؤسسي ✅`,
   ].join('\n');
 }
+
+/**
+ * Replaces personalization placeholders across SMS and WhatsApp templates.
+ */
+export function personalizeMessagingTemplate(
+  template: string,
+  vars: {
+    customerName?: string;
+    companyName?: string;
+    balanceFormatted?: string;
+    currency?: string;
+    phone?: string;
+    dateIso?: string;
+  }
+): string {
+  const dateIso = vars.dateIso || new Date().toISOString().slice(0, 10);
+  return (template || '')
+    .replace(/\{العميل\}/g, vars.customerName || 'عميلنا الكريم')
+    .replace(/\{الشركة\}/g, vars.companyName || 'منشأتنا')
+    .replace(/\{الرصيد\}/g, vars.balanceFormatted || '0')
+    .replace(/\{العملة\}/g, vars.currency || '')
+    .replace(/\{الهاتف\}/g, vars.phone || '')
+    .replace(/\{التاريخ\}/g, dateIso);
+}
+
+/**
+ * Composes a concise single-segment SMS OTP / verification message.
+ */
+export function composeOtpVerificationSmsText(params: {
+  customerName: string;
+  otpCode: string;
+  companyName: string;
+  expiryMinutes?: number;
+}): string {
+  const minutes = Math.max(1, params.expiryMinutes ?? 10);
+  return `${params.companyName}: رمز التحقق الخاص بك يا ${params.customerName} هو (${params.otpCode}). صالح لمدة ${minutes} دقائق.`;
+}
+
+/**
+ * Composes a compact POS shift handover & cash drawer summary SMS.
+ */
+export function composeShiftSummarySmsText(params: {
+  cashierName: string;
+  branchName: string;
+  totalSales: number;
+  expectedCash: number;
+  transactionCount: number;
+  companyName: string;
+  currency: string;
+  dateIso?: string;
+}): string {
+  const dateIso = params.dateIso || new Date().toISOString().slice(0, 10);
+  return [
+    `ملخص الوردية — ${params.companyName} (${params.branchName})`,
+    `التاريخ: ${dateIso} | الكاشير: ${params.cashierName}`,
+    `المبيعات (${params.transactionCount} فاتورة): ${params.totalSales.toLocaleString()} ${params.currency}`,
+    `نقدية الدرج المتوقعة: ${params.expectedCash.toLocaleString()} ${params.currency}`,
+  ].join('\n');
+}
+

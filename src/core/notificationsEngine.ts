@@ -668,3 +668,243 @@ export async function triggerNativeBrowserNotification(payload: {
   }
 }
 
+export type NotificationUiThemeId =
+  | 'corporate_slate'
+  | 'swiss_light'
+  | 'haseb_royal'
+  | 'haseb_sand'
+  | 'obsidian_dark';
+
+export interface ThemeToastAppearance {
+  themeId: NotificationUiThemeId;
+  isDarkSurface: boolean;
+  isWarmSurface: boolean;
+  surfaceClass: string;
+  accentBarClass: string;
+  iconWrapperClass: string;
+  titleClass: string;
+  bodyClass: string;
+  actionButtonClass: string;
+  dismissButtonClass: string;
+  badgeClass: string;
+  badgeLabelAr: string;
+  badgeLabelEn: string;
+}
+
+/**
+ * Resolves theme-adaptive styling tokens for real-time toasts and security banners
+ * so alerts harmonize cleanly with all 5 ERP system themes instead of hardcoded dark slate.
+ */
+export function getThemeToastAppearance(
+  uiTheme: NotificationUiThemeId | string,
+  severity: NotificationSeverity
+): ThemeToastAppearance {
+  const themeId: NotificationUiThemeId =
+    uiTheme === 'swiss_light' ||
+    uiTheme === 'haseb_royal' ||
+    uiTheme === 'haseb_sand' ||
+    uiTheme === 'obsidian_dark'
+      ? uiTheme
+      : 'corporate_slate';
+
+  const isDarkSurface = themeId === 'obsidian_dark';
+  const isWarmSurface = themeId === 'haseb_sand';
+
+  const badgeMeta: Record<NotificationSeverity, { ar: string; en: string }> = {
+    critical: { ar: 'عاجل', en: 'Critical' },
+    warning: { ar: 'تنبيه', en: 'Warning' },
+    success: { ar: 'مكتمل', en: 'Done' },
+    info: { ar: 'إشعار', en: 'Notice' },
+  };
+
+  if (severity === 'critical') {
+    return {
+      themeId,
+      isDarkSurface,
+      isWarmSurface,
+      surfaceClass:
+        'bg-[var(--erp-bg-surface)] text-[var(--erp-text-primary)] border-rose-500/45 shadow-2xl',
+      accentBarClass: 'bg-gradient-to-r from-rose-600 via-red-500 to-rose-500',
+      iconWrapperClass: isDarkSurface
+        ? 'bg-rose-500/20 border-rose-400/35 text-rose-300'
+        : 'bg-rose-50 border-rose-200 text-rose-600',
+      titleClass: 'text-[var(--erp-text-primary)]',
+      bodyClass: 'text-[var(--erp-text-secondary)]',
+      actionButtonClass: isDarkSurface
+        ? 'text-rose-300 hover:text-rose-200'
+        : 'text-rose-700 hover:text-rose-800',
+      dismissButtonClass:
+        'text-[var(--erp-text-secondary)] hover:text-[var(--erp-text-primary)] hover:bg-[var(--erp-bg-elevated)]',
+      badgeClass: isDarkSurface
+        ? 'bg-rose-500/20 text-rose-200 border border-rose-400/30'
+        : 'bg-rose-50 text-rose-700 border border-rose-200',
+      badgeLabelAr: badgeMeta.critical.ar,
+      badgeLabelEn: badgeMeta.critical.en,
+    };
+  }
+
+  if (severity === 'warning') {
+    return {
+      themeId,
+      isDarkSurface,
+      isWarmSurface,
+      surfaceClass:
+        'bg-[var(--erp-bg-surface)] text-[var(--erp-text-primary)] border-amber-500/45 shadow-2xl',
+      accentBarClass: 'bg-gradient-to-r from-amber-600 via-orange-500 to-amber-500',
+      iconWrapperClass: isDarkSurface
+        ? 'bg-amber-500/20 border-amber-400/35 text-amber-300'
+        : 'bg-amber-50 border-amber-200 text-amber-700',
+      titleClass: 'text-[var(--erp-text-primary)]',
+      bodyClass: 'text-[var(--erp-text-secondary)]',
+      actionButtonClass: isDarkSurface
+        ? 'text-amber-300 hover:text-amber-200'
+        : 'text-amber-800 hover:text-amber-900',
+      dismissButtonClass:
+        'text-[var(--erp-text-secondary)] hover:text-[var(--erp-text-primary)] hover:bg-[var(--erp-bg-elevated)]',
+      badgeClass: isDarkSurface
+        ? 'bg-amber-500/20 text-amber-200 border border-amber-400/30'
+        : 'bg-amber-50 text-amber-800 border border-amber-200',
+      badgeLabelAr: badgeMeta.warning.ar,
+      badgeLabelEn: badgeMeta.warning.en,
+    };
+  }
+
+  // info / success honor the active theme accent & palette cleanly
+  const themeAccentByTheme: Record<
+    NotificationUiThemeId,
+    { bar: string; icon: string; badge: string; action: string }
+  > = {
+    corporate_slate: {
+      bar: severity === 'success' ? 'bg-gradient-to-r from-emerald-600 to-teal-500' : 'bg-[image:var(--haseb-grad-primary)]',
+      icon:
+        severity === 'success'
+          ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+          : 'bg-blue-50 border-blue-200 text-blue-700',
+      badge:
+        severity === 'success'
+          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+          : 'bg-blue-50 text-blue-700 border border-blue-200',
+      action: severity === 'success' ? 'text-emerald-700 hover:text-emerald-800' : 'text-blue-700 hover:text-blue-800',
+    },
+    haseb_royal: {
+      bar: 'bg-[image:var(--haseb-grad-primary)]',
+      icon: 'bg-indigo-50 border-indigo-200 text-indigo-700',
+      badge: 'bg-indigo-50 text-indigo-700 border border-indigo-200',
+      action: 'text-indigo-700 hover:text-indigo-800',
+    },
+    swiss_light: {
+      bar: 'bg-[image:var(--haseb-grad-primary)]',
+      icon: 'bg-sky-50 border-sky-200 text-sky-700',
+      badge: 'bg-sky-50 text-sky-700 border border-sky-200',
+      action: 'text-sky-700 hover:text-sky-800',
+    },
+    haseb_sand: {
+      bar: 'bg-[image:var(--haseb-grad-primary)]',
+      icon: 'bg-amber-100/90 border-amber-300 text-amber-900',
+      badge: 'bg-amber-100/90 text-amber-900 border border-amber-300',
+      action: 'text-amber-900 hover:text-amber-950',
+    },
+    obsidian_dark: {
+      bar: 'bg-[image:var(--haseb-grad-primary)]',
+      icon:
+        severity === 'success'
+          ? 'bg-sky-500/20 border-sky-400/35 text-sky-300'
+          : 'bg-blue-500/20 border-blue-400/35 text-blue-300',
+      badge:
+        severity === 'success'
+          ? 'bg-sky-500/20 text-sky-200 border border-sky-400/30'
+          : 'bg-blue-500/20 text-blue-200 border border-blue-400/30',
+      action: 'text-sky-300 hover:text-sky-200',
+    },
+  };
+
+  const accent = themeAccentByTheme[themeId];
+  return {
+    themeId,
+    isDarkSurface,
+    isWarmSurface,
+    surfaceClass:
+      'bg-[var(--erp-bg-surface)] text-[var(--erp-text-primary)] border-[var(--erp-border)] shadow-2xl',
+    accentBarClass: accent.bar,
+    iconWrapperClass: accent.icon,
+    titleClass: 'text-[var(--erp-text-primary)]',
+    bodyClass: 'text-[var(--erp-text-secondary)]',
+    actionButtonClass: accent.action,
+    dismissButtonClass:
+      'text-[var(--erp-text-secondary)] hover:text-[var(--erp-text-primary)] hover:bg-[var(--erp-bg-elevated)]',
+    badgeClass: accent.badge,
+    badgeLabelAr: severity === 'success' ? badgeMeta.success.ar : badgeMeta.info.ar,
+    badgeLabelEn: severity === 'success' ? badgeMeta.success.en : badgeMeta.info.en,
+  };
+}
+
+/**
+ * Adds a toast notification to the active stack while keeping it bounded and deduplicated.
+ */
+export function enqueueToastNotification(
+  queue: RemoteSyncToastSpec[],
+  spec: RemoteSyncToastSpec,
+  maxItems = 3
+): RemoteSyncToastSpec[] {
+  const limit = Math.max(1, maxItems);
+  const filtered = queue.filter((item) => item.id !== spec.id);
+  return [spec, ...filtered].slice(0, limit);
+}
+
+/**
+ * Removes a dismissed toast notification by ID.
+ */
+export function dismissToastFromQueue(
+  queue: RemoteSyncToastSpec[],
+  toastId?: string
+): RemoteSyncToastSpec[] {
+  if (!toastId) return queue.slice(1);
+  return queue.filter((item) => item.id !== toastId);
+}
+
+const SEVERITY_SORT_RANK: Record<NotificationSeverity, number> = {
+  critical: 0,
+  warning: 1,
+  info: 2,
+  success: 3,
+};
+
+/**
+ * Filters system notifications by category, unread state, and search text,
+ * placing unread high-severity items first.
+ */
+export function filterAndSortSystemNotifications(
+  notifications: SystemNotification[],
+  options: {
+    category?: SystemNotificationCategory;
+    query?: string;
+    unreadOnly?: boolean;
+  } = {}
+): SystemNotification[] {
+  const category = options.category || 'ALL';
+  const query = (options.query || '').trim().toLowerCase();
+  const unreadOnly = Boolean(options.unreadOnly);
+
+  return notifications
+    .filter((n) => {
+      if (category !== 'ALL' && n.category !== category) return false;
+      if (unreadOnly && n.isRead) return false;
+      if (!query) return true;
+      return (
+        (n.titleAr || '').toLowerCase().includes(query) ||
+        (n.titleEn || '').toLowerCase().includes(query) ||
+        (n.messageAr || '').toLowerCase().includes(query) ||
+        (n.messageEn || '').toLowerCase().includes(query)
+      );
+    })
+    .slice()
+    .sort((a, b) => {
+      if (a.isRead !== b.isRead) return a.isRead ? 1 : -1;
+      const rankDiff =
+        (SEVERITY_SORT_RANK[a.severity] ?? 9) - (SEVERITY_SORT_RANK[b.severity] ?? 9);
+      if (rankDiff !== 0) return rankDiff;
+      return (b.timestamp || '').localeCompare(a.timestamp || '');
+    });
+}
+
+

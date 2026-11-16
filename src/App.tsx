@@ -24,6 +24,7 @@ import {
   WifiOff,
 } from 'lucide-react';
 import { HasebBrandLogo } from './components/common/HasebBrandLogo';
+import { ThemeToastStack } from './components/common/ThemeToastStack';
 import { computeFooterSyncStatusMeta } from './core/realtimeSyncEngine';
 import { useAlertSound } from './hooks/useAlertSound';
 
@@ -167,7 +168,9 @@ const MainLayout: React.FC = () => {
     company,
     currentWarehouse,
     activeToastNotification,
+    toastQueue,
     dismissToastNotification,
+    pauseToastTimer,
     pendingSyncTransactionsCount,
     isServerSyncing,
     flushPendingSyncQueue,
@@ -530,66 +533,25 @@ const MainLayout: React.FC = () => {
 
   return (
     <>
-      {/* Live Anti-Theft Security Toast */}
-      {lastSecurityAlert && (
-        <div
-          data-testid="security-shield-toast"
-          className="fixed bottom-10 end-5 z-50 bg-slate-950 text-white border border-rose-500/80 px-4 py-2.5 rounded-lg shadow-xl flex items-center gap-2.5 text-xs font-semibold"
-        >
-          <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
-          <span>{lastSecurityAlert}</span>
-        </div>
-      )}
-
-
-      {/* Real-Time Multi-Device & Push Sync Toast Banner */}
-      {activeToastNotification && (
-        <div
-          data-testid="realtime-toast-banner"
-          className="fixed top-15 sm:top-16 end-3 start-3 sm:start-auto sm:max-w-sm z-50 bg-slate-950/95 backdrop-blur-md text-white border border-blue-500/60 px-3.5 py-2.5 rounded-2xl shadow-2xl flex items-start gap-2.5 animate-fade-in"
-        >
-          <div className="w-8 h-8 rounded-xl bg-blue-600/25 border border-blue-400/40 text-blue-300 flex items-center justify-center shrink-0 mt-0.5">
-            <BellRing className="w-4 h-4" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-xs font-bold text-white truncate">
-              {language === 'ar' ? activeToastNotification.titleAr : activeToastNotification.titleEn}
-            </div>
-            <p className="text-[11px] text-slate-300 leading-snug line-clamp-2 mt-0.5">
-              {language === 'ar' ? activeToastNotification.messageAr : activeToastNotification.messageEn}
-            </p>
-            {activeToastNotification.actionType && (
-              <button
-                type="button"
-                onClick={() => {
-                  const mapAction = activeToastNotification.actionType;
-                  if (mapAction === 'POS') setActiveTab('pos');
-                  else if (mapAction === 'SALES') setActiveTab('sales');
-                  else if (mapAction === 'INVENTORY' || mapAction === 'BRANCH_TRANSFERS') setActiveTab('inventory');
-                  else if (mapAction === 'PURCHASING') setActiveTab('purchasing');
-                  else if (mapAction === 'COMMUNICATIONS') setActiveTab('communications');
-                  else if (mapAction === 'SETTINGS') setActiveTab('settings');
-                  else if (mapAction === 'DEBTS') setActiveTab('accounting');
-                  dismissToastNotification();
-                }}
-                className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-bold text-emerald-300 hover:text-emerald-200 cursor-pointer"
-              >
-                <span>{language === 'ar' ? 'فتح القسم الآن' : 'Open now'}</span>
-                <ArrowUpLeft className="w-3 h-3" />
-              </button>
-            )}
-          </div>
-          <button
-            type="button"
-            data-testid="dismiss-realtime-toast-btn"
-            onClick={dismissToastNotification}
-            aria-label="إغلاق التنبيه"
-            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer shrink-0"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
+      <ThemeToastStack
+        uiTheme={uiTheme}
+        language={language}
+        toastQueue={toastQueue}
+        lastSecurityAlert={lastSecurityAlert}
+        onDismissToast={dismissToastNotification}
+        onPauseToastTimer={pauseToastTimer}
+        onNavigateAction={(mapAction) => {
+          if (mapAction === 'POS') setActiveTab('pos');
+          else if (mapAction === 'SALES') setActiveTab('sales');
+          else if (mapAction === 'INVENTORY' || mapAction === 'BRANCH_TRANSFERS') {
+            setActiveTab('inventory');
+          } else if (mapAction === 'PURCHASING') setActiveTab('purchasing');
+          else if (mapAction === 'COMMUNICATIONS') setActiveTab('communications');
+          else if (mapAction === 'SETTINGS') setActiveTab('settings');
+          else if (mapAction === 'DEBTS' || mapAction === 'BACKUP') setActiveTab('accounting');
+          else if (mapAction === 'MAINTENANCE') setActiveTab('businessModules');
+        }}
+      />
 
       {/* Mandatory 30-Day Trial, Single-Device Component Lock & Anti-Clock Rollback Gate */}
       <HardwareLockModal />

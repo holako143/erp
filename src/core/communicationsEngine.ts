@@ -578,21 +578,35 @@ export function calculateSmsParts(text: string): {
   partCount: number;
   isUnicode: boolean;
   maxPerPart: number;
+  remainingInCurrentPart: number;
+  currentLimit: number;
+  encodingLabel: 'GSM-7' | 'UTF-16';
 } {
   const isUnicode = /[^\u0000-\u007F]/.test(text);
   const charCount = text.length;
 
-  if (isUnicode) {
-    const maxSingle = 70;
-    const maxMulti = 67;
-    const partCount = charCount <= maxSingle ? (charCount === 0 ? 0 : 1) : Math.ceil(charCount / maxMulti);
-    return { charCount, partCount, isUnicode, maxPerPart: charCount <= maxSingle ? maxSingle : maxMulti };
-  } else {
-    const maxSingle = 160;
-    const maxMulti = 153;
-    const partCount = charCount <= maxSingle ? (charCount === 0 ? 0 : 1) : Math.ceil(charCount / maxMulti);
-    return { charCount, partCount, isUnicode, maxPerPart: charCount <= maxSingle ? maxSingle : maxMulti };
-  }
+  const maxSingle = isUnicode ? 70 : 160;
+  const maxMulti = isUnicode ? 67 : 153;
+  const partCount =
+    charCount === 0
+      ? 0
+      : charCount <= maxSingle
+      ? 1
+      : Math.ceil(charCount / maxMulti);
+  const maxPerPart = charCount <= maxSingle ? maxSingle : maxMulti;
+  const currentLimit = partCount <= 1 ? maxSingle : partCount * maxMulti;
+  const remainingInCurrentPart =
+    charCount === 0 ? maxSingle : Math.max(0, currentLimit - charCount);
+
+  return {
+    charCount,
+    partCount,
+    isUnicode,
+    maxPerPart,
+    remainingInCurrentPart,
+    currentLimit,
+    encodingLabel: isUnicode ? 'UTF-16' : 'GSM-7',
+  };
 }
 
 // ============================================================================
@@ -1404,3 +1418,46 @@ export function summarizeCommunicationsWorkspace(
     totalDebtReceivables: Math.round(totalDebtReceivables * 100) / 100,
   };
 }
+
+export interface ChannelHealthMetrics {
+  connectedWhatsAppCount: number;
+  totalWhatsAppCount: number;
+  totalMessagesDispatched: number;
+  deliveredSmsCount: number;
+  deliveredWhatsAppCount: number;
+  usbGatewayReady: boolean;
+  activeSimSlot: number;
+}
+
+export function calculateChannelHealthMetrics(
+  accounts: Pick<WhatsAppAccountInstance, 'session' | 'messagesDispatchedCount'>[],
+  outboundMessages: { channel?: string; status?: string }[],
+  usbDevice?: Pick<UsbConnectedDevice, 'atCommandReady' | 'usbDebuggingEnabled' | 'simSlot'>
+): ChannelHealthMetrics {
+  let connectedWhatsAppCount = 0;
+  let totalMessagesDispatched = outboundMessages.length;
+
+  for (const acc of accounts) {
+    if (acc.session?.status === 'CONNECTED') connectedWhatsAppCount += 1;
+  }
+
+  let deliveredSmsCount = 0;
+  let deliveredWhatsAppCount = 0;
+  for (const msg of outboundMessages) {
+    if (msg.status !== 'FAILED') {
+      if (msg.channel === 'SMS') deliveredSmsCount += 1;
+      else deliveredWhatsAppCount += 1;
+    }
+  }
+
+  return {
+    connectedWhatsAppCount,
+    totalWhatsAppCount: accounts.length,
+    totalMessagesDispatched,
+    deliveredSmsCount,
+    deliveredWhatsAppCount,
+    usbGatewayReady: Boolean(usbDevice?.atCommandReady && usbDevice?.usbDebuggingEnabled),
+    activeSimSlot: usbDevice?.simSlot || 1,
+  };
+}
+

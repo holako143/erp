@@ -40,6 +40,8 @@ import {
   ChevronRight,
   PanelLeftOpen,
   SlidersHorizontal,
+  MessageSquarePlus,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   calculateSmsParts,
@@ -54,11 +56,16 @@ import {
   deleteWhatsAppSlashShortcut,
   composeChatBarQuickDocumentText,
   summarizeCommunicationsWorkspace,
+  calculateChannelHealthMetrics,
 } from '../core/communicationsEngine';
 import {
   composeInvoiceMessageText,
   composeDebtReminderMessageText,
   composeExecutiveReportMessageText,
+  composeWarrantyRMAMessageText,
+  composeOtpVerificationSmsText,
+  composeShiftSummarySmsText,
+  personalizeMessagingTemplate,
 } from '../core/messagingEngine';
 import {
   generateSmartErpBotResponse,
@@ -95,6 +102,11 @@ export const CommunicationsView: React.FC = () => {
     runUsbDiagnostics,
     sendSmsViaUsb,
     launchBulkDebtSmsCampaign,
+    openQuickSendModal,
+    markWhatsAppChatRead,
+    receiveSimulatedWhatsAppCustomerMessage,
+    updateMessagingGatewayConfig,
+    currentShift,
     formatCurrency,
     customers,
     salesInvoices,
@@ -126,10 +138,20 @@ export const CommunicationsView: React.FC = () => {
   const [bulkCampaignAlert, setBulkCampaignAlert] = useState<string | null>(null);
   const [isLaunchingCampaign, setIsLaunchingCampaign] = useState(false);
 
+  // WhatsApp In-Chat Search & Inbound Simulator Popover
+  const [isChatSearchOpen, setIsChatSearchOpen] = useState(false);
+  const [chatMessageSearch, setChatMessageSearch] = useState('');
+  const [isSimInboundOpen, setIsSimInboundOpen] = useState(false);
+  const [simInboundText, setSimInboundText] = useState('كم رصيدي المتبقي لديكم؟ وأرسل آخر فاتورة لو سمحت');
+
+  // SMS HTTP/TCP Gateway URL when ETHERNET_TETHER is selected
+  const [smsGatewayEndpoint, setSmsGatewayEndpoint] = useState('http://192.168.1.50:8080/api/sms/send');
+
   // Tab 2 Outbound Log Filters & WhatsApp Broadcast Composer
   const [logChannelFilter, setLogChannelFilter] = useState<'ALL' | 'WHATSAPP' | 'SMS'>('ALL');
   const [logSearchQuery, setLogSearchQuery] = useState('');
-  const [waBroadcastAudience, setWaBroadcastAudience] = useState<'ALL' | 'DEBTORS' | 'REGULAR'>('ALL');
+  const [waBroadcastAudience, setWaBroadcastAudience] = useState<'ALL' | 'DEBTORS' | 'REGULAR' | 'RMA_READY'>('ALL');
+  const [waBroadcastDualSms, setWaBroadcastDualSms] = useState<boolean>(false);
   const [waBroadcastMessage, setWaBroadcastMessage] = useState(
     `مرحباً {العميل}، تحية طيبة من {الشركة}. نود إبلاغكم بأحدث العروض وتوفر كافة الأصناف المعتمدة لدينا.`
   );
@@ -798,11 +820,11 @@ export const CommunicationsView: React.FC = () => {
             type: 'success',
             message:
               result.messageAr ||
-              'تم إرسال الرسالة النصية وتوثيقها في السجل فوراً بسرعة 0.2ms عبر شريحة الجوال الموصول!',
+              'تم إرسال الرسالة النصية وتوثيقها في السجل مباشرة عبر شريحة الجوال الموصول.',
             smsUri: result.record?.smsUri,
           });
           setAccountToast(
-            `⚡ تم إرسال رسالة SMS فورية إلى (${smsRecipientName || smsPhone}) عبر شريحة SIM ${usbConnectedDevice.simSlot} بنجاح!`
+            `تم إرسال رسالة SMS إلى (${smsRecipientName || smsPhone}) عبر شريحة SIM ${usbConnectedDevice.simSlot} بنجاح.`
           );
         } else {
           setSmsStatusAlert({
@@ -816,20 +838,28 @@ export const CommunicationsView: React.FC = () => {
           .map((n) => n.trim())
           .filter(Boolean);
         let sentCount = 0;
+        const companyNameAr = company.nameAr || company.name || 'المنشأة';
         for (const num of rawNumbers) {
           const matchedCust = customers.find(
             (c) => c.phone.replace(/\D/g, '').slice(-7) === num.replace(/\D/g, '').slice(-7)
           );
           const cName = matchedCust ? matchedCust.nameAr || matchedCust.name : `مستلم (${num})`;
-          const res = await sendSmsViaUsb(num, smsBody.trim(), smsRefNumber.trim() || 'BATCH-SMS', cName);
+          const personalizedBody = personalizeMessagingTemplate(smsBody.trim(), {
+            customerName: cName,
+            companyName: companyNameAr,
+            balanceFormatted: formatCurrency(matchedCust?.balance ?? 0),
+            currency,
+            phone: num,
+          });
+          const res = await sendSmsViaUsb(num, personalizedBody, smsRefNumber.trim() || 'BATCH-SMS', cName);
           if (res.success) sentCount += 1;
         }
         setSmsStatusAlert({
           type: 'success',
-          message: `تم إرسال الحملة الجماعية الفورية إلى (${sentCount}) أرقام بنجاح عبر شريحة SIM ${usbConnectedDevice.simSlot} بسرعة 0.2ms وتوثيقها في السجل أدناه!`,
+          message: `تم إرسال الحملة الجماعية المخصصة إلى (${sentCount}) رقم بنجاح عبر شريحة SIM ${usbConnectedDevice.simSlot} وتوثيقها في السجل أدناه.`,
         });
         setAccountToast(
-          `⚡ تم إرسال (${sentCount}) رسالة SMS جماعية عبر جسر الجوال فوراً!`
+          `تم إرسال (${sentCount}) رسالة SMS جماعية مخصصة عبر جسر الجوال بنجاح.`
         );
       }
     } catch {
@@ -847,7 +877,7 @@ export const CommunicationsView: React.FC = () => {
     await runUsbDiagnostics();
     setSmsStatusAlert({
       type: 'success',
-      message: `تم فحص وتنشيط جسر رسائل SMS (${usbConnectedDevice.model} — SIM ${usbConnectedDevice.simSlot}) بنجاح 100% بسرعة 0.1ms! الجسر جاهز للإرسال الفوري.`,
+      message: `تم فحص وتنشيط جسر رسائل SMS (${usbConnectedDevice.model} — SIM ${usbConnectedDevice.simSlot}) بنجاح! الجسر جاهز للإرسال.`,
     });
     setIsRunningDiag(false);
   };
@@ -910,13 +940,23 @@ export const CommunicationsView: React.FC = () => {
   }, [outboundMessages, logChannelFilter, logSearchQuery]);
 
   const broadcastTargets = useMemo(() => {
+    const rmaPhones = new Set(
+      warrantyTickets
+        .filter((t) => t.status === 'READY' || t.status === 'IN_REPAIR')
+        .map((t) => t.customerPhone.replace(/\D/g, '').slice(-7))
+        .filter(Boolean)
+    );
     return customers.filter((c) => {
       if (!c.phone?.trim()) return false;
       if (waBroadcastAudience === 'DEBTORS') return Number(c.balance) > 0;
       if (waBroadcastAudience === 'REGULAR') return Number(c.balance) <= 0;
+      if (waBroadcastAudience === 'RMA_READY') {
+        const cleanDigits = c.phone.replace(/\D/g, '').slice(-7);
+        return cleanDigits ? rmaPhones.has(cleanDigits) : false;
+      }
       return true;
     });
-  }, [customers, waBroadcastAudience]);
+  }, [customers, warrantyTickets, waBroadcastAudience]);
 
   const handleExportOutboundCsv = () => {
     const headers = ['القناة', 'المستلم', 'الهاتف', 'المرجع', 'المحتوى', 'الوقت'];
@@ -949,17 +989,35 @@ export const CommunicationsView: React.FC = () => {
     setIsSendingWaBroadcast(true);
     setWaBroadcastAlert(null);
     let sent = 0;
+    let smsSent = 0;
     try {
       for (const cust of broadcastTargets) {
-        const personalized = waBroadcastMessage
-          .replace(/\{العميل\}/g, cust.nameAr || cust.name)
-          .replace(/\{الرصيد\}/g, formatCurrency(cust.balance || 0))
-          .replace(/\{الشركة\}/g, company.nameAr || company.name || 'المنشأة');
-        const chatId = startOrOpenWhatsAppChat(cust.nameAr || cust.name, cust.phone, cust.id);
+        const custName = cust.nameAr || cust.name;
+        const personalized = personalizeMessagingTemplate(waBroadcastMessage, {
+          customerName: custName,
+          companyName: company.nameAr || company.name || 'المنشأة',
+          balanceFormatted: formatCurrency(cust.balance || 0),
+          currency,
+          phone: cust.phone,
+        });
+        const chatId = startOrOpenWhatsAppChat(custName, cust.phone, cust.id);
         await sendWhatsAppChatMessage(chatId, personalized, 'DEBT_REMINDER', 'BROADCAST-WA');
         sent += 1;
+        if (waBroadcastDualSms) {
+          const smsRes = await sendSmsViaUsb(
+            cust.phone,
+            personalized,
+            'BROADCAST-DUAL-SMS',
+            custName
+          );
+          if (smsRes.success) smsSent += 1;
+        }
       }
-      setWaBroadcastAlert(`تم إرسال الحملة الجماعية بنجاح إلى (${sent}) عميل عبر واتساب وتوثيقها في السجل.`);
+      setWaBroadcastAlert(
+        waBroadcastDualSms
+          ? `تم إرسال الحملة المزدوجة بنجاح إلى (${sent}) عميل عبر واتساب + (${smsSent}) رسالة SMS وتوثيقها في السجل.`
+          : `تم إرسال الحملة الجماعية بنجاح إلى (${sent}) عميل عبر واتساب وتوثيقها في السجل.`
+      );
     } finally {
       setIsSendingWaBroadcast(false);
     }
@@ -984,12 +1042,37 @@ export const CommunicationsView: React.FC = () => {
     () => summarizeCommunicationsWorkspace(whatsappAccounts, outboundMessages, customers),
     [whatsappAccounts, outboundMessages, customers]
   );
+  const channelHealth = useMemo(
+    () => calculateChannelHealthMetrics(whatsappAccounts, outboundMessages, usbConnectedDevice),
+    [whatsappAccounts, outboundMessages, usbConnectedDevice]
+  );
   const connectedAccountsCount = commSummary.connectedAccounts;
+
+  const visibleChatMessages = useMemo(() => {
+    const q = chatMessageSearch.trim().toLowerCase();
+    if (!q) return activeChat.messages;
+    return activeChat.messages.filter(
+      (m) =>
+        m.text.toLowerCase().includes(q) ||
+        (m.referenceNumber && m.referenceNumber.toLowerCase().includes(q))
+    );
+  }, [activeChat.messages, chatMessageSearch]);
+
+  const smsLivePreviewText = useMemo(() => {
+    const matchedCust = customers.find((c) => c.id === smsSelectedCustomerId) || customers[0];
+    return personalizeMessagingTemplate(smsBody || 'معاينة نص الرسالة ستظهر هنا...', {
+      customerName: smsRecipientName || matchedCust?.nameAr || 'العميل',
+      companyName: company.nameAr || company.name || 'المنشأة',
+      balanceFormatted: formatCurrency(matchedCust?.balance ?? 0),
+      currency,
+      phone: smsPhone || matchedCust?.phone || '',
+    });
+  }, [smsBody, smsRecipientName, smsPhone, smsSelectedCustomerId, customers, company, currency, formatCurrency]);
 
   return (
     <div className="w-full max-w-full min-w-0 space-y-3 overflow-x-hidden">
-      {/* Compact Header & Unified Channel Switcher */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl p-3 sm:p-4 border border-slate-200/70 dark:border-slate-800 shadow-2xs space-y-2.5">
+      {/* Compact Theme-Unified Header, Channel Health KPIs & Channel Switcher */}
+      <div className="bg-[var(--erp-bg-surface)] text-[var(--erp-text-primary)] rounded-2xl p-3 sm:p-4 border border-[var(--erp-border)] shadow-2xs space-y-3">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
           <div className="flex items-center gap-2.5 min-w-0">
             <span className="w-9 h-9 haseb-btn-primary text-white rounded-xl flex items-center justify-center shrink-0 shadow-2xs">
@@ -997,27 +1080,36 @@ export const CommunicationsView: React.FC = () => {
             </span>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-xs sm:text-sm md:text-base font-black text-slate-900 dark:text-slate-100 tracking-tight truncate">
+                <h1 className="text-xs sm:text-sm md:text-base font-black text-[var(--erp-text-primary)] tracking-tight truncate">
                   خدمات التواصل — منظومة واتساب والرسائل الفورية
                 </h1>
-                <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold shrink-0">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span>{connectedAccountsCount}/{commSummary.totalAccounts} متصل</span>
+                <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] text-[var(--erp-text-secondary)] text-[10px] font-bold shrink-0 tabular-nums">
+                  <span>{connectedAccountsCount}/{commSummary.totalAccounts} حساب متصل</span>
                 </span>
               </div>
-              <p className="text-slate-500 dark:text-slate-400 text-[10px] sm:text-[11px] mt-0.5 flex items-center gap-1.5 flex-wrap">
+              <p className="text-[var(--erp-text-secondary)] text-[10px] sm:text-[11px] mt-0.5 flex items-center gap-1.5 flex-wrap tabular-nums">
                 <span>
-                  {commSummary.totalChats} محادثة • {commSummary.totalUnreadMessages} غير مقروء
+                  {commSummary.totalChats} محادثة · {commSummary.totalUnreadMessages} غير مقروء
                 </span>
                 <span className="text-emerald-600 dark:text-emerald-400 font-mono font-semibold">
-                  • حفظ تلقائي ✓ ({lastAutoSavedAt})
+                  · حفظ تلقائي ✓ ({lastAutoSavedAt})
                 </span>
               </p>
             </div>
           </div>
 
-          {/* AI Robot Auto-Responder Toggle Pill */}
-          <div className="flex items-center gap-2 shrink-0 w-full md:w-auto">
+          {/* Primary Actions: Quick Send New Number + AI Robot Auto-Responder Toggle */}
+          <div className="flex items-center gap-2 shrink-0 w-full md:w-auto flex-wrap sm:flex-nowrap">
+            <button
+              type="button"
+              data-testid="comm-quick-send-new-btn"
+              onClick={() => openQuickSendModal()}
+              className="flex-1 md:flex-initial justify-center flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold haseb-btn-primary text-white cursor-pointer transition whitespace-nowrap shrink-0"
+            >
+              <MessageSquarePlus className="w-3.5 h-3.5 shrink-0" />
+              <span>رسالة لرقم جديد</span>
+            </button>
+
             <button
               type="button"
               data-testid="whatsapp-ai-bot-toggle"
@@ -1027,23 +1119,23 @@ export const CommunicationsView: React.FC = () => {
                   ? 'الروبوت الذكي مفعّل: يرد تلقائياً على المحادثات ويجلب الفواتير والتقارير اللحظية (انقر للإيقاف)'
                   : 'انقر لتفعيل الروبوت الذكي للرد الفوري والتحكم الكامل بالفواتير والتقارير'
               }
-              className={`w-full md:w-auto justify-between md:justify-center flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer border ${
+              className={`flex-1 md:flex-initial justify-between md:justify-center flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer border whitespace-nowrap shrink-0 ${
                 isAiBotEnabled
-                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
-                  : 'bg-slate-50 text-slate-700 border-slate-200/80 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700'
+                  ? 'haseb-nav-active text-white border-transparent shadow-xs'
+                  : 'bg-[var(--erp-bg-elevated)] text-[var(--erp-text-primary)] border-[var(--erp-border)] hover:opacity-90'
               }`}
             >
               <span className="flex items-center gap-1.5 min-w-0">
-                <Bot className={`w-4 h-4 shrink-0 ${isAiBotEnabled ? 'text-white animate-bounce' : 'text-slate-500'}`} />
+                <Bot className={`w-4 h-4 shrink-0 ${isAiBotEnabled ? 'text-white' : 'text-[var(--erp-accent)]'}`} />
                 <span className="truncate">
                   {isAiBotEnabled ? 'الروبوت الذكي: مفعّل ✓' : 'الروبوت الذكي: متوقف'}
                 </span>
               </span>
               <span
-                className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold shrink-0 ${
+                className={`text-[10px] px-1.5 py-0.5 rounded-md font-mono font-bold shrink-0 tabular-nums ${
                   isAiBotEnabled
                     ? 'bg-white/20 text-white'
-                    : 'bg-slate-200/80 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
+                    : 'bg-[var(--erp-bg-surface)] text-[var(--erp-text-secondary)] border border-[var(--erp-border)]'
                 }`}
               >
                 {isAiBotEnabled ? `نشط (${aiBotRepliesCount})` : 'OFF'}
@@ -1052,8 +1144,54 @@ export const CommunicationsView: React.FC = () => {
           </div>
         </div>
 
+        {/* 4-Card Channel Health Summary Strip */}
+        <div
+          data-testid="comm-channel-health-strip"
+          className="grid grid-cols-2 lg:grid-cols-4 gap-2"
+        >
+          <div className="px-3 py-2 rounded-xl bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] flex items-center justify-between gap-2 min-w-0">
+            <div className="min-w-0">
+              <div className="text-[10px] font-bold text-[var(--erp-text-secondary)] truncate">قنوات واتساب النشطة</div>
+              <div className="text-xs sm:text-sm font-black text-[var(--erp-text-primary)] font-mono tabular-nums">
+                {channelHealth.connectedWhatsAppCount} / {channelHealth.totalWhatsAppCount} متصل
+              </div>
+            </div>
+            <MessageSquare className="w-4 h-4 text-emerald-600 shrink-0" />
+          </div>
+
+          <div className="px-3 py-2 rounded-xl bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] flex items-center justify-between gap-2 min-w-0">
+            <div className="min-w-0">
+              <div className="text-[10px] font-bold text-[var(--erp-text-secondary)] truncate">بوابة رسائل SMS</div>
+              <div className="text-xs sm:text-sm font-black text-[var(--erp-text-primary)] font-mono tabular-nums">
+                {channelHealth.usbGatewayReady ? `SIM ${channelHealth.activeSimSlot} جاهز ✓` : 'قيد الفحص'}
+              </div>
+            </div>
+            <Smartphone className="w-4 h-4 text-[var(--erp-accent)] shrink-0" />
+          </div>
+
+          <div className="px-3 py-2 rounded-xl bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] flex items-center justify-between gap-2 min-w-0">
+            <div className="min-w-0">
+              <div className="text-[10px] font-bold text-[var(--erp-text-secondary)] truncate">إجمالي الصادر الموثق</div>
+              <div className="text-xs sm:text-sm font-black text-[var(--erp-text-primary)] font-mono tabular-nums">
+                {channelHealth.deliveredWhatsAppCount} واتساب · {channelHealth.deliveredSmsCount} SMS
+              </div>
+            </div>
+            <CheckCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+          </div>
+
+          <div className="px-3 py-2 rounded-xl bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] flex items-center justify-between gap-2 min-w-0">
+            <div className="min-w-0">
+              <div className="text-[10px] font-bold text-[var(--erp-text-secondary)] truncate">ذمم قابلة للمطالبة</div>
+              <div className="text-xs sm:text-sm font-black text-amber-600 dark:text-amber-400 font-mono tabular-nums truncate">
+                {commSummary.indebtedCustomersCount} عملاء · {formatCurrency(commSummary.totalDebtReceivables)}
+              </div>
+            </div>
+            <Megaphone className="w-4 h-4 text-amber-500 shrink-0" />
+          </div>
+        </div>
+
         {/* Row 2: Responsive Channel Switcher Tabs + Collapsible Panel Controls */}
-        <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-2 min-w-0">
+        <div className="pt-2 border-t border-[var(--erp-border)] flex flex-col lg:flex-row lg:items-center justify-between gap-2 min-w-0">
           <div className="grid grid-cols-3 sm:flex sm:items-center gap-1.5 min-w-0">
             <button
               type="button"
@@ -1062,7 +1200,7 @@ export const CommunicationsView: React.FC = () => {
               className={`flex items-center justify-center sm:justify-start gap-1.5 px-2 sm:px-3.5 py-1.5 rounded-xl text-[11px] sm:text-xs border transition-none cursor-pointer min-w-0 ${
                 activeTab === 'WHATSAPP'
                   ? 'haseb-btn-primary border-transparent text-white font-bold shadow-xs'
-                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 font-semibold'
+                  : 'bg-[var(--erp-bg-elevated)] border-[var(--erp-border)] text-[var(--erp-text-primary)] hover:opacity-90 font-semibold'
               }`}
             >
               <MessageSquare className={`w-3.5 h-3.5 shrink-0 ${activeTab === 'WHATSAPP' ? 'text-emerald-200' : 'text-emerald-600'}`} />
@@ -1842,7 +1980,7 @@ export const CommunicationsView: React.FC = () => {
                           );
                           setMobileWaPanel('ACTIVE_CHAT');
                         }}
-                        className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-[11px] font-bold cursor-pointer shrink-0 flex items-center gap-1"
+                        className="px-2.5 py-1.5 haseb-btn-primary disabled:opacity-50 rounded-xl text-[11px] font-bold cursor-pointer shrink-0 flex items-center gap-1"
                       >
                         <Send className="w-3 h-3" />
                         <span>إرسال</span>
@@ -2083,8 +2221,8 @@ export const CommunicationsView: React.FC = () => {
                         onDoubleClick={() => openChatQuickActions()}
                         className={`haseb-touch-list-item w-full p-3 text-right flex items-start gap-2.5 transition-colors ${
                           isSelected
-                            ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-r-4 border-emerald-500'
-                            : 'hover:bg-slate-100/80 dark:hover:bg-slate-800/40'
+                            ? 'bg-[var(--erp-bg-elevated)] border-y border-[var(--erp-border)]'
+                            : 'hover:bg-[var(--erp-bg-elevated)]/60'
                         }`}
                       >
                         <button
@@ -2097,6 +2235,7 @@ export const CommunicationsView: React.FC = () => {
                               return;
                             }
                             setActiveWhatsAppChatId(chat.id);
+                            markWhatsAppChatRead(chat.id);
                             setMobileWaPanel('ACTIVE_CHAT');
                           }}
                           className="flex-1 min-w-0 flex items-start gap-2.5 text-right cursor-pointer py-0.5"
@@ -2214,47 +2353,55 @@ export const CommunicationsView: React.FC = () => {
                 mobileWaPanel === 'ACTIVE_CHAT' ? 'flex' : 'hidden'
               } lg:flex flex-1 flex-col bg-[#f8fafb] dark:bg-slate-950 min-h-0 min-w-0 relative`}
             >
-              {/* Chat Header (Real-Time Live Status, Restore Panels & Quick Actions) */}
-              <div className="px-3 sm:px-4 py-2.5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2 min-w-0 shrink-0">
-                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              {/* Chat Header (Real-Time Live Status, Search, Inbound Simulator & AI Controls) */}
+              <div className="px-3 sm:px-4 py-2.5 bg-[var(--erp-bg-surface)] border-b border-[var(--erp-border)] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 min-w-0 shrink-0">
+                <div className="flex items-center gap-2.5 min-w-0 w-full sm:w-auto sm:flex-1">
                   <button
                     type="button"
                     data-testid="comm-mobile-chat-back"
                     onClick={() => setMobileWaPanel('CHATS')}
-                    className="lg:hidden p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 cursor-pointer shrink-0 flex items-center gap-1 text-[11px] font-bold"
+                    className="lg:hidden p-1.5 rounded-xl bg-[var(--erp-bg-elevated)] text-[var(--erp-text-primary)] border border-[var(--erp-border)] cursor-pointer shrink-0 flex items-center gap-1 text-[11px] font-bold"
                     aria-label="رجوع إلى قائمة المحادثات"
                   >
                     <ArrowRight className="w-4 h-4" />
                     <span>رجوع</span>
                   </button>
-                  <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 flex items-center justify-center font-black text-xs sm:text-sm shrink-0">
+                  <div className="w-9 h-9 rounded-xl bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] text-[var(--erp-text-primary)] flex items-center justify-center font-black text-xs sm:text-sm shrink-0">
                     {Array.from(activeChat.contactName.trim())[0] || 'ل'}
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <h4 className="text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100 truncate">
+                  <div className="min-w-0 flex-1 overflow-hidden">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="text-xs sm:text-sm font-black text-[var(--erp-text-primary)] truncate">
                         {activeChat.contactName}
                       </h4>
-                      <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-semibold shrink-0">
-                        وضع الاستعداد
+                      <span
+                        data-testid="wa-active-session-badge"
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-semibold max-w-full truncate border ${
+                          whatsappSession.status === 'CONNECTED'
+                            ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/25'
+                            : 'bg-[var(--erp-bg-elevated)] text-[var(--erp-text-secondary)] border-[var(--erp-border)]'
+                        }`}
+                      >
+                        {whatsappSession.status === 'CONNECTED'
+                          ? 'متصل بخادم واتساب ✓'
+                          : 'جلسة محلية / بانتظار المسح'}
                       </span>
                     </div>
                     <p className="text-[10px] sm:text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1.5 truncate mt-0.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
                       <span className="truncate">
-                        المرسل: {activeAccountObj?.accountLabel || 'الحساب الرئيسي'} (جاهز للإرسال)
+                        المرسل: {activeAccountObj?.accountLabel || 'الحساب الرئيسي'}
                       </span>
                       {activeChat.contactPhone && (
-                        <span className="text-slate-400 font-mono dir-ltr">
-                          • {activeChat.contactPhone}
+                        <span className="text-[var(--erp-text-secondary)] font-mono shrink-0" dir="ltr">
+                          · {activeChat.contactPhone}
                         </span>
                       )}
                     </p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {/* Restore Folded Panels Button (Shown when either panel is collapsed) */}
+                <div className="flex items-center justify-end gap-1.5 shrink-0 flex-wrap w-full sm:w-auto">
+                  {/* Restore Folded Panels Button */}
                   {(isQrPanelCollapsed || isChatsPanelCollapsed) && (
                     <button
                       type="button"
@@ -2263,12 +2410,46 @@ export const CommunicationsView: React.FC = () => {
                         setIsQrPanelCollapsed(false);
                         setIsChatsPanelCollapsed(false);
                       }}
-                      className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] font-bold hover:bg-emerald-100 transition cursor-pointer"
+                      className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-[var(--erp-bg-elevated)] text-[var(--erp-text-primary)] border border-[var(--erp-border)] text-[11px] font-bold hover:opacity-90 transition cursor-pointer"
                     >
                       <PanelLeftOpen className="w-3.5 h-3.5" />
                       <span>عرض الألواح</span>
                     </button>
                   )}
+
+                  {/* In-Chat Message Search Toggle */}
+                  <button
+                    type="button"
+                    data-testid="wa-chat-search-toggle"
+                    onClick={() => {
+                      setIsChatSearchOpen((v) => !v);
+                      if (isChatSearchOpen) setChatMessageSearch('');
+                    }}
+                    title="بحث داخل رسائل هذه المحادثة"
+                    className={`p-2 rounded-xl border cursor-pointer transition ${
+                      isChatSearchOpen
+                        ? 'haseb-nav-active text-white border-transparent'
+                        : 'bg-[var(--erp-bg-elevated)] text-[var(--erp-text-secondary)] border-[var(--erp-border)] hover:text-[var(--erp-text-primary)]'
+                    }`}
+                  >
+                    <Search className="w-3.5 h-3.5" />
+                  </button>
+
+                  {/* Inbound Customer Message Simulator */}
+                  <button
+                    type="button"
+                    data-testid="wa-sim-inbound-toggle"
+                    onClick={() => setIsSimInboundOpen((v) => !v)}
+                    title="محاكاة رسالة واردة من العميل لاختبار الرد الذكي"
+                    className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[10px] sm:text-[11px] font-bold border cursor-pointer transition ${
+                      isSimInboundOpen
+                        ? 'haseb-nav-active text-white border-transparent'
+                        : 'bg-[var(--erp-bg-elevated)] text-[var(--erp-text-primary)] border-[var(--erp-border)] hover:opacity-90'
+                    }`}
+                  >
+                    <MessageSquarePlus className="w-3.5 h-3.5 shrink-0" />
+                    <span className="hidden sm:inline">محاكاة وارد</span>
+                  </button>
 
                   <button
                     type="button"
@@ -2281,12 +2462,12 @@ export const CommunicationsView: React.FC = () => {
                     }
                     className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] sm:text-[11px] font-bold transition-all cursor-pointer border ${
                       isAiBotEnabled
-                        ? 'bg-emerald-600 text-white border-emerald-500 shadow-xs'
-                        : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                        ? 'haseb-nav-active text-white border-transparent shadow-xs'
+                        : 'bg-[var(--erp-bg-elevated)] text-[var(--erp-text-primary)] border-[var(--erp-border)] hover:opacity-90'
                     }`}
                   >
-                    <Zap className={`w-3.5 h-3.5 ${isAiBotEnabled ? 'text-white animate-bounce' : 'text-emerald-600'}`} />
-                    <span>{isAiBotEnabled ? 'الرد الآلي الذكي: نشط' : 'الرد الآلي الذكي: استعداد'}</span>
+                    <Zap className={`w-3.5 h-3.5 ${isAiBotEnabled ? 'text-white' : 'text-[var(--erp-accent)]'}`} />
+                    <span>{isAiBotEnabled ? 'الرد الآلي: نشط' : 'الرد الآلي: استعداد'}</span>
                   </button>
 
                   <button
@@ -2297,43 +2478,177 @@ export const CommunicationsView: React.FC = () => {
                       setIsSyncingLiveNow(false);
                     }}
                     title="مزامنة الرسائل الواردة والصادرة من خادم واتساب الآن"
-                    className="p-2 rounded-xl bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-200 border border-slate-200 dark:border-slate-700 cursor-pointer transition"
+                    className="p-2 rounded-xl bg-[var(--erp-bg-elevated)] text-[var(--erp-text-secondary)] hover:text-[var(--erp-text-primary)] border border-[var(--erp-border)] cursor-pointer transition"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${isSyncingLiveNow ? 'animate-spin text-emerald-600' : ''}`} />
                   </button>
                 </div>
               </div>
 
-              {/* AI Robot Full-ERP Control Strip */}
+              {/* Customer ERP Context Strip (Live Balance, Credit Limit, Last Invoice & Quick Switch) */}
+              {activeChatMatchedCustomer && (
+                <div
+                  data-testid="wa-customer-erp-context"
+                  className="px-3 sm:px-4 py-1.5 bg-[var(--erp-bg-elevated)] border-b border-[var(--erp-border)] flex items-center justify-between flex-wrap gap-2 text-[11px] shrink-0"
+                >
+                  <div className="flex items-center gap-3 flex-wrap text-[var(--erp-text-secondary)] tabular-nums">
+                    <span>
+                      الرصيد القائم:{' '}
+                      <strong
+                        className={
+                          Number(activeChatMatchedCustomer.balance) > 0
+                            ? 'text-amber-600 dark:text-amber-400 font-mono'
+                            : 'text-emerald-600 dark:text-emerald-400 font-mono'
+                        }
+                      >
+                        {formatCurrency(activeChatMatchedCustomer.balance)}
+                      </strong>
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span>
+                      الحد الائتماني:{' '}
+                      <strong className="font-mono text-[var(--erp-text-primary)]">
+                        {formatCurrency(activeChatMatchedCustomer.creditLimit || 0)}
+                      </strong>
+                    </span>
+                    {activeChatMatchedInvoice && (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <span>
+                          آخر فاتورة:{' '}
+                          <strong className="font-mono text-[var(--erp-text-primary)]">
+                            {activeChatMatchedInvoice.invoiceNumber}
+                          </strong>
+                        </span>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleQuickComposerDocAction('INVOICE')}
+                      className="px-2 py-1 rounded-lg bg-[var(--erp-bg-surface)] border border-[var(--erp-border)] text-[var(--erp-text-primary)] hover:opacity-85 text-[10px] font-bold cursor-pointer"
+                    >
+                      تجهيز فاتورة
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleQuickComposerDocAction('STATEMENT')}
+                      className="px-2 py-1 rounded-lg bg-[var(--erp-bg-surface)] border border-[var(--erp-border)] text-[var(--erp-text-primary)] hover:opacity-85 text-[10px] font-bold cursor-pointer"
+                    >
+                      كشف حساب
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="wa-context-switch-sms-btn"
+                      onClick={() => {
+                        setSmsDispatchMode('SINGLE');
+                        setSmsSelectedCustomerId(activeChatMatchedCustomer.id);
+                        setSmsPhone(activeChatMatchedCustomer.phone);
+                        setSmsRecipientName(activeChatMatchedCustomer.nameAr || activeChatMatchedCustomer.name);
+                        setActiveTab('USB_SMS');
+                      }}
+                      className="px-2 py-1 rounded-lg haseb-btn-primary text-white text-[10px] font-bold cursor-pointer"
+                    >
+                      تحويل SMS
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Collapsible In-Chat Search Input */}
+              {isChatSearchOpen && (
+                <div className="px-3 sm:px-4 py-2 bg-[var(--erp-bg-surface)] border-b border-[var(--erp-border)] flex items-center gap-2 shrink-0">
+                  <Search className="w-3.5 h-3.5 text-[var(--erp-text-secondary)] shrink-0" />
+                  <input
+                    type="text"
+                    data-testid="wa-chat-message-search-input"
+                    value={chatMessageSearch}
+                    onChange={(e) => setChatMessageSearch(e.target.value)}
+                    placeholder="ابحث داخل نصوص الرسائل أو أرقام المراجع في هذه المحادثة..."
+                    className="flex-1 min-w-0 bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] rounded-lg px-2.5 py-1 text-xs text-[var(--erp-text-primary)] focus:outline-none"
+                  />
+                  {chatMessageSearch && (
+                    <span className="text-[10px] font-mono text-[var(--erp-text-secondary)] shrink-0 tabular-nums">
+                      {visibleChatMessages.length} نتيجة
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsChatSearchOpen(false);
+                      setChatMessageSearch('');
+                    }}
+                    className="p-1 text-[var(--erp-text-secondary)] hover:text-[var(--erp-text-primary)] cursor-pointer"
+                    aria-label="إغلاق البحث"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {/* Collapsible Inbound Customer Message Simulator */}
+              {isSimInboundOpen && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!simInboundText.trim() || !activeChat.id) return;
+                    receiveSimulatedWhatsAppCustomerMessage(activeChat.id, simInboundText.trim());
+                    setIsSimInboundOpen(false);
+                  }}
+                  data-testid="wa-sim-inbound-form"
+                  className="px-3 sm:px-4 py-2 bg-[var(--erp-bg-elevated)] border-b border-[var(--erp-border)] flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0"
+                >
+                  <input
+                    type="text"
+                    data-testid="wa-sim-inbound-input"
+                    value={simInboundText}
+                    onChange={(e) => setSimInboundText(e.target.value)}
+                    placeholder="اكتب رسالة واردة لمحاكاة رد العميل واختبار الروبوت..."
+                    className="flex-1 min-w-0 bg-[var(--erp-bg-surface)] border border-[var(--erp-border)] rounded-xl px-3 py-1.5 text-xs text-[var(--erp-text-primary)] focus:outline-none"
+                  />
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="submit"
+                      data-testid="wa-sim-inbound-submit"
+                      className="px-3 py-1.5 rounded-xl haseb-btn-primary text-white text-[11px] font-bold cursor-pointer"
+                    >
+                      حقن رسالة عميل
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsSimInboundOpen(false)}
+                      className="px-2.5 py-1.5 rounded-xl bg-[var(--erp-bg-surface)] border border-[var(--erp-border)] text-[var(--erp-text-secondary)] text-[11px] font-bold cursor-pointer"
+                    >
+                      إلغاء
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* AI Robot Full-ERP Control Strip (Theme-Unified) */}
               <div
                 data-testid="whatsapp-ai-bot-control-strip"
-                className={`px-3 sm:px-4 py-1.5 border-b transition-colors flex flex-col gap-1.5 min-w-0 shrink-0 ${
-                  isAiBotEnabled
-                    ? 'bg-emerald-950 text-white border-emerald-800'
-                    : 'bg-slate-100/80 dark:bg-slate-900/90 text-slate-600 dark:text-slate-400 border-slate-200/80 dark:border-slate-800'
-                }`}
+                className="px-3 sm:px-4 py-2 border-b border-[var(--erp-border)] bg-[var(--erp-bg-elevated)] text-[var(--erp-text-primary)] transition-colors flex flex-col gap-1.5 min-w-0 shrink-0"
               >
                 <div className="flex items-center justify-between gap-2 min-w-0">
                   <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] min-w-0 flex-1">
                     <Bot
                       className={`w-3.5 h-3.5 shrink-0 ${
-                        isAiBotEnabled ? 'text-emerald-400' : 'text-slate-400'
+                        isAiBotEnabled ? 'text-emerald-600 dark:text-emerald-400' : 'text-[var(--erp-text-secondary)]'
                       }`}
                     />
                     <span className="font-black shrink-0">
                       {isAiBotEnabled ? 'الروبوت مفعّل:' : 'الروبوت الذكي:'}
                     </span>
-                    <span
-                      className={`truncate ${
-                        isAiBotEnabled ? 'text-emerald-300' : 'text-slate-500'
-                      }`}
-                    >
+                    <span className="truncate text-[var(--erp-text-secondary)]">
                       {aiBotLastActionAr}
                     </span>
                   </div>
 
                   {isAiBotEnabled && (
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
+                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-[var(--erp-bg-surface)] text-[var(--erp-text-primary)] border border-[var(--erp-border)] shrink-0 tabular-nums">
                       الردود: {aiBotRepliesCount}
                     </span>
                   )}
@@ -2346,7 +2661,7 @@ export const CommunicationsView: React.FC = () => {
                       data-testid="ai-bot-reply-last-msg-btn"
                       disabled={isAiBotResponding}
                       onClick={() => handleTriggerSmartAiBot()}
-                      className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[11px] flex items-center gap-1 cursor-pointer transition shadow-xs"
+                      className="px-2.5 py-1 rounded-lg haseb-btn-primary text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer transition shadow-xs"
                     >
                       <Sparkles className="w-3 h-3" />
                       <span>رد ذكي فوري على المحادثة</span>
@@ -2357,7 +2672,7 @@ export const CommunicationsView: React.FC = () => {
                       data-testid="ai-bot-send-invoice-btn"
                       disabled={isAiBotResponding}
                       onClick={() => handleTriggerSmartAiBot('INVOICE_LOOKUP')}
-                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 font-bold text-[11px] cursor-pointer transition"
+                      className="px-2.5 py-1 rounded-lg bg-[var(--erp-bg-surface)] hover:opacity-85 text-[var(--erp-text-primary)] border border-[var(--erp-border)] font-bold text-[11px] cursor-pointer transition"
                     >
                       📄 جلب وإرسال الفاتورة
                     </button>
@@ -2367,9 +2682,9 @@ export const CommunicationsView: React.FC = () => {
                       data-testid="ai-bot-send-report-btn"
                       disabled={isAiBotResponding}
                       onClick={() => handleTriggerSmartAiBot('FINANCIAL_REPORT')}
-                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-bold text-[11px] cursor-pointer transition"
+                      className="px-2.5 py-1 rounded-lg bg-[var(--erp-bg-surface)] hover:opacity-85 text-[var(--erp-text-primary)] border border-[var(--erp-border)] font-bold text-[11px] cursor-pointer transition"
                     >
-                      📈 تقرير الأرباح والمبيعات اللحظي
+                      📈 تقرير الأرباح والمبيعات
                     </button>
 
                     <button
@@ -2377,9 +2692,9 @@ export const CommunicationsView: React.FC = () => {
                       data-testid="ai-bot-send-debt-btn"
                       disabled={isAiBotResponding}
                       onClick={() => handleTriggerSmartAiBot('DEBT_STATEMENT')}
-                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-rose-300 border border-rose-500/30 font-bold text-[11px] cursor-pointer transition"
+                      className="px-2.5 py-1 rounded-lg bg-[var(--erp-bg-surface)] hover:opacity-85 text-[var(--erp-text-primary)] border border-[var(--erp-border)] font-bold text-[11px] cursor-pointer transition"
                     >
-                      💳 كشف المديونية والرصيد
+                      💳 كشف المديونية
                     </button>
 
                     <button
@@ -2387,9 +2702,9 @@ export const CommunicationsView: React.FC = () => {
                       data-testid="ai-bot-send-stock-btn"
                       disabled={isAiBotResponding}
                       onClick={() => handleTriggerSmartAiBot('INVENTORY_PRICING')}
-                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 border border-sky-500/30 font-bold text-[11px] cursor-pointer transition"
+                      className="px-2.5 py-1 rounded-lg bg-[var(--erp-bg-surface)] hover:opacity-85 text-[var(--erp-text-primary)] border border-[var(--erp-border)] font-bold text-[11px] cursor-pointer transition"
                     >
-                      📦 أسعار وجرد المستودع
+                      📦 أسعار المستودع
                     </button>
                   </div>
                 )}
@@ -2397,48 +2712,48 @@ export const CommunicationsView: React.FC = () => {
 
               {/* Messages Body / Central Unified Messaging Stage */}
               <div
-                className="flex-1 overflow-y-auto p-3 sm:p-5 space-y-2.5 min-h-0"
-                style={{
-                  backgroundImage: 'radial-gradient(#cbd5e1 1px, transparent 1px)',
-                  backgroundSize: '20px 20px',
-                }}
+                className="flex-1 overflow-y-auto p-3 sm:p-5 space-y-2.5 min-h-0 bg-[var(--erp-bg-canvas)]"
               >
-                {activeChat.messages.length === 0 ? (
+                {visibleChatMessages.length === 0 ? (
                   <div className="h-full min-h-[210px] flex flex-col items-center justify-center text-center px-3 py-4">
-                    <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs border border-slate-200/90 dark:border-slate-800 rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-xs space-y-4">
-                      <div className="w-14 h-14 rounded-2xl bg-emerald-600 text-white flex items-center justify-center mx-auto shadow-md">
+                    <div className="bg-[var(--erp-bg-surface)] border border-[var(--erp-border)] rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-xs space-y-4">
+                      <div className="w-14 h-14 rounded-2xl haseb-btn-primary text-white flex items-center justify-center mx-auto shadow-md">
                         <MessageSquare className="w-7 h-7" />
                       </div>
                       <div>
-                        <h4 className="text-sm sm:text-base font-black text-slate-800 dark:text-slate-100">
-                          محطة المراسلة الفورية الموحدة
+                        <h4 className="text-sm sm:text-base font-black text-[var(--erp-text-primary)]">
+                          {chatMessageSearch ? 'لا توجد رسائل مطابقة للبحث' : 'محطة المراسلة الفورية الموحدة'}
                         </h4>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">
-                          أرسل الفواتير، السندات، وتذكيرات التحصيل لعملائك مباشرة عبر واتساب بضغطة زر واحدة.
+                        <p className="text-xs text-[var(--erp-text-secondary)] mt-1.5 leading-relaxed">
+                          {chatMessageSearch
+                            ? `لم يتم العثور على رسائل تحتوي على "${chatMessageSearch}" داخل هذه المحادثة.`
+                            : 'أرسل الفواتير، السندات، وتذكيرات التحصيل لعملائك مباشرة عبر واتساب بضغطة زر واحدة.'}
                         </p>
                       </div>
-                      <div className="grid grid-cols-2 gap-2.5 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => handleQuickComposerDocAction('INVOICE')}
-                          className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border border-slate-200 dark:border-slate-700 hover:border-emerald-300 text-slate-700 dark:text-slate-200 hover:text-emerald-800 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition"
-                        >
-                          <FileText className="w-4 h-4 text-emerald-600 shrink-0" />
-                          <span>تجهيز فاتورة فورية</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleQuickComposerDocAction('STATEMENT')}
-                          className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border border-slate-200 dark:border-slate-700 hover:border-emerald-300 text-slate-700 dark:text-slate-200 hover:text-emerald-800 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition"
-                        >
-                          <BookOpen className="w-4 h-4 text-emerald-600 shrink-0" />
-                          <span>كشف حساب عميل</span>
-                        </button>
-                      </div>
+                      {!chatMessageSearch && (
+                        <div className="grid grid-cols-2 gap-2.5 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => handleQuickComposerDocAction('INVOICE')}
+                            className="p-3 rounded-xl bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] text-[var(--erp-text-primary)] hover:opacity-85 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition"
+                          >
+                            <FileText className="w-4 h-4 text-emerald-600 shrink-0" />
+                            <span>تجهيز فاتورة فورية</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleQuickComposerDocAction('STATEMENT')}
+                            className="p-3 rounded-xl bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] text-[var(--erp-text-primary)] hover:opacity-85 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition"
+                          >
+                            <BookOpen className="w-4 h-4 text-emerald-600 shrink-0" />
+                            <span>كشف حساب عميل</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : (
-                  activeChat.messages.map((msg, mIdx) => {
+                  visibleChatMessages.map((msg, mIdx) => {
                     const isOutbound = msg.sender === 'ME';
                     return (
                       <div
@@ -2464,9 +2779,11 @@ export const CommunicationsView: React.FC = () => {
                                   {msg.attachmentType === 'DEBT_REMINDER' && 'إشعار مديونية'}
                                   {msg.attachmentType === 'WARRANTY' && 'بطاقة ضمان معتمدة'}
                                 </div>
-                                <div className="text-[10px] text-slate-500 font-mono">
-                                  مرجع: {msg.referenceNumber}
-                                </div>
+                                {msg.referenceNumber && (
+                                  <div className="text-[10px] text-slate-500 font-mono">
+                                    مرجع: {msg.referenceNumber}
+                                  </div>
+                                )}
                               </div>
                             </div>
                           )}
@@ -2896,51 +3213,85 @@ export const CommunicationsView: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-start min-w-0">
-              <div className="lg:col-span-4 space-y-2 min-w-0">
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300">
+              <div className="lg:col-span-5 space-y-2.5 min-w-0">
+                <label className="block text-[11px] font-bold text-[var(--erp-text-secondary)]">
                   الفئة المستهدفة ({broadcastTargets.length} عميل مطابق):
                 </label>
-                <div className="grid grid-cols-3 gap-1.5 min-w-0">
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 gap-1.5 min-w-0">
                   {([
                     { id: 'ALL', label: 'كل العملاء' },
                     { id: 'DEBTORS', label: 'المدينون فقط' },
                     { id: 'REGULAR', label: 'المنتظمون' },
+                    { id: 'RMA_READY', label: 'صيانة / ضمان' },
                   ] as const).map((aud) => (
                     <button
                       key={aud.id}
                       type="button"
                       onClick={() => setWaBroadcastAudience(aud.id)}
-                      className={`min-w-0 truncate py-2 px-1.5 sm:px-2 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
+                      className={`min-w-0 truncate py-2 px-2 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
                         waBroadcastAudience === aud.id
                           ? 'haseb-btn-primary text-white border-transparent'
-                          : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                          : 'bg-[var(--erp-bg-elevated)] text-[var(--erp-text-primary)] border-[var(--erp-border)]'
                       }`}
                     >
                       {aud.label}
                     </button>
                   ))}
                 </div>
-                <p className="text-[10px] text-slate-500">
-                  المتغيرات المتاحة: <span className="font-mono text-emerald-600">{'{العميل}'} {'{الرصيد}'} {'{الشركة}'}</span>
+
+                <label className="flex items-center gap-2 p-2.5 rounded-xl bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] text-[11px] font-bold text-[var(--erp-text-primary)] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    data-testid="wa-broadcast-dual-sms-checkbox"
+                    checked={waBroadcastDualSms}
+                    onChange={(e) => setWaBroadcastDualSms(e.target.checked)}
+                    className="rounded accent-emerald-600 cursor-pointer"
+                  />
+                  <span>إرسال مزدوج تلقائي (واتساب + SMS احتياطي عبر SIM {usbConnectedDevice.simSlot})</span>
+                </label>
+
+                <p className="text-[10px] text-[var(--erp-text-secondary)]">
+                  المتغيرات المتاحة: <span className="font-mono text-emerald-600">{'{العميل}'} {'{الرصيد}'} {'{الشركة}'} {'{العملة}'}</span>
                 </p>
               </div>
 
-              <div className="lg:col-span-8 space-y-2 min-w-0">
+              <div className="lg:col-span-7 space-y-2.5 min-w-0">
                 <textarea
                   rows={2}
                   data-testid="wa-broadcast-message-input"
                   value={waBroadcastMessage}
                   onChange={(e) => setWaBroadcastMessage(e.target.value)}
-                  className="w-full min-w-0 p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full min-w-0 p-2.5 bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] rounded-xl text-xs text-[var(--erp-text-primary)] focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   placeholder="اكتب نص الحملة..."
                 />
+
+                {broadcastTargets[0] && waBroadcastMessage.trim() && (
+                  <div
+                    data-testid="wa-broadcast-live-preview"
+                    className="p-2.5 rounded-xl bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] text-[11px] space-y-1"
+                  >
+                    <div className="text-[10px] font-bold text-[var(--erp-text-secondary)]">
+                      معاينة حية للمستلم الأول ({broadcastTargets[0].nameAr || broadcastTargets[0].name}):
+                    </div>
+                    <div className="text-[var(--erp-text-primary)] leading-relaxed whitespace-pre-wrap">
+                      {personalizeMessagingTemplate(waBroadcastMessage, {
+                        customerName: broadcastTargets[0].nameAr || broadcastTargets[0].name,
+                        companyName: company.nameAr || company.name || 'المنشأة',
+                        balanceFormatted: formatCurrency(broadcastTargets[0].balance || 0),
+                        currency,
+                        phone: broadcastTargets[0].phone,
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   {waBroadcastAlert ? (
                     <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
                       ✓ {waBroadcastAlert}
                     </span>
                   ) : (
-                    <span className="text-[11px] text-slate-400">
+                    <span className="text-[11px] text-[var(--erp-text-secondary)]">
                       سيتم الإرسال وتوثيق جميع الرسائل في السجل فوراً.
                     </span>
                   )}
@@ -3069,17 +3420,33 @@ export const CommunicationsView: React.FC = () => {
                           </td>
                           <td className="py-2.5 px-3 font-mono text-[11px] text-slate-500">{m.sentAt}</td>
                           <td className="py-2.5 px-3">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                startOrOpenWhatsAppChat(m.recipientName, m.recipientPhone);
-                                setActiveTab('WHATSAPP');
-                                setMobileWaPanel('ACTIVE_CHAT');
-                              }}
-                              className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 rounded-lg text-[11px] font-bold cursor-pointer"
-                            >
-                              فتح المحادثة
-                            </button>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  startOrOpenWhatsAppChat(m.recipientName, m.recipientPhone);
+                                  setActiveTab('WHATSAPP');
+                                  setMobileWaPanel('ACTIVE_CHAT');
+                                }}
+                                className="px-2 py-1 bg-[var(--erp-bg-elevated)] hover:opacity-85 border border-[var(--erp-border)] text-[var(--erp-text-primary)] rounded-lg text-[11px] font-bold cursor-pointer whitespace-nowrap"
+                              >
+                                فتح المحادثة
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSmsDispatchMode('SINGLE');
+                                  setSmsPhone(m.recipientPhone);
+                                  setSmsRecipientName(m.recipientName);
+                                  setSmsRefNumber(m.referenceNumber || '');
+                                  setSmsBody(m.messageBody);
+                                  setActiveTab('USB_SMS');
+                                }}
+                                className="px-2 py-1 haseb-btn-primary text-white rounded-lg text-[11px] font-bold cursor-pointer whitespace-nowrap"
+                              >
+                                تحويل SMS
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -3092,41 +3459,57 @@ export const CommunicationsView: React.FC = () => {
                   {filteredOutboundMessages.map((m, idx) => (
                     <div
                       key={`${m.id}-mob-${idx}`}
-                      className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 space-y-2"
+                      className="p-3 rounded-xl border border-[var(--erp-border)] bg-[var(--erp-bg-elevated)] space-y-2"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">
                           <span
                             className={`px-2 py-0.5 rounded text-[10px] font-bold shrink-0 ${
                               m.channel === 'WHATSAPP'
-                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                                : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300'
+                                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                : 'bg-sky-500/15 text-sky-700 dark:text-sky-300'
                             }`}
                           >
                             {m.channel === 'WHATSAPP' ? 'واتساب' : 'SMS'}
                           </span>
-                          <span className="text-xs font-black text-slate-800 dark:text-slate-100 truncate">
+                          <span className="text-xs font-black text-[var(--erp-text-primary)] truncate">
                             {m.recipientName}
                           </span>
                         </div>
-                        <span className="text-[10px] font-mono text-slate-400 shrink-0">{m.sentAt}</span>
+                        <span className="text-[10px] font-mono text-[var(--erp-text-secondary)] shrink-0 tabular-nums">{m.sentAt}</span>
                       </div>
-                      <p className="text-[11px] text-slate-600 dark:text-slate-300 line-clamp-2 leading-relaxed">
+                      <p className="text-[11px] text-[var(--erp-text-secondary)] line-clamp-2 leading-relaxed">
                         {m.messageBody}
                       </p>
-                      <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-700/60 text-[11px]">
-                        <span className="font-mono text-slate-500 dir-ltr">{m.recipientPhone}</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            startOrOpenWhatsAppChat(m.recipientName, m.recipientPhone);
-                            setActiveTab('WHATSAPP');
-                            setMobileWaPanel('ACTIVE_CHAT');
-                          }}
-                          className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-[10px] font-bold cursor-pointer"
-                        >
-                          فتح المحادثة
-                        </button>
+                      <div className="flex items-center justify-between gap-2 pt-1 border-t border-[var(--erp-border)] text-[11px]">
+                        <span className="font-mono text-[var(--erp-text-secondary)] dir-ltr truncate">{m.recipientPhone}</span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              startOrOpenWhatsAppChat(m.recipientName, m.recipientPhone);
+                              setActiveTab('WHATSAPP');
+                              setMobileWaPanel('ACTIVE_CHAT');
+                            }}
+                            className="px-2 py-1 bg-[var(--erp-bg-surface)] border border-[var(--erp-border)] text-[var(--erp-text-primary)] rounded-lg text-[10px] font-bold cursor-pointer"
+                          >
+                            واتساب
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSmsDispatchMode('SINGLE');
+                              setSmsPhone(m.recipientPhone);
+                              setSmsRecipientName(m.recipientName);
+                              setSmsRefNumber(m.referenceNumber || '');
+                              setSmsBody(m.messageBody);
+                              setActiveTab('USB_SMS');
+                            }}
+                            className="px-2 py-1 haseb-btn-primary text-white rounded-lg text-[10px] font-bold cursor-pointer"
+                          >
+                            تحويل SMS
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -3142,23 +3525,23 @@ export const CommunicationsView: React.FC = () => {
       {/* ======================================================== */}
       {activeTab === 'USB_SMS' && (
         <div className="space-y-4 w-full max-w-full min-w-0" data-testid="usb-sms-bridge-section">
-          {/* Top Fast ERP-to-SMS Action Strip (Lumina POS Theme) */}
-          <div className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 rounded-2xl p-3.5 sm:p-4 border border-slate-200/80 dark:border-slate-800 shadow-2xs flex flex-col lg:flex-row lg:items-center justify-between gap-3 min-w-0 overflow-hidden">
+          {/* Top Fast ERP-to-SMS Action Strip (Unified System Theme) */}
+          <div className="bg-[var(--erp-bg-surface)] text-[var(--erp-text-primary)] rounded-2xl p-3.5 sm:p-4 border border-[var(--erp-border)] shadow-2xs flex flex-col lg:flex-row lg:items-center justify-between gap-3 min-w-0 overflow-hidden">
             <div className="flex items-center gap-3 min-w-0">
               <div className="w-10 h-10 rounded-xl haseb-btn-primary text-white flex items-center justify-center shrink-0 shadow-2xs">
                 <Zap className="w-5 h-5" />
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100">
-                    جسر رسائل SMS الفائق السرعة (Direct SIM & USB AT+CMGS)
+                  <h2 className="text-xs sm:text-sm font-bold text-[var(--erp-text-primary)]">
+                    جسر رسائل SMS المباشر (Direct SIM & USB AT+CMGS)
                   </h2>
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-[10px] font-mono font-bold">
-                    متصل 100% • SIM {usbConnectedDevice.simSlot}
+                  <span className="px-2 py-0.5 rounded-lg bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] text-emerald-700 dark:text-emerald-300 text-[10px] font-mono font-bold tabular-nums">
+                    متصل · SIM {usbConnectedDevice.simSlot} · {messagingGatewayConfig.smsSenderId || 'RLM-ERP'}
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  مربوط فعلياً بقاعدة بيانات العملاء والفواتير والمديونيات والمخزون والتقارير المالية — يرسل ويوثق في 0ms
+                <p className="text-[11px] text-[var(--erp-text-secondary)] mt-0.5">
+                  مربوط فعلياً بقاعدة بيانات العملاء والفواتير والمديونيات والمخزون والتقارير المالية مع توثيق فوري في السجل
                 </p>
               </div>
             </div>
@@ -3191,10 +3574,10 @@ export const CommunicationsView: React.FC = () => {
                     smsUri: res.record?.smsUri,
                   });
                 }}
-                className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
+                className="px-3 py-2 rounded-xl haseb-btn-primary text-white text-[11px] font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
               >
                 <FileText className="w-3.5 h-3.5 shrink-0" />
-                <span>إرسال آخر فاتورة SMS فوراً</span>
+                <span>إرسال آخر فاتورة SMS</span>
               </button>
 
               <button
@@ -3234,7 +3617,7 @@ export const CommunicationsView: React.FC = () => {
                 className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
               >
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                <span>إرسال مطالبة مديونية SMS</span>
+                <span>مطالبة مديونية SMS</span>
               </button>
 
               <button
@@ -3283,10 +3666,10 @@ export const CommunicationsView: React.FC = () => {
                     smsUri: res.record?.smsUri,
                   });
                 }}
-                className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
+                className="px-3 py-2 rounded-xl bg-[var(--erp-bg-elevated)] hover:opacity-90 border border-[var(--erp-border)] text-[var(--erp-text-primary)] text-[11px] font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
               >
-                <Sparkles className="w-3.5 h-3.5 shrink-0" />
-                <span>تقرير الأرباح والمبيعات SMS</span>
+                <Sparkles className="w-3.5 h-3.5 shrink-0 text-[var(--erp-accent)]" />
+                <span>تقرير الأرباح SMS</span>
               </button>
             </div>
           </div>
@@ -3295,18 +3678,18 @@ export const CommunicationsView: React.FC = () => {
             {/* Hardware, Dual-SIM Selector & Bulk Campaign Panel (Left 5 Cols) */}
             <div className="lg:col-span-5 space-y-4 min-w-0">
               {/* Connected Mobile Phone Hardware & Dual-SIM Status Card */}
-              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-3.5 sm:p-5 shadow-sm space-y-4 min-w-0 overflow-hidden">
+              <div className="bg-[var(--erp-bg-surface)] rounded-2xl border border-[var(--erp-border)] p-3.5 sm:p-5 shadow-sm space-y-4 min-w-0 overflow-hidden">
                 <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-10 h-10 rounded-2xl bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black shrink-0">
+                    <div className="w-10 h-10 rounded-2xl bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] text-[var(--erp-accent)] flex items-center justify-center font-black shrink-0">
                       <Smartphone className="w-5 h-5" />
                     </div>
                     <div className="min-w-0">
-                      <h3 className="font-black text-sm text-slate-800 dark:text-slate-100 truncate">
+                      <h3 className="font-black text-sm text-[var(--erp-text-primary)] truncate">
                         {usbConnectedDevice.model}
                       </h3>
-                      <p className="text-[11px] text-slate-500 font-mono truncate">
-                        {usbConnectedDevice.manufacturer} • {usbConnectedDevice.port}
+                      <p className="text-[11px] text-[var(--erp-text-secondary)] font-mono truncate">
+                        {usbConnectedDevice.manufacturer} · {usbConnectedDevice.port}
                       </p>
                     </div>
                   </div>
@@ -3314,20 +3697,20 @@ export const CommunicationsView: React.FC = () => {
                   <span
                     className={`px-2.5 py-1 rounded-xl text-[11px] font-bold border shrink-0 ${
                       isUsbReady
-                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800'
-                        : 'bg-amber-50 text-amber-700 border-amber-300'
+                        ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                        : 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30'
                     }`}
                   >
-                    {isUsbReady ? 'متصل وجاهز 100% ✓' : 'قيد الفحص'}
+                    {isUsbReady ? 'متصل وجاهز ✓' : 'قيد الفحص'}
                   </span>
                 </div>
 
                 {/* Dual-SIM Instant Switcher (SIM 1 vs SIM 2) */}
-                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/70 space-y-2 min-w-0">
-                  <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                <div className="p-3 rounded-xl bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] space-y-2 min-w-0">
+                  <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] font-bold text-[var(--erp-text-secondary)]">
                     <span className="truncate">اختيار شريحة الإرسال الفعلي (Dual-SIM):</span>
-                    <span className="font-mono text-indigo-600 dark:text-indigo-400 shrink-0">
-                      استجابة 0.2ms
+                    <span className="font-mono text-[var(--erp-accent)] shrink-0">
+                      شريحة #{usbConnectedDevice.simSlot}
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-2 min-w-0">
@@ -3344,8 +3727,8 @@ export const CommunicationsView: React.FC = () => {
                       }}
                       className={`min-w-0 overflow-hidden p-2.5 rounded-xl border text-right transition cursor-pointer ${
                         usbConnectedDevice.simSlot === 1
-                          ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
-                          : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-400'
+                          ? 'haseb-nav-active text-white border-transparent shadow-sm'
+                          : 'bg-[var(--erp-bg-surface)] text-[var(--erp-text-primary)] border-[var(--erp-border)] hover:opacity-90'
                       }`}
                     >
                       <div className="flex items-center justify-between gap-1 text-xs font-black">
@@ -3356,7 +3739,7 @@ export const CommunicationsView: React.FC = () => {
                       </div>
                       <div
                         className={`text-[10px] mt-0.5 truncate ${
-                          usbConnectedDevice.simSlot === 1 ? 'text-indigo-100' : 'text-slate-500'
+                          usbConnectedDevice.simSlot === 1 ? 'text-white/85' : 'text-[var(--erp-text-secondary)]'
                         }`}
                       >
                         يمن موبايل (Yemen Mobile)
@@ -3376,8 +3759,8 @@ export const CommunicationsView: React.FC = () => {
                       }}
                       className={`min-w-0 overflow-hidden p-2.5 rounded-xl border text-right transition cursor-pointer ${
                         usbConnectedDevice.simSlot === 2
-                          ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
-                          : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-400'
+                          ? 'haseb-nav-active text-white border-transparent shadow-sm'
+                          : 'bg-[var(--erp-bg-surface)] text-[var(--erp-text-primary)] border-[var(--erp-border)] hover:opacity-90'
                       }`}
                     >
                       <div className="flex items-center justify-between gap-1 text-xs font-black">
@@ -3388,7 +3771,7 @@ export const CommunicationsView: React.FC = () => {
                       </div>
                       <div
                         className={`text-[10px] mt-0.5 truncate ${
-                          usbConnectedDevice.simSlot === 2 ? 'text-indigo-100' : 'text-slate-500'
+                          usbConnectedDevice.simSlot === 2 ? 'text-white/85' : 'text-[var(--erp-text-secondary)]'
                         }`}
                       >
                         سبأفون / YOU / STC
@@ -3398,7 +3781,7 @@ export const CommunicationsView: React.FC = () => {
 
                   {/* Quick Carrier Profile Presets */}
                   <div className="pt-1 flex items-center gap-1.5 flex-wrap">
-                    <span className="text-[10px] font-bold text-slate-500">شبكة المشغل السريعة:</span>
+                    <span className="text-[10px] font-bold text-[var(--erp-text-secondary)]">شبكة المشغل:</span>
                     {[
                       { label: 'يمن موبايل', op: 'Yemen Mobile 4G LTE (421-03)', slot: 1 as const },
                       { label: 'سبأفون', op: 'Sabafon GSM/4G (421-01)', slot: 2 as const },
@@ -3412,7 +3795,7 @@ export const CommunicationsView: React.FC = () => {
                           updateUsbConnectedDevice({ simSlot: preset.slot, simOperator: preset.op });
                           setAccountToast(`تم ضبط ملف شبكة (${preset.label}) بنجاح.`);
                         }}
-                        className="px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:border-indigo-400 cursor-pointer"
+                        className="px-2 py-0.5 rounded-lg bg-[var(--erp-bg-surface)] border border-[var(--erp-border)] text-[10px] font-bold text-[var(--erp-text-primary)] hover:opacity-85 cursor-pointer"
                       >
                         {preset.label}
                       </button>
@@ -3421,59 +3804,88 @@ export const CommunicationsView: React.FC = () => {
                 </div>
 
                 {/* Hardware Meters */}
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="p-2 sm:p-2.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl text-center border border-slate-100 dark:border-slate-800 flex flex-col items-center justify-center min-w-0">
-                    <div className="flex items-center justify-center gap-1 text-slate-500 text-[10px] sm:text-[11px] mb-0.5 truncate max-w-full">
+                <div className="grid grid-cols-3 gap-2 tabular-nums">
+                  <div className="p-2 sm:p-2.5 bg-[var(--erp-bg-elevated)] rounded-xl text-center border border-[var(--erp-border)] flex flex-col items-center justify-center min-w-0">
+                    <div className="flex items-center justify-center gap-1 text-[var(--erp-text-secondary)] text-[10px] sm:text-[11px] mb-0.5 truncate max-w-full">
                       <Battery className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                       <span>البطارية</span>
                     </div>
-                    <div className="text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100 font-mono">
-                      {usbConnectedDevice.batteryPercent}% ⚡
+                    <div className="text-xs sm:text-sm font-black text-[var(--erp-text-primary)] font-mono">
+                      {usbConnectedDevice.batteryPercent}%
                     </div>
                   </div>
 
-                  <div className="p-2 sm:p-2.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl text-center border border-slate-100 dark:border-slate-800 flex flex-col items-center justify-center min-w-0">
-                    <div className="flex items-center justify-center gap-1 text-slate-500 text-[10px] sm:text-[11px] mb-0.5 truncate max-w-full">
-                      <Wifi className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                  <div className="p-2 sm:p-2.5 bg-[var(--erp-bg-elevated)] rounded-xl text-center border border-[var(--erp-border)] flex flex-col items-center justify-center min-w-0">
+                    <div className="flex items-center justify-center gap-1 text-[var(--erp-text-secondary)] text-[10px] sm:text-[11px] mb-0.5 truncate max-w-full">
+                      <Wifi className="w-3.5 h-3.5 text-[var(--erp-accent)] shrink-0" />
                       <span className="sm:hidden">الإشارة</span>
                       <span className="hidden sm:inline">إشارة البث</span>
                     </div>
-                    <div className="text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100 font-mono">
+                    <div className="text-xs sm:text-sm font-black text-[var(--erp-text-primary)] font-mono">
                       {usbConnectedDevice.signalStrengthPercent}%
                     </div>
                   </div>
 
-                  <div className="p-2 sm:p-2.5 bg-indigo-50/70 dark:bg-indigo-950/40 rounded-xl text-center border border-indigo-200/70 dark:border-indigo-800/60 flex flex-col items-center justify-center min-w-0">
-                    <div className="flex items-center justify-center gap-1 text-indigo-600 dark:text-indigo-300 text-[10px] sm:text-[11px] mb-0.5 font-bold truncate max-w-full">
+                  <div className="p-2 sm:p-2.5 bg-[var(--erp-bg-elevated)] rounded-xl text-center border border-[var(--erp-border)] flex flex-col items-center justify-center min-w-0">
+                    <div className="flex items-center justify-center gap-1 text-[var(--erp-accent)] text-[10px] sm:text-[11px] mb-0.5 font-bold truncate max-w-full">
                       <Send className="w-3.5 h-3.5 shrink-0" />
                       <span className="sm:hidden">المرسلة</span>
                       <span className="hidden sm:inline">إجمالي المرسلة</span>
                     </div>
                     <div
                       data-testid="usb-sms-sent-counter"
-                      className="text-xs sm:text-sm font-black text-indigo-700 dark:text-indigo-300 font-mono"
+                      className="text-xs sm:text-sm font-black text-[var(--erp-text-primary)] font-mono"
                     >
                       {usbConnectedDevice.messagesSentCount}
                     </div>
                   </div>
                 </div>
 
-                {/* SIM & USB Connection Specs */}
-                <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl space-y-2 text-xs border border-slate-100 dark:border-slate-800 min-w-0">
-                  <div className="flex flex-wrap justify-between items-center gap-1.5 text-slate-600 dark:text-slate-300">
-                    <span className="text-slate-500">الشريحة النشطة (SIM {usbConnectedDevice.simSlot}):</span>
-                    <span className="font-bold text-indigo-600 dark:text-indigo-400 truncate max-w-full">
+                {/* SIM, Port, Sender ID & Gateway Specs */}
+                <div className="p-3.5 bg-[var(--erp-bg-elevated)] rounded-xl space-y-2.5 text-xs border border-[var(--erp-border)] min-w-0">
+                  <div className="flex flex-wrap justify-between items-center gap-1.5 text-[var(--erp-text-secondary)]">
+                    <span>الشريحة النشطة (SIM {usbConnectedDevice.simSlot}):</span>
+                    <span className="font-bold text-[var(--erp-accent)] truncate max-w-full">
                       {usbConnectedDevice.simOperator}
                     </span>
                   </div>
-                  <div className="flex flex-wrap justify-between items-center gap-1.5 text-slate-600 dark:text-slate-300">
-                    <span className="text-slate-500">تصحيح أخطاء USB (ADB):</span>
-                    <span className="font-bold text-emerald-600">
+                  <div className="flex flex-wrap justify-between items-center gap-1.5 text-[var(--erp-text-secondary)]">
+                    <span>تصحيح أخطاء USB (ADB):</span>
+                    <span className="font-bold text-emerald-600 dark:text-emerald-400">
                       {usbConnectedDevice.usbDebuggingEnabled ? 'مفعل ومصادق (Authorized ✓)' : 'غير مفعل'}
                     </span>
                   </div>
-                  <div className="flex flex-wrap justify-between items-center gap-1.5 text-slate-600 dark:text-slate-300">
-                    <span className="text-slate-500">وضع قناة الاتصال:</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                    <div>
+                      <label className="block text-[10px] font-bold text-[var(--erp-text-secondary)] mb-1">
+                        اسم المرسل (Sender ID):
+                      </label>
+                      <input
+                        type="text"
+                        data-testid="sms-sender-id-input"
+                        value={messagingGatewayConfig.smsSenderId || 'RLM-ERP'}
+                        onChange={(e) =>
+                          updateMessagingGatewayConfig({ smsSenderId: e.target.value.slice(0, 15) })
+                        }
+                        dir="ltr"
+                        className="w-full px-2.5 py-1 bg-[var(--erp-bg-surface)] border border-[var(--erp-border)] rounded-lg font-mono text-[11px] font-bold text-[var(--erp-text-primary)]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-[var(--erp-text-secondary)] mb-1">
+                        منفذ المودم / الجسر:
+                      </label>
+                      <input
+                        type="text"
+                        value={usbConnectedDevice.port}
+                        onChange={(e) => updateUsbConnectedDevice({ port: e.target.value })}
+                        dir="ltr"
+                        className="w-full px-2.5 py-1 bg-[var(--erp-bg-surface)] border border-[var(--erp-border)] rounded-lg font-mono text-[11px] font-bold text-[var(--erp-text-primary)]"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap justify-between items-center gap-1.5 text-[var(--erp-text-secondary)]">
+                    <span>وضع قناة الاتصال:</span>
                     <select
                       aria-label="وضع قناة الاتصال بجسر SMS"
                       value={usbConnectedDevice.connectionMode}
@@ -3482,13 +3894,27 @@ export const CommunicationsView: React.FC = () => {
                           connectionMode: e.target.value as any,
                         })
                       }
-                      className="max-w-full min-w-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-0.5 font-mono text-[11px] text-slate-800 dark:text-slate-200 cursor-pointer"
+                      className="max-w-full min-w-0 bg-[var(--erp-bg-surface)] border border-[var(--erp-border)] rounded-lg px-2 py-1 font-mono text-[11px] text-[var(--erp-text-primary)] cursor-pointer"
                     >
                       <option value="ADB_DEBUGGING">ADB Direct Bridge (USB/LAN)</option>
-                      <option value="USB_MODEM_AT">Serial Modem (AT+CMGS 0ms)</option>
+                      <option value="USB_MODEM_AT">Serial Modem (AT+CMGS)</option>
                       <option value="ETHERNET_TETHER">Network SMS Gateway (HTTP/TCP)</option>
                     </select>
                   </div>
+                  {usbConnectedDevice.connectionMode === 'ETHERNET_TETHER' && (
+                    <div>
+                      <label className="block text-[10px] font-bold text-[var(--erp-text-secondary)] mb-1">
+                        رابط بوابة الشبكة (HTTP/SMPP Endpoint):
+                      </label>
+                      <input
+                        type="url"
+                        value={smsGatewayEndpoint}
+                        onChange={(e) => setSmsGatewayEndpoint(e.target.value)}
+                        dir="ltr"
+                        className="w-full px-2.5 py-1 bg-[var(--erp-bg-surface)] border border-[var(--erp-border)] rounded-lg font-mono text-[11px] text-[var(--erp-text-primary)]"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {/* Auto Diagnostics Button */}
@@ -3497,7 +3923,7 @@ export const CommunicationsView: React.FC = () => {
                   data-testid="btn-run-usb-diagnostics"
                   onClick={handleRunUsbDiag}
                   disabled={isRunningDiag}
-                  className="w-full py-2.5 px-3 sm:px-4 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white font-bold rounded-xl shadow-sm transition flex items-center justify-center gap-2 text-xs cursor-pointer text-center"
+                  className="w-full py-2.5 px-3 sm:px-4 haseb-btn-primary active:scale-[0.99] text-white font-bold rounded-xl shadow-sm transition flex items-center justify-center gap-2 text-xs cursor-pointer text-center"
                 >
                   {isRunningDiag ? (
                     <>
@@ -3514,30 +3940,30 @@ export const CommunicationsView: React.FC = () => {
               </div>
 
               {/* Bulk Debt Reminder SMS Campaign Card */}
-              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-3.5 sm:p-5 shadow-sm space-y-3.5 min-w-0 overflow-hidden">
+              <div className="bg-[var(--erp-bg-surface)] rounded-2xl border border-[var(--erp-border)] p-3.5 sm:p-5 shadow-sm space-y-3.5 min-w-0 overflow-hidden">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0 flex-1">
-                    <div className="p-2 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-xl shrink-0">
+                    <div className="p-2 bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] text-[var(--erp-accent)] rounded-xl shrink-0">
                       <FileText className="w-5 h-5" />
                     </div>
                     <div className="min-w-0">
-                      <h4 className="text-xs font-black text-slate-800 dark:text-slate-100">
+                      <h4 className="text-xs font-black text-[var(--erp-text-primary)]">
                         حملة رسائل التذكير بالمديونيات (جماعياً)
                       </h4>
-                      <p className="text-[11px] text-slate-500">
+                      <p className="text-[11px] text-[var(--erp-text-secondary)]">
                         إرسال آلي مخصص لكل عميل مدين عبر شريحة SIM {usbConnectedDevice.simSlot}
                       </p>
                     </div>
                   </div>
-                  <span className="text-xs font-mono font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 px-2.5 py-0.5 rounded-lg border border-amber-200 dark:border-amber-800 shrink-0">
+                  <span className="text-xs font-mono font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 px-2.5 py-0.5 rounded-lg border border-amber-500/30 shrink-0 tabular-nums">
                     {customers.filter((c) => Number(c.balance) > 0).length} عملاء مدينون
                   </span>
                 </div>
 
-                <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl text-xs space-y-1 border border-slate-100 dark:border-slate-800">
-                  <div className="flex justify-between gap-2 text-slate-600 dark:text-slate-300">
+                <div className="p-3 bg-[var(--erp-bg-elevated)] rounded-xl text-xs space-y-1 border border-[var(--erp-border)]">
+                  <div className="flex justify-between gap-2 text-[var(--erp-text-secondary)]">
                     <span>إجمالي المديونيات المستحقة:</span>
-                    <span className="font-bold font-mono text-emerald-600 dark:text-emerald-400">
+                    <span className="font-bold font-mono text-emerald-600 dark:text-emerald-400 tabular-nums">
                       {formatCurrency(
                         customers
                           .filter((c) => Number(c.balance) > 0)
@@ -3545,7 +3971,7 @@ export const CommunicationsView: React.FC = () => {
                       )}
                     </span>
                   </div>
-                  <p className="text-[10px] text-slate-500 pt-1 leading-relaxed">
+                  <p className="text-[10px] text-[var(--erp-text-secondary)] pt-1 leading-relaxed">
                     يقوم النظام بتوليد رسالة باسم كل عميل مدين ورصيده الفعلي وإرسالها فوراً وتوثيقها في سجل الرسائل أدناه.
                   </p>
                 </div>
@@ -3553,7 +3979,7 @@ export const CommunicationsView: React.FC = () => {
                 {bulkCampaignAlert && (
                   <div
                     data-testid="bulk-sms-campaign-success"
-                    className="p-3 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 rounded-xl text-xs font-bold border border-emerald-300 dark:border-emerald-800 flex items-center gap-2"
+                    className="p-3 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 rounded-xl text-xs font-bold border border-emerald-500/30 flex items-center gap-2"
                   >
                     <CheckCircle className="w-4 h-4 shrink-0 text-emerald-600" />
                     <span>{bulkCampaignAlert}</span>
@@ -3571,7 +3997,7 @@ export const CommunicationsView: React.FC = () => {
                     setAccountToast(res.messageAr);
                     setIsLaunchingCampaign(false);
                   }}
-                  className="w-full py-2.5 px-3 sm:px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition shadow-sm flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer text-center"
+                  className="w-full py-2.5 px-3 sm:px-4 haseb-btn-primary text-white font-bold rounded-xl text-xs transition shadow-sm flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer text-center"
                 >
                   {isLaunchingCampaign ? (
                     <>
@@ -3587,24 +4013,24 @@ export const CommunicationsView: React.FC = () => {
                 </button>
               </div>
 
-              {/* Diagnostics Terminal Output Viewer (Lumina POS Theme) */}
+              {/* Diagnostics Terminal Output Viewer (Theme-Unified) */}
               {usbDiagnosticsReport && (
-                <div className="bg-slate-50 text-slate-800 rounded-2xl p-4 font-mono text-xs shadow-2xs border border-slate-200/80 space-y-2 min-w-0 overflow-hidden">
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 pb-2">
-                    <div className="flex items-center gap-2 text-slate-900 font-bold">
-                      <Terminal className="w-4 h-4 text-blue-600 shrink-0" />
+                <div className="bg-[var(--erp-bg-surface)] text-[var(--erp-text-primary)] rounded-2xl p-4 font-mono text-xs shadow-2xs border border-[var(--erp-border)] space-y-2 min-w-0 overflow-hidden">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--erp-border)] pb-2">
+                    <div className="flex items-center gap-2 font-bold">
+                      <Terminal className="w-4 h-4 text-[var(--erp-accent)] shrink-0" />
                       <span>سجل الفحص العتادي المباشر (USB / AT+CMGS)</span>
                     </div>
-                    <span className="text-[10px] bg-emerald-50 border border-emerald-200 text-emerald-700 px-2 py-0.5 rounded-full font-bold">
-                      جاهز 100% ✓
+                    <span className="text-[10px] bg-emerald-500/15 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-lg font-bold">
+                      جاهز ✓
                     </span>
                   </div>
 
                   <div className="space-y-1 text-[11px] max-h-40 overflow-y-auto">
                     {usbDiagnosticsReport.diagnosticLogs.map((log: string, index: number) => (
                       <div key={index} className="flex items-start gap-2">
-                        <span className="text-slate-400 select-none">›</span>
-                        <span className={log.includes('OK') || log.includes('جاهز') ? 'text-emerald-700 font-bold' : 'text-slate-700'}>
+                        <span className="text-[var(--erp-text-secondary)] select-none">›</span>
+                        <span className={log.includes('OK') || log.includes('جاهز') ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-[var(--erp-text-secondary)]'}>
                           {log}
                         </span>
                       </div>
@@ -3614,30 +4040,30 @@ export const CommunicationsView: React.FC = () => {
               )}
             </div>
 
-            {/* SMS Dispatch Composer + Live Outbox Log (Right 7 Cols) */}
+            {/* SMS Dispatch Composer + Live Handset Preview + Live Outbox Log (Right 7 Cols) */}
             <div className="lg:col-span-7 space-y-4 min-w-0">
-              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-3.5 sm:p-6 shadow-sm space-y-4 sm:space-y-5 min-w-0 overflow-hidden">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-4 min-w-0">
+              <div className="bg-[var(--erp-bg-surface)] rounded-2xl border border-[var(--erp-border)] p-3.5 sm:p-6 shadow-sm space-y-4 sm:space-y-5 min-w-0 overflow-hidden">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--erp-border)] pb-4 min-w-0">
                   <div className="min-w-0">
-                    <h3 className="text-sm sm:text-base font-black text-slate-800 dark:text-slate-100 flex items-center gap-2">
-                      <Send className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-600 shrink-0" />
+                    <h3 className="text-sm sm:text-base font-black text-[var(--erp-text-primary)] flex items-center gap-2">
+                      <Send className="w-4 h-4 sm:w-5 sm:h-5 text-[var(--erp-accent)] shrink-0" />
                       <span className="truncate">محرك إرسال الرسائل النصية الفوري (SMS Dispatcher)</span>
                     </h3>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      يرسل مباشرة عبر شريحة الجوال (SIM {usbConnectedDevice.simSlot}) بسرعة 0.2ms بدون رسوم بوابات خارجية
+                    <p className="text-xs text-[var(--erp-text-secondary)] mt-0.5">
+                      يرسل مباشرة عبر شريحة الجوال (SIM {usbConnectedDevice.simSlot}) بدعم الترميز التلقائي GSM-7 / UTF-16 وتخصيص المتغيرات
                     </p>
                   </div>
 
                   {/* Single vs Multi-Batch Mode Toggle */}
-                  <div className="grid grid-cols-2 sm:flex sm:items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700 w-full sm:w-auto shrink-0 min-w-0">
+                  <div className="grid grid-cols-2 sm:flex sm:items-center bg-[var(--erp-bg-elevated)] p-1 rounded-xl border border-[var(--erp-border)] w-full sm:w-auto shrink-0 min-w-0">
                     <button
                       type="button"
                       data-testid="sms-mode-single-btn"
                       onClick={() => setSmsDispatchMode('SINGLE')}
                       className={`min-w-0 truncate px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
                         smsDispatchMode === 'SINGLE'
-                          ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                          ? 'haseb-nav-active text-white shadow-xs'
+                          : 'text-[var(--erp-text-secondary)] hover:text-[var(--erp-text-primary)]'
                       }`}
                     >
                       إرسال فردي سريع
@@ -3648,8 +4074,8 @@ export const CommunicationsView: React.FC = () => {
                       onClick={() => setSmsDispatchMode('MULTI_BATCH')}
                       className={`min-w-0 truncate px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
                         smsDispatchMode === 'MULTI_BATCH'
-                          ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                          ? 'haseb-nav-active text-white shadow-xs'
+                          : 'text-[var(--erp-text-secondary)] hover:text-[var(--erp-text-primary)]'
                       }`}
                     >
                       إرسال جماعي ({customers.length})
@@ -3658,9 +4084,9 @@ export const CommunicationsView: React.FC = () => {
                 </div>
 
                 {/* Real ERP Customer & Invoice Quick Pickers */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-indigo-50/50 dark:bg-slate-800/50 rounded-xl border border-indigo-100 dark:border-slate-700">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-[var(--erp-bg-elevated)] rounded-xl border border-[var(--erp-border)]">
                   <div className="min-w-0">
-                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    <label className="block text-[11px] font-bold text-[var(--erp-text-secondary)] mb-1">
                       تعبئة تلقائية من سجل العملاء والمديونيات:
                     </label>
                     <select
@@ -3668,7 +4094,7 @@ export const CommunicationsView: React.FC = () => {
                       data-testid="sms-erp-customer-select"
                       value={smsSelectedCustomerId}
                       onChange={(e) => handleSelectCustomerForSms(e.target.value)}
-                      className="w-full min-w-0 truncate px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                      className="w-full min-w-0 truncate px-3 py-2 bg-[var(--erp-bg-surface)] border border-[var(--erp-border)] rounded-xl text-xs font-bold text-[var(--erp-text-primary)] focus:outline-none cursor-pointer"
                     >
                       {customers.map((c) => (
                         <option key={c.id} value={c.id}>
@@ -3679,7 +4105,7 @@ export const CommunicationsView: React.FC = () => {
                   </div>
 
                   <div className="min-w-0">
-                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    <label className="block text-[11px] font-bold text-[var(--erp-text-secondary)] mb-1">
                       تعبئة تلقائية من فواتير المبيعات الفعلية:
                     </label>
                     <select
@@ -3687,7 +4113,7 @@ export const CommunicationsView: React.FC = () => {
                       data-testid="sms-erp-invoice-select"
                       value={smsSelectedInvoiceId}
                       onChange={(e) => handleSelectInvoiceForSms(e.target.value)}
-                      className="w-full min-w-0 truncate px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                      className="w-full min-w-0 truncate px-3 py-2 bg-[var(--erp-bg-surface)] border border-[var(--erp-border)] rounded-xl text-xs font-bold text-[var(--erp-text-primary)] focus:outline-none cursor-pointer"
                     >
                       {salesInvoices.map((inv) => (
                         <option key={inv.id} value={inv.id}>
@@ -3702,10 +4128,10 @@ export const CommunicationsView: React.FC = () => {
                 {smsStatusAlert && (
                   <div
                     data-testid="usb-sms-status-alert"
-                    className={`p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-bold ${
+                    className={`p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-bold border ${
                       smsStatusAlert.type === 'success'
-                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800'
-                        : 'bg-rose-50 text-rose-700 border border-rose-300'
+                        ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                        : 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/30'
                     }`}
                   >
                     <div className="flex items-center gap-2.5">
@@ -3719,7 +4145,7 @@ export const CommunicationsView: React.FC = () => {
                     {smsStatusAlert.smsUri && (
                       <a
                         href={smsStatusAlert.smsUri}
-                        className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold shrink-0 text-center"
+                        className="px-3 py-1.5 rounded-lg haseb-btn-primary text-white text-[11px] font-bold shrink-0 text-center"
                       >
                         فتح بتطبيق رسائل الجوال ↗
                       </a>
@@ -3731,7 +4157,7 @@ export const CommunicationsView: React.FC = () => {
                   {smsDispatchMode === 'SINGLE' ? (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 min-w-0">
                       <div className="min-w-0">
-                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                        <label className="block text-xs font-bold text-[var(--erp-text-secondary)] mb-1.5">
                           رقم هاتف المستلم (اليمن / السعودية / دولي)
                         </label>
                         <input
@@ -3741,13 +4167,13 @@ export const CommunicationsView: React.FC = () => {
                           onChange={(e) => setSmsPhone(e.target.value)}
                           placeholder="+967 771 445 880"
                           dir="ltr"
-                          className="w-full min-w-0 px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          className="w-full min-w-0 px-3.5 py-2.5 bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] rounded-xl text-xs font-mono text-[var(--erp-text-primary)] focus:outline-none"
                           required
                         />
                       </div>
 
                       <div className="min-w-0">
-                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                        <label className="block text-xs font-bold text-[var(--erp-text-secondary)] mb-1.5">
                           اسم العميل أو الجهة
                         </label>
                         <input
@@ -3756,12 +4182,12 @@ export const CommunicationsView: React.FC = () => {
                           value={smsRecipientName}
                           onChange={(e) => setSmsRecipientName(e.target.value)}
                           placeholder="مثال: شركة البناء الحديث"
-                          className="w-full min-w-0 px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          className="w-full min-w-0 px-3.5 py-2.5 bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] rounded-xl text-xs text-[var(--erp-text-primary)] focus:outline-none"
                         />
                       </div>
 
                       <div className="min-w-0">
-                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                        <label className="block text-xs font-bold text-[var(--erp-text-secondary)] mb-1.5">
                           رقم المرجع (فاتورة / سند / مديونية)
                         </label>
                         <input
@@ -3770,15 +4196,15 @@ export const CommunicationsView: React.FC = () => {
                           value={smsRefNumber}
                           onChange={(e) => setSmsRefNumber(e.target.value)}
                           placeholder="INV-2026-6194"
-                          className="w-full min-w-0 px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          className="w-full min-w-0 px-3.5 py-2.5 bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] rounded-xl text-xs font-mono text-[var(--erp-text-primary)] focus:outline-none"
                         />
                       </div>
                     </div>
                   ) : (
                     <div className="space-y-2 min-w-0">
                       <div className="flex items-center justify-between flex-wrap gap-2">
-                        <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                          قائمة الأرقام للإرسال الجماعي الفوري (افصل بين الأرقام بفاصلة أو سطر جديد):
+                        <label className="text-xs font-bold text-[var(--erp-text-secondary)]">
+                          قائمة الأرقام للإرسال الجماعي المخصص (يدعم متغيرات {'{العميل}'} و {'{الرصيد}'}):
                         </label>
                         <div className="flex flex-wrap items-center gap-1.5">
                           <button
@@ -3786,9 +4212,9 @@ export const CommunicationsView: React.FC = () => {
                             onClick={() =>
                               setSmsMultiPhonesInput(customers.map((c) => c.phone).join('، '))
                             }
-                            className="px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 text-[11px] font-bold hover:bg-indigo-100 cursor-pointer"
+                            className="px-2.5 py-1 rounded-lg bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] text-[var(--erp-text-primary)] text-[11px] font-bold hover:opacity-85 cursor-pointer"
                           >
-                            تحديد كل العملاء ({customers.length})
+                            كل العملاء ({customers.length})
                           </button>
                           <button
                             type="button"
@@ -3800,9 +4226,9 @@ export const CommunicationsView: React.FC = () => {
                                   .join('، ')
                               )
                             }
-                            className="px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-slate-800 text-amber-700 dark:text-amber-300 text-[11px] font-bold hover:bg-amber-100 cursor-pointer"
+                            className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-[11px] font-bold hover:opacity-85 cursor-pointer"
                           >
-                            تحديد المدينين فقط ({customers.filter((c) => Number(c.balance) > 0).length})
+                            المدينون فقط ({customers.filter((c) => Number(c.balance) > 0).length})
                           </button>
                         </div>
                       </div>
@@ -3813,7 +4239,7 @@ export const CommunicationsView: React.FC = () => {
                         onChange={(e) => setSmsMultiPhonesInput(e.target.value)}
                         dir="ltr"
                         placeholder="+967 771 445 880, +966 50 882 1940"
-                        className="w-full min-w-0 p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="w-full min-w-0 p-3 bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] rounded-xl text-xs font-mono text-[var(--erp-text-primary)] focus:outline-none"
                         required
                       />
                     </div>
@@ -3821,14 +4247,17 @@ export const CommunicationsView: React.FC = () => {
 
                   <div>
                     <div className="flex flex-wrap items-center justify-between gap-1.5 mb-1.5">
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      <label className="text-xs font-bold text-[var(--erp-text-secondary)]">
                         نص الرسالة النصية (SMS Payload)
                       </label>
-                      <div className="text-[11px] text-slate-500 font-mono flex items-center gap-2">
+                      <div
+                        data-testid="sms-encoding-metrics"
+                        className="text-[11px] text-[var(--erp-text-secondary)] font-mono flex items-center gap-2 tabular-nums"
+                      >
                         <span>{smsMetrics.charCount} حرف</span>
-                        <span>•</span>
-                        <span className="text-indigo-600 dark:text-indigo-400 font-bold">
-                          {smsMetrics.partCount} شريحة ({smsMetrics.isUnicode ? 'عربي UTF-16' : 'GSM-7'})
+                        <span>·</span>
+                        <span className="text-[var(--erp-accent)] font-bold">
+                          {smsMetrics.partCount} شريحة ({smsMetrics.encodingLabel} · متبقي {smsMetrics.remainingInCurrentPart})
                         </span>
                       </div>
                     </div>
@@ -3838,51 +4267,126 @@ export const CommunicationsView: React.FC = () => {
                       data-testid="usb-sms-body-input"
                       value={smsBody}
                       onChange={(e) => setSmsBody(e.target.value)}
-                      className="w-full min-w-0 p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-slate-100 leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="w-full min-w-0 p-3 bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] rounded-xl text-xs text-[var(--erp-text-primary)] leading-relaxed focus:outline-none"
                       required
                     />
+
+                    {/* Variable Insertion Chips */}
+                    <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[10px] font-bold text-[var(--erp-text-secondary)]">إدراج متغير ذكي:</span>
+                      {(['{العميل}', '{الرصيد}', '{الشركة}', '{العملة}'] as const).map((token) => (
+                        <button
+                          key={token}
+                          type="button"
+                          onClick={() => setSmsBody((prev) => `${prev}${prev && !prev.endsWith(' ') ? ' ' : ''}${token}`)}
+                          className="px-2 py-0.5 rounded-md bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] text-[10px] font-mono font-bold text-[var(--erp-accent)] hover:opacity-80 cursor-pointer"
+                        >
+                          + {token}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   {/* Quick Template Buttons */}
                   <div className="space-y-1.5">
-                    <span className="text-[11px] font-bold text-slate-500">قوالب جاهزة مرتبطة بالنظام:</span>
+                    <span className="text-[11px] font-bold text-[var(--erp-text-secondary)]">قوالب SMS جاهزة مرتبطة ببيانات النظام:</span>
                     <div className="flex flex-wrap gap-1.5 sm:gap-2">
                       <button
                         type="button"
                         onClick={() => {
                           const inv = salesInvoices[0];
-                          if (inv) {
-                            handleSelectInvoiceForSms(inv.id);
-                          }
+                          if (inv) handleSelectInvoiceForSms(inv.id);
                         }}
-                        className="px-2.5 sm:px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg text-[11px] sm:text-xs font-semibold cursor-pointer"
+                        className="px-2.5 py-1.5 bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] text-[var(--erp-text-primary)] hover:opacity-85 rounded-lg text-[11px] font-semibold cursor-pointer"
                       >
-                        🧾 فاتورة مبيعات فعلية
+                        🧾 فاتورة مبيعات
                       </button>
 
                       <button
                         type="button"
                         onClick={() =>
                           setSmsBody(
-                            `تم استلام دفعتكم النقدية بنجاح لدى ${company.nameAr || company.name} بموجب سند القبض المعتمد. نشكر لكم التزامكم بالسداد.`
+                            `تم استلام دفعتكم النقدية بنجاح لدى ${company.nameAr || company.name} بموجب سند القبض المعتمد. نشكر التزامكم بالسداد.`
                           )
                         }
-                        className="px-2.5 sm:px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg text-[11px] sm:text-xs font-semibold cursor-pointer"
+                        className="px-2.5 py-1.5 bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] text-[var(--erp-text-primary)] hover:opacity-85 rounded-lg text-[11px] font-semibold cursor-pointer"
                       >
-                        💵 تأكيد استلام دفعة (سند قبض)
+                        💵 سند قبض
                       </button>
 
                       <button
                         type="button"
                         onClick={() => {
                           const debtor = customers.find((c) => Number(c.balance) > 0) || customers[0];
-                          if (debtor) {
-                            handleSelectCustomerForSms(debtor.id);
-                          }
+                          if (debtor) handleSelectCustomerForSms(debtor.id);
                         }}
-                        className="px-2.5 sm:px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg text-[11px] sm:text-xs font-semibold cursor-pointer"
+                        className="px-2.5 py-1.5 bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] text-[var(--erp-text-primary)] hover:opacity-85 rounded-lg text-[11px] font-semibold cursor-pointer"
                       >
-                        📌 مطالبة سداد مديونية عميل
+                        📌 مطالبة مديونية
+                      </button>
+
+                      <button
+                        type="button"
+                        data-testid="sms-tpl-rma-btn"
+                        onClick={() => {
+                          const rma = warrantyTickets[0];
+                          if (!rma) return;
+                          setSmsPhone(rma.customerPhone);
+                          setSmsRecipientName(rma.customerName);
+                          setSmsRefNumber(rma.ticketNumber);
+                          setSmsBody(
+                            composeWarrantyRMAMessageText({
+                              ticket: rma,
+                              companyName: company.nameAr || company.name || 'المنشأة',
+                              currency,
+                            })
+                          );
+                        }}
+                        className="px-2.5 py-1.5 bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] text-[var(--erp-text-primary)] hover:opacity-85 rounded-lg text-[11px] font-semibold cursor-pointer"
+                      >
+                        🔧 صيانة وضمان (RMA)
+                      </button>
+
+                      <button
+                        type="button"
+                        data-testid="sms-tpl-shift-btn"
+                        onClick={() => {
+                          setSmsRefNumber(currentShift.id || 'SHIFT');
+                          setSmsBody(
+                            composeShiftSummarySmsText({
+                              cashierName: currentShift.cashierName || 'الكاشير',
+                              branchName: currentBranch.nameAr || 'الفرع الرئيسي',
+                              totalSales: Number(currentShift.totalSales || 0),
+                              expectedCash: Number(currentShift.expectedCash || 0),
+                              transactionCount: Number(currentShift.transactionCount || 0),
+                              companyName: company.nameAr || company.name || 'المنشأة',
+                              currency,
+                            })
+                          );
+                        }}
+                        className="px-2.5 py-1.5 bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] text-[var(--erp-text-primary)] hover:opacity-85 rounded-lg text-[11px] font-semibold cursor-pointer"
+                      >
+                        🧾 ملخص الوردية
+                      </button>
+
+                      <button
+                        type="button"
+                        data-testid="sms-tpl-otp-btn"
+                        onClick={() => {
+                          const code = String(Math.floor(100000 + Math.random() * 900000));
+                          setSmsRefNumber(`OTP-${code}`);
+                          setSmsBody(
+                            composeOtpVerificationSmsText({
+                              customerName: smsRecipientName || 'عميلنا الكريم',
+                              otpCode: code,
+                              companyName: company.nameAr || company.name || 'RLM ERP',
+                              expiryMinutes: 10,
+                            })
+                          );
+                        }}
+                        className="px-2.5 py-1.5 bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] text-[var(--erp-text-primary)] hover:opacity-85 rounded-lg text-[11px] font-semibold cursor-pointer"
+                      >
+                        🔐 رمز تحقق (OTP)
                       </button>
 
                       <button
@@ -3897,10 +4401,29 @@ export const CommunicationsView: React.FC = () => {
                               .join('، ')}.`
                           );
                         }}
-                        className="px-2.5 sm:px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg text-[11px] sm:text-xs font-semibold cursor-pointer"
+                        className="px-2.5 py-1.5 bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] text-[var(--erp-text-primary)] hover:opacity-85 rounded-lg text-[11px] font-semibold cursor-pointer"
                       >
-                        📦 إشعار نواقص المخزون ({products.filter((p) => p.stockQty <= p.reorderPoint).length})
+                        📦 نواقص المخزون ({products.filter((p) => p.stockQty <= p.reorderPoint).length})
                       </button>
+                    </div>
+                  </div>
+
+                  {/* Live Mobile Handset SMS Preview */}
+                  <div
+                    data-testid="sms-live-handset-preview"
+                    className="p-3.5 rounded-2xl bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] space-y-2"
+                  >
+                    <div className="flex items-center justify-between gap-2 text-[10px] font-bold text-[var(--erp-text-secondary)]">
+                      <span className="flex items-center gap-1.5">
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>معاينة الرسالة على هاتف المستلم ({messagingGatewayConfig.smsSenderId || 'RLM-ERP'})</span>
+                      </span>
+                      <span className="font-mono dir-ltr tabular-nums">
+                        SIM {usbConnectedDevice.simSlot} · {smsPhone || 'غير محدد'}
+                      </span>
+                    </div>
+                    <div className="p-3 rounded-2xl rounded-tr-none bg-[var(--erp-bg-surface)] border border-[var(--erp-border)] text-xs text-[var(--erp-text-primary)] leading-relaxed whitespace-pre-wrap">
+                      {smsLivePreviewText}
                     </div>
                   </div>
 
@@ -3908,20 +4431,20 @@ export const CommunicationsView: React.FC = () => {
                     type="submit"
                     data-testid="btn-send-usb-sms"
                     disabled={isSendingSms}
-                    className="w-full py-3 sm:py-3.5 px-4 sm:px-6 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 active:scale-[0.99] text-white font-black rounded-xl shadow-lg shadow-indigo-950/20 transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer text-center"
+                    className="w-full py-3 sm:py-3.5 px-4 sm:px-6 haseb-btn-primary active:scale-[0.99] text-white font-black rounded-xl shadow-sm transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer text-center"
                   >
                     {isSendingSms ? (
                       <>
                         <RefreshCw className="w-4 h-4 sm:w-5 sm:h-5 animate-spin shrink-0" />
-                        <span>جاري الإرسال الفوري عبر شريحة الجوال...</span>
+                        <span>جاري الإرسال عبر شريحة الجوال...</span>
                       </>
                     ) : (
                       <>
                         <Send className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
                         <span>
                           {smsDispatchMode === 'SINGLE'
-                            ? `إرسال الرسالة فوراً عبر SIM ${usbConnectedDevice.simSlot} (0.2ms)`
-                            : `إرسال الحملة الجماعية فوراً عبر SIM ${usbConnectedDevice.simSlot}`}
+                            ? `إرسال الرسالة الآن عبر SIM ${usbConnectedDevice.simSlot}`
+                            : `إرسال الحملة الجماعية المخصصة عبر SIM ${usbConnectedDevice.simSlot}`}
                         </span>
                       </>
                     )}
@@ -3932,27 +4455,27 @@ export const CommunicationsView: React.FC = () => {
               {/* Live SMS Outbox & Delivery History Table inside SMS Bridge Tab */}
               <div
                 data-testid="usb-sms-live-log-card"
-                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-3.5 sm:p-5 shadow-sm space-y-4 min-w-0 overflow-hidden"
+                className="bg-[var(--erp-bg-surface)] rounded-2xl border border-[var(--erp-border)] p-3.5 sm:p-5 shadow-sm space-y-4 min-w-0 overflow-hidden"
               >
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--erp-border)] pb-3">
                   <div>
-                    <h4 className="text-sm font-black text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                    <h4 className="text-sm font-black text-[var(--erp-text-primary)] flex items-center gap-2">
                       <CheckCheck className="w-4 h-4 text-emerald-500" />
-                      <span>سجل رسائل SMS الفوري المرسلة عبر الجسر ({smsOutboundList.length} رسالة)</span>
+                      <span>سجل رسائل SMS المرسلة عبر الجسر ({smsOutboundList.length} رسالة)</span>
                     </h4>
-                    <p className="text-[11px] text-slate-500">
+                    <p className="text-[11px] text-[var(--erp-text-secondary)]">
                       توثيق لحظي لكافة الرسائل النصية المرسلة من جسر الـ USB ونقطة البيع والمبيعات مع تأكيد التسليم
                     </p>
                   </div>
 
                   <div className="relative w-full sm:w-60">
-                    <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                    <Search className="w-3.5 h-3.5 text-[var(--erp-text-secondary)] absolute right-3 top-1/2 -translate-y-1/2" />
                     <input
                       type="text"
                       value={smsLogSearch}
                       onChange={(e) => setSmsLogSearch(e.target.value)}
                       placeholder="بحث بالاسم أو الرقم أو المرجع..."
-                      className="w-full pr-8 pl-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="w-full pr-8 pl-3 py-1.5 bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] rounded-xl text-xs text-[var(--erp-text-primary)] focus:outline-none"
                     />
                   </div>
                 </div>
@@ -3960,7 +4483,7 @@ export const CommunicationsView: React.FC = () => {
                 {/* Desktop Table */}
                 <div className="hidden md:block overflow-x-auto max-h-80">
                   <table className="w-full text-right text-xs">
-                    <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-500 sticky top-0">
+                    <thead className="bg-[var(--erp-bg-elevated)] text-[var(--erp-text-secondary)] sticky top-0">
                       <tr>
                         <th className="py-2.5 px-3">المستلم</th>
                         <th className="py-2.5 px-3">رقم الهاتف</th>
@@ -3970,10 +4493,10 @@ export const CommunicationsView: React.FC = () => {
                         <th className="py-2.5 px-3">إجراء</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    <tbody className="divide-y divide-[var(--erp-border)]">
                       {smsOutboundList.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="py-8 text-center text-slate-400">
+                          <td colSpan={6} className="py-8 text-center text-[var(--erp-text-secondary)]">
                             لا توجد رسائل SMS مطابقة للبحث حالياً.
                           </td>
                         </tr>
@@ -3981,26 +4504,26 @@ export const CommunicationsView: React.FC = () => {
                         smsOutboundList.map((msg, idx) => (
                           <tr
                             key={`${msg.id}-${idx}`}
-                            className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition"
+                            className="hover:bg-[var(--erp-bg-elevated)]/60 transition"
                           >
-                            <td className="py-2.5 px-3 font-bold text-slate-800 dark:text-slate-100">
+                            <td className="py-2.5 px-3 font-bold text-[var(--erp-text-primary)]">
                               {msg.recipientName}
                             </td>
-                            <td className="py-2.5 px-3 font-mono text-indigo-600 dark:text-indigo-400" dir="ltr">
+                            <td className="py-2.5 px-3 font-mono text-[var(--erp-accent)]" dir="ltr">
                               {msg.normalizedPhone || msg.recipientPhone}
                             </td>
-                            <td className="py-2.5 px-3 font-mono text-slate-600 dark:text-slate-300">
+                            <td className="py-2.5 px-3 font-mono text-[var(--erp-text-secondary)]">
                               {msg.referenceNumber || '—'}
                             </td>
-                            <td className="py-2.5 px-3 max-w-xs truncate text-slate-600 dark:text-slate-400" title={msg.messageBody}>
+                            <td className="py-2.5 px-3 max-w-xs truncate text-[var(--erp-text-secondary)]" title={msg.messageBody}>
                               {msg.messageBody}
                             </td>
                             <td className="py-2.5 px-3">
-                              <div className="flex flex-col">
+                              <div className="flex flex-col tabular-nums">
                                 <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
                                   ✓ تم التسليم (SIM {usbConnectedDevice.simSlot})
                                 </span>
-                                <span className="text-[10px] font-mono text-slate-400">{msg.sentAt}</span>
+                                <span className="text-[10px] font-mono text-[var(--erp-text-secondary)]">{msg.sentAt}</span>
                               </div>
                             </td>
                             <td className="py-2.5 px-3">
@@ -4019,12 +4542,12 @@ export const CommunicationsView: React.FC = () => {
                                     msg.recipientName
                                   );
                                   setAccountToast(
-                                    `⚡ تمت إعادة إرسال الرسالة النصية إلى (${msg.recipientName}) بنجاح!`
+                                    `تمت إعادة إرسال الرسالة النصية إلى (${msg.recipientName}) بنجاح.`
                                   );
                                 }}
-                                className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-[11px] font-bold cursor-pointer"
+                                className="px-2.5 py-1 rounded-lg bg-[var(--erp-bg-elevated)] border border-[var(--erp-border)] text-[var(--erp-text-primary)] hover:opacity-85 text-[11px] font-bold cursor-pointer whitespace-nowrap"
                               >
-                                إعادة إرسال ⚡
+                                إعادة إرسال
                               </button>
                             </td>
                           </tr>
@@ -4037,28 +4560,28 @@ export const CommunicationsView: React.FC = () => {
                 {/* Mobile Cards (< md) */}
                 <div className="md:hidden space-y-2.5">
                   {smsOutboundList.length === 0 ? (
-                    <div className="py-6 text-center text-xs text-slate-400">
+                    <div className="py-6 text-center text-xs text-[var(--erp-text-secondary)]">
                       لا توجد رسائل SMS مطابقة للبحث حالياً.
                     </div>
                   ) : (
                     smsOutboundList.map((msg, idx) => (
                       <div
                         key={`${msg.id}-sms-mob-${idx}`}
-                        className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 space-y-1.5"
+                        className="p-3 rounded-xl border border-[var(--erp-border)] bg-[var(--erp-bg-elevated)] space-y-1.5"
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-black text-slate-800 dark:text-slate-100 truncate">
+                          <span className="text-xs font-black text-[var(--erp-text-primary)] truncate">
                             {msg.recipientName}
                           </span>
                           <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">
                             ✓ SIM {usbConnectedDevice.simSlot}
                           </span>
                         </div>
-                        <p className="text-[11px] text-slate-600 dark:text-slate-300 line-clamp-2">
+                        <p className="text-[11px] text-[var(--erp-text-secondary)] line-clamp-2">
                           {msg.messageBody}
                         </p>
-                        <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-700/60 text-[11px]">
-                          <span className="font-mono text-indigo-600 dir-ltr">
+                        <div className="flex items-center justify-between pt-1 border-t border-[var(--erp-border)] text-[11px]">
+                          <span className="font-mono text-[var(--erp-accent)] dir-ltr">
                             {msg.normalizedPhone || msg.recipientPhone}
                           </span>
                           <button
@@ -4075,9 +4598,9 @@ export const CommunicationsView: React.FC = () => {
                                 msg.referenceNumber,
                                 msg.recipientName
                               );
-                              setAccountToast(`⚡ تمت إعادة إرسال الرسالة إلى (${msg.recipientName})`);
+                              setAccountToast(`تمت إعادة إرسال الرسالة إلى (${msg.recipientName})`);
                             }}
-                            className="px-2.5 py-1 rounded-lg bg-indigo-600 text-white text-[10px] font-bold cursor-pointer"
+                            className="px-2.5 py-1 rounded-lg haseb-btn-primary text-white text-[10px] font-bold cursor-pointer"
                           >
                             إعادة إرسال
                           </button>

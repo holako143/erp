@@ -26,7 +26,10 @@ import {
   composeInvoiceMessageText,
   composeDebtReminderMessageText,
   composeExecutiveReportMessageText,
+  composeReceiptVoucherMessageText,
+  composeWarrantyRMAMessageText,
 } from '../../core/messagingEngine';
+import { calculateSmsParts } from '../../core/communicationsEngine';
 import { calculateDynamicFinancialStatements } from '../../core/accountingEngine';
 
 export const QuickSendModal: React.FC = () => {
@@ -43,6 +46,7 @@ export const QuickSendModal: React.FC = () => {
     setActiveTab: setGlobalErpTab,
     customers,
     salesInvoices,
+    warrantyTickets,
     products,
     chartAccounts,
     journalEntries,
@@ -148,6 +152,8 @@ export const QuickSendModal: React.FC = () => {
       messagingGatewayConfig.defaultCountryDialCode
     );
   }, [recipientPhone, messageBody, messagingGatewayConfig.defaultCountryDialCode]);
+
+  const smsStats = useMemo(() => calculateSmsParts(messageBody), [messageBody]);
 
   if (!quickSendModalState.isOpen) return null;
 
@@ -279,6 +285,50 @@ export const QuickSendModal: React.FC = () => {
         `يرجى اعتماد أوامر الشراء العاجلة لتغذية المستودع.`,
       ];
       setMessageBody(lines.join('\n'));
+    } else if (newCat === 'RMA_WARRANTY') {
+      const ticket =
+        warrantyTickets.find((t) => t.status === 'READY') || warrantyTickets[0];
+      if (ticket) {
+        setRecipientName(ticket.customerName);
+        if (ticket.customerPhone) setRecipientPhone(ticket.customerPhone);
+        setReferenceNumber(ticket.ticketNumber);
+        setMessageBody(
+          composeWarrantyRMAMessageText({
+            ticket,
+            companyName: company.nameAr || company.name,
+            currency,
+          })
+        );
+      } else {
+        setReferenceNumber(`RMA-${new Date().getFullYear()}-01`);
+        setMessageBody(
+          `🛠️ *إشعار مركز الضمان والصيانة — ${company.nameAr || company.name}*\nنود إبلاغكم بأن جهازكم جاهز للاستلام بعد إتمام الفحص والمعايرة الفنية بنجاح.`
+        );
+      }
+    } else if (newCat === 'RECEIPT_VOUCHER') {
+      const targetCust =
+        customers.find((c) => c.id === selectedCustomerId) ||
+        customers.find((c) => Number(c.balance) > 0) ||
+        customers[0];
+      const custName = targetCust?.nameAr || targetCust?.name || recipientName || 'عميلنا الكريم';
+      const bal = Math.max(0, Number(targetCust?.balance || 0));
+      const rvNum = `RV-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`;
+      if (targetCust) {
+        setRecipientName(custName);
+        if (targetCust.phone) setRecipientPhone(targetCust.phone);
+      }
+      setReferenceNumber(rvNum);
+      setMessageBody(
+        composeReceiptVoucherMessageText({
+          voucherNumber: rvNum,
+          customerName: custName,
+          amountReceived: bal > 0 ? Math.round(bal / 2) : 1000,
+          remainingBalance: bal > 0 ? Math.round(bal / 2) : 0,
+          paymentMethod: 'نقداً / تحويل بنكي',
+          companyName: company.nameAr || company.name,
+          currency,
+        })
+      );
     }
   };
 
@@ -335,11 +385,9 @@ export const QuickSendModal: React.FC = () => {
     INVALID: 'غير مكتمل',
   };
 
-  const smsSegments = Math.max(1, Math.ceil((messageBody.length || 1) / 70));
-
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-3 sm:p-4"
       data-testid="quick-send-modal"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) {
@@ -347,23 +395,23 @@ export const QuickSendModal: React.FC = () => {
         }
       }}
     >
-      <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden text-slate-800 dark:text-slate-100">
-        {/* Lumina POS-Style Header */}
-        <div className="flex items-center justify-between px-5 py-4 bg-slate-50/90 dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 shrink-0">
+      <div className="bg-[var(--erp-bg-surface)] border border-[var(--erp-border)] rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden text-[var(--erp-text-primary)]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 sm:px-5 py-3.5 bg-[var(--erp-bg-elevated)] border-b border-[var(--erp-border)] shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-10 h-10 rounded-xl haseb-btn-primary text-white flex items-center justify-center shrink-0 shadow-2xs">
               <MessageSquare className="w-5 h-5" />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white tracking-tight">
+                <h2 className="text-sm sm:text-base font-bold text-[var(--erp-text-primary)] tracking-tight">
                   مركز الإرسال الموحد عبر الرقم (واتساب WhatsApp & رسائل نصية SMS)
                 </h2>
-                <span className="px-2.5 py-0.5 text-[11px] font-semibold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/80 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800">
-                  متصل بالنظام المحاسبي
+                <span className="text-[11px] font-semibold text-[var(--erp-accent)]">
+                  • متصل بالنظام المحاسبي
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+              <p className="text-[11px] text-[var(--erp-text-secondary)] mt-0.5 truncate">
                 إرسال الفواتير، كشوف المديونيات، سندات القبض، إشعارات الصيانة، والتقارير المالية مباشرة لأي رقم هاتف محلي أو دولي
               </p>
             </div>
@@ -373,23 +421,23 @@ export const QuickSendModal: React.FC = () => {
             onClick={closeQuickSendModal}
             data-testid="close-quick-send-modal-btn"
             aria-label="إغلاق نافذة الإرسال"
-            className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition cursor-pointer shrink-0"
+            className="w-8 h-8 rounded-xl bg-[var(--erp-bg-surface)] border border-[var(--erp-border)] text-[var(--erp-text-secondary)] hover:text-[var(--erp-text-primary)] flex items-center justify-center transition cursor-pointer shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* POS-Style Rounded-Full Pill Navigation Sub-Tabs */}
-        <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-2.5 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 text-xs shrink-0">
+        {/* Navigation Sub-Tabs */}
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-5 py-2.5 bg-[var(--erp-bg-surface)] border-b border-[var(--erp-border)] text-xs shrink-0">
           <div className="flex flex-wrap items-center gap-1.5">
             <button
               type="button"
               onClick={() => setActiveTab('COMPOSE')}
               data-testid="tab-msg-compose"
-              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full border transition cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border transition cursor-pointer ${
                 activeTab === 'COMPOSE'
                   ? 'haseb-nav-active text-white font-semibold shadow-2xs'
-                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
+                  : 'bg-[var(--erp-bg-elevated)] border-[var(--erp-border)] text-[var(--erp-text-secondary)] hover:text-[var(--erp-text-primary)] font-medium'
               }`}
             >
               <Send className="w-3.5 h-3.5" />
@@ -399,23 +447,23 @@ export const QuickSendModal: React.FC = () => {
               type="button"
               onClick={() => setActiveTab('HISTORY')}
               data-testid="tab-msg-history"
-              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full border transition cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border transition cursor-pointer ${
                 activeTab === 'HISTORY'
                   ? 'haseb-nav-active text-white font-semibold shadow-2xs'
-                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
+                  : 'bg-[var(--erp-bg-elevated)] border-[var(--erp-border)] text-[var(--erp-text-secondary)] hover:text-[var(--erp-text-primary)] font-medium'
               }`}
             >
               <History className="w-3.5 h-3.5" />
-              <span>سجل الرسائل المرسلة ({outboundMessages.length})</span>
+              <span className="tabular-nums">سجل الرسائل المرسلة ({outboundMessages.length})</span>
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('SETTINGS')}
               data-testid="tab-msg-settings"
-              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full border transition cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border transition cursor-pointer ${
                 activeTab === 'SETTINGS'
                   ? 'haseb-nav-active text-white font-semibold shadow-2xs'
-                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
+                  : 'bg-[var(--erp-bg-elevated)] border-[var(--erp-border)] text-[var(--erp-text-secondary)] hover:text-[var(--erp-text-primary)] font-medium'
               }`}
             >
               <Settings className="w-3.5 h-3.5" />
@@ -423,14 +471,14 @@ export const QuickSendModal: React.FC = () => {
             </button>
           </div>
 
-          <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 px-3 py-1 rounded-full border border-slate-200/70 dark:border-slate-700">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-            <span>المفتاح الدولي الافتراضي: {messagingGatewayConfig.defaultCountryDialCode}</span>
+          <div className="flex items-center gap-1.5 text-[11px] text-[var(--erp-text-secondary)] bg-[var(--erp-bg-elevated)] px-3 py-1 rounded-xl border border-[var(--erp-border)]">
+            <ShieldCheck className="w-3.5 h-3.5 text-[var(--erp-accent)]" />
+            <span>المفتاح الافتراضي: {messagingGatewayConfig.defaultCountryDialCode}</span>
           </div>
         </div>
 
         {/* Body Content */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-[#F8FAFC] dark:bg-slate-950">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 bg-[var(--erp-bg-canvas)]">
           {activeTab === 'COMPOSE' && (
             <>
               {/* Feedback Banner */}
@@ -720,19 +768,22 @@ export const QuickSendModal: React.FC = () => {
               </div>
 
               {/* Message Body Editor */}
-              <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-2xs">
+              <div className="bg-[var(--erp-bg-surface)] border border-[var(--erp-border)] rounded-2xl p-4 shadow-2xs">
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                  <label className="text-xs font-bold text-[var(--erp-text-primary)] flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-[var(--erp-accent)]" />
                     <span>نص الرسالة الجاهزة للإرسال (قابل للتعديل الفوري)</span>
                   </label>
-                  <div className="flex items-center gap-3 text-[11px] text-slate-500">
-                    <span>عدد الأحرف: {messageBody.length}</span>
-                    <span>شرائح SMS: {smsSegments}</span>
+                  <div className="flex items-center gap-3 text-[11px] text-[var(--erp-text-secondary)] font-mono tabular-nums">
+                    <span>{smsStats.charCount} حرف</span>
+                    <span>•</span>
+                    <span>
+                      {smsStats.partCount} شريحة ({smsStats.encodingLabel} • متبقي {smsStats.remainingInCurrentPart})
+                    </span>
                     <button
                       type="button"
                       onClick={handleCopyMessage}
-                      className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-semibold cursor-pointer"
+                      className="inline-flex items-center gap-1 text-[var(--erp-accent)] hover:underline font-sans font-semibold cursor-pointer"
                     >
                       <Copy className="w-3 h-3" />
                       <span>{copiedFlag ? 'تم النسخ!' : 'نسخ النص'}</span>

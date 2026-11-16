@@ -35,7 +35,23 @@ import {
   resolveSplitPaneLayout,
   cycleSplitPaneMode,
 } from './workspaceLayoutEngine';
-import { summarizeCommunicationsWorkspace } from './communicationsEngine';
+import {
+  summarizeCommunicationsWorkspace,
+  calculateSmsParts,
+  calculateChannelHealthMetrics,
+} from './communicationsEngine';
+import {
+  getThemeToastAppearance,
+  enqueueToastNotification,
+  dismissToastFromQueue,
+  filterAndSortSystemNotifications,
+  type SystemNotification,
+} from './notificationsEngine';
+import {
+  personalizeMessagingTemplate,
+  composeOtpVerificationSmsText,
+  composeShiftSummarySmsText,
+} from './messagingEngine';
 
 // --- Barcode Engine Tests ---
 test('calculateEAN13CheckDigit calculates GS1 standard check digit accurately', () => {
@@ -4217,6 +4233,244 @@ test('Track 50: Conflict-free 3-way entity merge preserves concurrent mobile & d
   assert.equal(summary.mobileCount, 1);
   assert.equal(summary.desktopCount, 1);
 });
+
+// ============================================================================
+// Track 51: Theme-Adaptive Notifications, Personalized SMS & Channel Health
+// ============================================================================
+test('Track 51: getThemeToastAppearance adapts to all 5 ERP themes and severities cleanly', () => {
+  const sandInfo = getThemeToastAppearance('haseb_sand', 'info');
+  assert.equal(sandInfo.themeId, 'haseb_sand');
+  assert.equal(sandInfo.isWarmSurface, true);
+  assert.equal(sandInfo.isDarkSurface, false);
+  assert.equal(sandInfo.badgeLabelAr, 'إشعار');
+  assert.ok(sandInfo.iconWrapperClass.includes('amber-'));
+  assert.ok(sandInfo.surfaceClass.includes('--erp-bg-surface'));
+
+  const obsidianSuccess = getThemeToastAppearance('obsidian_dark', 'success');
+  assert.equal(obsidianSuccess.themeId, 'obsidian_dark');
+  assert.equal(obsidianSuccess.isDarkSurface, true);
+  assert.equal(obsidianSuccess.badgeLabelAr, 'مكتمل');
+  assert.ok(obsidianSuccess.iconWrapperClass.includes('sky-500'));
+
+  const royalWarning = getThemeToastAppearance('haseb_royal', 'warning');
+  assert.equal(royalWarning.badgeLabelAr, 'تنبيه');
+  assert.ok(royalWarning.accentBarClass.includes('amber-'));
+
+  const swissCritical = getThemeToastAppearance('swiss_light', 'critical');
+  assert.equal(swissCritical.badgeLabelAr, 'عاجل');
+  assert.ok(swissCritical.accentBarClass.includes('rose-'));
+
+  const corporateDone = getThemeToastAppearance('corporate_slate', 'success');
+  assert.equal(corporateDone.badgeLabelAr, 'مكتمل');
+  assert.ok(corporateDone.accentBarClass.includes('emerald-'));
+});
+
+test('Track 51: enqueueToastNotification and dismissToastFromQueue manage bounded deduplicated toast stack', () => {
+  let queue = enqueueToastNotification([], {
+    id: 't1',
+    category: 'LIVE_EVENTS',
+    severity: 'info',
+    titleAr: 'أول',
+    titleEn: 'First',
+    messageAr: 'رسالة 1',
+    messageEn: 'Msg 1',
+  });
+  queue = enqueueToastNotification(queue, {
+    id: 't2',
+    category: 'WHATSAPP_INBOX',
+    severity: 'success',
+    titleAr: 'ثاني',
+    titleEn: 'Second',
+    messageAr: 'رسالة 2',
+    messageEn: 'Msg 2',
+  });
+  queue = enqueueToastNotification(queue, {
+    id: 't3',
+    category: 'DEBT_OVERDUE',
+    severity: 'warning',
+    titleAr: 'ثالث',
+    titleEn: 'Third',
+    messageAr: 'رسالة 3',
+    messageEn: 'Msg 3',
+  });
+  // Adding duplicate t1 promotes it and keeps max length 3
+  queue = enqueueToastNotification(queue, {
+    id: 't1',
+    category: 'LIVE_EVENTS',
+    severity: 'critical',
+    titleAr: 'محدث',
+    titleEn: 'Updated',
+    messageAr: 'رسالة 1 محدثة',
+    messageEn: 'Msg 1 updated',
+  });
+  assert.equal(queue.length, 3);
+  assert.equal(queue[0].id, 't1');
+  assert.equal(queue[0].severity, 'critical');
+
+  // Adding 4th trims oldest
+  queue = enqueueToastNotification(queue, {
+    id: 't4',
+    category: 'BRANCH_SYNC',
+    severity: 'info',
+    titleAr: 'رابع',
+    titleEn: 'Fourth',
+    messageAr: 'رسالة 4',
+    messageEn: 'Msg 4',
+  });
+  assert.equal(queue.length, 3);
+  assert.deepEqual(queue.map((t) => t.id), ['t4', 't1', 't3']);
+
+  const afterDismiss = dismissToastFromQueue(queue, 't1');
+  assert.deepEqual(afterDismiss.map((t) => t.id), ['t4', 't3']);
+});
+
+test('Track 51: filterAndSortSystemNotifications orders unread & critical alerts first and filters Arabic/English', () => {
+  const sample: SystemNotification[] = [
+    {
+      id: 'n-read-crit',
+      category: 'OUT_OF_STOCK',
+      severity: 'critical',
+      titleAr: 'نفاد صنف قديم',
+      titleEn: 'Old stockout',
+      messageAr: 'تمت معالجته',
+      messageEn: 'Handled',
+      timestamp: '2026-11-16T09:00:00Z',
+      isRead: true,
+    },
+    {
+      id: 'n-unread-info',
+      category: 'WHATSAPP_INBOX',
+      severity: 'info',
+      titleAr: 'رسالة واتساب واردة',
+      titleEn: 'Inbound WhatsApp',
+      messageAr: 'استفسار عميل جديد',
+      messageEn: 'New customer inquiry',
+      timestamp: '2026-11-16T10:00:00Z',
+      isRead: false,
+    },
+    {
+      id: 'n-unread-crit',
+      category: 'DEBT_OVERDUE',
+      severity: 'critical',
+      titleAr: 'تجاوز سقف الائتمان',
+      titleEn: 'Credit Limit Exceeded',
+      messageAr: 'عميل البناء الحديث تجاوز السقف',
+      messageEn: 'Modern Build breached limit',
+      timestamp: '2026-11-16T08:00:00Z',
+      isRead: false,
+    },
+  ];
+
+  const allSorted = filterAndSortSystemNotifications(sample);
+  assert.deepEqual(
+    allSorted.map((n) => n.id),
+    ['n-unread-crit', 'n-unread-info', 'n-read-crit']
+  );
+
+  const unreadOnly = filterAndSortSystemNotifications(sample, { unreadOnly: true });
+  assert.equal(unreadOnly.length, 2);
+
+  const queryMatch = filterAndSortSystemNotifications(sample, { query: 'واتساب' });
+  assert.deepEqual(queryMatch.map((n) => n.id), ['n-unread-info']);
+
+  const enQueryMatch = filterAndSortSystemNotifications(sample, { query: 'credit limit' });
+  assert.deepEqual(enQueryMatch.map((n) => n.id), ['n-unread-crit']);
+});
+
+test('Track 51: calculateSmsParts computes GSM-7 vs Arabic UTF-16 segment limits accurately', () => {
+  const gsmSingle = calculateSmsParts('OTP: 482910 valid 5m');
+  assert.equal(gsmSingle.encodingLabel, 'GSM-7');
+  assert.equal(gsmSingle.isUnicode, false);
+  assert.equal(gsmSingle.partCount, 1);
+  assert.equal(gsmSingle.maxPerPart, 160);
+  assert.equal(gsmSingle.remainingInCurrentPart, 160 - 20);
+
+  const gsmMulti = calculateSmsParts('A'.repeat(161));
+  assert.equal(gsmMulti.encodingLabel, 'GSM-7');
+  assert.equal(gsmMulti.partCount, 2);
+  assert.equal(gsmMulti.maxPerPart, 153);
+  assert.equal(gsmMulti.remainingInCurrentPart, 306 - 161);
+
+  const arSingle = calculateSmsParts('مرحباً بكم في مؤسسة النور');
+  assert.equal(arSingle.encodingLabel, 'UTF-16');
+  assert.equal(arSingle.isUnicode, true);
+  assert.equal(arSingle.partCount, 1);
+  assert.equal(arSingle.maxPerPart, 70);
+
+  const arMulti = calculateSmsParts('أ'.repeat(71));
+  assert.equal(arMulti.encodingLabel, 'UTF-16');
+  assert.equal(arMulti.partCount, 2);
+  assert.equal(arMulti.maxPerPart, 67);
+  assert.equal(arMulti.remainingInCurrentPart, 134 - 71);
+});
+
+test('Track 51: personalizeMessagingTemplate and SMS OTP/Shift composers substitute variables cleanly', () => {
+  const personalized = personalizeMessagingTemplate(
+    'عميلنا {العميل} في {الشركة}: الرصيد {الرصيد} {العملة} ({الهاتف}) بتاريخ {التاريخ}',
+    {
+      customerName: 'شركة البناء الحديث',
+      companyName: 'مؤسسة النور',
+      balanceFormatted: '18,500',
+      currency: 'YER',
+      phone: '+967771445880',
+      dateIso: '2026-11-16',
+    }
+  );
+  assert.equal(
+    personalized,
+    'عميلنا شركة البناء الحديث في مؤسسة النور: الرصيد 18,500 YER (+967771445880) بتاريخ 2026-11-16'
+  );
+
+  const otpText = composeOtpVerificationSmsText({
+    customerName: 'سالم',
+    otpCode: '749201',
+    companyName: 'النور',
+    expiryMinutes: 5,
+  });
+  assert.ok(otpText.includes('749201'));
+  assert.ok(otpText.includes('سالم'));
+  assert.ok(otpText.includes('5 دقائق'));
+
+  const shiftText = composeShiftSummarySmsText({
+    cashierName: 'طارق المنصور',
+    branchName: 'الفرع الرئيسي',
+    totalSales: 45200,
+    expectedCash: 19800,
+    transactionCount: 14,
+    companyName: 'مؤسسة النور',
+    currency: 'YER',
+    dateIso: '2026-11-16',
+  });
+  assert.ok(shiftText.includes('طارق المنصور'));
+  assert.ok(shiftText.includes('14 فاتورة'));
+  assert.ok(shiftText.includes('45,200 YER'));
+  assert.ok(shiftText.includes('19,800 YER'));
+});
+
+test('Track 51: calculateChannelHealthMetrics aggregates WhatsApp, SMS, and USB modem health accurately', () => {
+  const metrics = calculateChannelHealthMetrics(
+    [
+      { session: { status: 'CONNECTED' }, messagesDispatchedCount: 25 },
+      { session: { status: 'PAIRING_QR' }, messagesDispatchedCount: 10 },
+    ] as any,
+    [
+      { channel: 'SMS', status: 'DELIVERED' },
+      { channel: 'SMS', status: 'FAILED' },
+      { channel: 'WHATSAPP', status: 'DELIVERED' },
+      { channel: 'WHATSAPP', status: 'SENT' },
+    ],
+    { atCommandReady: true, usbDebuggingEnabled: true, simSlot: 2 }
+  );
+
+  assert.equal(metrics.connectedWhatsAppCount, 1);
+  assert.equal(metrics.totalWhatsAppCount, 2);
+  assert.equal(metrics.totalMessagesDispatched, 4);
+  assert.equal(metrics.deliveredSmsCount, 1);
+  assert.equal(metrics.deliveredWhatsAppCount, 2);
+  assert.equal(metrics.usbGatewayReady, true);
+  assert.equal(metrics.activeSimSlot, 2);
+});
+
 
 
 

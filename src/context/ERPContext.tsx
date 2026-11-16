@@ -205,11 +205,14 @@ import {
 } from '../core/industryBlueprints';
 import {
   SystemNotification,
+  NotificationActionType,
   RemoteSyncToastSpec,
   generateSystemNotifications,
   computeNotificationStateSummary,
   buildRemotePatchToastMeta,
   triggerNativeBrowserNotification,
+  enqueueToastNotification,
+  dismissToastFromQueue,
 } from '../core/notificationsEngine';
 import {
   createDefaultShiftlessState,
@@ -849,6 +852,7 @@ interface ERPContextType {
   whatsappChats: WhatsAppChat[];
   activeWhatsAppChatId: string;
   setActiveWhatsAppChatId: (id: string) => void;
+  markWhatsAppChatRead: (chatId: string) => void;
   pairWhatsAppWithQR: (phone?: string, name?: string) => Promise<{ success: boolean; messageAr: string }>;
   disconnectWhatsApp: () => Promise<void>;
   sendWhatsAppChatMessage: (chatId: string, text: string, attachmentType?: string, refNum?: string) => Promise<void>;
@@ -954,7 +958,8 @@ interface ERPContextType {
   criticalNotificationsCount: number;
   lastBackupTimestamp: string | null;
   pushLiveNotification: (
-    notif: Omit<SystemNotification, 'id' | 'timestamp' | 'isRead'> & { id?: string }
+    notif: Omit<SystemNotification, 'id' | 'timestamp' | 'isRead'> & { id?: string },
+    options?: { showToast?: boolean }
   ) => void;
   markNotificationRead: (id: string) => void;
   toggleNotificationRead: (id: string) => void;
@@ -967,7 +972,9 @@ interface ERPContextType {
   setBrowserNotificationsEnabled: (enabled: boolean) => void;
   requestBrowserNotificationPermission: () => Promise<boolean>;
   activeToastNotification: RemoteSyncToastSpec | null;
-  dismissToastNotification: () => void;
+  toastQueue: RemoteSyncToastSpec[];
+  dismissToastNotification: (toastId?: string) => void;
+  pauseToastTimer: (toastId: string, paused: boolean) => void;
   dispatchToastAndPushNotification: (
     spec: Omit<RemoteSyncToastSpec, 'id'> & { id?: string }
   ) => void;
@@ -1167,29 +1174,49 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // ignore
     }
   }, []);
-  const [activeToastNotification, setActiveToastNotification] =
-    useState<RemoteSyncToastSpec | null>(null);
-  const toastDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dismissToastNotification = useCallback(() => {
-    if (toastDismissTimerRef.current) {
-      clearTimeout(toastDismissTimerRef.current);
-      toastDismissTimerRef.current = null;
+  const [toastQueue, setToastQueue] = useState<RemoteSyncToastSpec[]>([]);
+  const activeToastNotification = toastQueue[0] || null;
+  const toastTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const dismissToastNotification = useCallback((toastId?: string) => {
+    if (toastId && toastTimersRef.current[toastId]) {
+      clearTimeout(toastTimersRef.current[toastId]);
+      delete toastTimersRef.current[toastId];
+    } else if (!toastId) {
+      Object.values(toastTimersRef.current).forEach(clearTimeout);
+      toastTimersRef.current = {};
     }
-    setActiveToastNotification(null);
+    setToastQueue((prev) => (toastId ? dismissToastFromQueue(prev, toastId) : []));
   }, []);
+  const scheduleToastDismiss = useCallback((id: string, delayMs = 4800) => {
+    if (toastTimersRef.current[id]) {
+      clearTimeout(toastTimersRef.current[id]);
+    }
+    toastTimersRef.current[id] = setTimeout(() => {
+      delete toastTimersRef.current[id];
+      setToastQueue((prev) => dismissToastFromQueue(prev, id));
+    }, delayMs);
+  }, []);
+  const pauseToastTimer = useCallback(
+    (toastId: string, paused: boolean) => {
+      if (paused) {
+        if (toastTimersRef.current[toastId]) {
+          clearTimeout(toastTimersRef.current[toastId]);
+          delete toastTimersRef.current[toastId];
+        }
+      } else {
+        scheduleToastDismiss(toastId, 3200);
+      }
+    },
+    [scheduleToastDismiss]
+  );
   const dispatchToastAndPushNotification = useCallback(
     (spec: Omit<RemoteSyncToastSpec, 'id'> & { id?: string }) => {
       const fullSpec: RemoteSyncToastSpec = {
         ...spec,
         id: spec.id || `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       };
-      setActiveToastNotification(fullSpec);
-      if (toastDismissTimerRef.current) {
-        clearTimeout(toastDismissTimerRef.current);
-      }
-      toastDismissTimerRef.current = setTimeout(() => {
-        setActiveToastNotification((curr) => (curr?.id === fullSpec.id ? null : curr));
-      }, 4800);
+      setToastQueue((prev) => enqueueToastNotification(prev, fullSpec, 3));
+      scheduleToastDismiss(fullSpec.id, 4800);
 
       if (browserNotificationsEnabled && typeof window !== 'undefined' && 'Notification' in window) {
         if (Notification.permission === 'granted') {
@@ -1201,7 +1228,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       }
     },
-    [browserNotificationsEnabled, language]
+    [browserNotificationsEnabled, language, scheduleToastDismiss]
   );
 
   const requestBrowserNotificationPermission = useCallback(async (): Promise<boolean> => {
@@ -1270,7 +1297,34 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const whatsappSession: WhatsAppSessionInfo = activeWhatsAppAccountObj.session;
   const whatsappChats: WhatsAppChat[] = activeWhatsAppAccountObj.chats;
 
-  const [activeWhatsAppChatId, setActiveWhatsAppChatId] = useState<string>('');
+  const [activeWhatsAppChatId, setActiveWhatsAppChatIdState] = useState<string>('');
+  const markWhatsAppChatRead = useCallback((chatId: string) => {
+    if (!chatId) return;
+    setWhatsappAccounts((prev) => {
+      let modified = false;
+      const next = prev.map((acc) => {
+        const hasUnread = acc.chats.some((c) => c.id === chatId && c.unreadCount > 0);
+        if (!hasUnread) return acc;
+        modified = true;
+        return {
+          ...acc,
+          chats: acc.chats.map((c) =>
+            c.id === chatId && c.unreadCount > 0 ? { ...c, unreadCount: 0 } : c
+          ),
+        };
+      });
+      return modified ? next : prev;
+    });
+  }, []);
+  const setActiveWhatsAppChatId = useCallback(
+    (id: string) => {
+      setActiveWhatsAppChatIdState(id);
+      if (id) {
+        markWhatsAppChatRead(id);
+      }
+    },
+    [markWhatsAppChatRead]
+  );
 
   // USB Mobile Phone Bridge (SMS via connected Phone SIM)
   const [usbConnectedDevice, setUsbConnectedDevice] = useState<UsbConnectedDevice>(() =>
@@ -1361,16 +1415,33 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [liveEventNotifications]);
 
   const pushLiveNotification = useCallback(
-    (notif: Omit<SystemNotification, 'id' | 'timestamp' | 'isRead'> & { id?: string }) => {
+    (
+      notif: Omit<SystemNotification, 'id' | 'timestamp' | 'isRead'> & { id?: string },
+      options: { showToast?: boolean } = {}
+    ) => {
+      const entryId =
+        notif.id || `evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       const entry: SystemNotification = {
         ...notif,
-        id: notif.id || `evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        id: entryId,
         timestamp: new Date().toISOString(),
         isRead: false,
       };
       setLiveEventNotifications((prev) => [entry, ...prev].slice(0, 25));
+      if (options.showToast !== false) {
+        dispatchToastAndPushNotification({
+          id: `toast-${entryId}`,
+          category: entry.category,
+          severity: entry.severity,
+          titleAr: entry.titleAr,
+          titleEn: entry.titleEn,
+          messageAr: entry.messageAr,
+          messageEn: entry.messageEn,
+          actionType: (entry.actionType as NotificationActionType | undefined) || 'COMMUNICATIONS',
+        });
+      }
     },
-    []
+    [dispatchToastAndPushNotification]
   );
 
   const recordBackupCompleted = useCallback((isoTimestamp?: string) => {
@@ -2655,6 +2726,18 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       },
       ...prev,
     ]);
+
+    pushLiveNotification({
+      category: 'LIVE_EVENTS',
+      severity: 'success',
+      titleAr: params.channel === 'SMS' ? 'تم إرسال رسالة SMS فورية' : 'تم إرسال رسالة واتساب فورية',
+      titleEn: params.channel === 'SMS' ? 'SMS Dispatched' : 'WhatsApp Dispatched',
+      messageAr: `إلى ${newRecord.recipientName} (${newRecord.normalizedPhone})${
+        params.referenceNumber ? ` — مرجع ${params.referenceNumber}` : ''
+      }`,
+      messageEn: `Sent to ${newRecord.recipientName} (${newRecord.normalizedPhone})`,
+      actionType: 'COMMUNICATIONS',
+    });
 
     return {
       success: true,
@@ -8014,6 +8097,18 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }),
     }).catch(() => {});
 
+    pushLiveNotification({
+      category: 'LIVE_EVENTS',
+      severity: 'success',
+      titleAr: `إرسال رسالة SMS عبر SIM ${usbConnectedDevice.simSlot}`,
+      titleEn: `SMS Sent via SIM ${usbConnectedDevice.simSlot}`,
+      messageAr: `تم الإرسال إلى ${newRecord.recipientName} (${e164Phone})${
+        referenceNumber ? ` — ${referenceNumber}` : ''
+      }`,
+      messageEn: `Sent SMS to ${newRecord.recipientName} (${e164Phone})`,
+      actionType: 'COMMUNICATIONS',
+    });
+
     return {
       success: true,
       record: newRecord,
@@ -8094,6 +8189,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const receiveSimulatedWhatsAppCustomerMessage = (chatId: string, replyText: string) => {
     const inboundMsg = createSimulatedInboundWhatsAppMessage(chatId, replyText);
     const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const targetChatName =
+      activeWhatsAppAccountObj.chats.find((c) => c.id === chatId)?.contactName || 'عميل واتساب';
     setWhatsappAccounts((prev) =>
       prev.map((acc) => {
         if (acc.id !== activeWhatsAppAccountObj.id) return acc;
@@ -8115,6 +8212,15 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
       })
     );
+    pushLiveNotification({
+      category: 'WHATSAPP_INBOX',
+      severity: 'info',
+      titleAr: `رسالة واتساب جديدة من ${targetChatName}`,
+      titleEn: `New WhatsApp Message from ${targetChatName}`,
+      messageAr: replyText.slice(0, 120),
+      messageEn: replyText.slice(0, 120),
+      actionType: 'COMMUNICATIONS',
+    });
   };
 
   const launchBulkDebtSmsCampaign = (
@@ -8163,6 +8269,16 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       },
       ...prev,
     ]);
+
+    pushLiveNotification({
+      category: 'LIVE_EVENTS',
+      severity: 'success',
+      titleAr: `حملة SMS جماعية (${campaign.targetedCustomersCount} عملاء)`,
+      titleEn: `Bulk SMS Campaign (${campaign.targetedCustomersCount} recipients)`,
+      messageAr: `تم إطلاق تذكير المديونيات عبر شريحة SIM ${usbConnectedDevice.simSlot} بإجمالي ${campaign.totalDebtAmount.toLocaleString()} ${currency}.`,
+      messageEn: `Bulk debt SMS campaign sent to ${campaign.targetedCustomersCount} debtors.`,
+      actionType: 'COMMUNICATIONS',
+    });
 
     return {
       campaignId: campaign.campaignId,
@@ -8574,6 +8690,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         whatsappChats,
         activeWhatsAppChatId,
         setActiveWhatsAppChatId,
+        markWhatsAppChatRead,
         pairWhatsAppWithQR,
         disconnectWhatsApp,
         sendWhatsAppChatMessage,
@@ -8633,7 +8750,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setBrowserNotificationsEnabled,
         requestBrowserNotificationPermission,
         activeToastNotification,
+        toastQueue,
         dismissToastNotification,
+        pauseToastTimer,
         dispatchToastAndPushNotification,
         soundAlertPrefs,
         updateSoundAlertPrefs,

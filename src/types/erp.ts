@@ -1326,7 +1326,7 @@ export interface UsbConnectedDevice {
   manufacturer: string;
   serialNumber: string;
   port: string;
-  connectionMode: 'ADB_DEBUGGING' | 'SERIAL_MODEM_AT' | 'DIRECT_USB_CABLE';
+  connectionMode: 'ADB_DEBUGGING' | 'SERIAL_MODEM_AT' | 'DIRECT_USB_CABLE' | 'USB_MODEM_AT' | 'ETHERNET_TETHER';
   simOperator: string;
   simSlot: number;
   signalStrengthPercent: number;
