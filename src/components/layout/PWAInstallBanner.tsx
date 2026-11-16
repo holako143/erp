@@ -82,7 +82,9 @@ export function useOnlineStatus() {
   return isOnline;
 }
 
-export const PWAInstallButton: React.FC = () => {
+export const PWAInstallButton: React.FC<{ compactForDrawer?: boolean }> = ({
+  compactForDrawer = false,
+}) => {
   const { language } = useERP();
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
   const isOnline = useOnlineStatus();
@@ -91,11 +93,13 @@ export const PWAInstallButton: React.FC = () => {
   if (isInstalled) {
     return (
       <span
-        data-testid="pwa-installed-badge"
-        className="hidden xl:inline-flex items-center gap-1 px-2 py-1 rounded-md bg-slate-100 border border-slate-200 text-slate-700 text-[11px] font-medium"
+        data-testid={compactForDrawer ? 'mobile-pwa-installed-badge' : 'pwa-installed-badge'}
+        className={`${
+          compactForDrawer ? 'inline-flex w-full justify-center py-2' : 'hidden xl:inline-flex'
+        } items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold`}
       >
-        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-        <span>{language === 'ar' ? 'تطبيق مثبت' : 'Installed'}</span>
+        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+        <span className="truncate">{language === 'ar' ? 'مثبت كتطبيق' : 'Installed'}</span>
       </span>
     );
   }
@@ -104,7 +108,7 @@ export const PWAInstallButton: React.FC = () => {
     <>
       <button
         type="button"
-        data-testid="navbar-pwa-install-btn"
+        data-testid={compactForDrawer ? 'mobile-pwa-install-btn' : 'navbar-pwa-install-btn'}
         onClick={async () => {
           if (isInstallable) {
             await install();
@@ -114,25 +118,29 @@ export const PWAInstallButton: React.FC = () => {
         }}
         title={
           language === 'ar'
-            ? 'تثبيت تطبيق RLM ERP على سطح المكتب أو الجوال للعمل بدون إنترنت'
-            : 'Install RLM ERP Offline-First PWA App'
+            ? 'تثبيت تطبيق حاسب ERP على سطح المكتب أو الجوال للعمل بدون إنترنت'
+            : 'Install Haseb ERP Offline-First PWA App'
         }
-        className="hidden xl:inline-flex items-center gap-1.5 px-2.5 h-8 rounded-md bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold transition cursor-pointer"
+        className={
+          compactForDrawer
+            ? 'w-full px-2.5 py-2.5 rounded-xl haseb-btn-primary text-white text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer'
+            : 'hidden xl:inline-flex items-center gap-1.5 px-2.5 h-8 rounded-md bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold transition cursor-pointer'
+        }
       >
-        <Download className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-        <span>{language === 'ar' ? 'تثبيت النظام' : 'Install'}</span>
+        <Download className="w-3.5 h-3.5 shrink-0" />
+        <span className="truncate">{language === 'ar' ? 'تثبيت كتطبيق' : 'Install App'}</span>
       </button>
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md rounded-lg bg-white border border-slate-200 p-6 shadow-xl space-y-4 text-xs">
+          <div className="w-full max-w-md rounded-2xl bg-white border border-slate-200 p-5 shadow-xl space-y-4 text-xs">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div className="flex items-center gap-2 font-bold text-sm text-slate-900">
-                <Smartphone className="w-4 h-4 text-slate-700" />
+                <Smartphone className="w-4 h-4 text-blue-600" />
                 <span>
                   {language === 'ar'
-                    ? 'تثبيت نظام RLM ERP كتطبيق سطح مكتب مستقل'
-                    : 'Install RLM ERP Standalone Application'}
+                    ? 'تثبيت نظام حاسب ERP كتطبيق على الجهاز'
+                    : 'Install Haseb ERP Standalone Application'}
                 </span>
               </div>
               <button
@@ -144,16 +152,16 @@ export const PWAInstallButton: React.FC = () => {
               </button>
             </div>
 
-            <div className="p-3.5 rounded-md bg-slate-50 border border-slate-200 space-y-2 text-slate-700">
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-slate-700">
               <div className="flex items-center justify-between">
                 <span className="font-semibold">
-                  {language === 'ar' ? 'حالة التخزين المحلي والعمل دون اتصال:' : 'Offline Storage Status:'}
+                  {language === 'ar' ? 'حالة التخزين المحلي والأوفلاين:' : 'Offline Storage Status:'}
                 </span>
                 <span className="inline-flex items-center gap-1 text-emerald-700 font-semibold">
                   <Wifi className="w-3.5 h-3.5" />
                   {isOnline
                     ? language === 'ar'
-                      ? 'متصل وجاهز للأوفلاين'
+                      ? 'متصل وجاهز للتطبيق'
                       : 'Active & Cached'
                     : language === 'ar'
                     ? 'وضع عدم الاتصال'
@@ -166,8 +174,8 @@ export const PWAInstallButton: React.FC = () => {
                     ? 'لتثبيت التطبيق على أجهزة iPhone / iPad: اضغط على زر المشاركة (Share) في متصفح Safari ثم اختر "إضافة إلى الشاشة الرئيسية".'
                     : 'On iPhone / iPad: Tap Share in Safari and select "Add to Home Screen".'
                   : language === 'ar'
-                  ? 'يدعم النظام التثبيت المباشر كتطبيق سطح مكتب مستقل مع حفظ الفواتير والمخزون محلياً والعمل حتى عند انقطاع الشبكة.'
-                  : 'RLM ERP is configured with a Web App Manifest and Service Worker for offline operation.'}
+                  ? 'يدعم نظام حاسب التثبيت المباشر كتطبيق مستقل من قائمة المتصفح (Add to Home screen / تثبيت التطبيق) للعمل بكفاءة عالية واستقبال التنبيهات.'
+                  : 'Haseb ERP is configured with a Web App Manifest and Service Worker for native app installation.'}
               </p>
             </div>
 
@@ -189,7 +197,7 @@ export const PWAInstallButton: React.FC = () => {
             <button
               type="button"
               onClick={() => setShowModal(false)}
-              className="w-full py-2 rounded-md bg-slate-900 hover:bg-slate-800 text-white font-semibold transition cursor-pointer"
+              className="w-full py-2 rounded-md haseb-btn-primary text-white font-semibold transition cursor-pointer"
             >
               {language === 'ar' ? 'إغلاق' : 'Close'}
             </button>

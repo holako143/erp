@@ -48,6 +48,7 @@ export const OnboardingWizardModal: React.FC<OnboardingWizardModalProps> = ({
     currency,
     activeIndustry,
     uiTheme,
+    uiFont,
     idleTimeoutMinutes,
     completeFirstLaunchSetup,
   } = useERP();
@@ -81,12 +82,10 @@ export const OnboardingWizardModal: React.FC<OnboardingWizardModalProps> = ({
   const [selectedCurrency, setSelectedCurrency] = useState<Currency>(currency || 'YER');
   const [selectedTheme, setSelectedTheme] = useState<UiThemeId>(uiTheme || 'haseb_royal');
   const [selectedFont, setSelectedFont] = useState<ArabicFontId>(() => {
-    try {
-      const saved = localStorage.getItem('haseb_arabic_font') as ArabicFontId | null;
-      return saved || 'cairo';
-    } catch {
-      return 'cairo';
-    }
+    if (uiFont === 'readex') return 'almarai';
+    if (uiFont === 'ibm_plex') return 'ibm';
+    if (uiFont === 'tajawal') return 'tajawal';
+    return 'cairo';
   });
 
   // Step 3: Single General Manager Admin Account + Auto-Lock Security
@@ -111,6 +110,15 @@ export const OnboardingWizardModal: React.FC<OnboardingWizardModalProps> = ({
       setSelectedCurrency(currency || 'YER');
       setSelectedIndustry(activeIndustry || 'general');
       setSelectedTheme(uiTheme || 'haseb_royal');
+      setSelectedFont(
+        uiFont === 'readex'
+          ? 'almarai'
+          : uiFont === 'ibm_plex'
+          ? 'ibm'
+          : uiFont === 'tajawal'
+          ? 'tajawal'
+          : 'cairo'
+      );
     }
   }, [
     isOpen,
@@ -121,6 +129,7 @@ export const OnboardingWizardModal: React.FC<OnboardingWizardModalProps> = ({
     currency,
     activeIndustry,
     uiTheme,
+    uiFont,
   ]);
 
   const pwdStrength = useMemo(
@@ -278,7 +287,7 @@ export const OnboardingWizardModal: React.FC<OnboardingWizardModalProps> = ({
         {/* Top Welcome Banner */}
         <div className="px-4 sm:px-6 py-4 haseb-card-gradient text-white flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <HasebBrandLogo size="md" theme="obsidian_dark" className="shrink-0" />
+            <HasebBrandLogo size="lg" theme="obsidian_dark" className="shrink-0" />
             <div className="min-w-0">
               <h2 className="font-black text-sm sm:text-base text-white truncate flex items-center gap-1.5">
                 <Sparkles className="w-4 h-4 text-emerald-300 shrink-0" />

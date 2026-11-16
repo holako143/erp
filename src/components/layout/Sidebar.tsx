@@ -29,12 +29,11 @@ import {
   Minus,
   Lock,
   MonitorSmartphone,
+  BellRing,
 } from 'lucide-react';
 import { HasebBrandLogo } from '../common/HasebBrandLogo';
-import {
-  applyGlobalTabScaleToDom,
-  getSavedTabScalePercent,
-} from '../common/WorkspaceTabResizerBar';
+import { PerformanceMonitorOverlay } from '../common/PerformanceMonitorOverlay';
+import { PWAInstallButton } from './PWAInstallBanner';
 import {
   stepTabScale,
   TAB_SCALE_MIN,
@@ -119,25 +118,16 @@ export function Sidebar() {
     currentWarehouse,
     lockTerminal,
     openLanPortal,
+    tabScalePercent: sidebarTabScale,
+    setTabScalePercent,
+    notificationPermission,
+    requestBrowserNotificationPermission,
   } = useERP();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [sidebarTabScale, setSidebarTabScale] = useState<number>(() => getSavedTabScalePercent());
-
-  React.useEffect(() => {
-    const handler = (e: Event) => {
-      const custom = e as CustomEvent<number>;
-      if (typeof custom.detail === 'number') {
-        setSidebarTabScale(custom.detail);
-      }
-    };
-    window.addEventListener('haseb-tab-scale-change', handler);
-    return () => window.removeEventListener('haseb-tab-scale-change', handler);
-  }, []);
 
   const handleStepSidebarTabScale = (dir: 'INC' | 'DEC') => {
     const next = stepTabScale(sidebarTabScale, dir);
-    setSidebarTabScale(next);
-    applyGlobalTabScaleToDom(next);
+    setTabScalePercent(next);
   };
 
   const isSectorModeActive = Boolean(masterSystemConfig.sectorModeEnabled);
@@ -504,6 +494,14 @@ export function Sidebar() {
             </div>
           )}
 
+          {/* Embedded View Render Performance Monitor */}
+          <PerformanceMonitorOverlay
+            embeddedInSidebar
+            isCollapsed={isSidebarCollapsed}
+            isDarkRail={isDarkRail}
+            isSandRail={isSandRail}
+          />
+
           {/* Sidebar Collapse / Expand Toggle Button */}
           <button
             type="button"
@@ -541,7 +539,7 @@ export function Sidebar() {
       {/* Mobile & Tablet Bottom Navigation Bar (lg:hidden) — Native App Feel */}
       <nav
         data-testid="mobile-bottom-nav"
-        className={`lg:hidden fixed bottom-0 inset-x-0 z-40 px-1.5 pt-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] border-t flex items-center justify-around shadow-lg backdrop-blur-md ${
+        className={`lg:hidden fixed bottom-0 inset-x-0 z-40 px-1 pt-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] border-t grid grid-cols-6 gap-0.5 items-center shadow-lg backdrop-blur-md ${
           isDarkRail
             ? 'bg-[#080C14]/95 border-slate-800 text-slate-200'
             : isSandRail
@@ -564,7 +562,7 @@ export function Sidebar() {
               type="button"
               data-testid={`mobile-nav-${item.id}`}
               onClick={() => setActiveTab(item.id)}
-              className={`flex flex-col items-center justify-center gap-0.5 py-1 px-2 rounded-xl text-[10px] font-bold transition-all cursor-pointer min-w-[54px] ${
+              className={`flex flex-col items-center justify-center gap-0.5 py-1 px-0.5 rounded-xl text-[10px] font-bold transition-all cursor-pointer min-w-0 w-full ${
                 isActive
                   ? 'haseb-nav-active'
                   : isDarkRail
@@ -572,8 +570,8 @@ export function Sidebar() {
                   : 'text-slate-500 hover:text-slate-900'
               }`}
             >
-              <Icon className="w-4 h-4" />
-              <span className="truncate">{item.label}</span>
+              <Icon className="w-4 h-4 shrink-0" />
+              <span className="truncate max-w-full">{item.label}</span>
             </button>
           );
         })}
@@ -581,12 +579,12 @@ export function Sidebar() {
           type="button"
           data-testid="mobile-nav-more-btn"
           onClick={() => setIsMobileMenuOpen(true)}
-          className={`flex flex-col items-center justify-center gap-0.5 py-1 px-2 rounded-xl text-[10px] font-bold cursor-pointer min-w-[48px] ${
+          className={`flex flex-col items-center justify-center gap-0.5 py-1 px-0.5 rounded-xl text-[10px] font-bold cursor-pointer min-w-0 w-full ${
             isDarkRail ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-900'
           }`}
         >
-          <Menu className="w-4 h-4" />
-          <span>{language === 'ar' ? 'المزيد' : 'More'}</span>
+          <Menu className="w-4 h-4 shrink-0" />
+          <span className="truncate max-w-full">{language === 'ar' ? 'المزيد' : 'More'}</span>
         </button>
       </nav>
 
@@ -663,6 +661,13 @@ export function Sidebar() {
             </div>
 
             <div className="pt-3 border-t border-slate-200/70 dark:border-slate-800 space-y-2">
+              <PerformanceMonitorOverlay
+                embeddedInSidebar
+                isCollapsed={false}
+                isDarkRail={isDarkRail}
+                isSandRail={isSandRail}
+                isMobileDrawer
+              />
               <div className="grid grid-cols-2 gap-1.5">
                 <button
                   type="button"
@@ -670,7 +675,7 @@ export function Sidebar() {
                     setIsMobileMenuOpen(false);
                     openLanPortal();
                   }}
-                  className="px-2.5 py-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="px-2.5 py-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <MonitorSmartphone className="w-3.5 h-3.5" />
                   <span>الشبكة LAN</span>
@@ -681,10 +686,36 @@ export function Sidebar() {
                     setIsMobileMenuOpen(false);
                     lockTerminal();
                   }}
-                  className="px-2.5 py-2 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="px-2.5 py-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <Lock className="w-3.5 h-3.5" />
                   <span>قفل الشاشة</span>
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                <PWAInstallButton compactForDrawer />
+                <button
+                  type="button"
+                  data-testid="mobile-drawer-enable-notifications-btn"
+                  onClick={() => {
+                    requestBrowserNotificationPermission().catch(() => {});
+                  }}
+                  className={`px-2.5 py-2.5 rounded-xl border text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer ${
+                    notificationPermission === 'granted'
+                      ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                      : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
+                  }`}
+                >
+                  <BellRing className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">
+                    {notificationPermission === 'granted'
+                      ? language === 'ar'
+                        ? 'الإشعارات مفعلة'
+                        : 'Push Active'
+                      : language === 'ar'
+                      ? 'تفعيل الإشعارات'
+                      : 'Enable Push'}
+                  </span>
                 </button>
               </div>
               <div className="text-center text-[11px] font-mono text-slate-400">

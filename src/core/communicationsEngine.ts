@@ -1347,3 +1347,60 @@ export function createCleanWhatsAppDefaultAccount(companyNameAr = 'منشأتك'
   };
 }
 
+export interface CommunicationsWorkspaceSummary {
+  totalAccounts: number;
+  connectedAccounts: number;
+  totalChats: number;
+  totalUnreadMessages: number;
+  whatsappOutboundCount: number;
+  smsOutboundCount: number;
+  indebtedCustomersCount: number;
+  totalDebtReceivables: number;
+}
+
+export function summarizeCommunicationsWorkspace(
+  accounts: Pick<WhatsAppAccountInstance, 'session' | 'chats'>[],
+  outboundMessages: { channel?: string }[],
+  customers: { balance?: number }[]
+): CommunicationsWorkspaceSummary {
+  let connectedAccounts = 0;
+  let totalChats = 0;
+  let totalUnreadMessages = 0;
+
+  for (const acc of accounts) {
+    if (acc.session?.status === 'CONNECTED') connectedAccounts += 1;
+    const chats = Array.isArray(acc.chats) ? acc.chats : [];
+    totalChats += chats.length;
+    for (const ch of chats) {
+      totalUnreadMessages += Math.max(0, Number(ch.unreadCount || 0));
+    }
+  }
+
+  let whatsappOutboundCount = 0;
+  let smsOutboundCount = 0;
+  for (const msg of outboundMessages) {
+    if (msg.channel === 'SMS') smsOutboundCount += 1;
+    else whatsappOutboundCount += 1;
+  }
+
+  let indebtedCustomersCount = 0;
+  let totalDebtReceivables = 0;
+  for (const c of customers) {
+    const bal = Number(c.balance || 0);
+    if (bal > 0) {
+      indebtedCustomersCount += 1;
+      totalDebtReceivables += bal;
+    }
+  }
+
+  return {
+    totalAccounts: accounts.length,
+    connectedAccounts,
+    totalChats,
+    totalUnreadMessages,
+    whatsappOutboundCount,
+    smsOutboundCount,
+    indebtedCustomersCount,
+    totalDebtReceivables: Math.round(totalDebtReceivables * 100) / 100,
+  };
+}

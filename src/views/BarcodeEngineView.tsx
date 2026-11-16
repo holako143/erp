@@ -274,7 +274,7 @@ export const BarcodeEngineView: React.FC = () => {
                     type="button"
                     onClick={() => setBatchCount(cnt)}
                     className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition cursor-pointer ${
-                      batchCount === cnt ? 'bg-slate-900 text-white border-slate-900' : 'bg-slate-100 text-slate-700 border-slate-200'
+                      batchCount === cnt ? 'haseb-nav-active text-white' : 'bg-slate-100 text-slate-700 border-slate-200'
                     }`}
                   >
                     {cnt}
@@ -287,9 +287,9 @@ export const BarcodeEngineView: React.FC = () => {
             <button
               type="button"
               onClick={handleGenerate}
-              className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs rounded-md transition flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full py-2.5 haseb-btn-primary text-white font-semibold text-xs rounded-md transition flex items-center justify-center gap-2 cursor-pointer"
             >
-              <Barcode className="w-4 h-4 text-teal-400" />
+              <Barcode className="w-4 h-4 text-white" />
               <span>{language === 'ar' ? `توليد ${batchCount} معرفات فريدة الآن` : `Generate ${batchCount} Unique IDs`}</span>
             </button>
           </div>
@@ -455,7 +455,7 @@ export const BarcodeEngineView: React.FC = () => {
                 setOcrFeedback(null);
                 setOcrExtracted(scanProductLabelWithSmartOCR(ocrLabelInput));
               }}
-              className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-md transition cursor-pointer"
+              className="w-full py-2.5 haseb-btn-primary text-white text-xs font-semibold rounded-md transition cursor-pointer"
             >
               تحليل الملصق واستخراج المواصفات والتحقق من السيريال
             </button>
@@ -601,9 +601,9 @@ export const BarcodeEngineView: React.FC = () => {
             <button
               type="button"
               onClick={() => window.print()}
-              className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-2 shadow-xs transition cursor-pointer"
+              className="haseb-btn-primary text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-2 shadow-xs transition cursor-pointer"
             >
-              <Printer className="w-4 h-4 text-emerald-400" />
+              <Printer className="w-4 h-4 text-white" />
               <span>{language === 'ar' ? 'طباعة الملصقات الآن (Print)' : 'Print Labels'}</span>
             </button>
           </div>

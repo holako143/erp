@@ -401,7 +401,8 @@ export function generateSystemNotifications({
   }
 
   // 7. CASH DRAWER & SHIFT BALANCE (تنبيهات نقدية درج الصندوق وحالة الوردية النشطة)
-  const cashInDrawer = currentShift?.expectedCash || 0;
+  const cashInDrawer =
+    currentShift?.status === 'CLOSED' ? 0 : currentShift?.expectedCash || 0;
   if (cashInDrawer > 0) {
     const isHighCash =
       (currency === 'YER' && cashInDrawer > 1500000) ||
@@ -486,3 +487,184 @@ export function generateSystemNotifications({
 
   return notifications;
 }
+
+export interface RemoteSyncToastSpec {
+  id: string;
+  category: SystemNotificationCategory;
+  severity: NotificationSeverity;
+  titleAr: string;
+  titleEn: string;
+  messageAr: string;
+  messageEn: string;
+  actionType?: NotificationActionType;
+}
+
+const PREF_ONLY_KEYS = new Set([
+  'uiTheme',
+  'uiDensity',
+  'uiFont',
+  'fontScalePercent',
+  'windowScalePercent',
+  'tabScalePercent',
+  'language',
+  'currency',
+]);
+
+/**
+ * Generates an actionable in-app toast & real-time notification entry when another
+ * LAN device modifies shared business records or workspace appearance.
+ */
+export function buildRemotePatchToastMeta(changedKeys: string[]): RemoteSyncToastSpec | null {
+  if (!Array.isArray(changedKeys) || changedKeys.length === 0) return null;
+  const keySet = new Set(changedKeys);
+  const stamp = Date.now();
+
+  if (keySet.has('salesInvoices')) {
+    return {
+      id: `sync-toast-inv-${stamp}`,
+      category: 'LIVE_EVENTS',
+      severity: 'success',
+      titleAr: 'تحديث لحظي — فاتورة مبيعات جديدة',
+      titleEn: 'Live Sync — New Sales Invoice',
+      messageAr: 'تمت مزامنة فاتورة مبيعات محدثة من جهاز آخر على الشبكة المحلية.',
+      messageEn: 'A sales invoice update was synced from another device on the LAN.',
+      actionType: 'SALES',
+    };
+  }
+
+  if (keySet.has('products')) {
+    return {
+      id: `sync-toast-prod-${stamp}`,
+      category: 'BRANCH_SYNC',
+      severity: 'info',
+      titleAr: 'تحديث لحظي — بيانات الأصناف والمخزون',
+      titleEn: 'Live Sync — Inventory Updated',
+      messageAr: 'تم تحديث بطاقة صنف أو أرصدة المخزون ومزامنتها فورياً.',
+      messageEn: 'Product catalog or stock balance updated across devices.',
+      actionType: 'INVENTORY',
+    };
+  }
+
+  if (keySet.has('currentShift') || keySet.has('shiftHistory')) {
+    return {
+      id: `sync-toast-shift-${stamp}`,
+      category: 'CASH_DRAWER',
+      severity: 'info',
+      titleAr: 'تحديث لحظي — حالة الوردية والصندوق',
+      titleEn: 'Live Sync — Shift Status Updated',
+      messageAr: 'تغيرت حالة الوردية أو إغلاق الصندوق عبر الشبكة وتمت مزامنتها.',
+      messageEn: 'POS shift status updated across connected devices.',
+      actionType: 'POS',
+    };
+  }
+
+  if (keySet.has('whatsappAccounts') || keySet.has('outboundMessages')) {
+    return {
+      id: `sync-toast-wa-${stamp}`,
+      category: 'WHATSAPP_INBOX',
+      severity: 'info',
+      titleAr: 'تحديث لحظي — مركز التواصل والواتساب',
+      titleEn: 'Live Sync — WhatsApp Messages',
+      messageAr: 'تم تحديث رسائل التواصل وإعدادات الواتساب عبر الشبكة.',
+      messageEn: 'Communications and WhatsApp state synced live.',
+      actionType: 'COMMUNICATIONS',
+    };
+  }
+
+  if (keySet.has('customers') || keySet.has('suppliers') || keySet.has('purchaseOrders')) {
+    return {
+      id: `sync-toast-crm-${stamp}`,
+      category: 'LIVE_EVENTS',
+      severity: 'info',
+      titleAr: 'تحديث لحظي — العملاء والمشتريات',
+      titleEn: 'Live Sync — Accounts & Purchasing',
+      messageAr: 'تم تحديث بيانات العملاء أو المشتريات ومزامنتها عبر الأجهزة.',
+      messageEn: 'Customers, suppliers, or purchase orders synced live.',
+      actionType: 'PURCHASING',
+    };
+  }
+
+  const hasPrefChange = changedKeys.some((k) => PREF_ONLY_KEYS.has(k));
+  if (hasPrefChange) {
+    return {
+      id: `sync-toast-pref-${stamp}`,
+      category: 'BRANCH_SYNC',
+      severity: 'info',
+      titleAr: 'مزامنة فورية لمظهر وتفضيلات الواجهة',
+      titleEn: 'Live Appearance & Preference Sync',
+      messageAr: 'تم تطبيق تغيير المظهر أو الخط أو الحجم من جهاز آخر على الشبكة.',
+      messageEn: 'Theme, font, or scale preference synced from another connected device.',
+      actionType: 'SETTINGS',
+    };
+  }
+
+  if (keySet.has('company') || keySet.has('invoiceTemplateSettings')) {
+    return {
+      id: `sync-toast-tpl-${stamp}`,
+      category: 'LIVE_EVENTS',
+      severity: 'info',
+      titleAr: 'تحديث إعدادات المنشأة والفواتير',
+      titleEn: 'Company & Invoice Templates Synced',
+      messageAr: 'تمت مزامنة تعديلات الهوية أو قوالب الطباعة عبر الشبكة.',
+      messageEn: 'Company identity or invoice template changes synced live.',
+      actionType: 'SETTINGS',
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Triggers a genuine OS / Mobile PWA notification when permission is granted.
+ * Prefers active ServiceWorkerRegistration.showNotification() (required on Android Chrome PWA),
+ * falling back cleanly to window.Notification on desktop browsers.
+ */
+export async function triggerNativeBrowserNotification(payload: {
+  title: string;
+  body: string;
+  tag?: string;
+  icon?: string;
+}): Promise<boolean> {
+  if (typeof window === 'undefined' || !('Notification' in window)) {
+    return false;
+  }
+  if (Notification.permission !== 'granted') {
+    return false;
+  }
+  const iconUrl = payload.icon || '/pwa-192x192.png';
+  try {
+    if ('serviceWorker' in navigator && navigator.serviceWorker?.controller) {
+      const reg = await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 1200)),
+      ]);
+      if (reg && typeof reg.showNotification === 'function') {
+        await reg.showNotification(payload.title, {
+          body: payload.body,
+          icon: iconUrl,
+          badge: iconUrl,
+          tag: payload.tag || `haseb-${Date.now()}`,
+          dir: 'rtl',
+          lang: 'ar',
+        } as NotificationOptions);
+        return true;
+      }
+    }
+  } catch {
+    // Fallback to Notification constructor below
+  }
+
+  try {
+    new Notification(payload.title, {
+      body: payload.body,
+      icon: iconUrl,
+      tag: payload.tag || `haseb-${Date.now()}`,
+      dir: 'rtl',
+      lang: 'ar',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+

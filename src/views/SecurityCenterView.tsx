@@ -414,7 +414,7 @@ export const SecurityCenterView: React.FC = () => {
                       >
                         <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-200/70">
                           <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-slate-900 text-white font-bold text-xs flex items-center justify-center shrink-0">
+                            <div className="w-10 h-10 rounded-xl haseb-btn-primary text-white font-bold text-xs flex items-center justify-center shrink-0">
                               {acc.username.slice(0, 2).toUpperCase()}
                             </div>
                             <div>
@@ -586,7 +586,7 @@ export const SecurityCenterView: React.FC = () => {
                                 onClick={() => handleTogglePermissionFlag(acc, perm.key)}
                                 className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition cursor-pointer ${
                                   active
-                                    ? 'bg-slate-900 text-white border-slate-900'
+                                    ? 'haseb-nav-active text-white'
                                     : 'bg-slate-50 text-slate-400 border-slate-200/80 hover:bg-slate-100'
                                 }`}
                               >
@@ -610,7 +610,7 @@ export const SecurityCenterView: React.FC = () => {
               className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-2xs space-y-4 sticky top-4"
             >
               <div className="flex items-center gap-2.5 border-b border-slate-100 pb-3">
-                <div className="w-8 h-8 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0">
+                <div className="w-8 h-8 rounded-xl haseb-btn-primary text-white flex items-center justify-center shrink-0">
                   <Plus className="w-4 h-4" />
                 </div>
                 <div>
@@ -740,7 +740,7 @@ export const SecurityCenterView: React.FC = () => {
 
               <button
                 type="submit"
-                className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition cursor-pointer shadow-2xs"
+                className="w-full py-2.5 rounded-xl haseb-btn-primary text-white font-bold text-xs transition cursor-pointer shadow-2xs"
               >
                 {language === 'ar' ? 'حفظ العضوية وتفعيل الصلاحيات لحظياً' : 'Create User Membership'}
               </button>
@@ -1201,7 +1201,7 @@ export const SecurityCenterView: React.FC = () => {
                   <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
                     <div
                       className={`h-full transition-all ${
-                        simulatedTrialDaysElapsed >= 25 ? 'bg-rose-500' : 'bg-slate-900'
+                        simulatedTrialDaysElapsed >= 25 ? 'bg-rose-500' : 'haseb-btn-primary'
                       }`}
                       style={{ width: `${Math.min(100, (simulatedTrialDaysElapsed / 30) * 100)}%` }}
                     />
@@ -1281,7 +1281,7 @@ export const SecurityCenterView: React.FC = () => {
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0">
+                  <div className="w-10 h-10 rounded-xl haseb-btn-primary text-white flex items-center justify-center shrink-0">
                     <KeyRound className="w-5 h-5" />
                   </div>
                   <div>
@@ -1463,7 +1463,7 @@ export const SecurityCenterView: React.FC = () => {
                 }}
                 className={`px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
                   antiTheftShieldEnabled
-                    ? 'bg-slate-900 text-white'
+                    ? 'haseb-btn-primary text-white'
                     : 'bg-slate-100 text-slate-700 border border-slate-200/80'
                 }`}
               >

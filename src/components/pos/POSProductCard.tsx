@@ -81,7 +81,7 @@ export const POSProductCard: React.FC<POSProductCardProps> = React.memo(
               data-testid={`pos-card-attach-image-${p.sku}`}
               onClick={(e) => e.stopPropagation()}
               title="إرفاق أو تغيير صورة الصنف مباشرة"
-              className="absolute bottom-1.5 left-1.5 w-6 h-6 rounded-lg bg-white/90 hover:bg-slate-900 text-slate-600 hover:text-white border border-slate-200/80 flex items-center justify-center shadow-2xs opacity-85 group-hover:opacity-100 transition cursor-pointer"
+              className="absolute bottom-1.5 left-1.5 w-6 h-6 rounded-lg bg-white/90 hover:bg-blue-600 text-slate-600 hover:text-white border border-slate-200/80 flex items-center justify-center shadow-2xs opacity-85 group-hover:opacity-100 transition cursor-pointer"
             >
               <Camera className="w-3 h-3" />
               <input
@@ -179,7 +179,7 @@ export const POSProductCard: React.FC<POSProductCardProps> = React.memo(
                   e.stopPropagation();
                   onAddToCart(p);
                 }}
-                className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-slate-100 group-hover:bg-slate-900 text-slate-700 group-hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-slate-100 group-hover:bg-blue-600 text-slate-700 group-hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0"
               >
                 <Plus className="w-4 h-4" />
               </button>

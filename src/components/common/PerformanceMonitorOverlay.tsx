@@ -7,13 +7,33 @@ import {
   RenderHealthStatus,
 } from '../../core/performanceMonitorEngine';
 
-export const PerformanceMonitorOverlay: React.FC = () => {
+export interface PerformanceMonitorOverlayProps {
+  embeddedInSidebar?: boolean;
+  isCollapsed?: boolean;
+  isDarkRail?: boolean;
+  isSandRail?: boolean;
+  isMobileDrawer?: boolean;
+}
+
+export const PerformanceMonitorOverlay: React.FC<PerformanceMonitorOverlayProps> = ({
+  embeddedInSidebar = false,
+  isCollapsed = false,
+  isDarkRail = false,
+  isSandRail = false,
+  isMobileDrawer = false,
+}) => {
   const { activeTab, setActiveTab, language } = useERP();
   const isAr = language === 'ar';
 
   const [isExpanded, setIsExpanded] = useState(false);
   const [history, setHistory] = useState(() => performanceTelemetryStore.getHistory());
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const [popoverCoords, setPopoverCoords] = useState<{
+    left: number;
+    bottom: number;
+    width: number;
+  } | null>(null);
   const navStartRef = useRef<number>(
     typeof performance !== 'undefined' ? performance.now() : 0
   );
@@ -39,6 +59,43 @@ export const PerformanceMonitorOverlay: React.FC = () => {
     });
     return () => cancelAnimationFrame(rafId);
   }, [activeTab]);
+
+  // Compute unclipped fixed popover anchor coordinates outside <aside overflow-hidden>
+  const updatePopoverPosition = () => {
+    if (!embeddedInSidebar || !triggerRef.current || typeof window === 'undefined') return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const panelWidth = Math.min(344, vw - 24);
+
+    let left: number;
+    if (isMobileDrawer) {
+      left = Math.max(12, Math.min(rect.left, vw - panelWidth - 12));
+    } else if (isAr) {
+      const besideRightSidebar = rect.left - panelWidth - 10;
+      left =
+        besideRightSidebar >= 12
+          ? besideRightSidebar
+          : Math.max(12, vw - panelWidth - 12);
+    } else {
+      const besideLeftSidebar = rect.right + 10;
+      left =
+        besideLeftSidebar + panelWidth <= vw - 12
+          ? besideLeftSidebar
+          : Math.max(12, vw - panelWidth - 12);
+    }
+
+    const bottom = Math.max(12, Math.min(vh - rect.bottom, vh - 460));
+    setPopoverCoords({ left, bottom, width: panelWidth });
+  };
+
+  useEffect(() => {
+    if (!isExpanded || !embeddedInSidebar) return;
+    updatePopoverPosition();
+    const handleResize = () => updatePopoverPosition();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [isExpanded, embeddedInSidebar, isAr, isCollapsed, isMobileDrawer]);
 
   // Collapse panel on outside click or Escape key
   useEffect(() => {
@@ -89,18 +146,58 @@ export const PerformanceMonitorOverlay: React.FC = () => {
     return isAr ? 'مثالي 60fps' : 'Optimal';
   };
 
+  const handleToggleExpand = () => {
+    if (!isExpanded && embeddedInSidebar) {
+      updatePopoverPosition();
+    }
+    setIsExpanded((prev) => !prev);
+  };
+
+  const panelTestId = isMobileDrawer ? 'mobile-perf-monitor-panel' : 'perf-monitor-panel';
+  const toggleTestId = isMobileDrawer
+    ? 'mobile-perf-monitor-toggle-btn'
+    : 'perf-monitor-toggle-btn';
+
+  const triggerRailToneClass = isExpanded
+    ? 'haseb-btn-primary border-transparent text-white shadow-sm'
+    : isDarkRail
+    ? 'bg-slate-900/70 hover:bg-slate-800 border-slate-800 text-slate-200'
+    : isSandRail
+    ? 'bg-[#EFE7D6] hover:bg-[#E7DDC8] border-[#DFD3BE] text-stone-800'
+    : 'bg-slate-50/90 hover:bg-slate-100 border-slate-200/80 text-slate-700';
+
   return (
     <div
       ref={containerRef}
       dir={isAr ? 'rtl' : 'ltr'}
-      data-testid="perf-monitor-overlay"
-      className="fixed bottom-[7.25rem] lg:bottom-11 end-2.5 sm:end-4 z-30 select-none print:hidden"
+      data-testid={isMobileDrawer ? 'mobile-perf-monitor-overlay' : 'perf-monitor-overlay'}
+      className={
+        embeddedInSidebar
+          ? 'relative w-full select-none print:hidden'
+          : 'fixed bottom-[7.25rem] lg:bottom-11 end-2.5 sm:end-4 z-30 select-none print:hidden'
+      }
     >
-      {/* Expanded Corner Diagnostic Popover */}
+      {/* Expanded Diagnostic Popover (Fixed positioning when embedded inside Sidebar to avoid overflow clipping) */}
       {isExpanded && (
         <div
-          data-testid="perf-monitor-panel"
-          className="mb-2 w-80 sm:w-88 bg-white border border-slate-200/90 rounded-2xl shadow-xl p-3.5 text-slate-800 space-y-3"
+          data-testid={panelTestId}
+          style={
+            embeddedInSidebar && popoverCoords
+              ? {
+                  position: 'fixed',
+                  left: `${popoverCoords.left}px`,
+                  bottom: `${popoverCoords.bottom}px`,
+                  width: `${popoverCoords.width}px`,
+                  maxHeight: 'calc(100vh - 24px)',
+                  zIndex: 60,
+                }
+              : undefined
+          }
+          className={`${
+            embeddedInSidebar
+              ? 'overflow-y-auto'
+              : 'mb-2 w-80 sm:w-88'
+          } bg-white border border-slate-200/90 rounded-2xl shadow-2xl p-3.5 text-slate-800 space-y-3`}
         >
           {/* Header */}
           <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
@@ -293,43 +390,110 @@ export const PerformanceMonitorOverlay: React.FC = () => {
         </div>
       )}
 
-      {/* Compact Corner Pill Trigger */}
-      <button
-        type="button"
-        data-testid="perf-monitor-toggle-btn"
-        onClick={() => setIsExpanded((prev) => !prev)}
-        title={
-          isAr
-            ? 'مراقب أداء وسرعة الواجهات (انقر لعرض تفاصيل زمن الرندر)'
-            : 'View Render Performance Monitor (Click to inspect render latencies)'
-        }
-        className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-[11px] shadow-md transition cursor-pointer ${
-          isExpanded
-            ? 'haseb-btn-primary border-transparent text-white'
-            : 'bg-white/95 hover:bg-white border-slate-200/90 text-slate-700'
-        }`}
-      >
-        <span
-          className={`w-2 h-2 rounded-full shrink-0 ${getStatusDotClasses(
-            activeViewMetric.status
-          )}`}
-        />
-        <Activity className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-        <span className="font-bold truncate max-w-[110px]">
-          {isAr ? activeViewMetric.labelAr : activeViewMetric.labelEn}
-        </span>
-        <span
-          data-testid="perf-monitor-pill-ms"
-          className={`font-mono font-bold px-1.5 py-0.2 rounded-full text-[10px] ${
+      {/* Embedded Sidebar Trigger (Collapsed Icon vs Full Row Card) or Standalone Floating Pill */}
+      {embeddedInSidebar ? (
+        isCollapsed ? (
+          <button
+            ref={triggerRef}
+            type="button"
+            data-testid={toggleTestId}
+            onClick={handleToggleExpand}
+            title={
+              isAr
+                ? `مراقب سرعة الواجهات: ${activeViewMetric.lastRenderMs} ms`
+                : `UI Speed: ${activeViewMetric.lastRenderMs} ms`
+            }
+            className={`relative w-10 h-10 mx-auto rounded-xl border flex items-center justify-center transition cursor-pointer ${triggerRailToneClass}`}
+          >
+            <Activity className="w-4 h-4 text-emerald-500 shrink-0" />
+            <span
+              className={`absolute top-1.5 end-1.5 w-2 h-2 rounded-full ${getStatusDotClasses(
+                activeViewMetric.status
+              )}`}
+            />
+          </button>
+        ) : (
+          <button
+            ref={triggerRef}
+            type="button"
+            data-testid={toggleTestId}
+            onClick={handleToggleExpand}
+            title={
+              isAr
+                ? 'مراقب أداء وسرعة الواجهات (انقر لعرض تفاصيل زمن الرندر)'
+                : 'View Render Performance Monitor (Click to inspect render latencies)'
+            }
+            className={`w-full flex items-center justify-between gap-1.5 px-2 py-1.5 rounded-xl border text-[11px] font-medium transition cursor-pointer ${triggerRailToneClass}`}
+          >
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span
+                className={`w-2 h-2 rounded-full shrink-0 ${getStatusDotClasses(
+                  activeViewMetric.status
+                )}`}
+              />
+              <Activity
+                className={`w-3.5 h-3.5 shrink-0 ${
+                  isExpanded ? 'text-emerald-300' : 'text-emerald-600'
+                }`}
+              />
+              <span className="truncate font-semibold">
+                {isAr ? 'أداء الواجهات' : 'UI Speed'}
+              </span>
+            </div>
+            <span
+              data-testid="perf-monitor-pill-ms"
+              className={`font-mono font-bold px-1.5 py-0.5 rounded-md text-[10px] shrink-0 ${
+                isExpanded
+                  ? 'bg-slate-800/80 text-emerald-300'
+                  : isDarkRail
+                  ? 'bg-slate-800 text-emerald-400'
+                  : 'bg-white text-slate-800 border border-slate-200/70'
+              }`}
+              dir="ltr"
+            >
+              {activeViewMetric.lastRenderMs} ms
+            </span>
+          </button>
+        )
+      ) : (
+        <button
+          ref={triggerRef}
+          type="button"
+          data-testid={toggleTestId}
+          onClick={handleToggleExpand}
+          title={
+            isAr
+              ? 'مراقب أداء وسرعة الواجهات (انقر لعرض تفاصيل زمن الرندر)'
+              : 'View Render Performance Monitor (Click to inspect render latencies)'
+          }
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-[11px] shadow-md transition cursor-pointer ${
             isExpanded
-              ? 'bg-slate-800 text-emerald-300'
-              : 'bg-slate-100 text-slate-900'
+              ? 'haseb-btn-primary border-transparent text-white'
+              : 'bg-white/95 hover:bg-white border-slate-200/90 text-slate-700'
           }`}
-          dir="ltr"
         >
-          {activeViewMetric.lastRenderMs} ms
-        </span>
-      </button>
+          <span
+            className={`w-2 h-2 rounded-full shrink-0 ${getStatusDotClasses(
+              activeViewMetric.status
+            )}`}
+          />
+          <Activity className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+          <span className="font-bold truncate max-w-[110px]">
+            {isAr ? activeViewMetric.labelAr : activeViewMetric.labelEn}
+          </span>
+          <span
+            data-testid="perf-monitor-pill-ms"
+            className={`font-mono font-bold px-1.5 py-0.2 rounded-full text-[10px] ${
+              isExpanded
+                ? 'bg-slate-800 text-emerald-300'
+                : 'bg-slate-100 text-slate-900'
+            }`}
+            dir="ltr"
+          >
+            {activeViewMetric.lastRenderMs} ms
+          </span>
+        </button>
+      )}
     </div>
   );
 };

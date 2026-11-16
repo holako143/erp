@@ -218,7 +218,7 @@ const POSCustomerPickerModal: React.FC<POSCustomerPickerModalProps> = React.memo
               className={`w-full p-2.5 rounded-xl border text-right transition flex items-center justify-between gap-2 cursor-pointer ${
                 selectedCustomerId === 'cust-pos-walkin' ||
                 warrantyCustomerName === DEFAULT_WALKIN_CUSTOMER_LABEL_AR
-                  ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                  ? 'haseb-nav-active text-white shadow-xs'
                   : 'bg-slate-50/80 hover:bg-slate-100 text-slate-800 border-slate-200/80'
               }`}
             >

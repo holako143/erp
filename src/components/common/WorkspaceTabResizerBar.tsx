@@ -18,6 +18,7 @@ import {
   computeTabLayoutCssVars,
   SplitPaneRatioMode,
 } from '../../core/workspaceLayoutEngine';
+import { useERP } from '../../context/ERPContext';
 
 export function applyGlobalTabScaleToDom(percent: number): number {
   const clamped = clampTabScale(percent);
@@ -76,32 +77,15 @@ export const WorkspaceTabResizerBar: React.FC<WorkspaceTabResizerBarProps> = ({
   onToggleSectionMaximized,
   maximizeLabel = 'ملء مساحة العمل',
 }) => {
-  const [tabScale, setTabScale] = useState<number>(() => getSavedTabScalePercent());
-
-  useEffect(() => {
-    applyGlobalTabScaleToDom(tabScale);
-  }, []);
-
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const custom = e as CustomEvent<number>;
-      if (typeof custom.detail === 'number') {
-        setTabScale(custom.detail);
-      }
-    };
-    window.addEventListener('haseb-tab-scale-change', handler);
-    return () => window.removeEventListener('haseb-tab-scale-change', handler);
-  }, []);
+  const { tabScalePercent: tabScale, setTabScalePercent } = useERP();
 
   const handleStep = (dir: 'INC' | 'DEC') => {
     const next = stepTabScale(tabScale, dir);
-    setTabScale(next);
-    applyGlobalTabScaleToDom(next);
+    setTabScalePercent(next);
   };
 
   const handleReset = () => {
-    setTabScale(DEFAULT_TAB_SCALE);
-    applyGlobalTabScaleToDom(DEFAULT_TAB_SCALE);
+    setTabScalePercent(DEFAULT_TAB_SCALE);
     if (onSplitModeChange) {
       onSplitModeChange('BALANCED');
     }
@@ -142,7 +126,7 @@ export const WorkspaceTabResizerBar: React.FC<WorkspaceTabResizerBarProps> = ({
           disabled={tabScale >= TAB_SCALE_MAX}
           onClick={() => handleStep('INC')}
           title="تكبير التبويبات والأزرار (+5%)"
-          className="w-6 h-6 rounded-full bg-slate-900 hover:bg-slate-800 dark:bg-blue-600 text-white flex items-center justify-center font-bold cursor-pointer disabled:opacity-40 transition"
+          className="w-6 h-6 rounded-full haseb-btn-primary text-white flex items-center justify-center font-bold cursor-pointer disabled:opacity-40 transition"
         >
           <Plus className="w-3 h-3" />
         </button>
@@ -164,7 +148,7 @@ export const WorkspaceTabResizerBar: React.FC<WorkspaceTabResizerBarProps> = ({
               title={`تكبير ${primaryPaneLabel} (انقر مرتين لملء العرض 100%)`}
               className={`px-2.5 py-1 rounded-full font-semibold text-[11px] flex items-center gap-1 whitespace-nowrap cursor-pointer transition ${
                 splitMode === 'EXPAND_PRIMARY' || splitMode === 'MAXIMIZE_PRIMARY'
-                  ? 'bg-slate-900 text-white shadow-2xs'
+                  ? 'haseb-nav-active text-white shadow-2xs'
                   : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 hover:bg-slate-100'
               }`}
             >
@@ -179,7 +163,7 @@ export const WorkspaceTabResizerBar: React.FC<WorkspaceTabResizerBarProps> = ({
               title="تقسيم متوازن بين القسمين"
               className={`px-2.5 py-1 rounded-full font-semibold text-[11px] flex items-center gap-1 whitespace-nowrap cursor-pointer transition ${
                 splitMode === 'BALANCED'
-                  ? 'bg-slate-900 dark:bg-blue-600 text-white shadow-2xs'
+                  ? 'haseb-nav-active text-white shadow-2xs'
                   : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 hover:bg-slate-100'
               }`}
             >
@@ -198,7 +182,7 @@ export const WorkspaceTabResizerBar: React.FC<WorkspaceTabResizerBarProps> = ({
               title={`تكبير ${secondaryPaneLabel} (انقر مرتين لملء العرض 100%)`}
               className={`px-2.5 py-1 rounded-full font-semibold text-[11px] flex items-center gap-1 whitespace-nowrap cursor-pointer transition ${
                 splitMode === 'EXPAND_SECONDARY' || splitMode === 'MAXIMIZE_SECONDARY'
-                  ? 'bg-slate-900 text-white shadow-2xs'
+                  ? 'haseb-nav-active text-white shadow-2xs'
                   : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 hover:bg-slate-100'
               }`}
             >
@@ -219,7 +203,7 @@ export const WorkspaceTabResizerBar: React.FC<WorkspaceTabResizerBarProps> = ({
             onClick={onToggleSectionMaximized}
             className={`px-2.5 py-1 rounded-full font-semibold text-[11px] flex items-center gap-1 whitespace-nowrap cursor-pointer transition ${
               isSectionMaximized
-                ? 'bg-slate-900 text-white shadow-2xs'
+                ? 'haseb-nav-active text-white shadow-2xs'
                 : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 hover:bg-slate-100'
             }`}
           >

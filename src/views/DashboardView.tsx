@@ -138,7 +138,7 @@ export const DashboardView: React.FC = () => {
             <button
               type="button"
               onClick={() => setActiveTab('pos')}
-              className="bg-slate-900 hover:bg-slate-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs font-semibold px-3.5 py-2 rounded-md transition flex items-center gap-2 cursor-pointer"
+              className="haseb-btn-primary text-white text-xs font-semibold px-3.5 py-2 rounded-md transition flex items-center gap-2 cursor-pointer"
             >
               <CreditCard className="w-3.5 h-3.5" />
               <span>{language === 'ar' ? 'نقطة البيع POS' : 'POS Terminal'}</span>
@@ -289,9 +289,13 @@ export const DashboardView: React.FC = () => {
           </div>
           <div className={`mt-2 flex items-center justify-between text-[11px] font-mono ${mutedText}`}>
             <span>
-              {language === 'ar'
-                ? `الوردية: ${currentShift.totalSales.toLocaleString()}`
-                : `Shift: ${currentShift.totalSales.toLocaleString()}`}
+              {currentShift.status === 'OPEN'
+                ? language === 'ar'
+                  ? `الوردية: ${currentShift.totalSales.toLocaleString()}`
+                  : `Shift: ${currentShift.totalSales.toLocaleString()}`
+                : language === 'ar'
+                ? 'وضع مرن • بدون وردية'
+                : 'Flexible • No Shift'}
             </span>
             <span>
               {salesInvoices.length} {language === 'ar' ? 'فاتورة ضريبية' : 'Tax Invoices'}

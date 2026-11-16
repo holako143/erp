@@ -7,15 +7,28 @@ import React, { Profiler, Suspense, lazy, useCallback, useEffect, useMemo } from
 import { ERPProvider, useERP } from './context/ERPContext';
 import { Navbar } from './components/layout/Navbar';
 import { Sidebar } from './components/layout/Sidebar';
-import { OfflineIndicator } from './components/layout/PWAInstallBanner';
+import { OfflineIndicator, useOnlineStatus } from './components/layout/PWAInstallBanner';
 import { LoginGate } from './components/security/LoginGate';
 import { HardwareLockModal } from './components/security/HardwareLockModal';
-import { ShieldAlert, MessageSquare, Send, Zap } from 'lucide-react';
+import {
+  ShieldAlert,
+  MessageSquare,
+  Send,
+  Zap,
+  BellRing,
+  X,
+  ArrowUpLeft,
+  CheckCircle2,
+  RefreshCw,
+  CloudUpload,
+  WifiOff,
+} from 'lucide-react';
 import { HasebBrandLogo } from './components/common/HasebBrandLogo';
+import { computeFooterSyncStatusMeta } from './core/realtimeSyncEngine';
+import { useAlertSound } from './hooks/useAlertSound';
 
 // Eager initial view for instant first paint on POS default route
 import { POSView } from './views/POSView';
-import { PerformanceMonitorOverlay } from './components/common/PerformanceMonitorOverlay';
 import { performanceTelemetryStore } from './core/performanceMonitorEngine';
 
 // Lazy-loaded Views (Code-Split Chunks)
@@ -78,6 +91,9 @@ const OnboardingWizardModal = lazy(() =>
 const MobileLanPortalModal = lazy(() =>
   import('./components/common/MobileLanPortalModal').then((m) => ({ default: m.MobileLanPortalModal }))
 );
+const ShiftControlModal = lazy(() =>
+  import('./components/common/ShiftControlModal').then((m) => ({ default: m.ShiftControlModal }))
+);
 
 const ViewLoadingFallback: React.FC<{
   language: 'ar' | 'en';
@@ -133,6 +149,7 @@ const MainLayout: React.FC = () => {
     hasModuleAccess,
     antiTheftShieldEnabled,
     recordBlockedInspectAttempt,
+    blockedInspectCount,
     lastSecurityAlert,
     uiTheme,
     uiDensity,
@@ -149,7 +166,36 @@ const MainLayout: React.FC = () => {
     whatsappAccounts,
     company,
     currentWarehouse,
+    activeToastNotification,
+    dismissToastNotification,
+    pendingSyncTransactionsCount,
+    isServerSyncing,
+    flushPendingSyncQueue,
+    realtimeSyncStatus,
+    soundAlertPrefs,
   } = useERP();
+
+  const isOnline = useOnlineStatus();
+
+  // Play subtle, theme-appropriate audio cues when toast notifications or security alerts appear
+  useAlertSound({
+    uiTheme,
+    preferences: soundAlertPrefs,
+    activeToastNotification,
+    lastSecurityAlert,
+    blockedInspectCount,
+  });
+
+  const footerSyncMeta = useMemo(
+    () =>
+      computeFooterSyncStatusMeta({
+        pendingCount: pendingSyncTransactionsCount,
+        isOnline,
+        isSyncing: isServerSyncing,
+        realtimeSyncStatus,
+      }),
+    [pendingSyncTransactionsCount, isOnline, isServerSyncing, realtimeSyncStatus]
+  );
 
   const connectedWhatsAppCount = useMemo(
     () => whatsappAccounts.filter((acc) => acc.session.status === 'CONNECTED').length,
@@ -493,15 +539,65 @@ const MainLayout: React.FC = () => {
         </div>
       )}
 
-      {/* Decoupled Standalone Cryptographic Licensing & Keygen Server */}
+
+      {/* Real-Time Multi-Device & Push Sync Toast Banner */}
+      {activeToastNotification && (
+        <div
+          data-testid="realtime-toast-banner"
+          className="fixed top-15 sm:top-16 end-3 start-3 sm:start-auto sm:max-w-sm z-50 bg-slate-950/95 backdrop-blur-md text-white border border-blue-500/60 px-3.5 py-2.5 rounded-2xl shadow-2xl flex items-start gap-2.5 animate-fade-in"
+        >
+          <div className="w-8 h-8 rounded-xl bg-blue-600/25 border border-blue-400/40 text-blue-300 flex items-center justify-center shrink-0 mt-0.5">
+            <BellRing className="w-4 h-4" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-bold text-white truncate">
+              {language === 'ar' ? activeToastNotification.titleAr : activeToastNotification.titleEn}
+            </div>
+            <p className="text-[11px] text-slate-300 leading-snug line-clamp-2 mt-0.5">
+              {language === 'ar' ? activeToastNotification.messageAr : activeToastNotification.messageEn}
+            </p>
+            {activeToastNotification.actionType && (
+              <button
+                type="button"
+                onClick={() => {
+                  const mapAction = activeToastNotification.actionType;
+                  if (mapAction === 'POS') setActiveTab('pos');
+                  else if (mapAction === 'SALES') setActiveTab('sales');
+                  else if (mapAction === 'INVENTORY' || mapAction === 'BRANCH_TRANSFERS') setActiveTab('inventory');
+                  else if (mapAction === 'PURCHASING') setActiveTab('purchasing');
+                  else if (mapAction === 'COMMUNICATIONS') setActiveTab('communications');
+                  else if (mapAction === 'SETTINGS') setActiveTab('settings');
+                  else if (mapAction === 'DEBTS') setActiveTab('accounting');
+                  dismissToastNotification();
+                }}
+                className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-bold text-emerald-300 hover:text-emerald-200 cursor-pointer"
+              >
+                <span>{language === 'ar' ? 'فتح القسم الآن' : 'Open now'}</span>
+                <ArrowUpLeft className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+          <button
+            type="button"
+            data-testid="dismiss-realtime-toast-btn"
+            onClick={dismissToastNotification}
+            aria-label="إغلاق التنبيه"
+            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer shrink-0"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Mandatory 30-Day Trial, Single-Device Component Lock & Anti-Clock Rollback Gate */}
+      <HardwareLockModal />
+
+      {/* Decoupled Standalone Cryptographic Licensing & Keygen Server (Must render above HardwareLockModal) */}
       {isStandaloneKeygenOpen && (
         <Suspense fallback={<ViewLoadingFallback language={language} uiTheme={uiTheme} />}>
           <StandaloneActivationPortal />
         </Suspense>
       )}
-
-      {/* Mandatory 30-Day Trial, Single-Device Component Lock & Anti-Clock Rollback Gate */}
-      <HardwareLockModal />
 
       {/* Mandatory First-Launch Welcome Wizard OR Encrypted Login / Terminal Unlock Gate */}
       {!isAuthenticated ? (
@@ -516,7 +612,7 @@ const MainLayout: React.FC = () => {
         <LoginGate />
       ) : (
         <div
-          className={`h-screen max-h-screen overflow-hidden flex flex-col selection:bg-blue-600 selection:text-white transition-colors duration-200 ${
+          className={`h-[100dvh] max-h-[100dvh] w-full max-w-full overflow-hidden flex flex-col selection:bg-blue-600 selection:text-white transition-colors duration-200 ${
             uiTheme === 'obsidian_dark'
               ? 'bg-[#080c14] text-slate-100'
               : uiTheme === 'swiss_light'
@@ -535,12 +631,12 @@ const MainLayout: React.FC = () => {
           <div className="flex-1 min-h-0 flex w-full overflow-hidden">
             {isAuthenticated && <Sidebar />}
             <main
-              className={`flex-1 min-w-0 min-h-0 pb-16 lg:pb-0 ${
+              className={`flex-1 min-w-0 min-h-0 w-full max-w-full ${
                 activeTab === 'pos'
-                  ? 'overflow-hidden flex flex-col'
+                  ? 'overflow-hidden flex flex-col pb-0'
                   : uiDensity === 'compact'
-                  ? 'overflow-y-auto p-2.5 sm:p-4'
-                  : 'overflow-y-auto p-3 sm:p-5'
+                  ? 'overflow-y-auto overflow-x-hidden p-2.5 sm:p-4 pb-20 lg:pb-4'
+                  : 'overflow-y-auto overflow-x-hidden p-3 sm:p-5 pb-20 lg:pb-5'
               }`}
             >
               <Profiler id={activeTab} onRender={handleViewRenderProfile}>
@@ -694,18 +790,83 @@ const MainLayout: React.FC = () => {
                     : currentWarehouse?.name || 'Main Warehouse'}
                 </span>
                 <span className="text-slate-300 dark:text-slate-700">•</span>
-                <button
-                  type="button"
-                  onClick={openLanPortal}
-                  className="font-mono text-[10px] text-emerald-600 font-medium hover:underline cursor-pointer"
-                  title={
-                    language === 'ar'
-                      ? 'انقر لفتح مركز سطح المكتب والشبكة المحلية'
-                      : 'Click to open Windows Desktop & LAN Hub'
-                  }
-                >
-                  Local LAN Sync OK
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={openLanPortal}
+                    className={`font-mono text-[10px] font-medium hover:underline cursor-pointer ${
+                      footerSyncMeta.tone === 'emerald'
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : footerSyncMeta.tone === 'blue'
+                        ? 'text-blue-600 dark:text-blue-400'
+                        : 'text-amber-600 dark:text-amber-400'
+                    }`}
+                    title={
+                      language === 'ar'
+                        ? 'انقر لفتح مركز سطح المكتب والشبكة المحلية'
+                        : 'Click to open Windows Desktop & LAN Hub'
+                    }
+                  >
+                    Local LAN Sync OK
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="footer-sync-status-indicator"
+                    data-sync-state={footerSyncMeta.state}
+                    data-pending-count={footerSyncMeta.pendingCount}
+                    onClick={() => {
+                      if (footerSyncMeta.pendingCount > 0) {
+                        flushPendingSyncQueue().catch(() => {});
+                      } else {
+                        openLanPortal();
+                      }
+                    }}
+                    title={language === 'ar' ? footerSyncMeta.tooltipAr : footerSyncMeta.tooltipEn}
+                    aria-label={
+                      language === 'ar'
+                        ? `حالة المزامنة: ${footerSyncMeta.shortLabelAr}`
+                        : `Sync status: ${footerSyncMeta.shortLabelEn}`
+                    }
+                    className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[10px] font-semibold transition cursor-pointer shrink-0 ${
+                      footerSyncMeta.tone === 'emerald'
+                        ? 'bg-emerald-50/90 text-emerald-700 border-emerald-200/80 hover:bg-emerald-100/80 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/60'
+                        : footerSyncMeta.tone === 'blue'
+                        ? 'bg-blue-50/90 text-blue-700 border-blue-200/80 hover:bg-blue-100/80 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800/60'
+                        : 'bg-amber-50/95 text-amber-800 border-amber-300/90 hover:bg-amber-100 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-700/70'
+                    }`}
+                  >
+                    <span className="relative flex h-2 w-2 shrink-0">
+                      {(footerSyncMeta.state === 'PENDING' || footerSyncMeta.state === 'SYNCING') && (
+                        <span
+                          className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                            footerSyncMeta.tone === 'blue' ? 'bg-blue-400' : 'bg-amber-400'
+                          }`}
+                        />
+                      )}
+                      <span
+                        className={`relative inline-flex rounded-full h-2 w-2 ${
+                          footerSyncMeta.tone === 'emerald'
+                            ? 'bg-emerald-500'
+                            : footerSyncMeta.tone === 'blue'
+                            ? 'bg-blue-500'
+                            : 'bg-amber-500'
+                        }`}
+                      />
+                    </span>
+                    {footerSyncMeta.state === 'SYNCING' ? (
+                      <RefreshCw className="w-3 h-3 animate-spin shrink-0" />
+                    ) : footerSyncMeta.state === 'OFFLINE' ? (
+                      <WifiOff className="w-3 h-3 shrink-0" />
+                    ) : footerSyncMeta.state === 'PENDING' ? (
+                      <CloudUpload className="w-3 h-3 shrink-0" />
+                    ) : (
+                      <CheckCircle2 className="w-3 h-3 shrink-0" />
+                    )}
+                    <span>
+                      {language === 'ar' ? footerSyncMeta.shortLabelAr : footerSyncMeta.shortLabelEn}
+                    </span>
+                  </button>
+                </div>
               </div>
             </footer>
           )}
@@ -716,11 +877,11 @@ const MainLayout: React.FC = () => {
             <QuickSendModal />
             <CrossBranchStockModal />
             <MobileLanPortalModal />
+            <ShiftControlModal />
             {isOnboardingOpen && (
               <OnboardingWizardModal isOpen={isOnboardingOpen} onClose={closeOnboarding} />
             )}
           </Suspense>
-          <PerformanceMonitorOverlay />
           <OfflineIndicator />
         </div>
       )}

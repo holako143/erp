@@ -644,9 +644,10 @@ ${listStr}
         qLower.includes('سيولة') ||
         qLower.includes('cash')
       ) {
+        const isShiftOpen = currentShift.status === 'OPEN';
         reply = `💵 **تقرير الصندوق والنقدية والسيولة اللحظية:**
-- وردية الكاشير النشطة: **${currentShift.cashierName}**
-- إجمالي مبيعات الوردية الحالية: **${currentShift.totalSales.toLocaleString()} ${currency}**
+- وضع التشغيل الحالي: **${isShiftOpen ? `وردية نشطة (${currentShift.cashierName})` : 'الوضع المرن (بدون وردية نشطة)'}**
+- مبيعات الوردية المسجلة: **${currentShift.totalSales.toLocaleString()} ${currency}**
 - النقدية المتوقعة بالدرج (Expected Cash): **${currentShift.expectedCash.toLocaleString()} ${currency}**
 - توزيع قنوات السداد: **${paymentMethodStats.cashPct}%** كاش نقداً | **${paymentMethodStats.cardPct}%** شبكة وبطاقة | **${paymentMethodStats.splitPct}%** مجزأ | **${paymentMethodStats.creditPct}%** آجل.
 - مستحقات الموردين الحالية: **${debtMetrics.totalPayables.toLocaleString()} ${currency}**
@@ -774,34 +775,34 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
   }, [debtMetrics.indebtedCustomersList, selectedAgingBucket, searchQuery]);
 
   return (
-    <div className="h-full flex flex-col gap-3.5 overflow-hidden select-none">
+    <div className="w-full max-w-full min-w-0 h-full flex flex-col gap-3.5 overflow-hidden select-none">
       {/* Lumina POS-Style Top Interactive Filter & Header Card */}
-      <div className="shrink-0 bg-white dark:bg-[#111827] px-4 py-3.5 rounded-2xl border border-slate-200/70 dark:border-slate-800 shadow-2xs flex flex-wrap items-center justify-between gap-3 text-xs">
+      <div className="shrink-0 bg-white dark:bg-[#111827] px-3.5 sm:px-4 py-3 sm:py-3.5 rounded-2xl border border-slate-200/70 dark:border-slate-800 shadow-2xs flex flex-wrap items-center justify-between gap-3 text-xs min-w-0">
         {/* Left/Start: Title & Live RAM Indicator */}
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center font-bold shadow-2xs">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-9 h-9 rounded-xl haseb-btn-primary text-white flex items-center justify-center font-bold shadow-2xs shrink-0">
             <TrendingUp className="w-4 h-4" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="font-bold text-sm sm:text-base text-slate-900 dark:text-slate-100">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="font-bold text-sm sm:text-base text-slate-900 dark:text-slate-100 truncate">
                 {language === 'ar' ? 'مركز التقارير والتحليل والذكاء الاصطناعي' : 'Reports, Analytics & AI Engine'}
               </h1>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 shrink-0">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span>لحظي مباشر (Live RAM Sync)</span>
+                <span>لحظي مباشر</span>
               </span>
             </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
               تحليل فوري للأرباح الصافية، مديونيات العملاء، والمؤشرات المحاسبية بالذكاء الاصطناعي المحلي
             </p>
           </div>
         </div>
 
         {/* Right/End: Interactive Date Range Pills, Branch Filter & Export */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 min-w-0 max-w-full">
           {/* Date Range Selector Pill Buttons */}
-          <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800/80 p-1 rounded-full border border-slate-200/80 dark:border-slate-700 text-[11px]">
+          <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800/80 p-1 rounded-2xl sm:rounded-full border border-slate-200/80 dark:border-slate-700 text-[11px] max-w-full overflow-x-auto no-scrollbar">
             {[
               { id: 'today', label: 'اليوم' },
               { id: '7days', label: '7 أيام' },
@@ -816,9 +817,9 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
                 type="button"
                 data-testid={`date-filter-${btn.id}`}
                 onClick={() => setDateRange(btn.id as any)}
-                className={`px-3 py-1 rounded-full font-semibold transition cursor-pointer ${
+                className={`px-3 py-1 rounded-full font-semibold transition cursor-pointer whitespace-nowrap shrink-0 ${
                   dateRange === btn.id
-                    ? 'bg-slate-900 dark:bg-blue-600 text-white shadow-2xs'
+                    ? 'haseb-nav-active text-white shadow-2xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                 }`}
               >
@@ -1007,10 +1008,10 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
       </div>
 
       {/* Main Content Workspace with POS-Style Pill Sub-Navigation Tabs */}
-      <div className="flex-1 min-h-0 bg-white dark:bg-[#111827] rounded-2xl border border-slate-200/70 dark:border-slate-800 shadow-2xs flex flex-col overflow-hidden">
+      <div className="flex-1 min-h-0 min-w-0 bg-white dark:bg-[#111827] rounded-2xl border border-slate-200/70 dark:border-slate-800 shadow-2xs flex flex-col overflow-hidden">
         {/* Navigation Tabs Header */}
-        <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 px-4 py-2.5">
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+        <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 px-3 sm:px-4 py-2.5 min-w-0">
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar min-w-0 max-w-full">
             {[
               {
                 id: 'localAI',
@@ -1043,7 +1044,7 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
                   onClick={() => setActiveSubTab(tab.id as any)}
                   className={`erp-resizable-tab flex items-center gap-2 py-1.5 px-4 rounded-full text-xs border transition cursor-pointer whitespace-nowrap shrink-0 ${
                     isActive
-                      ? 'border-slate-900 bg-slate-900 text-white font-semibold shadow-2xs'
+                      ? 'haseb-nav-active text-white font-semibold shadow-2xs'
                       : 'border-slate-200/80 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 hover:text-slate-900 font-medium'
                   }`}
                 >
@@ -1287,7 +1288,7 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
                       <div
                         className={`max-w-[90%] p-3 rounded-xl text-xs whitespace-pre-line leading-relaxed shadow-2xs ${
                           msg.sender === 'user'
-                            ? 'bg-slate-900 text-white rounded-be-none'
+                            ? 'haseb-btn-primary text-white rounded-be-none'
                             : 'bg-slate-50 dark:bg-slate-900/90 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-800 rounded-bs-none'
                         }`}
                       >
@@ -1383,7 +1384,7 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
                   <button
                     type="submit"
                     disabled={!aiQuestion.trim() || isProcessingLocalAI}
-                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 shadow-2xs"
+                    className="px-4 py-2 haseb-btn-primary text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 shadow-2xs"
                   >
                     <Send className="w-3.5 h-3.5" />
                     <span>إرسال</span>
@@ -2105,7 +2106,11 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
                       </span>
                     </div>
                     <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                      <span className="text-slate-500 font-bold block">مبيعات الوردية الإجمالية</span>
+                      <span className="text-slate-500 font-bold block">
+                        {currentShift.status === 'OPEN'
+                          ? 'مبيعات الوردية النشطة'
+                          : 'الوضع المرن (بدون وردية)'}
+                      </span>
                       <span className="font-mono text-base font-bold text-indigo-600 block mt-1" dir="ltr">
                         {currentShift.totalSales.toLocaleString()} {currency}
                       </span>
@@ -2322,7 +2327,7 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
                   setDetailModal(null);
                   setSelectedInvoicePreview(null);
                 }}
-                className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition cursor-pointer"
+                className="px-4 py-2 rounded-xl haseb-btn-primary text-white font-bold text-xs transition cursor-pointer"
               >
                 إغلاق التفاصيل
               </button>

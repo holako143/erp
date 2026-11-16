@@ -43,7 +43,12 @@ import {
   ListFilter,
   CheckSquare,
   Database,
+  Volume2,
+  VolumeX,
+  BellRing,
+  ShieldAlert,
 } from 'lucide-react';
+import { useAlertSound } from '../hooks/useAlertSound';
 
 export const SettingsView: React.FC = () => {
   const {
@@ -77,11 +82,21 @@ export const SettingsView: React.FC = () => {
     masterSystemConfig,
     toggleSectorMode,
     openOnboarding,
+    language,
+    uiTheme,
+    soundAlertPrefs,
+    updateSoundAlertPrefs,
+    dispatchToastAndPushNotification,
   } = useERP();
 
-  // Top-level tabs: central hub, templates, company profile, backup
+  const { playAlertSound, activeSoundProfile } = useAlertSound({
+    uiTheme,
+    preferences: soundAlertPrefs,
+  });
+
+  // Top-level tabs: central hub, templates, company profile, sound alerts, backup
   const [activeSettingsTab, setActiveSettingsTab] = useState<
-    'central_hub' | 'templates' | 'company' | 'backup'
+    'central_hub' | 'templates' | 'company' | 'sound_alerts' | 'backup'
   >('central_hub');
 
   // Sub-segmented view inside the Central Branches & Warehouses Hub
@@ -524,7 +539,7 @@ export const SettingsView: React.FC = () => {
       <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-xs space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black shadow-2xs">
+            <div className="w-10 h-10 rounded-xl haseb-btn-primary text-white flex items-center justify-center font-black shadow-2xs">
               <Store className="w-5 h-5" />
             </div>
             <div>
@@ -680,6 +695,11 @@ export const SettingsView: React.FC = () => {
             icon: Building2,
           },
           {
+            id: 'sound_alerts',
+            label: language === 'ar' ? 'التنبيهات الصوتية' : 'Sound Alerts',
+            icon: soundAlertPrefs.enabled ? Volume2 : VolumeX,
+          },
+          {
             id: 'backup',
             label: 'النسخ الاحتياطي والأمان المحلي',
             icon: Download,
@@ -695,7 +715,7 @@ export const SettingsView: React.FC = () => {
               onClick={() => setActiveSettingsTab(tab.id as any)}
               className={`flex items-center gap-2 px-4 py-2 rounded-full border text-xs transition cursor-pointer ${
                 isActive
-                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  ? 'haseb-nav-active text-white font-semibold shadow-2xs'
                   : 'bg-white border-slate-200/80 text-slate-600 hover:border-slate-300 font-medium dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300'
               }`}
             >
@@ -721,8 +741,8 @@ export const SettingsView: React.FC = () => {
       {activeSettingsTab === 'central_hub' && (
         <div className="space-y-4">
           {/* Segmented Sub-view Switcher & Filters */}
-          <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+          <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 max-w-full min-w-0">
+            <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-full sm:w-auto max-w-full">
               <button
                 type="button"
                 data-testid="central-view-hierarchy"
@@ -767,7 +787,7 @@ export const SettingsView: React.FC = () => {
             </div>
 
             {/* Quick Search */}
-            <div className="relative min-w-[220px]">
+            <div className="relative w-full sm:w-auto sm:min-w-[220px]">
               <Search className="w-4 h-4 text-slate-400 absolute right-3 top-2.5" />
               <input
                 type="text"
@@ -1931,7 +1951,7 @@ export const SettingsView: React.FC = () => {
                 type="button"
                 data-testid="settings-open-welcome-wizard-btn"
                 onClick={openOnboarding}
-                className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer transition"
+                className="px-3.5 py-2 rounded-xl haseb-btn-primary text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer transition"
               >
                 <span>فتح معالج الترحيب والتهيئة الأولية</span>
               </button>
@@ -1963,7 +1983,7 @@ export const SettingsView: React.FC = () => {
               <div className="flex items-center gap-2 shrink-0">
                 <label
                   data-testid="settings-upload-company-logo"
-                  className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold cursor-pointer transition"
+                  className="px-4 py-2 rounded-xl haseb-btn-primary text-white text-xs font-bold cursor-pointer transition"
                 >
                   <span>رفع شعار المنشأة</span>
                   <input
@@ -2035,7 +2055,7 @@ export const SettingsView: React.FC = () => {
               </div>
             </div>
 
-            <div className="p-4 rounded-xl bg-slate-900 text-white space-y-2">
+            <div className="p-4 rounded-xl haseb-card-gradient text-white space-y-2">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-xs text-emerald-400">
                   وضع القطاع المركز • Sector Mode
@@ -2077,6 +2097,283 @@ export const SettingsView: React.FC = () => {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* ====================================================================
+          TAB 3.5: THEME-APPROPRIATE POS & NOTIFICATION SOUND ALERTS
+      ==================================================================== */}
+      {activeSettingsTab === 'sound_alerts' && (
+        <div
+          data-testid="settings-sound-alerts-panel"
+          className="w-full bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-5"
+        >
+          <div className="border-b border-slate-100 dark:border-slate-800 pb-3.5 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-300 border border-blue-200/70 dark:border-blue-800/60 flex items-center justify-center shrink-0">
+                {soundAlertPrefs.enabled ? (
+                  <Volume2 className="w-5 h-5" />
+                ) : (
+                  <VolumeX className="w-5 h-5 text-slate-400" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">
+                  {language === 'ar'
+                    ? 'تنبيهات الصوت لنقطة البيع والإشعارات'
+                    : 'POS & System Sound Alerts'}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  {language === 'ar'
+                    ? 'نغمات هادئة متناغمة تلقائياً مع ثيم الواجهة النشط لتنبيه الكاشير عند الإشعارات أو تحذيرات الأمان.'
+                    : 'Subtle, theme-matched chimes that alert POS operators when a toast notification or security alert appears.'}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked={soundAlertPrefs.enabled}
+              data-testid="settings-sound-alerts-toggle"
+              onClick={() =>
+                updateSoundAlertPrefs({ enabled: !soundAlertPrefs.enabled })
+              }
+              className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition cursor-pointer shrink-0 ${
+                soundAlertPrefs.enabled
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs'
+                  : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'
+              }`}
+            >
+              {soundAlertPrefs.enabled ? (
+                <Volume2 className="w-4 h-4" />
+              ) : (
+                <VolumeX className="w-4 h-4" />
+              )}
+              <span>
+                {soundAlertPrefs.enabled
+                  ? language === 'ar'
+                    ? 'مفعّل'
+                    : 'Enabled'
+                  : language === 'ar'
+                  ? 'مكتوم / معطّل'
+                  : 'Muted / Disabled'}
+              </span>
+            </button>
+          </div>
+
+          {/* Individual Event Sound Channels */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between gap-3">
+              <div className="flex items-start gap-2.5 min-w-0">
+                <BellRing className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                    {language === 'ar'
+                      ? 'إشعارات المزامنة والتنبيهات المنبثقة'
+                      : 'Toast & Live Sync Notifications'}
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    {language === 'ar'
+                      ? 'نغمة خفيفة عند وصول فاتورة، تحديث مخزون، أو إشعار شبكي.'
+                      : 'Soft chime on incoming invoice, inventory, or sync toast alerts.'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={soundAlertPrefs.toastEnabled}
+                data-testid="settings-sound-toast-toggle"
+                disabled={!soundAlertPrefs.enabled}
+                onClick={() =>
+                  updateSoundAlertPrefs({
+                    toastEnabled: !soundAlertPrefs.toastEnabled,
+                  })
+                }
+                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition cursor-pointer shrink-0 disabled:opacity-50 ${
+                  soundAlertPrefs.toastEnabled && soundAlertPrefs.enabled
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                }`}
+              >
+                {soundAlertPrefs.toastEnabled
+                  ? language === 'ar'
+                    ? 'تشغيل'
+                    : 'On'
+                  : language === 'ar'
+                  ? 'إيقاف'
+                  : 'Off'}
+              </button>
+            </div>
+
+            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between gap-3">
+              <div className="flex items-start gap-2.5 min-w-0">
+                <ShieldAlert className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                    {language === 'ar'
+                      ? 'تنبيهات الأمان والحماية (Security Alerts)'
+                      : 'Security & Shield Alerts'}
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    {language === 'ar'
+                      ? 'إشارة تنبيه مميزة وغير مزعجة عند ظهور تحذير أمني أو حظر وصول.'
+                      : 'Distinct operator warning tone when a security shield alert triggers.'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={soundAlertPrefs.securityEnabled}
+                data-testid="settings-sound-security-toggle"
+                disabled={!soundAlertPrefs.enabled}
+                onClick={() =>
+                  updateSoundAlertPrefs({
+                    securityEnabled: !soundAlertPrefs.securityEnabled,
+                  })
+                }
+                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition cursor-pointer shrink-0 disabled:opacity-50 ${
+                  soundAlertPrefs.securityEnabled && soundAlertPrefs.enabled
+                    ? 'bg-rose-600 text-white'
+                    : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                }`}
+              >
+                {soundAlertPrefs.securityEnabled
+                  ? language === 'ar'
+                    ? 'تشغيل'
+                    : 'On'
+                  : language === 'ar'
+                  ? 'إيقاف'
+                  : 'Off'}
+              </button>
+            </div>
+          </div>
+
+          {/* Volume Level Slider & Subtle Presets */}
+          <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label
+                htmlFor="settings-sound-alerts-volume-slider"
+                className="text-xs font-bold text-slate-800 dark:text-slate-200"
+              >
+                {language === 'ar'
+                  ? 'مستوى حدة الصوت لنقطة البيع (Volume)'
+                  : 'POS Alert Sound Volume'}
+              </label>
+              <span
+                data-testid="settings-sound-volume-value"
+                className="font-mono text-xs font-black px-2.5 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200"
+              >
+                {soundAlertPrefs.volumePercent}%
+              </span>
+            </div>
+
+            <input
+              id="settings-sound-alerts-volume-slider"
+              data-testid="settings-sound-alerts-volume"
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              disabled={!soundAlertPrefs.enabled}
+              value={soundAlertPrefs.volumePercent}
+              onChange={(e) =>
+                updateSoundAlertPrefs({ volumePercent: Number(e.target.value) })
+              }
+              className="w-full accent-blue-600 cursor-pointer disabled:opacity-50"
+            />
+
+            <div className="flex flex-wrap items-center gap-2">
+              {[
+                { val: 20, labelAr: 'خافت (20%)', labelEn: 'Subtle (20%)' },
+                { val: 35, labelAr: 'متوازن (35% - موصى به)', labelEn: 'Balanced (35%)' },
+                { val: 70, labelAr: 'واضح (70%)', labelEn: 'Clear (70%)' },
+              ].map((preset) => (
+                <button
+                  key={preset.val}
+                  type="button"
+                  disabled={!soundAlertPrefs.enabled}
+                  onClick={() => updateSoundAlertPrefs({ volumePercent: preset.val })}
+                  className={`px-3 py-1 rounded-lg text-[11px] font-bold border transition cursor-pointer disabled:opacity-50 ${
+                    soundAlertPrefs.volumePercent === preset.val
+                      ? 'haseb-nav-active text-white'
+                      : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-300'
+                  }`}
+                >
+                  {language === 'ar' ? preset.labelAr : preset.labelEn}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Theme Acoustic Signature & Interactive Sound Preview */}
+          <div className="p-4 rounded-xl haseb-card-gradient text-white border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1 min-w-0">
+              <div className="text-[11px] font-bold text-emerald-400">
+                {language === 'ar'
+                  ? 'البصمة الصوتية المتناغمة مع الثيم النشط'
+                  : 'Active Theme Acoustic Signature'}
+              </div>
+              <div
+                data-testid="settings-active-sound-signature"
+                className="text-xs font-bold text-white"
+              >
+                {language === 'ar'
+                  ? activeSoundProfile.signatureNameAr
+                  : activeSoundProfile.signatureNameEn}
+              </div>
+              <p className="text-[11px] text-slate-300">
+                {language === 'ar'
+                  ? 'تتكيف الترددات ونوع الموجة تلقائياً عند تبديل المظهر (الداكن، الكهرماني الدافئ، السماوي، النيلي، أو المؤسسي).'
+                  : 'Frequencies and waveform automatically adapt whenever you switch themes.'}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                data-testid="settings-test-toast-sound-btn"
+                onClick={() => {
+                  dispatchToastAndPushNotification({
+                    category: 'LIVE_EVENTS',
+                    severity: 'info',
+                    titleAr: 'تجربة تنبيه الإشعارات الصوتية',
+                    titleEn: 'Sound Alert Notification Test',
+                    messageAr:
+                      soundAlertPrefs.enabled && soundAlertPrefs.toastEnabled
+                        ? `تم تشغيل نغمة الإشعار المتناغمة مع الثيم (${activeSoundProfile.signatureNameAr}).`
+                        : 'تم عرض الإشعار (التنبيهات الصوتية مكتومة حالياً من الإعدادات).',
+                    messageEn:
+                      soundAlertPrefs.enabled && soundAlertPrefs.toastEnabled
+                        ? `Played theme-matched chime (${activeSoundProfile.signatureNameEn}).`
+                        : 'Toast displayed (sound alerts are currently muted).',
+                  });
+                }}
+                className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <BellRing className="w-3.5 h-3.5" />
+                <span>
+                  {language === 'ar' ? 'تجربة صوت الإشعار' : 'Test Toast Sound'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                data-testid="settings-test-security-sound-btn"
+                onClick={() => {
+                  playAlertSound('security_alert');
+                }}
+                className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <ShieldAlert className="w-3.5 h-3.5" />
+                <span>
+                  {language === 'ar' ? 'تجربة تنبيه الأمان' : 'Test Security Alert'}
+                </span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

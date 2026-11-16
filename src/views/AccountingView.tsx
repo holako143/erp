@@ -16,6 +16,9 @@ import {
   Target,
   MessageSquare,
   FileText,
+  Clock,
+  FileDown,
+  Search,
 } from 'lucide-react';
 import {
   generateTrialBalance,
@@ -26,6 +29,11 @@ import {
   calculateFXRevaluation,
   calculateCostCenterBudgetVariance,
 } from '../core/accountingEngine';
+import {
+  buildShiftAnalyticsReport,
+  buildShiftAnalyticsCsv,
+  buildShiftAnalyticsPrintableHtml,
+} from '../core/posShiftEngine';
 import { AccountType, Currency } from '../types/erp';
 import { WorkspaceTabResizerBar } from '../components/common/WorkspaceTabResizerBar';
 
@@ -50,6 +58,9 @@ export const AccountingView: React.FC = () => {
     postCostCenterExpense,
     salesInvoices,
     purchaseOrders,
+    currentShift,
+    shiftHistory,
+    company,
     currency,
     setCurrency,
     language,
@@ -67,7 +78,10 @@ export const AccountingView: React.FC = () => {
     | 'bankAndPdc'
     | 'multiCurrency'
     | 'budgets'
+    | 'shiftAnalytics'
   >('journal');
+  const [shiftFilterMode, setShiftFilterMode] = useState<'ALL' | 'EXPLICIT_ONLY' | 'SHIFTLESS_ONLY'>('ALL');
+  const [shiftSearchQuery, setShiftSearchQuery] = useState('');
   const [accountingNotice, setAccountingNotice] = useState<string | null>(null);
 
   // Cost Center Expense Allocation Form State
@@ -133,6 +147,116 @@ export const AccountingView: React.FC = () => {
     salesInvoices,
     purchaseOrders
   );
+
+  // Build Shift & Flexible-Session Analytics Report (explicit shifts + flexible shiftless sessions)
+  const fullShiftAnalytics = buildShiftAnalyticsReport({
+    currentShift,
+    shiftHistory,
+    salesInvoices,
+  });
+
+  const filteredShiftRows = fullShiftAnalytics.rows.filter((row) => {
+    if (shiftFilterMode === 'EXPLICIT_ONLY' && !row.isShiftActivated) return false;
+    if (shiftFilterMode === 'SHIFTLESS_ONLY' && row.isShiftActivated) return false;
+    if (shiftSearchQuery.trim()) {
+      const q = shiftSearchQuery.trim().toLowerCase();
+      return (
+        row.shiftNumberLabel.toLowerCase().includes(q) ||
+        row.cashierName.toLowerCase().includes(q) ||
+        row.dateLabel.toLowerCase().includes(q) ||
+        row.statusLabelAr.toLowerCase().includes(q)
+      );
+    }
+    return true;
+  });
+
+  const filteredShiftSummary = {
+    totalSessionsCount: filteredShiftRows.length,
+    explicitShiftsCount: filteredShiftRows.filter((r) => r.isShiftActivated).length,
+    flexibleSessionsCount: filteredShiftRows.filter((r) => !r.isShiftActivated).length,
+    grandTotalSales: Math.round(filteredShiftRows.reduce((s, r) => s + r.totalSales, 0) * 100) / 100,
+    totalTransactions: filteredShiftRows.reduce((s, r) => s + r.transactionCount, 0),
+    totalCashPayments: Math.round(filteredShiftRows.reduce((s, r) => s + r.cashPayments, 0) * 100) / 100,
+    totalCardPayments: Math.round(filteredShiftRows.reduce((s, r) => s + r.cardPayments, 0) * 100) / 100,
+    totalSplitPayments: Math.round(filteredShiftRows.reduce((s, r) => s + r.splitPayments, 0) * 100) / 100,
+    totalCreditPayments: Math.round(filteredShiftRows.reduce((s, r) => s + r.creditPayments, 0) * 100) / 100,
+    totalDiscrepancy: Math.round(filteredShiftRows.reduce((s, r) => s + r.discrepancy, 0) * 100) / 100,
+  };
+
+  const handleExportShiftAnalyticsCSV = () => {
+    const csv = buildShiftAnalyticsCsv(filteredShiftRows, currency);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute(
+      'download',
+      `Haseb_Shift_Analytics_${new Date().toISOString().slice(0, 10)}.csv`
+    );
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setAccountingNotice(
+      language === 'ar'
+        ? `تم تصدير تقرير إحصائيات الورديات (${filteredShiftRows.length} سجل) بصيغة CSV بنجاح.`
+        : `Exported ${filteredShiftRows.length} shift analytics records to CSV.`
+    );
+  };
+
+  const handleExportShiftAnalyticsPDF = () => {
+    const html = buildShiftAnalyticsPrintableHtml({
+      rows: filteredShiftRows,
+      summary: filteredShiftSummary,
+      companyName:
+        (language === 'ar' ? company?.nameAr : company?.name) ||
+        currentTenant?.name ||
+        'حاسب ERP',
+      companyLogo: company?.logoUrl,
+      currency,
+    });
+
+    try {
+      const iframe = document.createElement('iframe');
+      iframe.setAttribute('data-testid', 'shift-analytics-pdf-iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.right = '0';
+      iframe.style.bottom = '0';
+      iframe.style.width = '0';
+      iframe.style.height = '0';
+      iframe.style.border = '0';
+      iframe.style.visibility = 'hidden';
+      document.body.appendChild(iframe);
+
+      const doc = iframe.contentWindow?.document || iframe.contentDocument;
+      if (doc) {
+        doc.open();
+        doc.write(html);
+        doc.close();
+        setTimeout(() => {
+          try {
+            iframe.contentWindow?.focus();
+            iframe.contentWindow?.print();
+          } catch {
+            // fallback handled gracefully
+          }
+          setTimeout(() => {
+            try {
+              iframe.remove();
+            } catch {}
+          }, 1500);
+        }, 120);
+      }
+    } catch {
+      // ignore iframe restrictions
+    }
+
+    setAccountingNotice(
+      language === 'ar'
+        ? `تم تجهيز تقرير إحصائيات الورديات والمدفوعات بصيغة PDF (${filteredShiftRows.length} جلسة/وردية) للطباعة والحفظ.`
+        : `Prepared printable PDF report for ${filteredShiftRows.length} shift sessions.`
+    );
+  };
 
   // Real-time Balance Check for Modal
   const liveCheck = validateJournalBalance(lines);
@@ -231,12 +355,12 @@ export const AccountingView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="w-full max-w-full min-w-0 space-y-4">
       {/* Lumina POS-Style Header Card: Title, Primary Actions & Pill Sub-tabs */}
-      <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/70 dark:border-slate-800 shadow-2xs space-y-3">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+      <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-slate-200/70 dark:border-slate-800 shadow-2xs space-y-3 min-w-0 overflow-hidden">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 min-w-0">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
+            <div className="w-9 h-9 rounded-xl haseb-btn-primary text-white flex items-center justify-center shrink-0 shadow-2xs">
               <Calculator className="w-4 h-4" />
             </div>
             <div className="min-w-0">
@@ -260,7 +384,7 @@ export const AccountingView: React.FC = () => {
                 setFormError(null);
                 setIsManualModalOpen(true);
               }}
-              className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold px-4 py-2 rounded-xl transition flex items-center gap-1.5 shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
+              className="haseb-btn-primary text-white text-xs font-semibold px-4 py-2 rounded-xl transition flex items-center gap-1.5 shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
             >
               <Plus className="w-3.5 h-3.5 shrink-0" />
               <span>{language === 'ar' ? 'إنشاء قيد يومية يدوي' : 'New Manual Journal'}</span>
@@ -293,14 +417,14 @@ export const AccountingView: React.FC = () => {
         </div>
 
         {/* Row 2: POS-Style Rounded-Full Accounting Sub-Tabs + Workspace Tab Resizer */}
-        <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-col xl:flex-row xl:items-center justify-between gap-2.5">
-          <div className="flex items-center gap-1.5 flex-wrap text-xs">
+        <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-col xl:flex-row xl:items-center justify-between gap-2.5 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap text-xs min-w-0 max-w-full">
             <button
               type="button"
               onClick={() => setActiveTab('journal')}
               className={`erp-resizable-tab px-4 py-1.5 rounded-full border whitespace-nowrap shrink-0 transition cursor-pointer ${
                 activeTab === 'journal'
-                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  ? 'haseb-nav-active text-white font-semibold shadow-2xs'
                   : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
@@ -312,7 +436,7 @@ export const AccountingView: React.FC = () => {
               onClick={() => setActiveTab('budgets')}
               className={`erp-resizable-tab px-4 py-1.5 rounded-full border whitespace-nowrap shrink-0 transition cursor-pointer flex items-center gap-1.5 ${
                 activeTab === 'budgets'
-                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  ? 'haseb-nav-active text-white font-semibold shadow-2xs'
                   : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
@@ -328,7 +452,7 @@ export const AccountingView: React.FC = () => {
               onClick={() => setActiveTab('chart')}
               className={`erp-resizable-tab px-4 py-1.5 rounded-full border whitespace-nowrap shrink-0 transition cursor-pointer ${
                 activeTab === 'chart'
-                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  ? 'haseb-nav-active text-white font-semibold shadow-2xs'
                   : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
@@ -339,7 +463,7 @@ export const AccountingView: React.FC = () => {
               onClick={() => setActiveTab('trialBalance')}
               className={`erp-resizable-tab px-4 py-1.5 rounded-full border whitespace-nowrap shrink-0 transition cursor-pointer ${
                 activeTab === 'trialBalance'
-                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  ? 'haseb-nav-active text-white font-semibold shadow-2xs'
                   : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
@@ -350,7 +474,7 @@ export const AccountingView: React.FC = () => {
               onClick={() => setActiveTab('pnl')}
               className={`erp-resizable-tab px-4 py-1.5 rounded-full border whitespace-nowrap shrink-0 transition cursor-pointer ${
                 activeTab === 'pnl'
-                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  ? 'haseb-nav-active text-white font-semibold shadow-2xs'
                   : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
@@ -361,7 +485,7 @@ export const AccountingView: React.FC = () => {
               onClick={() => setActiveTab('balanceSheet')}
               className={`erp-resizable-tab px-4 py-1.5 rounded-full border whitespace-nowrap shrink-0 transition cursor-pointer ${
                 activeTab === 'balanceSheet'
-                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  ? 'haseb-nav-active text-white font-semibold shadow-2xs'
                   : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
@@ -372,7 +496,7 @@ export const AccountingView: React.FC = () => {
               onClick={() => setActiveTab('vatReturn')}
               className={`erp-resizable-tab px-4 py-1.5 rounded-full border whitespace-nowrap shrink-0 transition cursor-pointer ${
                 activeTab === 'vatReturn'
-                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  ? 'haseb-nav-active text-white font-semibold shadow-2xs'
                   : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
@@ -384,7 +508,7 @@ export const AccountingView: React.FC = () => {
               onClick={() => setActiveTab('bankAndPdc')}
               className={`erp-resizable-tab px-4 py-1.5 rounded-full border whitespace-nowrap shrink-0 transition cursor-pointer flex items-center gap-1.5 ${
                 activeTab === 'bankAndPdc'
-                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  ? 'haseb-nav-active text-white font-semibold shadow-2xs'
                   : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
@@ -399,13 +523,40 @@ export const AccountingView: React.FC = () => {
               onClick={() => setActiveTab('multiCurrency')}
               className={`erp-resizable-tab px-4 py-1.5 rounded-full border whitespace-nowrap shrink-0 transition cursor-pointer flex items-center gap-1.5 ${
                 activeTab === 'multiCurrency'
-                  ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-2xs'
+                  ? 'haseb-nav-active text-white font-semibold shadow-2xs'
                   : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
               <Coins className="w-3.5 h-3.5 shrink-0" />
               <span>
                 {language === 'ar' ? 'العملات وفروق الصرف (FX)' : 'Multi-Currency & FX'}
+              </span>
+            </button>
+            <button
+              type="button"
+              data-testid="acc-tab-shiftAnalytics"
+              onClick={() => setActiveTab('shiftAnalytics')}
+              className={`erp-resizable-tab px-4 py-1.5 rounded-full border whitespace-nowrap shrink-0 transition cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'shiftAnalytics'
+                  ? 'haseb-nav-active text-white font-semibold shadow-2xs'
+                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                {language === 'ar'
+                  ? 'إحصائيات وتقارير الورديات'
+                  : 'Shift Analytics & PDF'}
+              </span>
+              <span
+                className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                  activeTab === 'shiftAnalytics'
+                    ? 'bg-white/20 text-white'
+                    : 'bg-slate-100 text-slate-700'
+                }`}
+                dir="ltr"
+              >
+                {fullShiftAnalytics.rows.length}
               </span>
             </button>
           </div>
@@ -773,7 +924,7 @@ export const AccountingView: React.FC = () => {
                   </tr>
                 ))}
               </tbody>
-              <tfoot className="bg-slate-900 text-white font-black text-sm">
+              <tfoot className="haseb-card-gradient text-white font-black text-sm">
                 <tr>
                   <td colSpan={2} className="py-3 px-4 font-sans">
                     {language === 'ar' ? 'المجموع الإجمالي المتطابق:' : 'Grand Totals (Balanced):'}
@@ -856,7 +1007,7 @@ export const AccountingView: React.FC = () => {
             </div>
 
             {/* Net Income */}
-            <div className="p-4 rounded-xl bg-slate-900 text-white flex justify-between items-center text-sm">
+            <div className="p-4 rounded-xl haseb-card-gradient text-white flex justify-between items-center text-sm">
               <span className="font-bold font-sans">
                 {language === 'ar' ? 'صافي الربح التشغيلي للفترة:' : 'Net Operating Profit:'}
               </span>
@@ -1003,8 +1154,8 @@ export const AccountingView: React.FC = () => {
                   -{reconSummary.unreconciledWithdrawals.toLocaleString()} {currency}
                 </div>
               </div>
-              <div className="bg-slate-900 text-white p-4 rounded-xl shadow-2xs">
-                <div className="text-slate-300 font-bold">الرصيد البنكي المعدل بعد المطابقة</div>
+              <div className="haseb-card-gradient text-white p-4 rounded-xl shadow-2xs">
+                <div className="text-slate-200 font-bold">الرصيد البنكي المعدل بعد المطابقة</div>
                 <div className="text-lg font-black text-emerald-400 font-mono mt-1">
                   {reconSummary.adjustedLedgerTarget.toLocaleString()} {currency}
                 </div>
@@ -1190,7 +1341,7 @@ export const AccountingView: React.FC = () => {
                 </div>
                 <button
                   type="submit"
-                  className="py-2 px-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg cursor-pointer"
+                  className="py-2 px-3 haseb-btn-primary text-white font-bold rounded-lg cursor-pointer"
                 >
                   + إدراج الشيك بالحافظة
                 </button>
@@ -1331,7 +1482,7 @@ export const AccountingView: React.FC = () => {
                     </select>
                   </div>
                 </div>
-                <div className="p-3.5 rounded-xl bg-slate-900 text-white flex items-center justify-between font-mono">
+                <div className="p-3.5 rounded-xl haseb-card-gradient text-white flex items-center justify-between font-mono">
                   <span>
                     {convAmount.toLocaleString()} {convFrom} =
                   </span>
@@ -1341,7 +1492,7 @@ export const AccountingView: React.FC = () => {
                 </div>
               </div>
 
-              <div className="lg:col-span-5 bg-gradient-to-br from-slate-900 to-indigo-950 text-white rounded-xl p-5 shadow-2xs flex flex-col justify-between text-xs">
+              <div className="lg:col-span-5 haseb-card-gradient text-white rounded-xl p-5 shadow-2xs flex flex-col justify-between text-xs">
                 <div className="space-y-1">
                   <div className="text-indigo-300 font-bold">إعادة تقييم العملات الأجنبية (IAS 21 FX Revaluation)</div>
                   <h3 className="text-base font-black">
@@ -1771,7 +1922,7 @@ export const AccountingView: React.FC = () => {
                   <button
                     type="submit"
                     data-testid="post-cc-expense-btn"
-                    className="w-full py-2.5 rounded-md bg-slate-900 hover:bg-slate-800 text-white font-semibold flex items-center justify-center gap-2 transition cursor-pointer"
+                    className="w-full py-2.5 rounded-md haseb-btn-primary text-white font-semibold flex items-center justify-center gap-2 transition cursor-pointer"
                   >
                     <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                     <span>اعتماد المصروف وتحديث انحراف الموازنة</span>
@@ -1782,6 +1933,290 @@ export const AccountingView: React.FC = () => {
           </div>
         );
       })()}
+
+      {/* TAB 10: Analytical Shift & Flexible-Mode Reports Sub-Module + PDF Export */}
+      {activeTab === 'shiftAnalytics' && (
+        <div data-testid="shift-analytics-panel" className="space-y-4">
+          {/* Header & Controls Bar */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-2xs space-y-3">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>
+                    {language === 'ar'
+                      ? 'التقارير التحليلية للورديات والعمليات المباشرة (المفعلة والوضع المرن)'
+                      : 'Shift & Flexible Sessions Analytics'}
+                  </span>
+                </h2>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  {language === 'ar'
+                    ? 'تحليل شامل لإجمالي المبيعات، عدد العمليات، وتوزيع المدفوعات لكل وردية مفعلة أو جلسة بدون وردية'
+                    : 'Comprehensive sales totals, transaction counts, and payment breakdowns for activated & unshifted sessions'}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  data-testid="export-shift-analytics-csv-btn"
+                  onClick={handleExportShiftAnalyticsCSV}
+                  className="px-3.5 py-2 rounded-xl border border-slate-200/90 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition whitespace-nowrap"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>{language === 'ar' ? 'تصدير CSV' : 'Export CSV'}</span>
+                </button>
+                <button
+                  type="button"
+                  data-testid="export-shift-analytics-pdf-btn"
+                  onClick={handleExportShiftAnalyticsPDF}
+                  className="px-4 py-2 rounded-xl haseb-btn-primary text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition whitespace-nowrap"
+                >
+                  <FileDown className="w-3.5 h-3.5 shrink-0" />
+                  <span>{language === 'ar' ? 'تصدير ملف PDF' : 'Export PDF Report'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Filter Mode Pills + Search Input */}
+            <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="flex items-center gap-1.5 flex-wrap text-xs">
+                {[
+                  {
+                    id: 'ALL' as const,
+                    labelAr: `الكل (${fullShiftAnalytics.rows.length})`,
+                    labelEn: `All (${fullShiftAnalytics.rows.length})`,
+                  },
+                  {
+                    id: 'EXPLICIT_ONLY' as const,
+                    labelAr: `الورديات المفعلة (${fullShiftAnalytics.summary.explicitShiftsCount})`,
+                    labelEn: `Activated Shifts (${fullShiftAnalytics.summary.explicitShiftsCount})`,
+                  },
+                  {
+                    id: 'SHIFTLESS_ONLY' as const,
+                    labelAr: `بدون وردية / الوضع المرن (${fullShiftAnalytics.summary.flexibleSessionsCount})`,
+                    labelEn: `Unshifted Flexible (${fullShiftAnalytics.summary.flexibleSessionsCount})`,
+                  },
+                ].map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    data-testid={`shift-filter-${opt.id}`}
+                    onClick={() => setShiftFilterMode(opt.id)}
+                    className={`px-3.5 py-1.5 rounded-full border text-xs transition cursor-pointer ${
+                      shiftFilterMode === opt.id
+                        ? 'haseb-nav-active text-white font-semibold'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 font-medium'
+                    }`}
+                  >
+                    {language === 'ar' ? opt.labelAr : opt.labelEn}
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative w-full sm:w-64">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute start-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  data-testid="shift-analytics-search-input"
+                  value={shiftSearchQuery}
+                  onChange={(e) => setShiftSearchQuery(e.target.value)}
+                  placeholder={language === 'ar' ? 'بحث بالكود أو الكاشير أو التاريخ...' : 'Search code, operator, date...'}
+                  className="w-full ps-8 pe-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 text-xs outline-hidden transition"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* 4 Analytical KPI Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-2xs">
+              <div className="text-[11px] font-semibold text-slate-500">
+                {language === 'ar' ? 'إجمالي المبيعات التحليلية' : 'Total Analyzed Sales'}
+              </div>
+              <div
+                data-testid="shift-kpi-total-sales"
+                className="text-xl font-bold font-mono tabular-nums text-slate-900 dark:text-slate-100 mt-1"
+                dir="ltr"
+              >
+                {filteredShiftSummary.grandTotalSales.toLocaleString('en-US')}{' '}
+                <span className="text-xs font-sans text-slate-400">{currency}</span>
+              </div>
+              <div className="text-[10px] text-emerald-700 font-semibold mt-1">
+                {filteredShiftSummary.totalSessionsCount}{' '}
+                {language === 'ar' ? 'وردية / جلسة مبيعات' : 'sessions tracked'}
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-2xs">
+              <div className="text-[11px] font-semibold text-slate-500">
+                {language === 'ar' ? 'إجمالي عدد العمليات (الفواتير)' : 'Total Transactions'}
+              </div>
+              <div
+                data-testid="shift-kpi-tx-count"
+                className="text-xl font-bold font-mono tabular-nums text-indigo-700 dark:text-indigo-400 mt-1"
+                dir="ltr"
+              >
+                {filteredShiftSummary.totalTransactions.toLocaleString('en-US')}
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1">
+                {language === 'ar'
+                  ? `${filteredShiftSummary.explicitShiftsCount} وردية مفعلة • ${filteredShiftSummary.flexibleSessionsCount} جلسة مرنة`
+                  : `${filteredShiftSummary.explicitShiftsCount} active • ${filteredShiftSummary.flexibleSessionsCount} flexible`}
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-2xs">
+              <div className="text-[11px] font-semibold text-slate-500">
+                {language === 'ar' ? 'المدفوعات النقدية (كاش)' : 'Cash Payments'}
+              </div>
+              <div
+                data-testid="shift-kpi-cash"
+                className="text-xl font-bold font-mono tabular-nums text-emerald-700 dark:text-emerald-400 mt-1"
+                dir="ltr"
+              >
+                {filteredShiftSummary.totalCashPayments.toLocaleString('en-US')}{' '}
+                <span className="text-xs font-sans text-slate-400">{currency}</span>
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1">
+                {language === 'ar' ? 'إجمالي المقبوضات النقدية المباشرة' : 'Direct cash drawer payments'}
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-2xs">
+              <div className="text-[11px] font-semibold text-slate-500">
+                {language === 'ar' ? 'الشبكة والبطاقات والمجزأ/الآجل' : 'Card, Split & Credit'}
+              </div>
+              <div
+                data-testid="shift-kpi-noncash"
+                className="text-xl font-bold font-mono tabular-nums text-blue-700 dark:text-blue-400 mt-1"
+                dir="ltr"
+              >
+                {(
+                  filteredShiftSummary.totalCardPayments +
+                  filteredShiftSummary.totalSplitPayments +
+                  filteredShiftSummary.totalCreditPayments
+                ).toLocaleString('en-US')}{' '}
+                <span className="text-xs font-sans text-slate-400">{currency}</span>
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1 font-mono" dir="ltr">
+                Card: {filteredShiftSummary.totalCardPayments.toLocaleString('en-US')} | Split/Cr:{' '}
+                {(
+                  filteredShiftSummary.totalSplitPayments +
+                  filteredShiftSummary.totalCreditPayments
+                ).toLocaleString('en-US')}
+              </div>
+            </div>
+          </div>
+
+          {/* Shift Analytics Data Table */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs overflow-hidden">
+            {filteredShiftRows.length === 0 ? (
+              <div
+                data-testid="shift-analytics-empty-state"
+                className="p-10 text-center space-y-2 text-xs text-slate-500"
+              >
+                <Clock className="w-8 h-8 mx-auto text-slate-300" />
+                <div className="font-bold text-slate-700 text-sm">
+                  {language === 'ar'
+                    ? 'لا توجد ورديات أو عمليات مبيعات مسجلة حتى الآن'
+                    : 'No shift or shiftless sales sessions recorded yet'}
+                </div>
+                <p>
+                  {language === 'ar'
+                    ? 'ستظهر هنا تلقائياً جميع الورديات المفعلة وكذلك عمليات البيع المنفذة في الوضع المرن بدون وردية مع تفاصيل المدفوعات.'
+                    : 'Both activated shifts and flexible shiftless checkouts will appear here automatically.'}
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-start" data-testid="shift-analytics-table">
+                  <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700">
+                    <tr>
+                      <th className="py-3 px-4 text-start">{language === 'ar' ? 'الرمز' : 'Code'}</th>
+                      <th className="py-3 px-4 text-start">{language === 'ar' ? 'حالة الوردية' : 'Shift Mode'}</th>
+                      <th className="py-3 px-4 text-start">{language === 'ar' ? 'الكاشير / النمط' : 'Operator / Mode'}</th>
+                      <th className="py-3 px-4 text-start">{language === 'ar' ? 'التاريخ والوقت' : 'Date & Time'}</th>
+                      <th className="py-3 px-4 text-center">{language === 'ar' ? 'العمليات' : 'Txns'}</th>
+                      <th className="py-3 px-4 text-end">{language === 'ar' ? 'نقداً (كاش)' : 'Cash'}</th>
+                      <th className="py-3 px-4 text-end">{language === 'ar' ? 'بطاقة / شبكة' : 'Card'}</th>
+                      <th className="py-3 px-4 text-end">{language === 'ar' ? 'مقسم / آجل' : 'Split/Credit'}</th>
+                      <th className="py-3 px-4 text-end">{language === 'ar' ? 'إجمالي المبيعات' : 'Total Sales'}</th>
+                      <th className="py-3 px-4 text-end">{language === 'ar' ? 'الفارق النقدي' : 'Variance'}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {filteredShiftRows.map((row) => (
+                      <tr
+                        key={row.rowId}
+                        data-testid={`shift-analytics-row-${row.rowId}`}
+                        className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition"
+                      >
+                        <td className="py-3 px-4 font-mono font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap" dir="ltr">
+                          {row.shiftNumberLabel}
+                        </td>
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          <span
+                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                              row.status === 'OPEN'
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : row.isShiftActivated
+                                ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                                : 'bg-amber-50 text-amber-800 border-amber-200'
+                            }`}
+                          >
+                            {language === 'ar' ? row.statusLabelAr : row.statusLabelEn}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 font-semibold text-slate-700 dark:text-slate-300">
+                          {row.cashierName}
+                        </td>
+                        <td className="py-3 px-4 font-mono text-[11px] text-slate-500 whitespace-nowrap" dir="ltr">
+                          <div>{row.dateLabel}</div>
+                          <div className="text-[10px] text-slate-400">
+                            {row.startTime} — {row.endTime}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 text-center font-mono font-bold text-slate-800 dark:text-slate-200" dir="ltr">
+                          {row.transactionCount}
+                        </td>
+                        <td className="py-3 px-4 text-end font-mono font-bold text-emerald-700 whitespace-nowrap" dir="ltr">
+                          {row.cashPayments.toLocaleString('en-US')}
+                        </td>
+                        <td className="py-3 px-4 text-end font-mono font-bold text-indigo-700 whitespace-nowrap" dir="ltr">
+                          {row.cardPayments.toLocaleString('en-US')}
+                        </td>
+                        <td className="py-3 px-4 text-end font-mono font-bold text-amber-700 whitespace-nowrap" dir="ltr">
+                          {(row.splitPayments + row.creditPayments).toLocaleString('en-US')}
+                        </td>
+                        <td className="py-3 px-4 text-end font-mono font-black text-slate-900 dark:text-white whitespace-nowrap" dir="ltr">
+                          {row.totalSales.toLocaleString('en-US')} {currency}
+                        </td>
+                        <td
+                          className={`py-3 px-4 text-end font-mono font-bold whitespace-nowrap ${
+                            row.discrepancy === 0
+                              ? 'text-slate-400'
+                              : row.discrepancy > 0
+                              ? 'text-sky-600'
+                              : 'text-rose-600'
+                          }`}
+                          dir="ltr"
+                        >
+                          {row.isShiftActivated
+                            ? row.discrepancy > 0
+                              ? `+${row.discrepancy.toLocaleString('en-US')}`
+                              : row.discrepancy.toLocaleString('en-US')
+                            : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* New Manual Journal Modal */}
       {isManualModalOpen && (

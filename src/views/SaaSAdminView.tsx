@@ -277,7 +277,7 @@ export const SaaSAdminView: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setCurrentTenant(ten)}
-                      className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 cursor-pointer"
+                      className="w-full py-2 haseb-btn-primary text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 cursor-pointer"
                     >
                       <span>{language === 'ar' ? 'التبديل إلى بيئة هذا المستأجر' : 'Switch to this Tenant'}</span>
                       <ArrowIcon className="w-3.5 h-3.5" />
@@ -416,7 +416,7 @@ export const SaaSAdminView: React.FC = () => {
                     className={`w-full py-2.5 font-bold text-xs rounded-xl transition cursor-pointer ${
                       isCurrentPlan
                         ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                        : 'bg-slate-900 hover:bg-slate-800 text-white'
+                        : 'haseb-btn-primary text-white'
                     }`}
                   >
                     {isCurrentPlan

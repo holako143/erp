@@ -9,6 +9,7 @@ import {
   PlayCircle,
   Printer,
   Lock,
+  Play,
   CheckCircle2,
   Clock,
   Zap,
@@ -107,8 +108,7 @@ export const POSView: React.FC = React.memo(() => {
     holdCurrentPOSBill,
     resumePOSBill,
     currentShift,
-    closePOSShift,
-    openNewPOSShift,
+    openShiftModal,
     currency,
     language,
     currentTenant,
@@ -168,10 +168,6 @@ export const POSView: React.FC = React.memo(() => {
     undefined
   );
 
-  const [isCloseShiftModalOpen, setIsCloseShiftModalOpen] = useState(false);
-  const [actualCashCount, setActualCashCount] = useState(currentShift.expectedCash);
-  const [autoOpenNewShift, setAutoOpenNewShift] = useState(true);
-  const [newShiftStartingFloat, setNewShiftStartingFloat] = useState<number>(1500);
   const [posBanner, setPosBanner] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const showBanner = useCallback((type: 'success' | 'error', text: string) => {
@@ -706,12 +702,8 @@ export const POSView: React.FC = React.memo(() => {
 
   const [isPosFilterDrawerOpen, setIsPosFilterDrawerOpen] = useState<boolean>(false);
 
-  // Listen for Navbar Close Shift, Footer F9 Checkout, & F8 Beneficiary Customer Picker triggers
+  // Listen for Footer F9 Checkout, & F8 Beneficiary Customer Picker triggers
   useEffect(() => {
-    const handleOpenCloseShift = () => {
-      setActualCashCount(currentShift.expectedCash);
-      setIsCloseShiftModalOpen(true);
-    };
     const handleTriggerCheckout = () => {
       if (posCart.length > 0) {
         setPaymentMethod('CASH');
@@ -725,15 +717,13 @@ export const POSView: React.FC = React.memo(() => {
     const handleOpenCustomerPicker = () => {
       setIsCustomerPickerOpen(true);
     };
-    window.addEventListener('haseb-open-close-shift-modal', handleOpenCloseShift);
     window.addEventListener('haseb-trigger-pos-checkout', handleTriggerCheckout);
     window.addEventListener('haseb-open-pos-customer-picker', handleOpenCustomerPicker);
     return () => {
-      window.removeEventListener('haseb-open-close-shift-modal', handleOpenCloseShift);
       window.removeEventListener('haseb-trigger-pos-checkout', handleTriggerCheckout);
       window.removeEventListener('haseb-open-pos-customer-picker', handleOpenCustomerPicker);
     };
-  }, [currentShift.expectedCash, posCart.length, grandTotal]);
+  }, [posCart.length, grandTotal]);
 
   const electronicsSubCategories = useMemo(() => {
     let allCount = 0;
@@ -832,7 +822,7 @@ export const POSView: React.FC = React.memo(() => {
       if (e.key !== 'Tab') return;
 
       // 1. If a POS modal is open, cycle cleanly through that modal's fields
-      if (isCheckoutModalOpen || isSolarCalcOpen || isCloseShiftModalOpen) {
+      if (isCheckoutModalOpen || isSolarCalcOpen) {
         const root = posContainerRef.current;
         if (!root) return;
         const modalFields = Array.from(
@@ -883,7 +873,6 @@ export const POSView: React.FC = React.memo(() => {
       isCheckoutModalOpen,
       grandTotal,
       isSolarCalcOpen,
-      isCloseShiftModalOpen,
       activePosFieldId,
       orderedPosFieldIds,
       focusPosFieldById,
@@ -949,10 +938,10 @@ export const POSView: React.FC = React.memo(() => {
           </div>
         )}
 
-        {/* Top Row: Barcode Scanner + Beneficiary Customer Tab (F8) + 2-Mode Display Switcher + Cart Auto-Show/Pin Control */}
-        <div className="flex flex-wrap xl:flex-nowrap items-center gap-2 shrink-0">
-          <form onSubmit={handleBarcodeSubmit} className="pos-focus-group relative flex-1 min-w-[190px]">
-            <Barcode className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+        {/* Top Row: Barcode Scanner + Compact Controls on Mobile */}
+        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-1.5 sm:gap-2 shrink-0 min-w-0 max-w-full">
+          <form onSubmit={handleBarcodeSubmit} className="pos-focus-group relative flex-1 min-w-0 sm:min-w-[200px]">
+            <Barcode className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               data-testid="pos-barcode-input"
@@ -964,16 +953,16 @@ export const POSView: React.FC = React.memo(() => {
                 e.currentTarget.select();
               }}
               onChange={(e) => setBarcodeInput(e.target.value)}
-              placeholder="امسح الباركود أو أدخل رمز الصنف SKU مباشرة..."
+              placeholder="امسح الباركود أو أدخل رمز الصنف SKU..."
               className="w-full bg-white border border-slate-200/80 hover:border-slate-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-500/15 rounded-xl py-2 pr-9 pl-16 text-xs outline-hidden transition-all shadow-2xs"
             />
-            <div className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+            <div className="absolute left-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
               <button
                 type="button"
                 data-testid="pos-camera-barcode-btn"
                 onClick={() => setIsCameraScannerOpen(true)}
                 title="مسح الباركود بالكاميرا"
-                className="text-slate-400 hover:text-blue-600 transition cursor-pointer p-0.5"
+                className="text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition cursor-pointer p-1.5 sm:p-1"
               >
                 <Camera className="w-3.5 h-3.5" />
               </button>
@@ -983,139 +972,173 @@ export const POSView: React.FC = React.memo(() => {
             </div>
           </form>
 
-          {/* Beneficiary Customer Quick Tab Button (Opens Customer Picker on Click or F8) */}
-          <button
-            type="button"
-            data-testid="pos-top-beneficiary-customer-btn"
-            onClick={() => setIsCustomerPickerOpen(true)}
-            title="اضغط هنا أو اضغط F8 لاختيار العميل المستفيد من قائمة العملاء"
-            className="px-3 py-1.5 bg-white hover:bg-blue-50/70 border border-slate-200/80 hover:border-blue-400 rounded-xl text-xs font-bold text-slate-800 flex items-center gap-2 transition shadow-2xs shrink-0 cursor-pointer"
-          >
-            <UserCheck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-            <span className="text-slate-400 font-medium hidden sm:inline">العميل المستفيد:</span>
-            <span
-              data-testid="pos-active-beneficiary-label"
-              className="truncate max-w-[120px] sm:max-w-[150px] text-slate-900"
+          <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5 min-w-0 max-w-full shrink-0">
+            {/* Beneficiary Customer Quick Tab Button (Opens Customer Picker on Click or F8) */}
+            <button
+              type="button"
+              data-testid="pos-top-beneficiary-customer-btn"
+              onClick={() => setIsCustomerPickerOpen(true)}
+              title="اضغط هنا أو اضغط F8 لاختيار العميل المستفيد من قائمة العملاء"
+              className="px-2.5 sm:px-3 py-1.5 bg-white hover:bg-blue-50/70 border border-slate-200/80 hover:border-blue-400 rounded-xl text-[11px] sm:text-xs font-bold text-slate-800 flex items-center gap-1.5 sm:gap-2 transition shadow-2xs shrink-0 cursor-pointer"
             >
-              {warrantyCustomerName.trim() || DEFAULT_WALKIN_CUSTOMER_LABEL_AR}
-            </span>
-            <kbd className="px-1.5 py-0.5 text-[10px] font-mono font-bold text-blue-700 bg-blue-50 rounded border border-blue-200/80">
-              F8
-            </kbd>
-          </button>
+              <UserCheck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <span className="text-slate-400 font-medium hidden md:inline">العميل المستفيد:</span>
+              <span
+                data-testid="pos-active-beneficiary-label"
+                className="truncate max-w-[95px] sm:max-w-[150px] text-slate-900"
+              >
+                {warrantyCustomerName.trim() || DEFAULT_WALKIN_CUSTOMER_LABEL_AR}
+              </span>
+              <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono font-bold text-blue-700 bg-blue-50 rounded border border-blue-200/80">
+                F8
+              </kbd>
+            </button>
 
-          {/* 2-Mode POS Product Display Toggle: WITH_IMAGES (بصور وبيانات) vs DATA_ONLY (ببيانات فقط) */}
-          <div
-            data-testid="pos-display-mode-switcher"
-            className="flex items-center bg-white border border-slate-200/80 rounded-xl p-0.5 shadow-2xs shrink-0"
-          >
-            <button
-              type="button"
-              data-testid="pos-display-mode-with-images"
-              onClick={() => {
-                setPosDisplayMode('WITH_IMAGES');
-                try {
-                  localStorage.setItem('haseb_pos_display_mode_v1', 'WITH_IMAGES');
-                } catch {
-                  // ignore
-                }
-              }}
-              title="عرض الأصناف بصور وبيانات"
-              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer ${
-                posDisplayMode === 'WITH_IMAGES'
-                  ? 'haseb-btn-primary'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
+            {/* 2-Mode POS Product Display Toggle: WITH_IMAGES vs DATA_ONLY */}
+            <div
+              data-testid="pos-display-mode-switcher"
+              className="flex items-center bg-white border border-slate-200/80 rounded-xl p-0.5 shadow-2xs shrink-0"
             >
-              <ImageIcon className="w-3.5 h-3.5" />
-              <span>بصور وبيانات</span>
-            </button>
-            <button
-              type="button"
-              data-testid="pos-display-mode-data-only"
-              onClick={() => {
-                setPosDisplayMode('DATA_ONLY');
-                try {
-                  localStorage.setItem('haseb_pos_display_mode_v1', 'DATA_ONLY');
-                } catch {
-                  // ignore
-                }
-              }}
-              title="عرض الأصناف ببيانات فقط"
-              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer ${
-                posDisplayMode === 'DATA_ONLY'
-                  ? 'haseb-btn-primary'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <LayoutList className="w-3.5 h-3.5" />
-              <span>ببيانات فقط</span>
-            </button>
-          </div>
-
-          {/* Smart Cart Visibility & Permanent Pin Controls (Desktop lg+) */}
-          <div className="hidden lg:flex items-center bg-white border border-slate-200/80 rounded-xl p-0.5 shadow-2xs shrink-0">
-            <button
-              type="button"
-              data-testid="pos-toggle-cart-visibility-btn"
-              onClick={() => {
-                if (cartVisibility.isVisible && posCart.length === 0) {
-                  setIsCartPinnedOpen(false);
-                  setIsCartManuallyShownWhenEmpty(false);
-                } else {
-                  setIsCartManuallyShownWhenEmpty((prev) => !prev);
-                }
-              }}
-              title={
-                cartVisibility.isVisible
-                  ? 'السلة ظاهرة حالياً (تختفي تلقائياً عند الفراغ ما لم يتم تثبيتها)'
-                  : 'إظهار سلة المبيعات'
-              }
-              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer ${
-                cartVisibility.isVisible
-                  ? 'haseb-btn-primary'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <ShoppingCart className="w-3.5 h-3.5" />
-              <span>السلة ({cartTotalUnits})</span>
-            </button>
-            <button
-              type="button"
-              data-testid="pos-pin-cart-btn"
-              onClick={() => {
-                setIsCartPinnedOpen((prev) => {
-                  const next = !prev;
-                  if (!next && posCart.length === 0) {
-                    setIsCartManuallyShownWhenEmpty(false);
+              <button
+                type="button"
+                data-testid="pos-display-mode-with-images"
+                onClick={() => {
+                  setPosDisplayMode('WITH_IMAGES');
+                  try {
+                    localStorage.setItem('haseb_pos_display_mode_v1', 'WITH_IMAGES');
+                  } catch {
+                    // ignore
                   }
-                  return next;
-                });
-              }}
-              title={
-                isCartPinnedOpen
-                  ? 'إلغاء تثبيت السلة (لتختفي تلقائياً عندما تكون فارغة)'
-                  : 'تثبيت إظهار السلة بشكل دائم حتى وهي فارغة'
-              }
-              className={`px-2 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1 transition cursor-pointer ${
-                isCartPinnedOpen
-                  ? 'bg-blue-600 text-white'
-                  : 'text-slate-500 hover:text-slate-900'
-              }`}
-            >
-              <Pin className="w-3 h-3" />
-              <span className="hidden xl:inline">{isCartPinnedOpen ? 'مثبتة دائماً' : 'تثبيت دائم'}</span>
-            </button>
-          </div>
+                }}
+                title="عرض الأصناف بصور وبيانات"
+                className={`px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1 transition cursor-pointer whitespace-nowrap ${
+                  posDisplayMode === 'WITH_IMAGES'
+                    ? 'haseb-btn-primary'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <ImageIcon className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">بصور وبيانات</span>
+                <span className="sm:hidden">صور</span>
+              </button>
+              <button
+                type="button"
+                data-testid="pos-display-mode-data-only"
+                onClick={() => {
+                  setPosDisplayMode('DATA_ONLY');
+                  try {
+                    localStorage.setItem('haseb_pos_display_mode_v1', 'DATA_ONLY');
+                  } catch {
+                    // ignore
+                  }
+                }}
+                title="عرض الأصناف ببيانات فقط"
+                className={`px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1 transition cursor-pointer whitespace-nowrap ${
+                  posDisplayMode === 'DATA_ONLY'
+                    ? 'haseb-btn-primary'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <LayoutList className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">ببيانات فقط</span>
+                <span className="sm:hidden">قائمة</span>
+              </button>
+            </div>
 
-          <button
-            type="button"
-            onClick={() => setIsPosFilterDrawerOpen((prev) => !prev)}
-            className="px-3 py-2 bg-white hover:bg-slate-50 border border-slate-200/80 rounded-xl text-xs font-medium text-slate-600 flex items-center gap-1.5 transition-colors shadow-2xs shrink-0 cursor-pointer"
-          >
-            <Filter className="w-3.5 h-3.5 text-slate-400" />
-            <span>تصفية</span>
-          </button>
+            {/* Smart Cart Visibility & Permanent Pin Controls (Desktop lg+) */}
+            <div className="hidden lg:flex items-center bg-white border border-slate-200/80 rounded-xl p-0.5 shadow-2xs shrink-0">
+              <button
+                type="button"
+                data-testid="pos-toggle-cart-visibility-btn"
+                onClick={() => {
+                  if (cartVisibility.isVisible && posCart.length === 0) {
+                    setIsCartPinnedOpen(false);
+                    setIsCartManuallyShownWhenEmpty(false);
+                  } else {
+                    setIsCartManuallyShownWhenEmpty((prev) => !prev);
+                  }
+                }}
+                title={
+                  cartVisibility.isVisible
+                    ? 'السلة ظاهرة حالياً (تختفي تلقائياً عند الفراغ ما لم يتم تثبيتها)'
+                    : 'إظهار سلة المبيعات'
+                }
+                className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                  cartVisibility.isVisible
+                    ? 'haseb-btn-primary'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <ShoppingCart className="w-3.5 h-3.5" />
+                <span>السلة ({cartTotalUnits})</span>
+              </button>
+              <button
+                type="button"
+                data-testid="pos-pin-cart-btn"
+                onClick={() => {
+                  setIsCartPinnedOpen((prev) => {
+                    const next = !prev;
+                    if (!next && posCart.length === 0) {
+                      setIsCartManuallyShownWhenEmpty(false);
+                    }
+                    return next;
+                  });
+                }}
+                title={
+                  isCartPinnedOpen
+                    ? 'إلغاء تثبيت السلة (لتختفي تلقائياً عندما تكون فارغة)'
+                    : 'تثبيت إظهار السلة بشكل دائم حتى وهي فارغة'
+                }
+                className={`px-2 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1 transition cursor-pointer ${
+                  isCartPinnedOpen
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                <Pin className="w-3 h-3" />
+                <span className="hidden xl:inline">{isCartPinnedOpen ? 'مثبتة دائماً' : 'تثبيت دائم'}</span>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsPosFilterDrawerOpen((prev) => !prev)}
+              className="px-2.5 sm:px-3 py-1.5 sm:py-2 bg-white hover:bg-slate-50 border border-slate-200/80 rounded-xl text-[11px] sm:text-xs font-medium text-slate-600 flex items-center gap-1 transition-colors shadow-2xs shrink-0 cursor-pointer"
+            >
+              <Filter className="w-3.5 h-3.5 text-slate-400" />
+              <span>تصفية</span>
+            </button>
+
+            {currentShift.status !== 'OPEN' ? (
+              <button
+                type="button"
+                data-testid="btn-open-new-shift-header"
+                onClick={openShiftModal}
+                title="النظام يعمل بالوضع المرن (بدون وردية) — اضغط لفتح وردية اختيارية"
+                className="px-2.5 py-1.5 sm:py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/80 font-semibold text-[11px] sm:text-xs flex items-center gap-1 cursor-pointer transition shrink-0 whitespace-nowrap"
+              >
+                <Play className="w-3.5 h-3.5 shrink-0" />
+                <span>فتح وردية</span>
+                <span
+                  data-testid="pos-shiftless-badge"
+                  className="hidden xl:inline text-[10px] font-medium text-emerald-600/90"
+                >
+                  (وضع مرن)
+                </span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                data-testid="btn-close-shift-header"
+                onClick={openShiftModal}
+                title="إغلاق وتسليم الوردية (Z-Report)"
+                className="px-2.5 py-1.5 sm:py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/80 font-semibold text-[11px] sm:text-xs flex items-center gap-1 cursor-pointer transition shrink-0 whitespace-nowrap"
+              >
+                <Lock className="w-3.5 h-3.5 shrink-0" />
+                <span>إغلاق الوردية</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Collapsible Advanced Filter, Search, Solar Calculator & Resizable Tabs Toolbar */}
@@ -1126,8 +1149,8 @@ export const POSView: React.FC = React.memo(() => {
               : 'sr-only'
           }
         >
-          <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[220px]">
-            <div className="pos-focus-group relative flex-1 max-w-xs">
+          <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0 w-full sm:w-auto sm:min-w-[220px]">
+            <div className="pos-focus-group relative flex-1 min-w-[140px] max-w-xs">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
@@ -1190,32 +1213,6 @@ export const POSView: React.FC = React.memo(() => {
             >
               {activeFieldMeta.stepBadge} • {activeFieldMeta.label}
             </button>
-
-            {currentShift.status === 'CLOSED' && (
-              <button
-                type="button"
-                data-testid="btn-open-new-shift-header"
-                onClick={() => {
-                  openNewPOSShift(1500);
-                  showBanner('success', 'تم فتح وردية كاشير جديدة بعهدة افتتاحية 1,500');
-                }}
-                className="px-2.5 py-1.5 rounded-lg bg-blue-600 text-white font-semibold text-xs cursor-pointer"
-              >
-                فتح وردية جديدة
-              </button>
-            )}
-
-            <button
-              type="button"
-              data-testid="btn-close-shift-header"
-              onClick={() => {
-                setActualCashCount(currentShift.expectedCash);
-                setIsCloseShiftModalOpen(true);
-              }}
-              className="px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-700 font-semibold text-xs cursor-pointer"
-            >
-              إغلاق الوردية (Z-Report)
-            </button>
           </div>
 
           <WorkspaceTabResizerBar
@@ -1228,7 +1225,7 @@ export const POSView: React.FC = React.memo(() => {
         </div>
 
         {/* Category Pills Row (Rounded Full Pills matching code_9f7cabf7.html) */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 shrink-0 no-scrollbar">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 shrink-0 no-scrollbar max-w-full min-w-0">
           {electronicsSubCategories.map((sub) => {
             const isSelected = selectedElectronicsSubCat === sub.id;
             return (
@@ -1261,7 +1258,7 @@ export const POSView: React.FC = React.memo(() => {
         {/* Product Cards Grid (Expands to more columns when Cart is auto-hidden!) */}
         <div
           className={`flex-1 overflow-y-auto pr-0.5 min-h-0 ${
-            mobilePosLayout.isSplitViewOnMobile ? 'pb-3 lg:pb-1' : 'pb-28 lg:pb-1'
+            mobilePosLayout.isSplitViewOnMobile ? 'pb-2 lg:pb-1' : 'pb-28 lg:pb-1'
           }`}
         >
           <div
@@ -1689,10 +1686,10 @@ export const POSView: React.FC = React.memo(() => {
           </div>
         </div>
 
-        {/* Cart Footer & Totals (Clears Mobile Bottom Dock + Bottom Nav seamlessly) */}
+        {/* Cart Footer & Totals (Clears Mobile Bottom Dock + Bottom Nav cleanly) */}
         <div
-          className={`p-3 sm:p-4 border-t border-slate-200/70 bg-slate-50/50 space-y-2.5 sm:space-y-3.5 ${
-            mobilePosLayout.isSplitViewOnMobile ? 'pb-28 lg:pb-4' : 'pb-32 lg:pb-4'
+          className={`p-3 sm:p-4 border-t border-slate-200/70 bg-slate-50/50 space-y-2 sm:space-y-3 ${
+            mobilePosLayout.isSplitViewOnMobile ? 'pb-28 lg:pb-4' : 'pb-28 lg:pb-4'
           }`}
         >
           <div className="space-y-1 text-xs">
@@ -2577,222 +2574,7 @@ export const POSView: React.FC = React.memo(() => {
         </div>
       )}
 
-      {/* Close & Reconcile Shift Modal (Z-Report) */}
-      {isCloseShiftModalOpen && (
-        <div
-          data-testid="pos-close-shift-modal-backdrop"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setIsCloseShiftModalOpen(false);
-          }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4"
-        >
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-md overflow-hidden">
-            <div className="px-5 py-4 bg-slate-50/90 border-b border-slate-200/80 text-slate-900 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-xl haseb-card-gradient text-white flex items-center justify-center shrink-0">
-                  <Lock className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-sm text-slate-900">
-                    إغلاق وتسليم وردية الكاشير (Z-Report)
-                  </h3>
-                  <p className="text-[10px] text-slate-500">
-                    الكاشير: {currentShift.cashierName} • بداية الوردية: {currentShift.startTime}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsCloseShiftModalOpen(false)}
-                className="w-8 h-8 rounded-full border border-slate-200/80 bg-white hover:bg-slate-100 text-slate-500 hover:text-slate-900 flex items-center justify-center font-bold text-sm cursor-pointer transition"
-              >
-                ✕
-              </button>
-            </div>
 
-            <div className="p-5 space-y-4 text-xs">
-              {/* Z-Report Financial Breakdown */}
-              <div className="space-y-1.5 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-500">حالة الوردية الحالية:</span>
-                  <span
-                    className={`px-2 py-0.5 rounded font-bold text-[10px] ${
-                      currentShift.status === 'OPEN'
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : 'bg-rose-100 text-rose-800'
-                    }`}
-                  >
-                    {currentShift.status === 'OPEN' ? 'مفتوحة ونشطة (OPEN)' : 'مغلقة (CLOSED)'}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">عهدة بداية الوردية:</span>
-                  <span className="font-bold font-mono tabular-nums" dir="ltr">
-                    {formatCleanNumber(currentShift.startingCash)} {currency}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">مبيعات الكاش (النقدية):</span>
-                  <span className="font-bold text-emerald-700 font-mono tabular-nums" dir="ltr">
-                    +{formatCleanNumber(currentShift.cashSales)} {currency}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">مبيعات الشبكة والبطاقة:</span>
-                  <span className="font-bold text-indigo-700 font-mono tabular-nums" dir="ltr">
-                    +{formatCleanNumber(currentShift.cardSales)} {currency}
-                  </span>
-                </div>
-                <div className="flex justify-between border-t border-slate-200 pt-1.5 font-bold text-slate-700">
-                  <span>إجمالي مبيعات الوردية:</span>
-                  <span className="font-mono tabular-nums" dir="ltr">
-                    {formatCleanNumber(currentShift.totalSales)} {currency}
-                  </span>
-                </div>
-                <div className="flex justify-between border-t border-slate-200 pt-1.5 font-bold text-sm text-slate-900">
-                  <span>النقدية المتوقعة بالدرج:</span>
-                  <span className="font-mono tabular-nums text-emerald-700" dir="ltr">
-                    {formatCleanNumber(currentShift.expectedCash)} {currency}
-                  </span>
-                </div>
-              </div>
-
-              {/* Actual Cash Count Input & Quick Match */}
-              <div className="pos-focus-group p-2 rounded-lg border border-transparent transition-all space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="font-bold text-slate-800">
-                    العد الفعلي للنقدية بالدرج:
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setActualCashCount(currentShift.expectedCash)}
-                    className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 underline cursor-pointer"
-                  >
-                    مطابقة مع المتوقع ({formatCleanNumber(currentShift.expectedCash)})
-                  </button>
-                </div>
-                <input
-                  type="number"
-                  autoFocus
-                  data-pos-modal-field="shift-actual-cash"
-                  value={actualCashCount}
-                  onFocus={(e) => e.currentTarget.select()}
-                  onChange={(e) => setActualCashCount(Number(e.target.value))}
-                  className="w-full p-2.5 bg-white border border-slate-300 focus:border-slate-900 rounded-lg text-sm font-bold font-mono tabular-nums outline-hidden"
-                  dir="ltr"
-                />
-              </div>
-
-              {/* Live Cash Discrepancy / Variance Box */}
-              {(() => {
-                const diff = Math.round((actualCashCount - currentShift.expectedCash) * 100) / 100;
-                return (
-                  <div
-                    className={`p-3 rounded-lg border flex items-center justify-between font-bold ${
-                      diff === 0
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                        : diff > 0
-                        ? 'bg-sky-50 border-sky-200 text-sky-900'
-                        : 'bg-rose-50 border-rose-200 text-rose-900'
-                    }`}
-                  >
-                    <span>
-                      {diff === 0
-                        ? 'مطابق تماماً — لا يوجد عجز أو فائض'
-                        : diff > 0
-                        ? 'فائض نقدي بالصندوق (Overage):'
-                        : 'عجز نقدي بالصندوق (Shortage):'}
-                    </span>
-                    <span className="font-mono tabular-nums text-sm" dir="ltr">
-                      {diff > 0 ? `+${formatCleanNumber(diff)}` : formatCleanNumber(diff)} {currency}
-                    </span>
-                  </div>
-                );
-              })()}
-
-              {/* Auto-Open New Shift Toggle */}
-              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
-                <label className="flex items-center justify-between cursor-pointer">
-                  <span className="font-bold text-slate-800">
-                    فتح وردية جديدة تلقائياً بعد الإغلاق
-                  </span>
-                  <input
-                    type="checkbox"
-                    checked={autoOpenNewShift}
-                    onChange={(e) => setAutoOpenNewShift(e.target.checked)}
-                    className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
-                  />
-                </label>
-                {autoOpenNewShift && (
-                  <div className="pos-focus-group p-1.5 rounded-md border border-transparent transition-all flex items-center justify-between pt-1 border-t border-slate-200/80">
-                    <span className="text-slate-600">عهدة الوردية الجديدة:</span>
-                    <input
-                      type="number"
-                      data-pos-modal-field="shift-new-float"
-                      value={newShiftStartingFloat}
-                      onFocus={(e) => e.currentTarget.select()}
-                      onChange={(e) => setNewShiftStartingFloat(Number(e.target.value))}
-                      className="w-28 px-2 py-1 bg-white border border-slate-300 rounded font-mono font-bold text-xs text-center"
-                      dir="ltr"
-                    />
-                  </div>
-                )}
-              </div>
-
-              <div className="pt-1 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsCloseShiftModalOpen(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition cursor-pointer"
-                >
-                  إلغاء
-                </button>
-                {currentShift.status === 'CLOSED' && !autoOpenNewShift ? (
-                  <button
-                    type="button"
-                    data-pos-modal-field="shift-open-new-btn"
-                    onClick={() => {
-                      openNewPOSShift(newShiftStartingFloat);
-                      setIsCloseShiftModalOpen(false);
-                      showBanner(
-                        'success',
-                        `تم فتح وردية كاشير جديدة بعهدة افتتاحية ${formatCleanNumber(newShiftStartingFloat)} ${currency}`
-                      );
-                    }}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg shadow-2xs transition cursor-pointer"
-                  >
-                    فتح وردية جديدة الآن
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    data-pos-modal-field="shift-confirm-close-btn"
-                    data-testid="btn-confirm-close-shift"
-                    onClick={() => {
-                      closePOSShift(
-                        actualCashCount,
-                        autoOpenNewShift ? newShiftStartingFloat : undefined
-                      );
-                      setIsCloseShiftModalOpen(false);
-                      showBanner(
-                        'success',
-                        autoOpenNewShift
-                          ? `تم إغلاق الوردية السابقة بنجاح وفتح وردية جديدة بعهدة ${formatCleanNumber(newShiftStartingFloat)} ${currency}`
-                          : 'تم إغلاق وتسليم وردية الكاشير بنجاح (Z-Report)'
-                      );
-                    }}
-                    className="px-4 py-2 haseb-btn-primary font-bold rounded-lg transition cursor-pointer"
-                  >
-                    {autoOpenNewShift
-                      ? 'إغلاق الوردية وبدء وردية جديدة'
-                      : 'تأكيد إغلاق الوردية'}
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ====================================================================
           MOBILE / TABLET BOTTOM-DOCKED CART & SPLIT-VIEW BAR (< lg)

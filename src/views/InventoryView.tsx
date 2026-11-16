@@ -1,6 +1,10 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback, Suspense, lazy } from 'react';
 import { useERP } from '../context/ERPContext';
 import {
+  isSecureCameraContext,
+  mapCameraErrorToArabicMessage,
+} from '../core/cameraScannerEngine';
+import {
   Package,
   Plus,
   Search,
@@ -299,6 +303,7 @@ export const InventoryView: React.FC = React.memo(() => {
   const [cartonCaptureTarget, setCartonCaptureTarget] = useState<'BARCODE' | 'SKU' | null>(null);
   const [cartonRawLabelInput, setCartonRawLabelInput] = useState('');
   const [isLiveWebcamActive, setIsLiveWebcamActive] = useState(false);
+  const [cartonCameraError, setCartonCameraError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -306,6 +311,9 @@ export const InventoryView: React.FC = React.memo(() => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
     }
     setIsLiveWebcamActive(false);
   };
@@ -317,25 +325,45 @@ export const InventoryView: React.FC = React.memo(() => {
   }, []);
 
   const startCartonWebcam = async () => {
-    try {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-        });
+    setCartonCameraError(null);
+    stopCartonWebcam();
+
+    const secure = typeof window !== 'undefined' && isSecureCameraContext(window.location);
+    if (!secure || typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      const info = mapCameraErrorToArabicMessage(new Error('Secure context required'), secure);
+      setCartonCameraError(info.messageAr);
+      setIsLiveWebcamActive(false);
+      return;
+    }
+
+    const attempts: MediaStreamConstraints[] = [
+      { video: { facingMode: { ideal: 'environment' } }, audio: false },
+      { video: { facingMode: { ideal: 'user' } }, audio: false },
+      { video: true, audio: false },
+    ];
+
+    let lastErr: unknown = null;
+    for (const constraints of attempts) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
         streamRef.current = stream;
         setIsLiveWebcamActive(true);
         setTimeout(() => {
           if (videoRef.current) {
             videoRef.current.srcObject = stream;
+            videoRef.current.setAttribute('playsinline', 'true');
+            videoRef.current.muted = true;
             videoRef.current.play().catch(() => {});
           }
-        }, 100);
-      } else {
-        setIsLiveWebcamActive(false);
+        }, 60);
+        return;
+      } catch (err) {
+        lastErr = err;
       }
-    } catch {
-      setIsLiveWebcamActive(false);
     }
+
+    setIsLiveWebcamActive(false);
+    setCartonCameraError(mapCameraErrorToArabicMessage(lastErr, secure).messageAr);
   };
 
   // Clear / Reset All Fields in Add Product Form (أيقونة سلة الحذف لتفريغ كافة حقول القائمة)
@@ -1043,7 +1071,7 @@ export const InventoryView: React.FC = React.memo(() => {
         {/* Row 1: Title & Primary High-Frequency Actions */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
+            <div className="w-9 h-9 rounded-xl haseb-btn-primary text-white flex items-center justify-center shrink-0 shadow-2xs">
               <Package className="w-4 h-4" />
             </div>
             <div className="min-w-0">
@@ -1064,7 +1092,7 @@ export const InventoryView: React.FC = React.memo(() => {
                 type="button"
                 data-testid="add-product-modal-btn"
                 onClick={handleOpenCreateModal}
-                className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold px-4 py-2 rounded-xl transition flex items-center gap-1.5 shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
+                className="haseb-btn-primary text-white text-xs font-semibold px-4 py-2 rounded-xl transition flex items-center gap-1.5 shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
               >
                 <Plus className="w-3.5 h-3.5 shrink-0" />
                 <span>إضافة صنف جديد</span>
@@ -1102,15 +1130,15 @@ export const InventoryView: React.FC = React.memo(() => {
         </div>
 
         {/* Row 2: POS-Style Rounded-Full Pill Sub-Tabs + Utility Actions */}
-        <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2.5">
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+        <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2.5 min-w-0 max-w-full">
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5 max-w-full min-w-0 w-full xl:w-auto">
             <button
               type="button"
               data-testid="subtab-inventory-items"
               onClick={() => setInventorySubTab('ITEMS')}
               className={`erp-resizable-tab px-4 py-1.5 rounded-full text-xs flex items-center gap-2 border transition cursor-pointer whitespace-nowrap shrink-0 ${
                 inventorySubTab === 'ITEMS'
-                  ? 'border-slate-900 bg-slate-900 text-white font-semibold shadow-2xs'
+                  ? 'haseb-nav-active text-white font-semibold shadow-2xs'
                   : 'border-slate-200/80 dark:border-slate-700 bg-white dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
@@ -1133,7 +1161,7 @@ export const InventoryView: React.FC = React.memo(() => {
               onClick={() => setInventorySubTab('STOCK_TAKING')}
               className={`erp-resizable-tab px-4 py-1.5 rounded-full text-xs flex items-center gap-2 border transition cursor-pointer whitespace-nowrap shrink-0 ${
                 inventorySubTab === 'STOCK_TAKING'
-                  ? 'border-slate-900 bg-slate-900 text-white font-semibold shadow-2xs'
+                  ? 'haseb-nav-active text-white font-semibold shadow-2xs'
                   : 'border-slate-200/80 dark:border-slate-700 bg-white dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
@@ -1147,7 +1175,7 @@ export const InventoryView: React.FC = React.memo(() => {
               onClick={() => setInventorySubTab('BRANCH_TRANSFERS')}
               className={`erp-resizable-tab px-4 py-1.5 rounded-full text-xs flex items-center gap-2 border transition cursor-pointer whitespace-nowrap shrink-0 ${
                 inventorySubTab === 'BRANCH_TRANSFERS'
-                  ? 'border-slate-900 bg-slate-900 text-white font-semibold shadow-2xs'
+                  ? 'haseb-nav-active text-white font-semibold shadow-2xs'
                   : 'border-slate-200/80 dark:border-slate-700 bg-white dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
               }`}
             >
@@ -1261,7 +1289,7 @@ export const InventoryView: React.FC = React.memo(() => {
                   setIsCameraScannerOpen(true);
                 }}
                 title="مسح الباركود والكود بالكاميرا للبحث عن الصنف أو تدقيقه"
-                className="shrink-0 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs cursor-pointer group"
+                className="shrink-0 px-3 py-2 haseb-btn-primary text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs cursor-pointer group"
               >
                 <Camera className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
                 <span className="hidden sm:inline">كاميرا</span>
@@ -1285,7 +1313,7 @@ export const InventoryView: React.FC = React.memo(() => {
                   onClick={() => setSelectedSubCatFilter(sec.id)}
                   className={`px-3.5 py-1.5 rounded-full font-medium transition cursor-pointer whitespace-nowrap shrink-0 ${
                     selectedSubCatFilter === sec.id
-                      ? 'bg-slate-900 text-white font-semibold shadow-2xs'
+                      ? 'haseb-nav-active text-white font-semibold shadow-2xs'
                       : 'bg-white text-slate-600 border border-slate-200/80 hover:bg-slate-50'
                   }`}
                 >
@@ -1468,7 +1496,7 @@ export const InventoryView: React.FC = React.memo(() => {
                 }}
                 className={`px-3.5 py-2 font-bold rounded-full text-xs flex items-center justify-center gap-1.5 transition shadow-2xs cursor-pointer whitespace-nowrap shrink-0 border ${
                   isFastStockTakeOpen
-                    ? 'bg-slate-900 text-white border-slate-900'
+                    ? 'haseb-nav-active text-white'
                     : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200/80'
                 }`}
               >
@@ -2116,7 +2144,7 @@ export const InventoryView: React.FC = React.memo(() => {
             {/* Modal Header with Trash Icon to Clear All Form Data (Lumina POS Theme) */}
             <div className="px-6 py-4 bg-slate-50/90 text-slate-900 border-b border-slate-200/80 flex items-center justify-between gap-2">
               <h3 className="font-bold text-sm sm:text-base flex items-center gap-2.5 text-slate-900">
-                <span className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                <span className="w-9 h-9 rounded-xl haseb-btn-primary text-white flex items-center justify-center shrink-0 shadow-2xs">
                   <Package className="w-4 h-4" />
                 </span>
                 <span>
@@ -2220,10 +2248,15 @@ export const InventoryView: React.FC = React.memo(() => {
                         />
                       ) : (
                         <div className="text-center p-2 space-y-1">
-                          <ScanLine className="w-6 h-6 text-blue-400 mx-auto" />
+                          <ScanLine className="w-5 h-5 text-blue-400 mx-auto" />
                           <div className="text-[11px] font-bold text-slate-200">
                             عدسة قراءة ملصق الكرتون / القطعة
                           </div>
+                          {cartonCameraError && (
+                            <div className="text-[9px] text-amber-300 leading-tight line-clamp-2 px-1">
+                              {cartonCameraError}
+                            </div>
+                          )}
                           <button
                             type="button"
                             onClick={startCartonWebcam}
@@ -2238,7 +2271,7 @@ export const InventoryView: React.FC = React.memo(() => {
 
                     {/* Optical Label Data & Capture Buttons */}
                     <div className="sm:col-span-7 space-y-2">
-                      <label className="block text-[11px] text-slate-300 font-bold">
+                      <label className="block text-[11px] text-slate-700 font-bold">
                         بيانات ملصق الكرتون / القطعة الملتقطة ضوئياً:
                       </label>
                       <input
@@ -2687,7 +2720,7 @@ export const InventoryView: React.FC = React.memo(() => {
                           onClick={() => setProductImageUrl(preset.dataUri)}
                           className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition cursor-pointer ${
                             productImageUrl === preset.dataUri
-                              ? 'bg-slate-900 text-white border-slate-900'
+                              ? 'haseb-nav-active text-white'
                               : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
                           }`}
                         >

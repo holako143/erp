@@ -456,6 +456,8 @@ export interface SalesInvoice {
   couponDiscountAmount?: number;
   discountType?: 'PERCENT' | 'AMOUNT';
   discountValue?: number;
+  shiftId?: string;
+  shiftMode?: 'EXPLICIT_SHIFT' | 'FLEXIBLE_SHIFTLESS';
 }
 
 export interface POSShift {
@@ -473,6 +475,8 @@ export interface POSShift {
   expectedCash: number;
   actualClosingCash?: number;
   discrepancy?: number;
+  transactionCount?: number;
+  mode?: 'EXPLICIT_SHIFT' | 'FLEXIBLE_SHIFTLESS';
   status: 'OPEN' | 'CLOSED';
 }
 
@@ -990,6 +994,10 @@ export interface MasterSystemConfig {
   uiElementsVisibility: UIElementsVisibilityConfig;
   keyboardShortcutsEnabled: boolean;
   lanSyncEnabled: boolean;
+  soundAlertsEnabled?: boolean;
+  soundAlertToastEnabled?: boolean;
+  soundAlertSecurityEnabled?: boolean;
+  soundAlertVolume?: number;
   updatedAt: string;
   lastUpdatedAt?: string;
   lastUpdatedBy?: string;
@@ -1035,8 +1043,12 @@ export interface PromotionalOffer {
 export interface NetworkHostInfo {
   hostname: string;
   port: number;
+  httpsPort?: number;
+  httpsEnabled?: boolean;
   lanAddresses: string[];
+  lanHttpsAddresses?: Array<{ ip: string; url: string; httpsUrl?: string | null }>;
   primaryLanUrl: string;
+  primaryLanHttpsUrl?: string | null;
   platform: string;
   serverTimestampMs: number;
   dbRevision: number;

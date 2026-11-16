@@ -2,47 +2,63 @@
   <defs>
     <linearGradient id="hasebBg" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#0f172a" />
-      <stop offset="50%" stop-color="#1e3a8a" />
+      <stop offset="50%" stop-color="#1e40af" />
       <stop offset="100%" stop-color="#2563eb" />
     </linearGradient>
     <linearGradient id="hasebStroke" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#ffffff" />
-      <stop offset="65%" stop-color="#bfdbfe" />
+      <stop offset="65%" stop-color="#dbeafe" />
       <stop offset="100%" stop-color="#60a5fa" />
     </linearGradient>
-    <linearGradient id="goldAccent" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#fbbf24" />
+    <linearGradient id="goldAccent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fde68a" />
+      <stop offset="55%" stop-color="#fbbf24" />
       <stop offset="100%" stop-color="#f59e0b" />
     </linearGradient>
+    <linearGradient id="shieldGlass" x1="50%" y1="10%" x2="50%" y2="90%">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.16)" />
+      <stop offset="100%" stop-color="rgba(255,255,255,0.02)" />
+    </linearGradient>
   </defs>
-  <rect width="512" height="512" rx="116" fill="url(#hasebBg)" />
-  <path
-    d="M152 64H360L448 152V360L360 448H152L64 360V152L152 64Z"
+  <rect width="512" height="512" rx="120" fill="url(#hasebBg)" />
+  <circle
+    cx="256"
+    cy="256"
+    r="220"
     fill="none"
-    stroke="rgba(255,255,255,0.2)"
-    stroke-width="12"
+    stroke="rgba(191,219,254,0.45)"
+    stroke-width="11"
+    stroke-dasharray="80 48 24 48"
+    stroke-linecap="round"
+  />
+  <circle cx="256" cy="36" r="15" fill="#fbbf24" />
+  <path
+    d="M156 84H356L428 156V356L356 428H156L84 356V156L156 84Z"
+    fill="url(#shieldGlass)"
+    stroke="rgba(255,255,255,0.28)"
+    stroke-width="11"
     stroke-linejoin="round"
   />
   <!-- Ascending Financial Ledger Pillars -->
-  <rect x="128" y="156" width="34" height="68" rx="17" fill="#bfdbfe" opacity="0.88" />
-  <rect x="180" y="122" width="34" height="102" rx="17" fill="#ffffff" opacity="0.96" />
-  <rect x="232" y="90" width="34" height="134" rx="17" fill="url(#goldAccent)" />
+  <rect x="132" y="168" width="35" height="72" rx="17.5" fill="#dbeafe" opacity="0.9" />
+  <rect x="184" y="132" width="35" height="108" rx="17.5" fill="#ffffff" />
+  <rect x="236" y="100" width="35" height="140" rx="17.5" fill="url(#goldAccent)" />
   <!-- Geometric Kufic "ح" (Haa) Monogram -->
   <path
-    d="M124 270H380L292 174"
+    d="M128 284H376L292 192"
     fill="none"
     stroke="url(#hasebStroke)"
-    stroke-width="38"
+    stroke-width="42"
     stroke-linecap="round"
     stroke-linejoin="round"
   />
   <path
-    d="M350 270C256 270 164 308 164 362C164 398 212 414 292 414H384"
+    d="M352 284C260 284 164 320 164 374C164 410 212 424 292 424H380"
     fill="none"
     stroke="#ffffff"
-    stroke-width="38"
+    stroke-width="42"
     stroke-linecap="round"
     stroke-linejoin="round"
   />
-  <circle cx="378" cy="154" r="26" fill="url(#goldAccent)" />
+  <circle cx="372" cy="168" r="30" fill="url(#goldAccent)" />
 </svg>

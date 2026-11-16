@@ -686,14 +686,14 @@ export function detectRealHardwareFingerprint(hostProbe?: {
     ? `GPU-${cleanHwToken(hostProbe.wmiGpuId, 14)}-${gpuHash.slice(0, 6)}`
     : `GPU-${cleanHwToken(gpuRenderer, 16)}-${gpuHash.slice(0, 6)}`;
 
-  // 4. Disk Volume Serial: Use real WMI/DMI disk serial or deterministic storage/partition signature
+  // 4. Disk Volume Serial: Use real WMI/DMI disk serial or deterministic storage/platform signature (invariant to screen/zoom resize)
   const diskHash = cryptoHash32(
-    `${hostProbe?.wmiDiskSerial || ''}|${screenSpec}|MEM:${navMemGb}GB|${hostMac}`,
+    `${hostProbe?.wmiDiskSerial || ''}|${navPlatform}|CORES:${navCores}|MEM:${navMemGb}GB|${hostMac}`,
     'DISK-REAL-SILICON'
   );
   const diskVolumeSerial = hostProbe?.wmiDiskSerial
     ? `NVME-${cleanHwToken(hostProbe.wmiDiskSerial, 14)}-${diskHash.slice(0, 6)}`
-    : `DISK-${navMemGb}G-${cleanHwToken(screenSpec, 9)}-${diskHash}`;
+    : `DISK-${navMemGb}G-${cleanHwToken(navPlatform, 9)}-${diskHash}`;
 
   // 5. System UUID
   const uuidHash = cryptoHash32(

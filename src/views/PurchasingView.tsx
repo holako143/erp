@@ -119,7 +119,7 @@ export const PurchasingView: React.FC = () => {
       {/* Header (Unified Lumina POS Theme) */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
+          <div className="w-10 h-10 rounded-xl haseb-btn-primary text-white flex items-center justify-center shrink-0 shadow-2xs">
             <ShoppingCart className="w-5 h-5" />
           </div>
           <div>
@@ -142,7 +142,7 @@ export const PurchasingView: React.FC = () => {
               onClick={() => setActiveTab('orders')}
               className={`px-3.5 py-1.5 rounded-full border transition cursor-pointer ${
                 activeTab === 'orders'
-                  ? 'bg-slate-900 text-white border-slate-900 font-semibold shadow-2xs'
+                  ? 'haseb-nav-active text-white font-semibold shadow-2xs'
                   : 'bg-white text-slate-600 border-slate-200/80 hover:border-slate-300 font-medium'
               }`}
             >
@@ -153,7 +153,7 @@ export const PurchasingView: React.FC = () => {
               onClick={() => setActiveTab('suppliers')}
               className={`px-3.5 py-1.5 rounded-full border transition cursor-pointer ${
                 activeTab === 'suppliers'
-                  ? 'bg-slate-900 text-white border-slate-900 font-semibold shadow-2xs'
+                  ? 'haseb-nav-active text-white font-semibold shadow-2xs'
                   : 'bg-white text-slate-600 border-slate-200/80 hover:border-slate-300 font-medium'
               }`}
             >
@@ -164,7 +164,7 @@ export const PurchasingView: React.FC = () => {
               onClick={() => setActiveTab('landedCost')}
               className={`px-3.5 py-1.5 rounded-full border transition cursor-pointer ${
                 activeTab === 'landedCost'
-                  ? 'bg-slate-900 text-white border-slate-900 font-semibold shadow-2xs'
+                  ? 'haseb-nav-active text-white font-semibold shadow-2xs'
                   : 'bg-white text-slate-600 border-slate-200/80 hover:border-slate-300 font-medium'
               }`}
             >
@@ -175,7 +175,7 @@ export const PurchasingView: React.FC = () => {
           <button
             type="button"
             onClick={() => setIsNewPOModalOpen(true)}
-            className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-2 rounded-full shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
+            className="haseb-btn-primary text-white text-xs font-bold px-4 py-2 rounded-full shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>{language === 'ar' ? 'أمر شراء جديد (PO)' : 'New Purchase Order'}</span>
@@ -391,7 +391,7 @@ export const PurchasingView: React.FC = () => {
               <button
                 type="submit"
                 data-testid="btn-submit-supplier-payment"
-                className="py-2 px-4 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-md transition cursor-pointer"
+                className="py-2 px-4 haseb-btn-primary text-white font-semibold rounded-md transition cursor-pointer"
               >
                 اعتماد سند الصرف والترحيل
               </button>

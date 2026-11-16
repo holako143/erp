@@ -11,6 +11,8 @@ import {
   Trash2,
   ArrowUpRight,
   Sparkles,
+  BellRing,
+  BellOff,
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import {
@@ -41,6 +43,10 @@ export const SystemNotificationCenterModal: React.FC<SystemNotificationCenterMod
     dismissNotification,
     clearReadNotifications,
     recordBackupCompleted,
+    notificationPermission,
+    browserNotificationsEnabled,
+    setBrowserNotificationsEnabled,
+    requestBrowserNotificationPermission,
   } = useERP();
 
   const [activeCategoryFilter, setActiveCategoryFilter] =
@@ -269,6 +275,66 @@ export const SystemNotificationCenterModal: React.FC<SystemNotificationCenterMod
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
+        </div>
+
+        {/* Real-Time Device & Mobile Push Notifications Opt-In Bar */}
+        <div
+          className={`px-3.5 py-2 border-b flex items-center justify-between gap-2 shrink-0 ${
+            isDark
+              ? 'bg-slate-900/70 border-slate-800 text-slate-200'
+              : 'bg-blue-50/60 border-blue-100 text-slate-700'
+          }`}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            {notificationPermission === 'granted' && browserNotificationsEnabled ? (
+              <BellRing className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+            ) : (
+              <BellOff className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+            )}
+            <span className="text-[11px] font-bold truncate">
+              {notificationPermission === 'granted'
+                ? browserNotificationsEnabled
+                  ? language === 'ar'
+                    ? 'إشعارات الجهاز والجوال الفورية مفعلة'
+                    : 'Device Push Notifications Active'
+                  : language === 'ar'
+                  ? 'إشعارات الجهاز مكتومة مؤقتاً'
+                  : 'Device Push Paused'
+                : notificationPermission === 'denied'
+                ? language === 'ar'
+                  ? 'الإشعارات محظورة من إعدادات المتصفح'
+                  : 'Notifications blocked in browser settings'
+                : language === 'ar'
+                ? 'فعّل إشعارات الجوال والكمبيوتر لاستقبال التحديثات فوراً'
+                : 'Enable OS notifications for live LAN alerts'}
+            </span>
+          </div>
+          {notificationPermission === 'granted' ? (
+            <button
+              type="button"
+              onClick={() => setBrowserNotificationsEnabled(!browserNotificationsEnabled)}
+              className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-[10px] font-bold cursor-pointer shrink-0"
+            >
+              {browserNotificationsEnabled
+                ? language === 'ar'
+                  ? 'إيقاف مؤقت'
+                  : 'Pause'
+                : language === 'ar'
+                ? 'تشغيل'
+                : 'Resume'}
+            </button>
+          ) : notificationPermission !== 'unsupported' && notificationPermission !== 'denied' ? (
+            <button
+              type="button"
+              data-testid="enable-browser-push-btn"
+              onClick={() => {
+                requestBrowserNotificationPermission().catch(() => {});
+              }}
+              className="px-2.5 py-1 rounded-lg haseb-btn-primary text-white text-[10px] font-bold cursor-pointer shrink-0 shadow-2xs"
+            >
+              {language === 'ar' ? 'تفعيل الإشعارات' : 'Enable Push'}
+            </button>
+          ) : null}
         </div>
 
         {/* Success Banner if backup downloaded */}

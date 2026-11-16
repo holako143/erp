@@ -42,6 +42,20 @@
     font-size: calc(var(--erp-root-font-px, 15.5px) * 0.86);
   }
 
+  /* Native Mobile Viewport Guard: prevent desktop window-scale / font-scale from overflowing small phone viewports */
+  @media (max-width: 639px) {
+    :root {
+      --erp-spacing-unit: 0.25rem;
+      --erp-tab-px: 0.65rem;
+      --erp-tab-py: 0.35rem;
+      --erp-tab-font-size: 0.72rem;
+      --erp-tab-min-h: 32px;
+    }
+    html {
+      font-size: clamp(13.5px, 3.6vw, 15px) !important;
+    }
+  }
+
   /* Dynamic Professional Arabic Font Suites */
   html[data-erp-font="cairo"] {
     --font-sans: 'Cairo', 'IBM Plex Sans Arabic', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -270,6 +284,118 @@
     background-image: var(--haseb-grad-primary);
   }
 
+  /* Bespoke Haseb Brand Emblem Kinetic Motion (GPU Compositor Only: transform & opacity) */
+  @keyframes haseb-orbit-spin {
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
+  }
+  @keyframes haseb-sheen-sweep {
+    0%, 55% {
+      transform: translateX(-140%) skewX(-20deg);
+      opacity: 0;
+    }
+    68% {
+      opacity: 0.45;
+    }
+    85%, 100% {
+      transform: translateX(220%) skewX(-20deg);
+      opacity: 0;
+    }
+  }
+  @keyframes haseb-pillar-breathe {
+    0%, 100% {
+      transform: scaleY(1);
+      opacity: 0.88;
+    }
+    50% {
+      transform: scaleY(1.12);
+      opacity: 1;
+    }
+  }
+  @keyframes haseb-node-glow {
+    0%, 100% {
+      transform: scale(1);
+      opacity: 0.9;
+    }
+    50% {
+      transform: scale(1.22);
+      opacity: 1;
+    }
+  }
+  @keyframes haseb-emblem-float {
+    0%, 100% {
+      transform: translateY(0px);
+    }
+    50% {
+      transform: translateY(-3px);
+    }
+  }
+
+  .haseb-logo-orbit {
+    animation: haseb-orbit-spin 18s linear infinite;
+    transform-origin: center;
+    will-change: transform;
+  }
+  .haseb-logo-sheen {
+    animation: haseb-sheen-sweep 5.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    will-change: transform, opacity;
+  }
+  .haseb-logo-pillar-1 {
+    animation: haseb-pillar-breathe 2.6s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: center bottom;
+  }
+  .haseb-logo-pillar-2 {
+    animation: haseb-pillar-breathe 2.6s ease-in-out 0.35s infinite;
+    transform-box: fill-box;
+    transform-origin: center bottom;
+  }
+  .haseb-logo-pillar-3 {
+    animation: haseb-pillar-breathe 2.6s ease-in-out 0.7s infinite;
+    transform-box: fill-box;
+    transform-origin: center bottom;
+  }
+  .haseb-logo-node {
+    animation: haseb-node-glow 2.4s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  .haseb-logo-float {
+    animation: haseb-emblem-float 4s ease-in-out infinite;
+    will-change: transform;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .haseb-logo-orbit,
+    .haseb-logo-sheen,
+    .haseb-logo-pillar-1,
+    .haseb-logo-pillar-2,
+    .haseb-logo-pillar-3,
+    .haseb-logo-node,
+    .haseb-logo-float,
+    .haseb-shimmer-bar {
+      animation: none !important;
+    }
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  /* Guarantee main view containers stay strictly inside mobile viewport width */
+  main > * {
+    max-width: 100%;
+    min-width: 0;
+  }
+
   /* Deep Workspace Dark-Mode Surface Adaptation (Excludes Paper Print Previews) */
   html[data-erp-theme="obsidian_dark"] main .bg-white:not(.print-receipt):not(.print-receipt *) {
     background-color: #111827 !important;
@@ -315,17 +441,20 @@
   }
 
   html, body, #root {
-    height: 100vh;
-    max-height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
+    width: 100%;
     max-width: 100vw;
     overflow: hidden;
+    overscroll-behavior-y: contain;
+    -webkit-tap-highlight-color: transparent;
   }
 
   body {
     font-family: var(--font-sans);
     background-color: var(--erp-bg-canvas);
     color: var(--erp-text-primary);
-    line-height: 1.6;
+    line-height: 1.55;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
@@ -513,5 +642,39 @@
     margin: 0 auto !important;
     padding: 0 !important;
     font-size: 11px !important;
+  }
+}
+
+/* ============================================================================
+   WHATSAPP PAIRING QR SCANNER LINE & COLLAPSIBLE PANEL TRANSITIONS
+   ============================================================================ */
+@keyframes waScanLine {
+  0%, 100% {
+    top: 8%;
+    opacity: 0.45;
+  }
+  50% {
+    top: 86%;
+    opacity: 1;
+  }
+}
+
+.wa-scanner-line {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  height: 2.5px;
+  background: linear-gradient(90deg, transparent, #10b981, #059669, #10b981, transparent);
+  box-shadow: 0 0 12px #10b981, 0 0 4px #10b981;
+  border-radius: 9999px;
+  animation: waScanLine 2.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wa-scanner-line {
+    animation: none;
+    top: 50%;
+    opacity: 0.65;
   }
 }

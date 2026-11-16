@@ -4,6 +4,9 @@
  */
 
 import express from 'express';
+import http from 'http';
+import https from 'https';
+import { WebSocketServer, WebSocket } from 'ws';
 import { createServer as createViteServer } from 'vite';
 import fs from 'fs';
 import path from 'path';
@@ -45,6 +48,7 @@ dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+const HTTPS_PORT = Number(process.env.HTTPS_PORT) || 3443;
 
 // ASF Secure Licensing V2 - Server Authority Key Management
 // The Private Key is strictly loaded from the environment (ASF_AUTHORITY_PRIVATE_KEY)
@@ -62,18 +66,18 @@ export const activationAuthority =
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
-// Universal Local Area Network (LAN) CORS & Safe Security Headers (iframe-friendly)
+// Universal Local Area Network (LAN) CORS & Safe Security Headers (iframe-friendly + camera enabled)
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'Content-Type, Authorization, x-asf-license-token, x-asf-trial-device'
+    'Content-Type, Authorization, x-asf-license-token, x-asf-trial-device, x-erp-client-id'
   );
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Permissions-Policy', 'camera=(self), microphone=()');
+  res.setHeader('Permissions-Policy', 'camera=*, microphone=()');
   if (req.method === 'OPTIONS') {
     res.status(204).end();
     return;
@@ -97,12 +101,35 @@ let memoryStore: Record<string, any> | null = null;
 let dbRevision = 1;
 let isFlushingToDisk = false;
 let pendingFlush = false;
+let isHttpsActive = false;
 const sseClients = new Set<express.Response>();
+const wsClients = new Set<WebSocket>();
 
-function broadcastSseRevision(rev: number, reason = 'state_update') {
+function broadcastWsMessage(messageObj: Record<string, any>) {
+  if (wsClients.size === 0) return;
+  const serialized = JSON.stringify(messageObj);
+  for (const ws of wsClients) {
+    try {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(serialized);
+      } else if (ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+        wsClients.delete(ws);
+      }
+    } catch {
+      wsClients.delete(ws);
+    }
+  }
+}
+
+function broadcastSseRevision(
+  rev: number,
+  reason = 'state_update',
+  originClientId?: string
+) {
   const payload = JSON.stringify({
     dbRevision: rev,
     reason,
+    originClientId: originClientId || null,
     serverTimestampMs: Date.now(),
   });
   for (const client of sseClients) {
@@ -177,7 +204,10 @@ function readServerDB(): Record<string, any> | null {
   return memoryStore;
 }
 
-function writeServerDB(data: Record<string, any>): number {
+function writeServerDB(
+  data: Record<string, any>,
+  originClientId?: string
+): number {
   dbRevision += 1;
   memoryStore = {
     ...data,
@@ -185,10 +215,51 @@ function writeServerDB(data: Record<string, any>): number {
     dbRevision,
     lastSyncedAt: new Date().toISOString(),
   };
-  broadcastSseRevision(dbRevision, 'state_commit');
+  const nowMs = Date.now();
+  broadcastSseRevision(dbRevision, 'state_commit', originClientId);
+  broadcastWsMessage({
+    type: 'erp:state_commit',
+    dbRevision,
+    originClientId: originClientId || null,
+    serverTimestampMs: nowMs,
+  });
   // Trigger non-blocking atomic SQLite WAL + disk persistence
   flushMemoryStoreToDiskAsync().catch(() => {});
   return dbRevision;
+}
+
+function patchServerDB(
+  patch: Record<string, any>,
+  originClientId?: string
+): { dbRevision: number; changedKeys: string[] } {
+  dbRevision += 1;
+  const cleanPatch: Record<string, any> = {};
+  for (const [k, v] of Object.entries(patch)) {
+    if (v !== undefined && k !== 'schemaVersion' && k !== 'dbRevision') {
+      cleanPatch[k] = v;
+    }
+  }
+  const nowIso = new Date().toISOString();
+  memoryStore = {
+    ...(memoryStore || {}),
+    ...cleanPatch,
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    dbRevision,
+    lastSyncedAt: nowIso,
+  };
+  const changedKeys = Object.keys(cleanPatch);
+  const nowMs = Date.now();
+  broadcastSseRevision(dbRevision, 'patch_commit', originClientId);
+  broadcastWsMessage({
+    type: 'erp:patch',
+    dbRevision,
+    originClientId: originClientId || null,
+    changedKeys,
+    patch: cleanPatch,
+    serverTimestampMs: nowMs,
+  });
+  flushMemoryStoreToDiskAsync().catch(() => {});
+  return { dbRevision, changedKeys };
 }
 
 // Helper to safely read a Linux DMI / machine-id file or run Windows WMI if on local Windows host
@@ -395,13 +466,26 @@ app.get('/api/v1/network/info', (req, res) => {
     ? Math.max(1, Math.round((Buffer.byteLength(JSON.stringify(memoryStore), 'utf-8') / 1024) * 10) / 10)
     : 0;
 
+  const lanHttpsAddresses = lanAddresses.map((ip) => ({
+    ip,
+    httpUrl: `http://${ip}:${PORT}`,
+    httpsUrl: `https://${ip}:${HTTPS_PORT}`,
+  }));
+  const primaryLanHttpsUrl = isHttpsActive && lanAddresses[0]
+    ? `https://${lanAddresses[0]}:${HTTPS_PORT}`
+    : null;
+
   res.json({
     success: true,
     network: {
       hostname: os.hostname(),
       port: Number(PORT),
+      httpsPort: isHttpsActive ? Number(HTTPS_PORT) : null,
+      httpsEnabled: isHttpsActive,
       lanAddresses,
+      lanHttpsAddresses,
       primaryLanUrl,
+      primaryLanHttpsUrl,
       liveHostUrl,
       platform: `${os.platform()}-${os.arch()}`,
       serverTimestampMs: Date.now(),
@@ -933,12 +1017,41 @@ app.post('/api/v1/erp/state', verifyCommercialOperationGuard, (req, res) => {
     res.status(400).json({ success: false, message: 'Invalid state payload' });
     return;
   }
-  const rev = writeServerDB(payload);
+  const originClientId = String(req.headers['x-erp-client-id'] || payload.__originClientId || '');
+  const cleanPayload = { ...payload };
+  delete (cleanPayload as any).__originClientId;
+  const rev = writeServerDB(cleanPayload, originClientId || undefined);
   const elapsedMs = Number(process.hrtime.bigint() - startHr) / 1_000_000;
   res.json({
     success: true,
     message: 'ERP state committed to RAM & queued for atomic disk persistence',
     dbRevision: rev,
+    latencyMs: Math.round(elapsedMs * 100) / 100,
+    syncedAt: new Date().toISOString(),
+  });
+});
+
+// 3b. Ultra-Fast Delta Patch Sync Endpoint (Broadcasts changed keys over WebSocket immediately)
+app.post('/api/v1/erp/patch', verifyCommercialOperationGuard, (req, res) => {
+  const startHr = process.hrtime.bigint();
+  const body = req.body;
+  const patch = body && typeof body === 'object' && body.patch && typeof body.patch === 'object' ? body.patch : body;
+  if (!patch || typeof patch !== 'object') {
+    res.status(400).json({ success: false, message: 'Invalid patch payload' });
+    return;
+  }
+  const originClientId = String(
+    body?.originClientId || req.headers['x-erp-client-id'] || ''
+  );
+  const { dbRevision: rev, changedKeys } = patchServerDB(
+    patch,
+    originClientId || undefined
+  );
+  const elapsedMs = Number(process.hrtime.bigint() - startHr) / 1_000_000;
+  res.json({
+    success: true,
+    dbRevision: rev,
+    changedKeys,
     latencyMs: Math.round(elapsedMs * 100) / 100,
     syncedAt: new Date().toISOString(),
   });
@@ -2201,9 +2314,113 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[RLM ERP Server] Running on http://0.0.0.0:${PORT}`);
+  const httpServer = http.createServer(app);
+  const wss = new WebSocketServer({ noServer: true });
+
+  wss.on('connection', (ws) => {
+    wsClients.add(ws);
+    try {
+      ws.send(
+        JSON.stringify({
+          type: 'erp:hello',
+          dbRevision,
+          serverTimestampMs: Date.now(),
+        })
+      );
+    } catch {
+      wsClients.delete(ws);
+    }
+    const pingTimer = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.ping();
+        } catch {
+          clearInterval(pingTimer);
+        }
+      } else {
+        clearInterval(pingTimer);
+      }
+    }, 25000);
+    ws.on('close', () => {
+      clearInterval(pingTimer);
+      wsClients.delete(ws);
+    });
+    ws.on('error', () => {
+      clearInterval(pingTimer);
+      wsClients.delete(ws);
+    });
   });
+
+  const handleWsUpgrade = (
+    req: http.IncomingMessage,
+    socket: any,
+    head: Buffer
+  ) => {
+    const reqUrl = String(req.url || '');
+    if (reqUrl.startsWith('/ws/erp-sync')) {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req);
+      });
+    } else {
+      socket.destroy();
+    }
+  };
+
+  httpServer.on('upgrade', handleWsUpgrade);
+
+  httpServer.listen(PORT, '0.0.0.0', () => {
+    console.log(`[Haseb ERP Server] Running on http://0.0.0.0:${PORT}`);
+  });
+
+  // Companion Self-Signed HTTPS Server for Mobile LAN Camera & OS Notifications (Secure Context)
+  try {
+    const certDir = path.join(DATA_DIR, 'lan-cert');
+    if (!fs.existsSync(certDir)) fs.mkdirSync(certDir, { recursive: true });
+    const keyPath = path.join(certDir, 'key.pem');
+    const certPath = path.join(certDir, 'cert.pem');
+    const sanMetaPath = path.join(certDir, 'san-ips.json');
+
+    const nets = os.networkInterfaces();
+    const detectedIps: string[] = [];
+    for (const name of Object.keys(nets)) {
+      for (const net of nets[name] || []) {
+        if (net.family === 'IPv4' && !net.internal && net.address && !net.address.startsWith('169.254.')) {
+          detectedIps.push(net.address);
+        }
+      }
+    }
+    const uniqueIps = Array.from(new Set(['127.0.0.1', ...detectedIps])).sort();
+    const sanEntries = ['DNS:localhost', ...uniqueIps.map((ip) => `IP:${ip}`)].join(',');
+    const prevSan = fs.existsSync(sanMetaPath) ? fs.readFileSync(sanMetaPath, 'utf-8') : '';
+
+    if (!fs.existsSync(keyPath) || !fs.existsSync(certPath) || prevSan !== sanEntries) {
+      const opensslCmd = `openssl req -x509 -newkey rsa:2048 -nodes -keyout "${keyPath}" -out "${certPath}" -days 825 -subj "/CN=Haseb-ERP-LAN" -addext "subjectAltName=${sanEntries}"`;
+      execSync(opensslCmd, { stdio: 'ignore', timeout: 8000 });
+      fs.writeFileSync(sanMetaPath, sanEntries, 'utf-8');
+    }
+
+    if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
+      const httpsServer = https.createServer(
+        {
+          key: fs.readFileSync(keyPath),
+          cert: fs.readFileSync(certPath),
+        },
+        app
+      );
+      httpsServer.on('upgrade', handleWsUpgrade);
+      httpsServer.listen(HTTPS_PORT, '0.0.0.0', () => {
+        isHttpsActive = true;
+        console.log(`[Haseb ERP HTTPS LAN] Running on https://0.0.0.0:${HTTPS_PORT} (Camera & Push Ready)`);
+      });
+      httpsServer.on('error', (err) => {
+        isHttpsActive = false;
+        console.warn('[Haseb ERP HTTPS LAN] Disabled:', (err as any)?.message || err);
+      });
+    }
+  } catch (err) {
+    isHttpsActive = false;
+    console.warn('[Haseb ERP HTTPS LAN] OpenSSL cert generation skipped:', (err as any)?.message || err);
+  }
 }
 
 startServer();

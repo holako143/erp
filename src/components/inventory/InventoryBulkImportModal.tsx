@@ -94,7 +94,7 @@ const InventoryBulkImportModal: React.FC<InventoryBulkImportModalProps> = React.
                 <Download className="w-3.5 h-3.5" />
                 <span>تحميل نموذج قياسي جاهز (4 أصناف متنوعة)</span>
               </button>
-              <label className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold transition cursor-pointer flex items-center gap-1.5">
+              <label className="px-3 py-1.5 rounded-lg haseb-btn-primary text-white font-bold transition cursor-pointer flex items-center gap-1.5">
                 <Upload className="w-3.5 h-3.5" />
                 <span>رفع ملف .CSV أو .TXT</span>
                 <input

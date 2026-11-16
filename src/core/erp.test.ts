@@ -35,6 +35,7 @@ import {
   resolveSplitPaneLayout,
   cycleSplitPaneMode,
 } from './workspaceLayoutEngine';
+import { summarizeCommunicationsWorkspace } from './communicationsEngine';
 
 // --- Barcode Engine Tests ---
 test('calculateEAN13CheckDigit calculates GS1 standard check digit accurately', () => {
@@ -3208,5 +3209,466 @@ test('Track 41: Clean production boot, salted password hashing & lockout, single
   assert.equal(verifyClockHighWaterIntegrityTag(now, tag, reqCode), true);
   assert.equal(verifyClockHighWaterIntegrityTag(now - 60000, tag, reqCode), false);
 });
+
+test('Track 42: Flexible Shiftless Default Mode, Explicit Shift Accumulation & Unified Shift Analytics Engine', async () => {
+  const {
+    createDefaultShiftlessState,
+    isShiftActive,
+    applySaleToShift,
+    getShiftActionControlMeta,
+    buildShiftAnalyticsReport,
+    buildShiftAnalyticsCsv,
+    buildShiftAnalyticsPrintableHtml,
+  } = await import('./posShiftEngine');
+
+  // 1. Default state is flexible shiftless (CLOSED), NOT phantom OPEN
+  const defaultShift = createDefaultShiftlessState({ cashierName: 'المدير العام' });
+  assert.equal(defaultShift.status, 'CLOSED');
+  assert.equal(defaultShift.mode, 'FLEXIBLE_SHIFTLESS');
+  assert.equal(isShiftActive(defaultShift), false);
+  assert.equal(getShiftActionControlMeta(defaultShift, 'ar').label, 'فتح وردية');
+
+  // 2. Selling in flexible mode does NOT flip shift into OPEN
+  const afterShiftlessSale = applySaleToShift(defaultShift, {
+    grandTotal: 15000,
+    cashPortion: 15000,
+    cardPortion: 0,
+  });
+  assert.equal(afterShiftlessSale.status, 'CLOSED');
+  assert.equal(afterShiftlessSale.totalSales, 0);
+
+  // 3. Explicit open shift accumulates sales and tracks transactions cleanly
+  const openedShift = {
+    ...createDefaultShiftlessState(),
+    id: 'shf-1001',
+    status: 'OPEN' as const,
+    mode: 'EXPLICIT_SHIFT' as const,
+    startTime: '09:00 AM',
+    startingCash: 5000,
+    expectedCash: 5000,
+  };
+  assert.equal(isShiftActive(openedShift), true);
+  assert.equal(getShiftActionControlMeta(openedShift, 'ar').label, 'إغلاق الوردية');
+
+  const updatedOpenShift = applySaleToShift(openedShift, {
+    grandTotal: 25000,
+    cashPortion: 10000,
+    cardPortion: 15000,
+  });
+  assert.equal(updatedOpenShift.transactionCount, 1);
+  assert.equal(updatedOpenShift.cashSales, 10000);
+  assert.equal(updatedOpenShift.cardSales, 15000);
+  assert.equal(updatedOpenShift.totalSales, 25000);
+  assert.equal(updatedOpenShift.expectedCash, 15000);
+
+  const closedExplicitShift = {
+    ...updatedOpenShift,
+    status: 'CLOSED' as const,
+    endTime: '05:00 PM',
+    actualClosingCash: 15000,
+    discrepancy: 0,
+  };
+
+  // 4. Analytics report merges explicit shifts AND unshifted flexible invoices cleanly
+  const analytics = buildShiftAnalyticsReport({
+    currentShift: defaultShift,
+    shiftHistory: [closedExplicitShift],
+    salesInvoices: [
+      {
+        id: 'inv-1',
+        tenantId: 'ten-1',
+        invoiceNumber: 'INV-1001',
+        customerId: 'c1',
+        customerName: 'عميل نقدي',
+        branchId: 'b1',
+        date: '2026-11-15',
+        items: [],
+        subtotal: 25000,
+        discountAmount: 0,
+        taxAmount: 0,
+        grandTotal: 25000,
+        paidAmount: 25000,
+        paymentMethod: 'SPLIT',
+        status: 'PAID',
+        shiftId: 'shf-1001',
+        shiftMode: 'EXPLICIT_SHIFT',
+      },
+      {
+        id: 'inv-2',
+        tenantId: 'ten-1',
+        invoiceNumber: 'INV-1002',
+        customerId: 'c1',
+        customerName: 'عميل مباشر',
+        branchId: 'b1',
+        date: '2026-11-15',
+        items: [],
+        subtotal: 12000,
+        discountAmount: 0,
+        taxAmount: 0,
+        grandTotal: 12000,
+        paidAmount: 12000,
+        paymentMethod: 'CARD',
+        status: 'PAID',
+        shiftId: 'shift-none',
+        shiftMode: 'FLEXIBLE_SHIFTLESS',
+      },
+    ],
+  });
+
+  assert.equal(analytics.summary.totalSessionsCount, 2);
+  assert.equal(analytics.summary.explicitShiftsCount, 1);
+  assert.equal(analytics.summary.flexibleSessionsCount, 1);
+  assert.equal(analytics.summary.grandTotalSales, 37000);
+  assert.equal(analytics.summary.totalTransactions, 2);
+  assert.equal(analytics.summary.totalSplitPayments, 25000);
+  assert.equal(analytics.summary.totalCardPayments, 12000);
+
+  // 5. CSV and Printable PDF HTML generators produce valid RTL output
+  const csv = buildShiftAnalyticsCsv(analytics.rows, 'YER');
+  assert.ok(csv.includes('SHF-001'));
+  assert.ok(csv.includes('FLEX-2026-11-15'));
+
+  const html = buildShiftAnalyticsPrintableHtml({
+    rows: analytics.rows,
+    summary: analytics.summary,
+    companyName: 'شركة النور للتجارة',
+    currency: 'YER',
+  });
+  assert.ok(html.includes('dir="rtl"'));
+  assert.ok(html.includes('شركة النور للتجارة'));
+  assert.ok(html.includes('37,000'));
+});
+
+test('Track 43: Real-Time LAN Delta Sync, Preference Normalization, Camera Fallback Chain & Native Notification Helpers', async () => {
+  const {
+    normalizeUiFontId,
+    normalizeUiThemeId,
+    normalizeUiDensity,
+    computeStateDeltaPatch,
+    mergeStateDeltaPatch,
+    shouldApplyRemoteRevision,
+    resolveSyncedOnboardingStatus,
+    buildErpSyncWebSocketUrl,
+  } = await import('./realtimeSyncEngine');
+  const {
+    isSecureCameraContext,
+    buildCameraAttemptSequence,
+    mapCameraErrorToArabicMessage,
+    resolvePreferredLanCameraUrl,
+  } = await import('./cameraScannerEngine');
+  const { buildRemotePatchToastMeta } = await import('./notificationsEngine');
+
+  // 1. Font & Theme ID Normalization across Onboarding & Navbar
+  assert.equal(normalizeUiFontId('ibm'), 'ibm_plex');
+  assert.equal(normalizeUiFontId('ibm_plex'), 'ibm_plex');
+  assert.equal(normalizeUiFontId('almarai'), 'readex');
+  assert.equal(normalizeUiFontId('readex'), 'readex');
+  assert.equal(normalizeUiFontId('cairo'), 'cairo');
+  assert.equal(normalizeUiFontId('tajawal'), 'tajawal');
+  assert.equal(normalizeUiFontId('unknown'), 'ibm_plex');
+  assert.equal(normalizeUiThemeId('obsidian_dark'), 'obsidian_dark');
+  assert.equal(normalizeUiThemeId('bad-theme'), 'haseb_royal');
+  assert.equal(normalizeUiDensity('compact'), 'compact');
+  assert.equal(normalizeUiDensity(null), 'comfortable');
+
+  // 2. Fast Delta Patch Computation & Merging (prevents clobbering unrelated keys)
+  const baseProducts = [{ id: 'p1', name: 'Item 1' }];
+  const stateA = {
+    uiTheme: 'haseb_royal',
+    uiFont: 'ibm_plex',
+    fontScalePercent: 110,
+    currency: 'YER',
+    products: baseProducts,
+    salesInvoices: [],
+  };
+  const stateB = {
+    ...stateA,
+    uiTheme: 'obsidian_dark',
+    uiFont: 'cairo',
+  };
+  const delta = computeStateDeltaPatch(stateA, stateB);
+  assert.equal(delta.hasChanges, true);
+  assert.deepEqual(delta.changedKeys.sort(), ['uiFont', 'uiTheme']);
+  assert.equal((delta.patch as any).currency, undefined);
+
+  const merged = mergeStateDeltaPatch(stateA, delta.patch);
+  assert.equal(merged.uiTheme, 'obsidian_dark');
+  assert.equal(merged.uiFont, 'cairo');
+  assert.equal(merged.currency, 'YER');
+  assert.equal(merged.products, baseProducts);
+
+  // 3. Echo Suppression & Revision Checks
+  assert.equal(
+    shouldApplyRemoteRevision({
+      incomingRevision: 5,
+      currentRevision: 4,
+      originClientId: 'cli-other',
+      localClientId: 'cli-me',
+    }),
+    true
+  );
+  assert.equal(
+    shouldApplyRemoteRevision({
+      incomingRevision: 5,
+      currentRevision: 4,
+      originClientId: 'cli-me',
+      localClientId: 'cli-me',
+    }),
+    false
+  );
+  assert.equal(
+    shouldApplyRemoteRevision({
+      incomingRevision: 4,
+      currentRevision: 4,
+      originClientId: 'cli-other',
+      localClientId: 'cli-me',
+    }),
+    false
+  );
+
+  // 4. Onboarding status syncs cleanly across LAN devices
+  assert.equal(resolveSyncedOnboardingStatus({ isOnboardingCompleted: true }, false), true);
+  assert.equal(
+    resolveSyncedOnboardingStatus(
+      { company: { nameAr: 'شركة النور' }, userAccounts: [{ id: 'u1' }] },
+      false
+    ),
+    true
+  );
+  assert.equal(resolveSyncedOnboardingStatus({}, false), false);
+  assert.equal(
+    buildErpSyncWebSocketUrl({ protocol: 'https:', host: '192.168.1.5:3443' }),
+    'wss://192.168.1.5:3443/ws/erp-sync'
+  );
+  assert.equal(
+    buildErpSyncWebSocketUrl({ protocol: 'http:', host: 'localhost:3000' }),
+    'ws://localhost:3000/ws/erp-sync'
+  );
+
+  // 5. Camera Secure Context & Progressive Fallback Chain
+  assert.equal(isSecureCameraContext({ isSecureContext: false, protocol: 'http:', hostname: '192.168.1.20' }), false);
+  assert.equal(isSecureCameraContext({ isSecureContext: true, protocol: 'https:', hostname: '192.168.1.20' }), true);
+  assert.equal(isSecureCameraContext({ isSecureContext: false, protocol: 'http:', hostname: 'localhost' }), true);
+
+  const attempts = buildCameraAttemptSequence(
+    [
+      { id: 'cam-front', label: 'Front Camera' },
+      { id: 'cam-back', label: 'Back Camera' },
+    ],
+    ''
+  );
+  assert.equal(attempts[0].mode, 'DEVICE_ID');
+  assert.equal(attempts[0].qrTarget, 'cam-back');
+  assert.ok(attempts.some((a) => a.mode === 'FACING_ENV'));
+  assert.ok(attempts.some((a) => a.mode === 'FACING_USER'));
+  assert.equal(attempts[attempts.length - 1].mode, 'GENERIC_VIDEO');
+  assert.equal(attempts.every((a) => a.strictAspectRatio === false), true);
+
+  const errInsecure = mapCameraErrorToArabicMessage(new Error('mediaDevices undefined'), false);
+  assert.equal(errInsecure.kind, 'INSECURE_CONTEXT');
+  const errBusy = mapCameraErrorToArabicMessage(Object.assign(new Error('Device in use'), { name: 'NotReadableError' }), true);
+  assert.equal(errBusy.kind, 'BUSY');
+
+  assert.equal(
+    resolvePreferredLanCameraUrl({
+      primaryLanHttpsUrl: 'https://192.168.1.50:3443',
+      lanHttpsAddresses: [],
+    }),
+    'https://192.168.1.50:3443'
+  );
+
+  // 6. Real-Time Sync Toast Metadata
+  const prefToast = buildRemotePatchToastMeta(['uiFont', 'uiTheme']);
+  assert.ok(prefToast);
+  assert.equal(prefToast?.category, 'BRANCH_SYNC');
+  const invToast = buildRemotePatchToastMeta(['salesInvoices']);
+  assert.ok(invToast);
+  assert.equal(invToast?.actionType, 'SALES');
+  assert.equal(buildRemotePatchToastMeta(['unknownUnlistedKey']), null);
+});
+
+test('summarizeCommunicationsWorkspace computes multi-account, unread, outbound, and debtor metrics accurately', () => {
+  const summary = summarizeCommunicationsWorkspace(
+    [
+      {
+        session: { status: 'CONNECTED' } as any,
+        chats: [
+          { unreadCount: 3 } as any,
+          { unreadCount: 0 } as any,
+          { unreadCount: 2 } as any,
+        ],
+      },
+      {
+        session: { status: 'QR_PENDING' } as any,
+        chats: [{ unreadCount: 4 } as any],
+      },
+    ],
+    [
+      { channel: 'WHATSAPP' },
+      { channel: 'WHATSAPP' },
+      { channel: 'SMS' },
+    ],
+    [
+      { balance: 1500.455 },
+      { balance: 0 },
+      { balance: -200 },
+      { balance: 499.545 },
+    ]
+  );
+
+  assert.equal(summary.totalAccounts, 2);
+  assert.equal(summary.connectedAccounts, 1);
+  assert.equal(summary.totalChats, 4);
+  assert.equal(summary.totalUnreadMessages, 9);
+  assert.equal(summary.whatsappOutboundCount, 2);
+  assert.equal(summary.smsOutboundCount, 1);
+  assert.equal(summary.indebtedCustomersCount, 2);
+  assert.equal(summary.totalDebtReceivables, 2000);
+});
+
+test('Track 44: Footer Pending Sync Queue Engine & Theme-Appropriate POS Sound Alert Profiles', async () => {
+  const {
+    computeFooterSyncStatusMeta,
+    enqueuePendingSyncEntry,
+    loadPendingSyncQueue,
+    savePendingSyncQueue,
+    VALID_UI_THEMES,
+  } = await import('./realtimeSyncEngine');
+  const {
+    DEFAULT_SOUND_ALERT_PREFERENCES,
+    clampSoundAlertVolume,
+    normalizeSoundAlertPreferences,
+    loadSoundAlertPreferences,
+    saveSoundAlertPreferences,
+    mapToastSeverityToSoundKind,
+    getThemeAlertSoundProfile,
+  } = await import('./soundAlertEngine');
+  const { DEFAULT_MASTER_SYSTEM_CONFIG } = await import('./systemConfigEngine');
+
+  // 1. MasterSystemConfig defaults
+  assert.equal(DEFAULT_MASTER_SYSTEM_CONFIG.soundAlertsEnabled, true);
+  assert.equal(DEFAULT_MASTER_SYSTEM_CONFIG.soundAlertToastEnabled, true);
+  assert.equal(DEFAULT_MASTER_SYSTEM_CONFIG.soundAlertSecurityEnabled, true);
+  assert.equal(DEFAULT_MASTER_SYSTEM_CONFIG.soundAlertVolume, 35);
+
+  // 2. Footer sync-status indicator metadata
+  const syncedMeta = computeFooterSyncStatusMeta({
+    pendingCount: 0,
+    isOnline: true,
+    isSyncing: false,
+    realtimeSyncStatus: 'WS_LIVE',
+  });
+  assert.equal(syncedMeta.state, 'SYNCED');
+  assert.equal(syncedMeta.pendingCount, 0);
+  assert.equal(syncedMeta.tone, 'emerald');
+
+  const syncingMeta = computeFooterSyncStatusMeta({
+    pendingCount: 2,
+    isOnline: true,
+    isSyncing: true,
+  });
+  assert.equal(syncingMeta.state, 'SYNCING');
+  assert.equal(syncingMeta.pendingCount, 2);
+  assert.equal(syncingMeta.tone, 'blue');
+  assert.ok(syncingMeta.shortLabelEn.includes('2'));
+
+  const pendingMeta = computeFooterSyncStatusMeta({
+    pendingCount: 3,
+    isOnline: true,
+    isSyncing: false,
+  });
+  assert.equal(pendingMeta.state, 'PENDING');
+  assert.equal(pendingMeta.pendingCount, 3);
+  assert.equal(pendingMeta.tone, 'amber');
+
+  const offlinePendingMeta = computeFooterSyncStatusMeta({
+    pendingCount: 4,
+    isOnline: false,
+    isSyncing: false,
+  });
+  assert.equal(offlinePendingMeta.state, 'OFFLINE');
+  assert.equal(offlinePendingMeta.pendingCount, 4);
+  assert.ok(offlinePendingMeta.shortLabelAr.includes('4'));
+
+  // 3. Pending queue persistence & coalescing
+  const memStore = new Map<string, string>();
+  const mockStorage = {
+    getItem: (k: string) => memStore.get(k) ?? null,
+    setItem: (k: string, v: string) => {
+      memStore.set(k, v);
+    },
+    removeItem: (k: string) => {
+      memStore.delete(k);
+    },
+  };
+
+  let queue = loadPendingSyncQueue(mockStorage);
+  assert.equal(queue.length, 0);
+
+  for (let i = 0; i < 6; i++) {
+    queue = enqueuePendingSyncEntry(
+      queue,
+      {
+        id: `sync-${i}`,
+        createdAt: '2026-11-15T12:00:00.000Z',
+        endpoint: '/api/v1/erp/patch',
+        changedKeys: [`key_${i}`],
+        baseRevision: i + 1,
+      },
+      4
+    );
+  }
+  assert.equal(queue.length, 4);
+  assert.equal(queue[0].endpoint, '/api/v1/erp/state');
+  assert.ok(queue[0].changedKeys.includes('key_0'));
+  savePendingSyncQueue(mockStorage, queue);
+  assert.equal(loadPendingSyncQueue(mockStorage).length, 4);
+  savePendingSyncQueue(mockStorage, []);
+  assert.equal(loadPendingSyncQueue(mockStorage).length, 0);
+
+  // 4. Sound alert preferences normalization & storage
+  assert.equal(clampSoundAlertVolume(-15), 0);
+  assert.equal(clampSoundAlertVolume(180), 100);
+  assert.equal(clampSoundAlertVolume(undefined), DEFAULT_SOUND_ALERT_PREFERENCES.volumePercent);
+
+  const normalized = normalizeSoundAlertPreferences(
+    { soundAlertsEnabled: false, soundAlertVolume: 55 },
+    { enabled: true, volumePercent: 45 }
+  );
+  assert.equal(normalized.enabled, true);
+  assert.equal(normalized.volumePercent, 45);
+  assert.equal(normalized.toastEnabled, true);
+
+  saveSoundAlertPreferences(mockStorage, normalized);
+  const reloadedPrefs = loadSoundAlertPreferences(mockStorage);
+  assert.equal(reloadedPrefs?.enabled, true);
+  assert.equal(reloadedPrefs?.volumePercent, 45);
+
+  // 5. Severity mapping & theme-appropriate acoustic profiles for all 5 themes
+  assert.equal(mapToastSeverityToSoundKind('info'), 'toast_info');
+  assert.equal(mapToastSeverityToSoundKind('success'), 'toast_success');
+  assert.equal(mapToastSeverityToSoundKind('warning'), 'toast_warning');
+  assert.equal(mapToastSeverityToSoundKind('critical'), 'toast_critical');
+
+  const themeInfoFreqs = new Set<number>();
+  for (const theme of VALID_UI_THEMES) {
+    const infoProfile = getThemeAlertSoundProfile(theme, 'toast_info', 35);
+    const secProfile = getThemeAlertSoundProfile(theme, 'security_alert', 100);
+    const mutedProfile = getThemeAlertSoundProfile(theme, 'toast_success', 0);
+
+    assert.equal(infoProfile.theme, theme);
+    assert.ok(infoProfile.notes.length >= 2);
+    assert.ok(infoProfile.baseGain > 0 && infoProfile.baseGain <= 0.11);
+    assert.ok(secProfile.notes.length >= 3);
+    assert.ok(secProfile.baseGain <= 0.16);
+    assert.equal(mutedProfile.baseGain, 0);
+    themeInfoFreqs.add(infoProfile.notes[0].frequencyHz);
+  }
+  // Confirm each theme has its own distinct tonal root frequency
+  assert.equal(themeInfoFreqs.size, VALID_UI_THEMES.length);
+});
+
+
+
 
 

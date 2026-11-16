@@ -15,7 +15,7 @@ import { useERP } from '../context/ERPContext';
 import { LicenseDurationPreset } from '../core/securityEngine';
 
 // Precomputed SHA-256 hex digest for authorized developer secret PIN verification (zero plaintext secret in bundle)
-const DEVELOPER_PIN_SHA256 = '04fe1b9ac6a7364396c1a0e07376cb180808b7828460c42f116e3b880567a1a4';
+const DEVELOPER_PIN_SHA256 = '28fd4549718b7093a4d7fd7041d8a3efd2e8597f65c82f5d7588e51359096468';
 
 async function verifyDeveloperPinSha256(candidate: string): Promise<boolean> {
   const normalized = candidate.trim();
@@ -40,7 +40,7 @@ async function verifyDeveloperPinSha256(candidate: string): Promise<boolean> {
     h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
     h2 = Math.imul(h2 ^ (c + i), 0x85ebca6b) >>> 0;
   }
-  return `${h1.toString(16).padStart(8, '0')}-${h2.toString(16).padStart(8, '0')}` === '9221d4a4-f04467bb';
+  return `${h1.toString(16).padStart(8, '0')}-${h2.toString(16).padStart(8, '0')}` === 'b480456f-da6e57e1';
 }
 
 export const StandaloneActivationPortal: React.FC = () => {
@@ -144,7 +144,7 @@ export const StandaloneActivationPortal: React.FC = () => {
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) handleClose();
       }}
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/40 backdrop-blur-[2px] overflow-y-auto"
+      className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-4 bg-slate-900/45 backdrop-blur-[2px] overflow-y-auto"
     >
       <div className="relative w-full max-w-4xl bg-white border border-slate-200/90 rounded-3xl shadow-2xl overflow-hidden text-slate-900 flex flex-col my-auto max-h-[95vh]">
         {/* Top Developer Header */}
@@ -284,7 +284,7 @@ export const StandaloneActivationPortal: React.FC = () => {
                     type="text"
                     value={targetRequestCode}
                     onChange={(e) => setTargetRequestCode(e.target.value.toUpperCase())}
-                    className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200/80 font-mono text-xs font-bold text-slate-900 outline-hidden focus:border-slate-900"
+                    className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200/80 font-mono text-xs font-bold text-slate-900 outline-hidden focus:border-blue-600"
                     placeholder="ASF-XXXX-XXXX-XXXX"
                   />
                 </div>
@@ -295,7 +295,7 @@ export const StandaloneActivationPortal: React.FC = () => {
                     <select
                       value={durationPreset}
                       onChange={(e) => setDurationPreset(e.target.value as LicenseDurationPreset)}
-                      className="w-full px-2.5 py-2 rounded-xl bg-white border border-slate-200/80 text-xs font-bold text-slate-900 outline-hidden focus:border-slate-900"
+                      className="w-full px-2.5 py-2 rounded-xl bg-white border border-slate-200/80 text-xs font-bold text-slate-900 outline-hidden focus:border-blue-600"
                     >
                       <option value="1_DAY">يوم واحد (1 Day)</option>
                       <option value="1_WEEK">أسبوع واحد (1 Week)</option>
@@ -323,7 +323,7 @@ export const StandaloneActivationPortal: React.FC = () => {
                       <button
                         type="button"
                         onClick={handleGenerateKey}
-                        className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                        className="w-full py-2 haseb-btn-primary text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
                       >
                         <Sparkles className="w-3.5 h-3.5" />
                         <span>توليد السيريال</span>
@@ -336,7 +336,7 @@ export const StandaloneActivationPortal: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleGenerateKey}
-                    className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                    className="w-full py-2 haseb-btn-primary text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
                     <span>توليد السيريال المخصص</span>
@@ -371,7 +371,7 @@ export const StandaloneActivationPortal: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleDirectApplyToCurrentMachine}
-                    className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition cursor-pointer shadow-2xs"
+                    className="px-4 py-2 rounded-xl haseb-btn-primary text-white text-xs font-bold transition cursor-pointer shadow-2xs"
                   >
                     تطبيق وتفعيل هذا الجهاز فورياً بهذا السيريال
                   </button>

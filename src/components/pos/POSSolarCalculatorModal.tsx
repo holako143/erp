@@ -49,7 +49,7 @@ const POSSolarCalculatorModal: React.FC<POSSolarCalculatorModalProps> = React.me
         <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-3xl overflow-hidden">
           <div className="px-6 py-4 bg-slate-50/90 border-b border-slate-200/80 text-slate-900 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
+              <div className="w-10 h-10 rounded-xl haseb-btn-primary text-white flex items-center justify-center shrink-0 shadow-2xs">
                 <Sun className="w-5 h-5" />
               </div>
               <div>

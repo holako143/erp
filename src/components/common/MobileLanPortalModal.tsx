@@ -38,32 +38,56 @@ export const MobileLanPortalModal: React.FC = () => {
   const [selectedUrlOverride, setSelectedUrlOverride] = useState<string>('');
   const [customIpInput, setCustomIpInput] = useState<string>('');
   const [instantAutoLogin, setInstantAutoLogin] = useState<boolean>(true);
+  const [preferHttpsForCamera, setPreferHttpsForCamera] = useState<boolean>(
+    typeof window !== 'undefined' && window.location.protocol === 'https:'
+  );
   const [syncPulse, setSyncPulse] = useState<boolean>(false);
 
-  // Build all candidate URLs (Live browser origin + detected physical Wi-Fi/LAN IPs)
+  // Build all candidate URLs (Live browser origin + detected physical Wi-Fi/LAN HTTP & HTTPS IPs)
   const candidateEndpoints = useMemo(() => {
-    const list: { label: string; url: string; badge: string }[] = [];
+    const list: { label: string; url: string; badge: string; isHttps?: boolean }[] = [];
     const browserOrigin =
       typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
     const port = networkInfo?.port || 3000;
+    const httpsPort = networkInfo?.httpsPort || 3443;
 
-    // 1. If browser origin is not localhost/127.0.0.1, it is directly routable across devices!
+    // 1. HTTPS Camera-Ready addresses (required by Android Chrome & iOS Safari for live camera & push)
+    if (preferHttpsForCamera && networkInfo?.lanHttpsAddresses?.length) {
+      networkInfo.lanHttpsAddresses.forEach((entry, idx) => {
+        if (entry.httpsUrl && !list.some((i) => i.url === entry.httpsUrl)) {
+          list.push({
+            label: `HTTPS مشفر للكاميرا والإشعارات (${entry.ip})`,
+            url: entry.httpsUrl,
+            badge: idx === 0 ? 'HTTPS كاميرا' : `HTTPS ${idx + 1}`,
+            isHttps: true,
+          });
+        }
+      });
+    }
+
+    // 2. If browser origin is not localhost/127.0.0.1, it is directly routable across devices!
     if (
       browserOrigin &&
       !browserOrigin.includes('localhost') &&
-      !browserOrigin.includes('127.0.0.1')
+      !browserOrigin.includes('127.0.0.1') &&
+      !list.some((i) => i.url === browserOrigin)
     ) {
       list.push({
         label: 'الرابط المباشر النشط (متاح لجميع الجوالات والأجهزة فوراً)',
         url: browserOrigin,
-        badge: 'نشط وموصى به',
+        badge: browserOrigin.startsWith('https://') ? 'HTTPS نشط' : 'نشط وموصى به',
+        isHttps: browserOrigin.startsWith('https://'),
       });
     }
 
-    // 2. Physical LAN / Wi-Fi IPv4 addresses reported by the server
+    // 3. Physical LAN / Wi-Fi IPv4 addresses reported by the server
     if (networkInfo?.lanAddresses && networkInfo.lanAddresses.length > 0) {
       networkInfo.lanAddresses.forEach((ip, idx) => {
-        const candidateUrl = ip.startsWith('http') ? ip : `http://${ip}:${port}`;
+        const candidateUrl = ip.startsWith('http')
+          ? ip
+          : preferHttpsForCamera && networkInfo?.httpsEnabled
+          ? `https://${ip}:${httpsPort}`
+          : `http://${ip}:${port}`;
         if (!list.some((item) => item.url === candidateUrl)) {
           const isPrivateLan =
             ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.');
@@ -72,23 +96,35 @@ export const MobileLanPortalModal: React.FC = () => {
               ? `شبكة Wi-Fi / LAN المحلية (${ip})`
               : `عنوان الشبكة (${ip})`,
             url: candidateUrl,
-            badge: idx === 0 ? 'IP الشبكة' : `منفذ ${idx + 1}`,
+            badge: candidateUrl.startsWith('https://')
+              ? 'HTTPS'
+              : idx === 0
+              ? 'IP الشبكة'
+              : `منفذ ${idx + 1}`,
+            isHttps: candidateUrl.startsWith('https://'),
           });
         }
       });
     }
 
-    // 3. Fallback if running strictly on localhost
+    // 4. Fallback if running strictly on localhost
     if (list.length === 0) {
+      const fallbackHost =
+        typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1';
+      const fallbackUrl =
+        preferHttpsForCamera && networkInfo?.httpsEnabled
+          ? networkInfo.primaryLanHttpsUrl || `https://${fallbackHost}:${httpsPort}`
+          : networkInfo?.primaryLanUrl || browserOrigin;
       list.push({
         label: 'الخادم المحلي على هذا الجهاز',
-        url: networkInfo?.primaryLanUrl || browserOrigin,
-        badge: 'محلي',
+        url: fallbackUrl,
+        badge: fallbackUrl.startsWith('https://') ? 'HTTPS' : 'محلي',
+        isHttps: fallbackUrl.startsWith('https://'),
       });
     }
 
     return list;
-  }, [networkInfo]);
+  }, [networkInfo, preferHttpsForCamera]);
 
   const baseLanUrl = useMemo(() => {
     if (customIpInput.trim()) {
@@ -96,14 +132,18 @@ export const MobileLanPortalModal: React.FC = () => {
       if (clean.startsWith('http://') || clean.startsWith('https://')) {
         return clean;
       }
-      const port = networkInfo?.port || 3000;
-      return clean.includes(':') ? `http://${clean}` : `http://${clean}:${port}`;
+      const targetProto = preferHttpsForCamera && networkInfo?.httpsEnabled ? 'https' : 'http';
+      const targetPort =
+        preferHttpsForCamera && networkInfo?.httpsEnabled
+          ? networkInfo?.httpsPort || 3443
+          : networkInfo?.port || 3000;
+      return clean.includes(':') ? `${targetProto}://${clean}` : `${targetProto}://${clean}:${targetPort}`;
     }
-    if (selectedUrlOverride) {
+    if (selectedUrlOverride && candidateEndpoints.some((c) => c.url === selectedUrlOverride)) {
       return selectedUrlOverride;
     }
     return candidateEndpoints[0]?.url || 'http://localhost:3000';
-  }, [customIpInput, selectedUrlOverride, candidateEndpoints, networkInfo]);
+  }, [customIpInput, selectedUrlOverride, candidateEndpoints, networkInfo, preferHttpsForCamera]);
 
   const activeShareUrl = useMemo(() => {
     if (!instantAutoLogin) return baseLanUrl;
@@ -267,15 +307,57 @@ export const MobileLanPortalModal: React.FC = () => {
             {/* Right: URL Copy, Endpoint Switcher & Custom Wi-Fi IP */}
             <div className="lg:col-span-7 flex flex-col justify-between space-y-3">
               <div className="p-4 rounded-2xl haseb-card-gradient text-white space-y-3 shadow-xs">
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1.5">
                     <Globe className="w-3.5 h-3.5" />
                     <span>رابط الدخول الموحد للأجهزة والجوالات:</span>
                   </span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                    Port {networkInfo?.port || 3000} • 0.0.0.0
-                  </span>
+                  {networkInfo?.httpsEnabled ? (
+                    <div className="flex items-center bg-slate-950/80 p-0.5 rounded-lg border border-white/15 text-[10px] font-bold">
+                      <button
+                        type="button"
+                        data-testid="lan-mode-http-btn"
+                        onClick={() => {
+                          setPreferHttpsForCamera(false);
+                          setSelectedUrlOverride('');
+                        }}
+                        className={`px-2 py-0.5 rounded-md transition cursor-pointer ${
+                          !preferHttpsForCamera
+                            ? 'bg-emerald-600 text-white'
+                            : 'text-slate-300 hover:text-white'
+                        }`}
+                      >
+                        HTTP سريع ({networkInfo?.port || 3000})
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="lan-mode-https-btn"
+                        onClick={() => {
+                          setPreferHttpsForCamera(true);
+                          setSelectedUrlOverride('');
+                        }}
+                        className={`px-2 py-0.5 rounded-md transition cursor-pointer flex items-center gap-1 ${
+                          preferHttpsForCamera
+                            ? 'bg-blue-600 text-white'
+                            : 'text-slate-300 hover:text-white'
+                        }`}
+                      >
+                        <ShieldCheck className="w-3 h-3" />
+                        <span>HTTPS كاميرا وإشعارات ({networkInfo?.httpsPort || 3443})</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      Port {networkInfo?.port || 3000} • 0.0.0.0
+                    </span>
+                  )}
                 </div>
+
+                {preferHttpsForCamera && (
+                  <div className="px-2.5 py-1.5 rounded-lg bg-blue-950/60 border border-blue-400/30 text-[10px] text-blue-100 leading-relaxed">
+                    مهم لفتح الكاميرا والإشعارات على الجوالات: عند الفتح لأول مرة اختر «إعدادات متقدمة» ثم «المتابعة إلى العنوان» لتثبيت الاتصال الآمن المحلي.
+                  </div>
+                )}
 
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800">
                   <code
@@ -479,7 +561,7 @@ export const MobileLanPortalModal: React.FC = () => {
 
         {/* Sticky Footer */}
         <div className="px-4 sm:px-6 py-3 bg-slate-50 border-t border-slate-200/80 flex items-center justify-between gap-2 shrink-0">
-          <div className="flex items-center gap-2 text-[11px] text-slate-500">
+          <div className="flex items-center gap-2 text-[11px] text-slate-500 min-w-0 flex-1">
             <HardDrive className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
             <span className="truncate">
               جميع الفواتير والمخزون تتزامن لحظياً بين الكمبيوتر والجوالات المتصلة

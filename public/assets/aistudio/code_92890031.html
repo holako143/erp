@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-slate-100 text-slate-800 antialiased" dir="rtl" lang="ar"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>RLM ERP — منظومة واتساب والمراسلة الفورية المتقدمة</title>
+<!-- Tailwind CSS CDN -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Google Fonts: Cairo & Tajawal -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800&amp;family=Tajawal:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+<script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            cairo: ['Cairo', 'sans-serif'],
+            tajawal: ['Tajawal', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50: '#ecfdf5',
+              100: '#d1fae5',
+              500: '#10b981',
+              600: '#059669',
+              whatsapp: '#25D366',
+              whatsappDark: '#0e786b',
+              accent: '#0d9488'
+            }
+          }
+        }
+      }
+    }
+</script>
+<style data-purpose="custom-scrollbars">
+    ::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+</style>
+<style data-purpose="qr-radar-animation">
+    @keyframes scanLine {
+      0% { top: 4%; opacity: 0.7; }
+      50% { opacity: 1; }
+      100% { top: 94%; opacity: 0.7; }
+    }
+    .scanner-line {
+      position: absolute;
+      left: 6px;
+      right: 6px;
+      height: 2.5px;
+      background: linear-gradient(90deg, transparent, #10b981, #34d399, transparent);
+      box-shadow: 0 0 10px #10b981;
+      animation: scanLine 2.6s ease-in-out infinite alternate;
+    }
+    .panel-transition {
+      transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease;
+    }
+</style>
+</head>
+<body class="h-full flex flex-col font-cairo overflow-hidden select-none bg-slate-50 text-slate-800">
+<!-- BEGIN: TopGlobalHeader (Streamlined & Breathing Room) -->
+<header class="h-14 border-b border-slate-200/90 bg-white/95 backdrop-blur px-4 flex items-center justify-between shrink-0 z-30 shadow-xs">
+<!-- Left / Start: Branding & Tenant -->
+<div class="flex items-center gap-3">
+<!-- ERP Logo & Version Badge -->
+<div class="flex items-center gap-2.5">
+<div class="h-8 w-8 rounded-xl bg-gradient-to-tr from-brand-whatsappDark via-emerald-600 to-teal-500 flex items-center justify-center shadow-sm shadow-emerald-500/20 text-white">
+<svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2"></path>
+</svg>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="font-extrabold text-sm tracking-tight text-slate-900">RLM <span class="text-emerald-600 font-black">ERP</span></span>
+<span class="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold tracking-wider">Enterprise</span>
+</div>
+</div>
+<div class="h-4 w-px bg-slate-200"></div>
+<!-- Tenant Selector -->
+<button class="flex items-center gap-2 px-2.5 py-1 rounded-lg hover:bg-slate-100 transition text-xs text-slate-700">
+<span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+<span class="font-medium text-slate-800">منشأتك التجارية الأولى</span>
+<svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+</div>
+<!-- Center: Refined Compact Quick Search Bar -->
+<div class="flex-1 max-w-md mx-6 hidden md:block">
+<div class="relative flex items-center">
+<svg class="w-3.5 h-3.5 text-slate-400 absolute right-3 pointer-events-none" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+<input class="w-full pr-8 pl-14 py-1.5 text-xs bg-slate-50 hover:bg-slate-100/70 focus:bg-white border border-slate-200 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 transition shadow-inner" placeholder="بحث برقم الهاتف، اسم العميل، رقم الفاتورة..." type="text"/>
+<div class="absolute left-2 flex items-center gap-0.5 pointer-events-none opacity-60">
+<kbd class="text-[9px] font-mono bg-white text-slate-500 px-1 py-0.5 rounded border border-slate-200 shadow-2xs">Ctrl+K</kbd>
+</div>
+</div>
+</div>
+<!-- Right / End Actions: Refined Badges & Profiles -->
+<div class="flex items-center gap-2">
+<!-- AI Bot Status Pill (Minimal) -->
+<div class="hidden sm:flex items-center gap-2 px-2 py-1 rounded-lg bg-slate-50 border border-slate-200 text-xs">
+<div class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+</div>
+<span class="text-slate-600 font-medium text-[11px]">الرد الآلي الذكي</span>
+<button aria-checked="true" class="relative inline-flex h-3.5 w-6 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out bg-emerald-500" role="switch">
+<span class="translate-x-0 pointer-events-none inline-block h-2.5 w-2.5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"></span>
+</button>
+</div>
+<!-- Shift State Badge -->
+<div class="hidden lg:flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-100 font-medium">
+<svg class="w-3 h-3 text-emerald-600" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span>وردية #14</span>
+</div>
+<!-- Notifications -->
+<button class="relative p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"></path>
+</svg>
+<span class="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+</button>
+<div class="h-4 w-px bg-slate-200"></div>
+<!-- User Profile Minimal -->
+<div class="flex items-center gap-2 pl-0.5 cursor-pointer hover:opacity-85 transition">
+<div class="h-7 w-7 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-600 flex items-center justify-center text-[10px] font-bold text-white shadow-xs">
+        م.ع
+      </div>
+<div class="hidden xl:flex flex-col text-right leading-none">
+<span class="text-xs font-semibold text-slate-800">المدير العام</span>
+</div>
+</div>
+</div>
+</header>
+<!-- END: TopGlobalHeader -->
+<!-- BEGIN: NavigationTabsBar (Clean Pill Nav & Workspace Controls) -->
+<nav class="h-11 border-b border-slate-200/80 bg-white px-4 flex items-center justify-between shrink-0 text-xs">
+<div class="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-1">
+<!-- Main Active Hub Tab -->
+<button class="flex items-center gap-2 px-3 py-1.2 rounded-lg bg-emerald-50 text-emerald-800 font-semibold border border-emerald-200/80 shadow-2xs">
+<svg class="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span>محطة واتساب والإرسال الفوري</span>
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+</button>
+<!-- Campaigns Tab -->
+<button class="flex items-center gap-1.5 px-2.5 py-1.2 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition font-medium">
+<svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"></path></svg>
+<span>الحملات وسجل الصادر</span>
+</button>
+<!-- SMS Hardware Gateway Tab -->
+<button class="flex items-center gap-1.5 px-2.5 py-1.2 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition font-medium">
+<svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"></path></svg>
+<span>جسر SMS (USB/SIM)</span>
+<span class="px-1.5 py-0.2 bg-emerald-50 text-emerald-700 rounded text-[9px] font-semibold border border-emerald-200">جاهز</span>
+</button>
+<!-- Automation / Webhooks -->
+<button class="flex items-center gap-1.5 px-2.5 py-1.2 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition font-medium">
+<svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"></path></svg>
+<span>قواعد التشغيل الآلي</span>
+</button>
+</div>
+<!-- Right Side: Panel Quick Toggles & New Account Button -->
+<div class="flex items-center gap-2">
+<!-- Quick Workspace View Toggle Buttons -->
+<div class="hidden sm:flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+<button class="px-2 py-0.5 rounded text-[11px] font-medium text-slate-700 bg-white shadow-2xs hover:text-emerald-700 transition" id="quick-toggle-qr" onclick="toggleQrPanel()" title="طي/توسيع لوح الخادم والـ QR">
+        لوح الربط
+      </button>
+<button class="px-2 py-0.5 rounded text-[11px] font-medium text-slate-700 bg-white shadow-2xs hover:text-emerald-700 transition" id="quick-toggle-chats" onclick="toggleChatsPanel()" title="طي/توسيع لوح المحادثات">
+        المحادثات
+      </button>
+</div>
+<button class="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg text-xs flex items-center gap-1.5 transition shadow-sm">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M12 4v16m8-8H4" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"></path></svg>
+<span>حساب واتساب جديد</span>
+</button>
+</div>
+</nav>
+<!-- END: NavigationTabsBar -->
+<!-- BEGIN: MainThreeColumnWorkspace with Collapsible Panels -->
+<main class="flex-1 flex overflow-hidden bg-slate-100 relative">
+<!-- ============================================== -->
+<!-- COLUMN 1: WhatsApp Accounts & Pairing Station (Collapsible) -->
+<!-- ============================================== -->
+<aside class="panel-transition w-80 lg:w-[350px] border-l border-slate-200/90 bg-white flex flex-col shrink-0 overflow-y-auto relative z-20" id="qr-panel">
+<!-- Panel Header with Modern Collapse Button -->
+<div class="p-3 border-b border-slate-200/80 flex items-center justify-between bg-slate-50/70 shrink-0">
+<div class="flex items-center gap-2">
+<div class="p-1 rounded-md bg-emerald-100/80 text-emerald-700">
+<svg class="w-4 h-4" fill="currentColor" viewbox="0 0 24 24">
+<path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.582 2.128 2.182-.573c.978.58 1.911.928 3.145.929 3.178 0 5.767-2.587 5.768-5.766.001-3.187-2.575-5.77-5.764-5.771zm3.392 8.244c-.144.405-.837.774-1.17.824-.312.045-.698.077-1.127-.06a7.202 7.202 0 01-2.909-1.85 7.95 7.95 0 01-1.393-2.034c-.183-.396-.021-.611.134-.766.136-.135.304-.347.456-.521.151-.174.2-.296.3-.497.102-.202.05-.378-.025-.529-.075-.152-.676-1.63-.927-2.233-.244-.588-.492-.508-.677-.517l-.578-.01c-.198 0-.521.074-.794.372-.272.297-1.042 1.016-1.042 2.479 0 1.462 1.067 2.875 1.215 3.073.149.199 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414-.074-.124-.272-.198-.57-.347z"></path>
+</svg>
+</div>
+<div>
+<h3 class="text-xs font-bold text-slate-900 leading-tight">خوادم وأجهزة واتساب</h3>
+<span class="text-[10px] text-slate-500 font-medium">0/1 متصل</span>
+</div>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="text-[9px] font-mono px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-medium">
+          في الانتظار
+        </span>
+<!-- Collapse Button -->
+<button class="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 transition" onclick="toggleQrPanel()" title="طي اللوح الجانبي">
+<svg class="w-4 h-4 transform rotate-0" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M15 19l-7-7 7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+</div>
+</div>
+<!-- Active Account Card (Clean & Focused) -->
+<div class="p-3 border-b border-slate-100 bg-white">
+<div class="p-2.5 rounded-xl bg-slate-50/80 border border-emerald-300 flex items-center justify-between hover:bg-emerald-50/30 transition shadow-2xs">
+<div class="flex items-center gap-2.5">
+<div class="relative">
+<div class="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-xs font-bold text-white shadow-xs">
+              WH
+            </div>
+<span class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber-400 border-2 border-white"></span>
+</div>
+<div>
+<div class="text-xs font-bold text-slate-800">الحساب الرسمي الرئيسي</div>
+<div class="text-[10px] text-amber-600 font-medium flex items-center gap-1">
+<span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+<span>بانتظار مسح الرمز</span>
+</div>
+</div>
+</div>
+<span class="px-1.5 py-0.5 text-[9px] rounded-md bg-white text-emerald-800 font-mono font-bold border border-emerald-200">#01</span>
+</div>
+</div>
+<!-- QR Pairing Station (Clean, Centered, De-cluttered) -->
+<div class="p-4 flex-1 flex flex-col items-center justify-start space-y-3.5">
+<!-- Mode Tabs (QR Code vs Phone Code) -->
+<div class="grid grid-cols-2 p-1 bg-slate-100/90 rounded-xl border border-slate-200/80 w-full text-xs">
+<button class="py-1 px-2 rounded-lg bg-white text-emerald-700 font-bold border border-slate-200 shadow-2xs text-center flex items-center justify-center gap-1.5">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span>باركود QR</span>
+</button>
+<button class="py-1 px-2 rounded-lg text-slate-500 hover:text-slate-800 text-center flex items-center justify-center gap-1.5 transition font-medium">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span>كود الهاتف</span>
+</button>
+</div>
+<!-- Minimal Elegant QR Frame -->
+<div class="relative p-3 bg-white rounded-2xl shadow-sm border border-slate-200 group">
+<div class="relative w-44 h-44 bg-white flex items-center justify-center overflow-hidden rounded-xl">
+<!-- Authentic High-Resolution SVG QR Representation -->
+<svg class="w-full h-full text-slate-900" fill="currentColor" viewbox="0 0 100 100">
+<!-- Corner Finder Pattern 1 -->
+<rect fill="none" height="28" rx="4" stroke="currentColor" stroke-width="5" width="28" x="5" y="5"></rect>
+<rect fill="currentColor" height="16" rx="2" width="16" x="11" y="11"></rect>
+<!-- Corner Finder Pattern 2 -->
+<rect fill="none" height="28" rx="4" stroke="currentColor" stroke-width="5" width="28" x="67" y="5"></rect>
+<rect fill="currentColor" height="16" rx="2" width="16" x="73" y="11"></rect>
+<!-- Corner Finder Pattern 3 -->
+<rect fill="none" height="28" rx="4" stroke="currentColor" stroke-width="5" width="28" x="5" y="67"></rect>
+<rect fill="currentColor" height="16" rx="2" width="16" x="11" y="73"></rect>
+<!-- Data Matrix Pixels Simulation -->
+<rect height="5" width="5" x="40" y="8"></rect>
+<rect height="12" width="5" x="50" y="8"></rect>
+<rect height="6" width="8" x="42" y="18"></rect>
+<rect height="10" width="6" x="8" y="42"></rect>
+<rect height="4" width="8" x="18" y="40"></rect>
+<rect height="6" width="12" x="22" y="48"></rect>
+<rect fill="#0e786b" height="20" rx="4" width="20" x="40" y="38"></rect>
+<circle cx="50" cy="48" fill="white" r="4.5"></circle>
+<!-- Lower Data Grid -->
+<rect height="6" width="7" x="68" y="42"></rect>
+<rect height="8" width="10" x="82" y="40"></rect>
+<rect height="6" width="18" x="74" y="52"></rect>
+<rect height="12" width="6" x="40" y="66"></rect>
+<rect height="8" width="8" x="52" y="66"></rect>
+<rect height="6" width="14" x="46" y="80"></rect>
+<rect height="6" width="6" x="68" y="68"></rect>
+<rect height="6" width="12" x="80" y="72"></rect>
+<rect height="8" width="22" x="70" y="84"></rect>
+</svg>
+<!-- Animated Laser Scanner Line -->
+<div class="scanner-line"></div>
+</div>
+</div>
+<!-- Live Refresh Countdown Badge -->
+<div class="flex items-center gap-1.5 text-xs text-slate-500 bg-slate-50 px-2.5 py-1 rounded-full border border-slate-200">
+<svg class="w-3.5 h-3.5 text-emerald-600 animate-spin" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span>يتحدث تلقائياً خلال:</span>
+<span class="font-mono font-bold text-emerald-700">19 ثانية</span>
+</div>
+<!-- Simplified Step Guides -->
+<div class="w-full p-3 rounded-xl bg-slate-50/70 border border-slate-200/90 text-right text-[11px] text-slate-600 leading-relaxed">
+<div class="font-bold text-slate-800 mb-1 flex items-center gap-1">
+<span>خطوات الربط السريعة:</span>
+</div>
+<ol class="list-decimal list-inside space-y-0.5 text-slate-500 pr-1">
+<li>افتح واتساب في هاتفك &gt; الإعدادات ⚙️</li>
+<li>اختر <span class="text-slate-800 font-medium">الأجهزة المرتبطة</span></li>
+<li>امسح الرمز الظاهر أعلاه</li>
+</ol>
+</div>
+<button class="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs flex items-center justify-center gap-2 transition shadow-2xs">
+<svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span>تحديث الرمز الآن</span>
+</button>
+</div>
+</aside>
+<!-- Collapsed Mini-Bar for QR Panel (Visible when collapsed) -->
+<div class="hidden w-12 border-l border-slate-200 bg-white flex flex-col items-center py-3 gap-3 shrink-0 z-20" id="qr-panel-mini">
+<button class="p-2 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 transition" onclick="toggleQrPanel()" title="فتح لوح الربط والـ QR">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M9 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+<div class="w-7 h-7 rounded-lg bg-emerald-600 flex items-center justify-center text-[10px] font-bold text-white shadow-2xs" title="الحساب الرئيسي">
+      WH
+    </div>
+<div class="w-2 h-2 rounded-full bg-amber-500" title="بانتظار الربط"></div>
+<div class="h-px w-6 bg-slate-200 my-1"></div>
+<button class="p-2 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition" onclick="toggleQrPanel()" title="عرض رمز QR">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"></path></svg>
+</button>
+</div>
+<!-- ============================================== -->
+<!-- COLUMN 2: Conversations List & Search (Collapsible) -->
+<!-- ============================================== -->
+<section class="panel-transition w-72 lg:w-80 border-l border-slate-200/90 bg-white flex flex-col shrink-0 relative z-10" id="chats-panel">
+<!-- Header with Collapse & Clean Search -->
+<div class="p-3 border-b border-slate-200/80 space-y-2.5 bg-slate-50/50 shrink-0">
+<div class="flex items-center justify-between">
+<h2 class="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+<svg class="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span>محادثات العملاء</span>
+</h2>
+<div class="flex items-center gap-1">
+<span class="text-[9px] bg-slate-200/70 text-slate-700 px-2 py-0.5 rounded-full font-mono font-medium">0 نشطة</span>
+<!-- Collapse Button -->
+<button class="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 transition" onclick="toggleChatsPanel()" title="طي لوح المحادثات">
+<svg class="w-4 h-4 transform rotate-0" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M15 19l-7-7 7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+</div>
+</div>
+<!-- Local Filter Input -->
+<div class="relative">
+<input class="w-full pr-7 pl-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition shadow-2xs" placeholder="بحث في السجلات..." type="text"/>
+<svg class="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</div>
+<!-- Filter Chips (Clean & Soft) -->
+<div class="flex items-center gap-1 text-xs">
+<button class="px-2.5 py-0.8 rounded-lg bg-emerald-100 text-emerald-800 font-semibold border border-emerald-200/60 text-[11px]">الكل</button>
+<button class="px-2 py-0.8 rounded-lg bg-white text-slate-600 hover:text-slate-900 border border-slate-200 transition text-[11px]">غير مقروء</button>
+<button class="px-2 py-0.8 rounded-lg bg-white text-slate-600 hover:text-slate-900 border border-slate-200 transition text-[11px] flex items-center gap-1">
+<span>مدينون</span>
+<span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+</button>
+<button class="p-1 rounded-lg bg-white text-slate-500 hover:text-emerald-700 border border-slate-200 transition mr-auto shadow-2xs" title="محادثة جديدة">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M12 4v16m8-8H4" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+</div>
+</div>
+<!-- Empty State (Airy, Calming & Modern) -->
+<div class="flex-1 overflow-y-auto p-4 flex flex-col items-center justify-center text-center bg-slate-50/20">
+<div class="w-12 h-12 rounded-2xl bg-white border border-slate-200/90 flex items-center justify-center text-slate-400 mb-2.5 shadow-2xs">
+<svg class="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6"></path>
+</svg>
+</div>
+<h4 class="text-xs font-bold text-slate-800 mb-1">لا توجد محادثات متطابقة</h4>
+<p class="text-[11px] text-slate-500 max-w-[190px] mb-3 leading-relaxed">ستظهر الرسائل الجديدة وسجلات العملاء فور الربط والمراسلة.</p>
+<button class="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-emerald-700 border border-emerald-300 text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs">
+<svg class="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span>بدء مراسلة فورية</span>
+</button>
+</div>
+<!-- Panel Footer Pulse -->
+<div class="p-2 border-t border-slate-200/80 text-[10px] text-slate-500 flex items-center justify-between font-mono bg-slate-50/70 shrink-0">
+<span class="flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+<span>WebSocket: متصل</span>
+</span>
+<span class="font-sans text-[10px] text-slate-400">تشفير تام 256-bit</span>
+</div>
+</section>
+<!-- Collapsed Mini-Bar for Chats Panel (Visible when collapsed) -->
+<div class="hidden w-12 border-l border-slate-200 bg-white flex flex-col items-center py-3 gap-3 shrink-0 z-10" id="chats-panel-mini">
+<button class="p-2 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 transition" onclick="toggleChatsPanel()" title="فتح لوح المحادثات">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M9 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+<div class="p-2 rounded-lg bg-slate-50 text-slate-400">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</div>
+</div>
+<!-- ============================================== -->
+<!-- COLUMN 3: Active Stage / Dispatch & Live Composer (Spacious & Central) -->
+<!-- ============================================== -->
+<section class="flex-1 flex flex-col bg-slate-50/60 overflow-hidden relative">
+<!-- Stage Header: Selected Conversation State / Controls -->
+<div class="h-12 border-b border-slate-200/90 px-4 flex items-center justify-between bg-white shrink-0">
+<div class="flex items-center gap-3">
+<!-- Quick Expansion Triggers if Panels are Closed -->
+<div class="flex items-center gap-1">
+<button class="hidden p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 border border-slate-200 text-xs flex items-center gap-1 transition shadow-2xs" id="reopen-panels-btn" onclick="restorePanels()" title="إظهار كافة الألواح الجانبية">
+<svg class="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span class="text-[11px] font-medium">عرض الألواح</span>
+</button>
+</div>
+<div class="w-7 h-7 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center text-xs font-bold text-slate-600">
+          ل
+        </div>
+<div>
+<div class="flex items-center gap-2">
+<span class="text-xs font-bold text-slate-900">لا توجد محادثة محددة</span>
+<span class="text-[9px] px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600 font-medium">وضع الاستعداد</span>
+</div>
+<div class="text-[10px] text-emerald-700 font-medium flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+<span>المرسل: الحساب الرئيسي (جاهز للإرسال)</span>
+</div>
+</div>
+</div>
+<!-- Stage Action Icons -->
+<div class="flex items-center gap-1.5 text-slate-600">
+<button class="px-2.5 py-1 text-xs rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 transition flex items-center gap-1.5 border border-slate-200 shadow-2xs font-medium">
+<svg class="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span class="text-[11px]">الرد الآلي الذكي: استعداد</span>
+</button>
+<button class="p-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-500 hover:text-slate-800 border border-slate-200 transition shadow-2xs" title="تحديث التزامن">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+</div>
+</div>
+<!-- Stage Center: Spacious, Relaxed Empty Slate Card -->
+<div class="flex-1 overflow-y-auto p-6 md:p-10 flex flex-col items-center justify-center relative">
+<!-- Subtle dot grid background for deep depth -->
+<div class="absolute inset-0 bg-[radial-gradient(#e2e8f0_1px,transparent_1px)] [background-size:20px_20px] opacity-60 pointer-events-none"></div>
+<!-- Centerpiece Welcome Card -->
+<div class="max-w-lg w-full p-8 rounded-3xl bg-white border border-slate-200/90 text-center shadow-sm relative z-10 backdrop-blur-sm transition">
+<!-- Floating Icon -->
+<div class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-brand-whatsappDark via-emerald-600 to-teal-500 mx-auto flex items-center justify-center text-white shadow-md shadow-emerald-600/15 mb-4">
+<svg class="w-8 h-8" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"></path>
+</svg>
+</div>
+<h3 class="text-base font-bold text-slate-900 mb-1.5">محطة المراسلة الفورية الموحدة</h3>
+<p class="text-xs text-slate-500 max-w-sm mx-auto mb-6 leading-relaxed">
+          أرسل الفواتير، السندات، وتذكيرات التحصيل لعملائك مباشرة عبر واتساب بضغطة زر واحدة.
+        </p>
+<!-- Fast Actions Grid -->
+<div class="grid grid-cols-2 gap-3 text-xs max-w-md mx-auto">
+<button class="p-3 rounded-2xl bg-slate-50 hover:bg-emerald-50/50 border border-slate-200 hover:border-emerald-300 text-slate-800 font-semibold flex items-center justify-center gap-2.5 transition group shadow-2xs">
+<div class="p-1.5 rounded-lg bg-white border border-slate-200 text-emerald-600 group-hover:scale-105 transition">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</div>
+<span>تجهيز فاتورة فورية</span>
+</button>
+<button class="p-3 rounded-2xl bg-slate-50 hover:bg-teal-50/50 border border-slate-200 hover:border-teal-300 text-slate-800 font-semibold flex items-center justify-center gap-2.5 transition group shadow-2xs">
+<div class="p-1.5 rounded-lg bg-white border border-slate-200 text-teal-600 group-hover:scale-105 transition">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</div>
+<span>كشف حساب عميل</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Quick Financial Action Pills (Consolidated, Ultra-Clean Single Bar) -->
+<div class="border-t border-slate-200/80 bg-white/95 px-4 py-2 shrink-0">
+<div class="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
+<span class="text-[10px] font-bold text-slate-400 shrink-0 ml-1">إرسال سريع:</span>
+<button class="px-2.5 py-1 text-xs rounded-lg bg-slate-50 hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 border border-slate-200 hover:border-emerald-300 font-medium flex items-center gap-1.5 transition shrink-0">
+<svg class="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span>فاتورة مبيعات</span>
+</button>
+<button class="px-2.5 py-1 text-xs rounded-lg bg-slate-50 hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 border border-slate-200 hover:border-emerald-300 font-medium flex items-center gap-1.5 transition shrink-0">
+<svg class="w-3.5 h-3.5 text-teal-600" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span>سند قبض</span>
+</button>
+<button class="px-2.5 py-1 text-xs rounded-lg bg-slate-50 hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 border border-slate-200 hover:border-emerald-300 font-medium flex items-center gap-1.5 transition shrink-0">
+<svg class="w-3.5 h-3.5 text-indigo-600" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span>كشف حساب</span>
+</button>
+<button class="px-2.5 py-1 text-xs rounded-lg bg-slate-50 hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 border border-slate-200 hover:border-emerald-300 font-medium flex items-center gap-1.5 transition shrink-0">
+<svg class="w-3.5 h-3.5 text-amber-600" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span>تذكير بقسط</span>
+</button>
+<button class="px-2.5 py-1 text-xs rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 font-medium flex items-center gap-1.5 transition shrink-0">
+<svg class="w-3.5 h-3.5 text-rose-500" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span>إرفاق PDF</span>
+</button>
+<button class="px-2.5 py-1 text-xs rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1 transition mr-auto font-mono text-[11px] font-semibold shrink-0">
+<span>/قوالب جاهزة</span>
+</button>
+</div>
+</div>
+<!-- Modern Chat Dispatch Input Console -->
+<footer class="p-3 bg-white border-t border-slate-200/90 shrink-0">
+<form class="flex items-center gap-2" onsubmit="event.preventDefault()">
+<button class="p-2 rounded-xl bg-slate-50 text-slate-500 hover:text-slate-800 hover:bg-slate-100 border border-slate-200 transition" title="رموز تعبيرية" type="button">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"></path></svg>
+</button>
+<button class="p-2 rounded-xl bg-slate-50 text-slate-500 hover:text-slate-800 hover:bg-slate-100 border border-slate-200 transition" title="تسجيل صوتي" type="button">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"></path></svg>
+</button>
+<div class="flex-1 relative">
+<input class="w-full bg-slate-50 text-slate-800 placeholder-slate-400 text-xs rounded-xl border border-slate-200/90 px-4 py-2.5 focus:outline-none focus:border-brand-whatsapp focus:ring-1 focus:ring-brand-whatsapp focus:bg-white transition" placeholder="اكتب رسالتك هنا، أو اكتب ( / ) لاستدعاء النماذج وقوالب الفواتير..." type="text"/>
+</div>
+<button class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 transition shadow-sm" type="submit">
+<span>إرسال</span>
+<svg class="w-3.5 h-3.5 rotate-180" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"></path>
+</svg>
+</button>
+</form>
+</footer>
+</section>
+</main>
+<!-- END: MainThreeColumnWorkspace -->
+<!-- BEGIN: ERPBottomStatusBar (Crisp & Subdued) -->
+<footer class="h-8 bg-white border-t border-slate-200/80 px-4 flex items-center justify-between text-[11px] font-mono text-slate-500 shrink-0 z-20">
+<!-- Left: Hotkeys Bar -->
+<div class="flex items-center gap-2 overflow-x-auto whitespace-nowrap scrollbar-none">
+<div class="flex items-center gap-1">
+<kbd class="px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 border border-slate-200 text-[10px]">F1</kbd>
+<span class="text-slate-600 text-[10px]">الباركود</span>
+</div>
+<span class="text-slate-300">|</span>
+<div class="flex items-center gap-1">
+<kbd class="px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 border border-slate-200 text-[10px]">F2</kbd>
+<span class="text-slate-600 text-[10px]">نقطة البيع</span>
+</div>
+<span class="text-slate-300">|</span>
+<div class="flex items-center gap-1">
+<kbd class="px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 border border-slate-200 text-[10px]">F3</kbd>
+<span class="text-slate-600 text-[10px]">المخزون</span>
+</div>
+<span class="text-slate-300">|</span>
+<div class="flex items-center gap-1">
+<kbd class="px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 border border-slate-200 text-[10px]">F4</kbd>
+<span class="text-slate-600 text-[10px]">المبيعات</span>
+</div>
+<span class="text-slate-300">|</span>
+<div class="flex items-center gap-1">
+<kbd class="px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 border border-slate-200 text-[10px]">F7</kbd>
+<span class="text-slate-600 text-[10px]">المحاسبة</span>
+</div>
+<span class="text-slate-300">|</span>
+<div class="flex items-center gap-1">
+<kbd class="px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">F9</kbd>
+<span class="text-emerald-700 font-bold text-[10px]">الدفع الفوري</span>
+</div>
+</div>
+<!-- Right: Telemetry & LAN Heartbeat -->
+<div class="flex items-center gap-3">
+<span class="flex items-center gap-1 text-[10px]">
+<span class="text-slate-400">الاستجابة:</span>
+<span class="text-emerald-700 font-semibold">7ms</span>
+</span>
+<span class="flex items-center gap-1.5 text-emerald-700 font-medium text-[10px]">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+<span>متصل بالخادم</span>
+</span>
+<span class="text-slate-300">|</span>
+<span class="text-slate-500 font-sans text-[10px]">المستودع الرئيسي #1</span>
+</div>
+</footer>
+<!-- END: ERPBottomStatusBar -->
+<!-- Interactive Scripts for Collapsible Side Panels & Shortcuts -->
+<script>
+  let qrCollapsed = false;
+  let chatsCollapsed = false;
+
+  function toggleQrPanel() {
+    const panel = document.getElementById('qr-panel');
+    const mini = document.getElementById('qr-panel-mini');
+    const quickBtn = document.getElementById('quick-toggle-qr');
+
+    qrCollapsed = !qrCollapsed;
+    if (qrCollapsed) {
+      panel.classList.add('hidden');
+      mini.classList.remove('hidden');
+      if (quickBtn) quickBtn.classList.replace('bg-white', 'bg-slate-200/60');
+    } else {
+      panel.classList.remove('hidden');
+      mini.classList.add('hidden');
+      if (quickBtn) quickBtn.classList.replace('bg-slate-200/60', 'bg-white');
+    }
+    checkPanelStatus();
+  }
+
+  function toggleChatsPanel() {
+    const panel = document.getElementById('chats-panel');
+    const mini = document.getElementById('chats-panel-mini');
+    const quickBtn = document.getElementById('quick-toggle-chats');
+
+    chatsCollapsed = !chatsCollapsed;
+    if (chatsCollapsed) {
+      panel.classList.add('hidden');
+      mini.classList.remove('hidden');
+      if (quickBtn) quickBtn.classList.replace('bg-white', 'bg-slate-200/60');
+    } else {
+      panel.classList.remove('hidden');
+      mini.classList.add('hidden');
+      if (quickBtn) quickBtn.classList.replace('bg-slate-200/60', 'bg-white');
+    }
+    checkPanelStatus();
+  }
+
+  function restorePanels() {
+    if (qrCollapsed) toggleQrPanel();
+    if (chatsCollapsed) toggleChatsPanel();
+  }
+
+  function checkPanelStatus() {
+    const reopenBtn = document.getElementById('reopen-panels-btn');
+    if (qrCollapsed && chatsCollapsed) {
+      reopenBtn.classList.remove('hidden');
+    } else {
+      reopenBtn.classList.add('hidden');
+    }
+  }
+
+  document.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      const searchInput = document.querySelector('header input[type="text"]');
+      if (searchInput) {
+        searchInput.focus();
+        searchInput.select();
+      }
+    }
+  });
+</script>
+</body></html>

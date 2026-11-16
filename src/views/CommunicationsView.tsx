@@ -10,7 +10,6 @@ import {
   RefreshCw,
   CheckCheck,
   Search,
-  ShieldCheck,
   Terminal,
   FileText,
   AlertCircle,
@@ -19,10 +18,7 @@ import {
   Zap,
   CheckCircle,
   Clock,
-  Radio,
   Plus,
-  Users,
-  Camera,
   KeyRound,
   Trash2,
   Layers,
@@ -40,6 +36,10 @@ import {
   Download,
   Megaphone,
   Filter,
+  ChevronLeft,
+  ChevronRight,
+  PanelLeftOpen,
+  SlidersHorizontal,
 } from 'lucide-react';
 import {
   calculateSmsParts,
@@ -53,6 +53,7 @@ import {
   upsertWhatsAppSlashShortcut,
   deleteWhatsAppSlashShortcut,
   composeChatBarQuickDocumentText,
+  summarizeCommunicationsWorkspace,
 } from '../core/communicationsEngine';
 import {
   composeInvoiceMessageText,
@@ -107,6 +108,8 @@ export const CommunicationsView: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<'WHATSAPP' | 'QUICK_SEND_LOG' | 'USB_SMS'>('WHATSAPP');
   const [mobileWaPanel, setMobileWaPanel] = useState<'CHATS' | 'ACTIVE_CHAT' | 'PAIRING' | 'DOCS'>('CHATS');
+  const [isQrPanelCollapsed, setIsQrPanelCollapsed] = useState<boolean>(false);
+  const [isChatsPanelCollapsed, setIsChatsPanelCollapsed] = useState<boolean>(false);
   const [chatFilterMode, setChatFilterMode] = useState<'ALL' | 'UNREAD' | 'DEBTORS'>('ALL');
   const [pinnedChatIds, setPinnedChatIds] = useState<string[]>(() => {
     try {
@@ -190,7 +193,6 @@ export const CommunicationsView: React.FC = () => {
   const [chatSearch, setChatSearch] = useState('');
   const [outgoingText, setOutgoingText] = useState('');
   const [selectedQuickDoc, setSelectedQuickDoc] = useState<'NONE' | 'INVOICE' | 'RECEIPT' | 'DEBT_REMINDER'>('NONE');
-  const [invoiceSendFormat, setInvoiceSendFormat] = useState<'TEXT_ONLY' | 'IMAGE_SNAPSHOT' | 'PDF_DOCUMENT' | 'ALL_COMBINED'>('ALL_COMBINED');
   const [isPairingLoading, setIsPairingLoading] = useState(false);
   const [qrCountdown, setQrCountdown] = useState(20);
   const [qrRefreshTick, setQrRefreshTick] = useState(0);
@@ -974,31 +976,36 @@ export const CommunicationsView: React.FC = () => {
 
   const smsMetrics = calculateSmsParts(smsBody);
   const isUsbReady = usbConnectedDevice.atCommandReady && usbConnectedDevice.usbDebuggingEnabled;
-  const connectedAccountsCount = whatsappAccounts.filter((a) => a.session.status === 'CONNECTED').length;
+  const commSummary = useMemo(
+    () => summarizeCommunicationsWorkspace(whatsappAccounts, outboundMessages, customers),
+    [whatsappAccounts, outboundMessages, customers]
+  );
+  const connectedAccountsCount = commSummary.connectedAccounts;
 
   return (
-    <div className="space-y-4">
-      {/* Lumina POS-Style Header Card for Communications & WhatsApp Hub (خدمات التواصل) */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/70 dark:border-slate-800 shadow-2xs space-y-3">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
+    <div className="w-full max-w-full min-w-0 space-y-3 overflow-x-hidden">
+      {/* Compact Header & Unified Channel Switcher */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl p-3 sm:p-4 border border-slate-200/70 dark:border-slate-800 shadow-2xs space-y-2.5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2.5 min-w-0">
             <span className="w-9 h-9 haseb-btn-primary text-white rounded-xl flex items-center justify-center shrink-0 shadow-2xs">
               <MessageSquare className="w-4 h-4" />
             </span>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 tracking-tight">
-                  خدمات التواصل — منظومة واتساب المتعدد والرسائل الفورية
+                <h1 className="text-xs sm:text-sm md:text-base font-black text-slate-900 dark:text-slate-100 tracking-tight truncate">
+                  خدمات التواصل — منظومة واتساب والرسائل الفورية
                 </h1>
-                <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-700 text-[10px] font-semibold">
-                  متصل ومفعل 100% داخل النظام
+                <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>{connectedAccountsCount}/{commSummary.totalAccounts} متصل</span>
                 </span>
               </div>
-              <p className="text-slate-500 text-[11px] mt-0.5 flex items-center gap-2 flex-wrap">
+              <p className="text-slate-500 dark:text-slate-400 text-[10px] sm:text-[11px] mt-0.5 flex items-center gap-1.5 flex-wrap">
                 <span>
-                  حسابات واتساب المتصلة ({connectedAccountsCount}/{whatsappAccounts.length}) • تنقل لحظي بدون إعادة تصوير الباركود
+                  {commSummary.totalChats} محادثة • {commSummary.totalUnreadMessages} غير مقروء
                 </span>
-                <span className="text-emerald-600 font-mono font-semibold">
+                <span className="text-emerald-600 dark:text-emerald-400 font-mono font-semibold">
                   • حفظ تلقائي ✓ ({lastAutoSavedAt})
                 </span>
               </p>
@@ -1006,7 +1013,7 @@ export const CommunicationsView: React.FC = () => {
           </div>
 
           {/* AI Robot Auto-Responder Toggle Pill */}
-          <div className="flex items-center flex-wrap gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 w-full md:w-auto">
             <button
               type="button"
               data-testid="whatsapp-ai-bot-toggle"
@@ -1016,18 +1023,20 @@ export const CommunicationsView: React.FC = () => {
                   ? 'الروبوت الذكي مفعّل: يرد تلقائياً على المحادثات ويجلب الفواتير والتقارير اللحظية (انقر للإيقاف)'
                   : 'انقر لتفعيل الروبوت الذكي للرد الفوري والتحكم الكامل بالفواتير والتقارير'
               }
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all duration-200 cursor-pointer border ${
+              className={`w-full md:w-auto justify-between md:justify-center flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer border ${
                 isAiBotEnabled
                   ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
                   : 'bg-slate-50 text-slate-700 border-slate-200/80 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700'
               }`}
             >
-              <Bot className={`w-4 h-4 ${isAiBotEnabled ? 'text-white animate-bounce' : 'text-slate-500'}`} />
-              <span>
-                {isAiBotEnabled ? 'الروبوت الذكي: مفعّل ✓' : 'الروبوت الذكي: متوقف'}
+              <span className="flex items-center gap-1.5 min-w-0">
+                <Bot className={`w-4 h-4 shrink-0 ${isAiBotEnabled ? 'text-white animate-bounce' : 'text-slate-500'}`} />
+                <span className="truncate">
+                  {isAiBotEnabled ? 'الروبوت الذكي: مفعّل ✓' : 'الروبوت الذكي: متوقف'}
+                </span>
               </span>
               <span
-                className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
+                className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold shrink-0 ${
                   isAiBotEnabled
                     ? 'bg-white/20 text-white'
                     : 'bg-slate-200/80 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
@@ -1039,89 +1048,149 @@ export const CommunicationsView: React.FC = () => {
           </div>
         </div>
 
-        {/* Row 2: Responsive Gradient Sub-Tabs */}
-        <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-          <button
-            type="button"
-            data-testid="comm-tab-whatsapp"
-            onClick={() => setActiveTab('WHATSAPP')}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-xl text-xs border transition-none cursor-pointer whitespace-nowrap shrink-0 ${
-              activeTab === 'WHATSAPP'
-                ? 'haseb-btn-primary border-transparent text-white font-semibold shadow-xs'
-                : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 font-medium'
-            }`}
-          >
-            <MessageSquare className={`w-3.5 h-3.5 ${activeTab === 'WHATSAPP' ? 'text-emerald-200' : 'text-emerald-600'}`} />
-            <span>محطة واتساب والإرسال الفوري</span>
-            <span
-              className={`text-[10px] px-2 py-0.2 rounded-full font-mono font-bold ${
+        {/* Row 2: Responsive Channel Switcher Tabs + Collapsible Panel Controls */}
+        <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-2 min-w-0">
+          <div className="grid grid-cols-3 sm:flex sm:items-center gap-1.5 min-w-0">
+            <button
+              type="button"
+              data-testid="comm-tab-whatsapp"
+              onClick={() => setActiveTab('WHATSAPP')}
+              className={`flex items-center justify-center sm:justify-start gap-1.5 px-2 sm:px-3.5 py-1.5 rounded-xl text-[11px] sm:text-xs border transition-none cursor-pointer min-w-0 ${
                 activeTab === 'WHATSAPP'
-                  ? 'bg-white/20 text-white'
-                  : 'bg-slate-100 text-slate-700'
+                  ? 'haseb-btn-primary border-transparent text-white font-bold shadow-xs'
+                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 font-semibold'
               }`}
             >
-              {whatsappAccounts.length}
-            </span>
-          </button>
+              <MessageSquare className={`w-3.5 h-3.5 shrink-0 ${activeTab === 'WHATSAPP' ? 'text-emerald-200' : 'text-emerald-600'}`} />
+              <span className="truncate">
+                <span className="sm:hidden">واتساب</span>
+                <span className="hidden sm:inline">محطة واتساب والإرسال الفوري</span>
+              </span>
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold shrink-0 ${
+                  activeTab === 'WHATSAPP'
+                    ? 'bg-white/20 text-white'
+                    : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200'
+                }`}
+              >
+                {whatsappAccounts.length}
+              </span>
+            </button>
 
-          <button
-            type="button"
-            data-testid="comm-tab-quick-send-log"
-            onClick={() => setActiveTab('QUICK_SEND_LOG')}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-xl text-xs border transition-none cursor-pointer whitespace-nowrap shrink-0 ${
-              activeTab === 'QUICK_SEND_LOG'
-                ? 'haseb-btn-primary border-transparent text-white font-semibold shadow-xs'
-                : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 font-medium'
-            }`}
-          >
-            <Send className="w-3.5 h-3.5" />
-            <span>الحملات الجماعية وسجل الصادر</span>
-            <span
-              className={`text-[10px] px-2 py-0.2 rounded-full font-mono font-bold ${
+            <button
+              type="button"
+              data-testid="comm-tab-quick-send-log"
+              onClick={() => setActiveTab('QUICK_SEND_LOG')}
+              className={`flex items-center justify-center sm:justify-start gap-1.5 px-2 sm:px-3.5 py-1.5 rounded-xl text-[11px] sm:text-xs border transition-none cursor-pointer min-w-0 ${
                 activeTab === 'QUICK_SEND_LOG'
-                  ? 'bg-white/20 text-white'
-                  : 'bg-slate-100 text-slate-700'
+                  ? 'haseb-btn-primary border-transparent text-white font-bold shadow-xs'
+                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 font-semibold'
               }`}
             >
-              {outboundMessages.length}
-            </span>
-          </button>
+              <Send className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">
+                <span className="sm:hidden">الحملات</span>
+                <span className="hidden sm:inline">الحملات وسجل الصادر</span>
+              </span>
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold shrink-0 ${
+                  activeTab === 'QUICK_SEND_LOG'
+                    ? 'bg-white/20 text-white'
+                    : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200'
+                }`}
+              >
+                {outboundMessages.length}
+              </span>
+            </button>
 
-          <button
-            type="button"
-            data-testid="comm-tab-sms-usb"
-            onClick={() => setActiveTab('USB_SMS')}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-xl text-xs border transition-none cursor-pointer whitespace-nowrap shrink-0 ${
-              activeTab === 'USB_SMS'
-                ? 'haseb-btn-primary border-transparent text-white font-semibold shadow-xs'
-                : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 font-medium'
-            }`}
-          >
-            <Smartphone className="w-3.5 h-3.5" />
-            <span>جسر رسائل SMS الفوري (USB / SIM)</span>
-            <span
-              className={`text-[10px] px-2 py-0.2 rounded-full font-mono font-bold ${
+            <button
+              type="button"
+              data-testid="comm-tab-sms-usb"
+              onClick={() => setActiveTab('USB_SMS')}
+              className={`flex items-center justify-center sm:justify-start gap-1.5 px-2 sm:px-3.5 py-1.5 rounded-xl text-[11px] sm:text-xs border transition-none cursor-pointer min-w-0 ${
                 activeTab === 'USB_SMS'
-                  ? 'bg-white/20 text-white'
-                  : 'bg-slate-100 text-slate-600'
+                  ? 'haseb-btn-primary border-transparent text-white font-bold shadow-xs'
+                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 font-semibold'
               }`}
             >
-              {isUsbReady ? `نشط (${smsOutboundList.length})` : 'فحص ADB'}
-            </span>
-          </button>
+              <Smartphone className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">
+                <span className="sm:hidden">جسر SMS</span>
+                <span className="hidden sm:inline">جسر SMS (USB/SIM)</span>
+              </span>
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold shrink-0 ${
+                  activeTab === 'USB_SMS'
+                    ? 'bg-white/20 text-white'
+                    : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
+                }`}
+              >
+                جاهز
+              </span>
+            </button>
+          </div>
+
+          {/* Desktop Quick Panel Toggles & New Account Button (Matches reference layout) */}
+          {activeTab === 'WHATSAPP' && (
+            <div className="hidden lg:flex items-center gap-1.5 shrink-0">
+              <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl border border-slate-200/80 dark:border-slate-700 text-[11px] font-bold">
+                <button
+                  type="button"
+                  data-testid="comm-quick-toggle-qr"
+                  onClick={() => setIsQrPanelCollapsed((v) => !v)}
+                  className={`px-2.5 py-1 rounded-lg transition cursor-pointer flex items-center gap-1 ${
+                    !isQrPanelCollapsed
+                      ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-800 dark:text-slate-400'
+                  }`}
+                  title={isQrPanelCollapsed ? 'إظهار لوح الربط والمستندات' : 'طي لوح الربط والمستندات لتوسيع المساحة'}
+                >
+                  <QrCode className="w-3 h-3 text-emerald-600" />
+                  <span>لوح الربط</span>
+                </button>
+                <button
+                  type="button"
+                  data-testid="comm-quick-toggle-chats"
+                  onClick={() => setIsChatsPanelCollapsed((v) => !v)}
+                  className={`px-2.5 py-1 rounded-lg transition cursor-pointer flex items-center gap-1 ${
+                    !isChatsPanelCollapsed
+                      ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-800 dark:text-slate-400'
+                  }`}
+                  title={isChatsPanelCollapsed ? 'إظهار قائمة المحادثات' : 'طي قائمة المحادثات لتوسيع المساحة'}
+                >
+                  <MessageSquare className="w-3 h-3 text-emerald-600" />
+                  <span>المحادثات</span>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                data-testid="add-whatsapp-account-btn"
+                onClick={() => {
+                  setIsQrPanelCollapsed(false);
+                  setShowAddAccountForm((prev) => !prev);
+                }}
+                className="px-3 py-1.5 haseb-btn-primary text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition cursor-pointer shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5 shrink-0" />
+                <span>{showAddAccountForm ? 'إخفاء النموذج' : 'حساب واتساب جديد'}</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       {accountToast && (
-        <div className="bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200 px-4 py-3 rounded-xl text-xs font-bold flex items-center justify-between shadow-sm">
-          <div className="flex items-center gap-2">
+        <div className="bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200 px-3 sm:px-4 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between gap-2 shadow-sm">
+          <div className="flex items-center gap-2 min-w-0">
             <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>{accountToast}</span>
+            <span className="truncate sm:whitespace-normal">{accountToast}</span>
           </div>
           <button
             type="button"
             onClick={() => setAccountToast(null)}
-            className="text-emerald-700 hover:underline text-[11px] cursor-pointer"
+            className="text-emerald-700 dark:text-emerald-300 hover:underline text-[11px] cursor-pointer shrink-0"
           >
             إغلاق
           </button>
@@ -1129,27 +1198,27 @@ export const CommunicationsView: React.FC = () => {
       )}
 
       {/* ======================================================== */}
-      {/* TAB 1: MULTI-ACCOUNT WHATSAPP WEB STATION (IN-APP)       */}
+      {/* TAB 1: COLLAPSIBLE 3-PANE WHATSAPP WORKSPACE             */}
       {/* ======================================================== */}
       {activeTab === 'WHATSAPP' && (
-        <div className="space-y-3">
+        <div className="space-y-2.5 min-w-0">
           {/* Mobile Sub-View Switcher (< lg) */}
           <div
             data-testid="comm-mobile-subview-bar"
-            className="grid grid-cols-4 gap-1 bg-white dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs lg:hidden"
+            className="grid grid-cols-4 gap-1 bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs lg:hidden"
           >
             <button
               type="button"
               data-testid="comm-mobile-sub-chats"
               onClick={() => setMobileWaPanel('CHATS')}
-              className={`py-2 px-1 rounded-xl text-[11px] font-bold transition cursor-pointer flex items-center justify-center gap-1 ${
+              className={`py-2 px-1 rounded-xl text-[11px] font-bold transition cursor-pointer flex items-center justify-center gap-1 min-w-0 ${
                 mobileWaPanel === 'CHATS'
                   ? 'haseb-btn-primary text-white shadow-xs'
                   : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
               }`}
             >
-              <span>المحادثات</span>
-              <span className="px-1.5 py-0.2 rounded-full bg-black/15 text-[10px] font-mono">
+              <span className="truncate">المحادثات</span>
+              <span className="px-1 py-0.2 rounded-full bg-black/15 text-[9px] font-mono shrink-0">
                 {whatsappChats.length}
               </span>
             </button>
@@ -1157,351 +1226,354 @@ export const CommunicationsView: React.FC = () => {
               type="button"
               data-testid="comm-mobile-sub-active"
               onClick={() => setMobileWaPanel('ACTIVE_CHAT')}
-              className={`py-2 px-1 rounded-xl text-[11px] font-bold transition cursor-pointer flex items-center justify-center gap-1 ${
+              className={`py-2 px-1 rounded-xl text-[11px] font-bold transition cursor-pointer flex items-center justify-center gap-1 min-w-0 ${
                 mobileWaPanel === 'ACTIVE_CHAT'
                   ? 'haseb-btn-primary text-white shadow-xs'
                   : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
               }`}
             >
-              <span>الدردشة</span>
+              <span className="truncate">الدردشة</span>
             </button>
             <button
               type="button"
               data-testid="comm-mobile-sub-pairing"
               onClick={() => setMobileWaPanel('PAIRING')}
-              className={`py-2 px-1 rounded-xl text-[11px] font-bold transition cursor-pointer flex items-center justify-center gap-1 ${
+              className={`py-2 px-1 rounded-xl text-[11px] font-bold transition cursor-pointer flex items-center justify-center gap-1 min-w-0 ${
                 mobileWaPanel === 'PAIRING'
                   ? 'haseb-btn-primary text-white shadow-xs'
                   : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
               }`}
             >
-              <span>الربط والباركود</span>
+              <span className="truncate">الربط QR</span>
             </button>
             <button
               type="button"
               data-testid="comm-mobile-sub-docs"
               onClick={() => setMobileWaPanel('DOCS')}
-              className={`py-2 px-1 rounded-xl text-[11px] font-bold transition cursor-pointer flex items-center justify-center gap-1 ${
+              className={`py-2 px-1 rounded-xl text-[11px] font-bold transition cursor-pointer flex items-center justify-center gap-1 min-w-0 ${
                 mobileWaPanel === 'DOCS'
                   ? 'haseb-btn-primary text-white shadow-xs'
                   : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
               }`}
             >
-              <span>المستندات</span>
+              <span className="truncate">المستندات</span>
             </button>
           </div>
 
-          {/* MULTI-ACCOUNT SWITCHER BAR (Shown in Pairing on mobile, always on lg+) */}
-          <div className={`${mobileWaPanel === 'PAIRING' ? 'block' : 'hidden'} lg:block bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-3 shadow-sm`}>
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2 mb-2.5">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
-                  <Layers className="w-4 h-4" />
+          {/* 3-COLUMN COLLAPSIBLE WORKSPACE CONTAINER */}
+          <div
+            data-testid="comm-collapsible-workspace"
+            className="flex flex-col lg:flex-row bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs overflow-hidden lg:h-[calc(100dvh-13.5rem)] lg:min-h-[540px] lg:max-h-[760px] min-w-0 w-full max-w-full"
+          >
+            {/* ==================================================================== */}
+            {/* PANEL 1 (RIGHT): WHATSAPP SERVERS, PAIRING QR & QUICK DOCS (#qr-panel) */}
+            {/* ==================================================================== */}
+            <aside
+              id="qr-panel"
+              data-testid="comm-qr-panel"
+              className={`${
+                mobileWaPanel === 'PAIRING' || mobileWaPanel === 'DOCS' ? 'flex' : 'hidden'
+              } ${
+                isQrPanelCollapsed ? 'lg:hidden' : 'lg:flex'
+              } w-full lg:w-[320px] xl:w-[340px] shrink-0 border-b lg:border-b-0 lg:border-l border-slate-200 dark:border-slate-800 flex-col bg-white dark:bg-slate-900 min-h-0 min-w-0 transition-all duration-200`}
+            >
+              {/* Panel 1 Header with Collapse Button */}
+              <div className="px-3.5 py-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/60 dark:bg-slate-900/60 shrink-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
+                    <QrCode className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-xs font-black text-slate-800 dark:text-slate-100 truncate">
+                      خوادم وأجهزة واتساب
+                    </h2>
+                    <p className="text-[10px] text-slate-500 font-semibold">
+                      {connectedAccountsCount}/{whatsappAccounts.length} متصل
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="text-sm font-black text-slate-800 dark:text-slate-100">
-                    شريط الحسابات المتعددة (التنقل اللحظي بدون فقدان الجلسة أو إعادة التصوير)
-                  </h2>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    اختر أي حساب واتساب للتبديل الفوري بين محادثات المبيعات، التحصيل المالي، أو الصيانة مع حفظ تلقائي كامل لكل حساب
-                  </p>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                      whatsappSession.status === 'CONNECTED'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800'
+                        : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800'
+                    }`}
+                  >
+                    {whatsappSession.status === 'CONNECTED' ? 'متصل ✓' : 'في الانتظار'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddAccountForm((prev) => !prev)}
+                    className="lg:hidden p-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-bold cursor-pointer"
+                    title="إضافة حساب واتساب"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="comm-collapse-qr-btn"
+                    onClick={() => setIsQrPanelCollapsed(true)}
+                    title="طي لوح الربط لتوسيع مساحة العمل"
+                    className="hidden lg:flex w-7 h-7 rounded-lg hover:bg-slate-200/70 dark:hover:bg-slate-800 items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition cursor-pointer"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
 
-              <button
-                type="button"
-                data-testid="add-whatsapp-account-btn"
-                onClick={() => setShowAddAccountForm((prev) => !prev)}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition cursor-pointer self-start lg:self-auto"
-              >
-                <Plus className="w-4 h-4" />
-                <span>فتح حساب واتساب إضافي في النظام</span>
-              </button>
-            </div>
-
-            {/* Accounts Cards Row */}
-            <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-3">
-              {whatsappAccounts.map((acc, idx) => {
-                const isActive = acc.id === activeWhatsAppAccountId;
-                const isConnected = acc.session.status === 'CONNECTED';
-                const totalUnread = acc.chats.reduce((s, c) => s + (c.unreadCount || 0), 0);
-
-                return (
-                  <div
-                    key={acc.id}
-                    data-testid={`whatsapp-account-card-${idx}`}
-                    onClick={() => switchWhatsAppAccount(acc.id)}
-                    className={`relative rounded-xl p-3.5 border transition-all cursor-pointer flex flex-col justify-between ${
-                      isActive
-                        ? 'bg-emerald-50/90 dark:bg-emerald-950/40 border-emerald-500 ring-2 ring-emerald-500/20 shadow-sm'
-                        : 'bg-slate-50/70 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 hover:border-emerald-400'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
+              {/* Scrollable Panel 1 Body */}
+              <div className="flex-1 overflow-y-auto p-3.5 space-y-3 no-scrollbar min-h-0">
+                {/* Active Account Selector Card + Multi-Account Switcher Chips */}
+                <div className="space-y-2">
+                  <div className="p-2.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/90 dark:border-emerald-800/70 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-black text-xs shrink-0 relative shadow-2xs">
+                        WH
+                        <span
+                          className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-slate-900 ${
+                            whatsappSession.status === 'CONNECTED' ? 'bg-emerald-400' : 'bg-amber-400'
+                          }`}
+                        />
+                      </div>
                       <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
+                        <div className="text-xs font-black text-slate-800 dark:text-slate-100 truncate">
+                          {activeAccountObj?.accountLabel || 'الحساب الرسمي الرئيسي'}
+                        </div>
+                        <div className="text-[10px] text-amber-600 dark:text-amber-400 font-bold flex items-center gap-1 truncate">
                           <span
-                            className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                              isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+                            className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                              whatsappSession.status === 'CONNECTED'
+                                ? 'bg-emerald-500'
+                                : 'bg-amber-500 animate-pulse'
                             }`}
                           />
-                          <h3 className="text-xs font-black text-slate-900 dark:text-slate-100 truncate">
-                            {acc.accountLabel}
-                          </h3>
-                        </div>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
-                          {acc.departmentAr}
-                        </p>
-                      </div>
-
-                      <div className="flex items-center gap-1 shrink-0">
-                        {totalUnread > 0 && (
-                          <span className="px-1.5 py-0.5 bg-emerald-600 text-white rounded-md text-[10px] font-black">
-                            {totalUnread} جديد
+                          <span className="truncate">
+                            {whatsappSession.status === 'CONNECTED'
+                              ? whatsappSession.phoneNumber
+                              : 'بانتظار مسح الرمز'}
                           </span>
-                        )}
-                        <span
-                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
-                            isConnected
-                              ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
-                              : 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                        </div>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-mono font-bold text-emerald-700 dark:text-emerald-300 bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800 shrink-0">
+                      #{String(whatsappAccounts.findIndex((a) => a.id === activeWhatsAppAccountId) + 1).padStart(2, '0')}
+                    </span>
+                  </div>
+
+                  {/* Multi-account pills row */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+                    {whatsappAccounts.map((acc, idx) => {
+                      const isActive = acc.id === activeWhatsAppAccountId;
+                      const isConnected = acc.session.status === 'CONNECTED';
+                      return (
+                        <div
+                          key={acc.id}
+                          data-testid={`whatsapp-account-card-${idx}`}
+                          onClick={() => switchWhatsAppAccount(acc.id)}
+                          className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold cursor-pointer flex items-center gap-1.5 shrink-0 transition ${
+                            isActive
+                              ? 'haseb-nav-active text-white shadow-2xs'
+                              : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-emerald-400'
                           }`}
                         >
-                          {isConnected ? 'متصل ✓' : 'بانتظار المسح'}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="mt-3 pt-2 border-t border-slate-200/70 dark:border-slate-700/60 flex items-center justify-between text-[11px]">
-                      <span className="font-mono font-bold text-slate-700 dark:text-slate-300 dir-ltr">
-                        {acc.session.phoneNumber}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-500">
-                          {acc.chats.length} محادثات
-                        </span>
-                        {whatsappAccounts.length > 1 && (
-                          <button
-                            type="button"
-                            title="إزالة هذا الحساب الفرعي"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const res = removeWhatsAppAccount(acc.id);
-                              setAccountToast(res.messageAr);
-                              setTimeout(() => setAccountToast(null), 3500);
-                            }}
-                            className="p-1 text-slate-400 hover:text-rose-600 rounded transition cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              isConnected ? 'bg-emerald-400' : 'bg-amber-400'
+                            }`}
+                          />
+                          <span className="truncate max-w-[110px]">{acc.accountLabel}</span>
+                          {whatsappAccounts.length > 1 && (
+                            <button
+                              type="button"
+                              title="إزالة هذا الحساب الفرعي"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const res = removeWhatsAppAccount(acc.id);
+                                setAccountToast(res.messageAr);
+                                setTimeout(() => setAccountToast(null), 3500);
+                              }}
+                              className="opacity-75 hover:opacity-100 hover:text-rose-400 cursor-pointer"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
-            </div>
-
-            {/* Inline Add New WhatsApp Account Form */}
-            {showAddAccountForm && (
-              <form
-                onSubmit={handleCreateNewAccount}
-                className="mt-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-emerald-300 dark:border-emerald-800 space-y-3"
-              >
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-black text-slate-800 dark:text-slate-100 flex items-center gap-2">
-                    <Plus className="w-4 h-4 text-emerald-600" />
-                    <span>إضافة وربط حساب واتساب جديد داخل النظام</span>
-                  </h4>
-                  <button
-                    type="button"
-                    onClick={() => setShowAddAccountForm(false)}
-                    className="text-xs text-slate-500 hover:text-slate-700 cursor-pointer"
-                  >
-                    إغلاق ✕
-                  </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                      اسم الحساب / الفرع
-                    </label>
+                {/* Inline Add New WhatsApp Account Form */}
+                {showAddAccountForm && (
+                  <form
+                    onSubmit={handleCreateNewAccount}
+                    className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-emerald-300 dark:border-emerald-800 space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-[11px] font-black text-slate-800 dark:text-slate-100 flex items-center gap-1">
+                        <Plus className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>إضافة حساب واتساب جديد</span>
+                      </h4>
+                      <button
+                        type="button"
+                        onClick={() => setShowAddAccountForm(false)}
+                        className="text-[11px] text-slate-500 hover:text-slate-700 cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    </div>
                     <input
                       type="text"
                       required
                       value={newAccLabel}
                       onChange={(e) => setNewAccLabel(e.target.value)}
-                      placeholder="مثال: واتساب فرع عدن / المستودع"
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs"
+                      placeholder="اسم الحساب / الفرع (مثال: واتساب المبيعات)"
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs"
                     />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                      القسم المختص
-                    </label>
-                    <input
-                      type="text"
-                      value={newAccDept}
-                      onChange={(e) => setNewAccDept(e.target.value)}
-                      placeholder="مثال: المبيعات والتوريد"
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                      رقم واتساب المرتبط
-                    </label>
-                    <input
-                      type="text"
-                      value={newAccPhone}
-                      onChange={(e) => setNewAccPhone(e.target.value)}
-                      placeholder="+967 774 500 800"
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                      وضع بدء الجلسة
-                    </label>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <input
+                        type="text"
+                        value={newAccDept}
+                        onChange={(e) => setNewAccDept(e.target.value)}
+                        placeholder="القسم المختص"
+                        className="w-full px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-[11px]"
+                      />
+                      <input
+                        type="text"
+                        value={newAccPhone}
+                        onChange={(e) => setNewAccPhone(e.target.value)}
+                        placeholder="+967 774..."
+                        className="w-full px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-[11px] font-mono"
+                      />
+                    </div>
                     <select
                       value={newAccStartMode}
                       onChange={(e) => setNewAccStartMode(e.target.value as any)}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold"
+                      className="w-full px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-[11px] font-bold"
                     >
-                      <option value="QR_SCAN">توليد باركود QR فعلي للمسح بالكاميرا</option>
+                      <option value="QR_SCAN">توليد باركود QR للمسح بالكاميرا</option>
                       <option value="INSTANT_CONNECTED">ربط وتفعيل فوري مباشر</option>
                     </select>
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-2">
-                  <button
-                    type="submit"
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer flex items-center gap-1.5"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>إنشاء الحساب والتبديل إليه فوراً</span>
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-            {/* Status & Real ISO QR Pairing Card + ERP Docs (Left Column on desktop, controlled by mobileWaPanel on mobile) */}
-            <div className={`${mobileWaPanel === 'PAIRING' || mobileWaPanel === 'DOCS' ? 'block' : 'hidden'} lg:block lg:col-span-4 space-y-4 min-w-0`}>
-              <div className={`${mobileWaPanel === 'PAIRING' ? 'block' : 'hidden'} lg:block`}>
-              {whatsappSession.status !== 'CONNECTED' ? (
-                /* REAL ISO/IEC 18004 QR Code & 8-Digit Code Pairing Box */
-                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-4">
-                  <div className="text-center space-y-2">
-                    <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 rounded-full border border-emerald-300 dark:border-emerald-800 text-[11px] font-bold">
-                      <Wifi className="w-3.5 h-3.5 text-emerald-500 animate-pulse" />
-                      <span>متصل مباشرة بخادم واتساب الرسمي (WhatsApp Multi-Device)</span>
-                    </div>
-                    <h3 className="text-base font-black text-slate-800 dark:text-slate-100">
-                      ربط ({activeAccountObj?.accountLabel}) بتطبيق واتساب الفعلي
-                    </h3>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                      امسح هذا الباركود الرسمي مباشرة من تطبيق <strong className="text-emerald-600">واتساب في جوالك ← الأجهزة المرتبطة ← ربط جهاز</strong> (يتحدث تلقائياً كل 20 ثانية من خادم واتساب)
-                    </p>
-                  </div>
-
-                  {/* Pairing Mode Switcher: QR vs 8-Digit Phone Code */}
-                  <div className="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
                     <button
-                      type="button"
-                      onClick={() => setPairingMethod('QR_CODE')}
-                      className={`py-2 px-2 rounded-lg text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
-                        pairingMethod === 'QR_CODE'
-                          ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-xs'
-                          : 'text-slate-600 dark:text-slate-400'
-                      }`}
+                      type="submit"
+                      className="w-full py-1.5 haseb-btn-primary text-white rounded-lg text-xs font-bold cursor-pointer flex items-center justify-center gap-1.5"
                     >
-                      <QrCode className="w-3.5 h-3.5" />
-                      <span>باركود واتساب الرسمي الحي</span>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>إنشاء الحساب والتبديل إليه فوراً</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPairingMethod('PHONE_CODE');
-                        setGenerated8DigitCode(generate8DigitWhatsAppPairingCode(pairingPhoneInput));
-                      }}
-                      className={`py-2 px-2 rounded-lg text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
-                        pairingMethod === 'PHONE_CODE'
-                          ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-xs'
-                          : 'text-slate-600 dark:text-slate-400'
-                      }`}
-                    >
-                      <KeyRound className="w-3.5 h-3.5" />
-                      <span>الربط برقم الهاتف (8 خانات)</span>
-                    </button>
-                  </div>
+                  </form>
+                )}
 
-                  {pairingMethod === 'QR_CODE' ? (
-                    <>
-                      {/* Live Official WhatsApp Multi-Device QR Code from @whiskeysockets/baileys */}
-                      <div className="my-2 flex flex-col items-center">
-                        <div className="p-3 bg-white rounded-2xl border-2 border-emerald-500 shadow-lg relative flex items-center justify-center min-h-[248px] min-w-[248px]">
-                          {isLoadingLiveQr ? (
-                            <div className="flex flex-col items-center justify-center gap-2 text-slate-600 p-6">
-                              <RefreshCw className="w-8 h-8 animate-spin text-emerald-600" />
-                              <span className="text-xs font-bold">جاري توليد باركود جديد من خادم واتساب...</span>
-                            </div>
-                          ) : liveWaSnapshot?.qrDataUrl ? (
-                            <img
-                              src={liveWaSnapshot.qrDataUrl}
-                              alt="Official WhatsApp Web Multi-Device QR Code"
-                              data-testid="live-whatsapp-qr-img"
-                              className="w-56 h-56 object-contain select-none"
-                            />
-                          ) : (
-                            <svg
-                              width="210"
-                              height="210"
-                              viewBox={`-2 -2 ${qrPairingData.scannableMatrix.length + 4} ${
-                                qrPairingData.scannableMatrix.length + 4
-                              }`}
-                              shapeRendering="crispEdges"
-                              aria-label="WhatsApp Real Scannable QR Code"
-                            >
-                              <rect
-                                x="-2"
-                                y="-2"
-                                width={qrPairingData.scannableMatrix.length + 4}
-                                height={qrPairingData.scannableMatrix.length + 4}
-                                fill="#ffffff"
+                {/* PAIRING / SESSION SECTION */}
+                <div className={`${mobileWaPanel === 'PAIRING' ? 'block' : 'hidden'} lg:block space-y-3`}>
+                  {whatsappSession.status !== 'CONNECTED' ? (
+                    <div className="space-y-3">
+                      {/* Pairing Mode Switcher: QR vs 8-Digit Phone Code */}
+                      <div className="grid grid-cols-2 gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200/60 dark:border-slate-700">
+                        <button
+                          type="button"
+                          onClick={() => setPairingMethod('QR_CODE')}
+                          className={`py-1.5 px-2 rounded-lg text-[11px] font-bold transition cursor-pointer flex items-center justify-center gap-1 min-w-0 ${
+                            pairingMethod === 'QR_CODE'
+                              ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-2xs'
+                              : 'text-slate-600 dark:text-slate-400'
+                          }`}
+                        >
+                          <QrCode className="w-3.5 h-3.5 shrink-0" />
+                          <span className="truncate">باركود QR</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPairingMethod('PHONE_CODE');
+                            setGenerated8DigitCode(generate8DigitWhatsAppPairingCode(pairingPhoneInput));
+                          }}
+                          className={`py-1.5 px-2 rounded-lg text-[11px] font-bold transition cursor-pointer flex items-center justify-center gap-1 min-w-0 ${
+                            pairingMethod === 'PHONE_CODE'
+                              ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-2xs'
+                              : 'text-slate-600 dark:text-slate-400'
+                          }`}
+                        >
+                          <KeyRound className="w-3.5 h-3.5 shrink-0" />
+                          <span className="truncate">كود الهاتف</span>
+                        </button>
+                      </div>
+
+                      {pairingMethod === 'QR_CODE' ? (
+                        <div className="flex flex-col items-center space-y-2.5">
+                          {/* Centered QR Box with Animated Scanner Line */}
+                          <div className="p-3 bg-white rounded-2xl border border-slate-200/90 shadow-md relative flex items-center justify-center w-44 h-44 overflow-hidden">
+                            <div className="wa-scanner-line" />
+                            {isLoadingLiveQr || isPairingLoading ? (
+                              <div className="flex flex-col items-center justify-center gap-2 text-slate-600 p-3 text-center">
+                                <RefreshCw className="w-6 h-6 animate-spin text-emerald-600" />
+                                <span className="text-[10px] font-bold">جاري التحديث...</span>
+                              </div>
+                            ) : liveWaSnapshot?.qrDataUrl ? (
+                              <img
+                                src={liveWaSnapshot.qrDataUrl}
+                                alt="Official WhatsApp Web Multi-Device QR Code"
+                                data-testid="live-whatsapp-qr-img"
+                                className="w-full h-full object-contain select-none"
                               />
-                              {qrPairingData.scannableMatrix.map((row: boolean[], rIdx: number) =>
-                                row.map((cell: boolean, cIdx: number) =>
-                                  cell ? (
-                                    <rect
-                                      key={`${rIdx}-${cIdx}`}
-                                      x={cIdx}
-                                      y={rIdx}
-                                      width="1"
-                                      height="1"
-                                      fill="#0f172a"
-                                    />
-                                  ) : null
-                                )
-                              )}
-                            </svg>
-                          )}
+                            ) : (
+                              <svg
+                                width="156"
+                                height="156"
+                                className="w-full h-full"
+                                viewBox={`-2 -2 ${qrPairingData.scannableMatrix.length + 4} ${
+                                  qrPairingData.scannableMatrix.length + 4
+                                }`}
+                                shapeRendering="crispEdges"
+                                aria-label="WhatsApp Real Scannable QR Code"
+                              >
+                                <rect
+                                  x="-2"
+                                  y="-2"
+                                  width={qrPairingData.scannableMatrix.length + 4}
+                                  height={qrPairingData.scannableMatrix.length + 4}
+                                  fill="#ffffff"
+                                />
+                                {qrPairingData.scannableMatrix.map((row: boolean[], rIdx: number) =>
+                                  row.map((cell: boolean, cIdx: number) =>
+                                    cell ? (
+                                      <rect
+                                        key={`${rIdx}-${cIdx}`}
+                                        x={cIdx}
+                                        y={rIdx}
+                                        width="1"
+                                        height="1"
+                                        fill="#0f172a"
+                                      />
+                                    ) : null
+                                  )
+                                )}
+                              </svg>
+                            )}
+                          </div>
 
-                          {liveWaSnapshot?.qrSequence ? (
-                            <span className="absolute -top-2.5 right-3 px-2 py-0.5 bg-emerald-600 text-white text-[10px] font-bold rounded-full shadow">
-                              باركود واتساب حي #{liveWaSnapshot.qrSequence}
-                            </span>
-                          ) : null}
-                        </div>
+                          {/* Auto Refresh Countdown Pill */}
+                          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-300 font-semibold">
+                            <RefreshCw className={`w-3 h-3 text-emerald-600 ${isLoadingLiveQr ? 'animate-spin' : ''}`} />
+                            <span>يتحدث تلقائياً خلال:</span>
+                            <strong className="text-emerald-700 dark:text-emerald-400 font-mono">
+                              {qrCountdown} ثانية
+                            </strong>
+                          </div>
 
-                        <div className="flex items-center justify-between w-full px-2 mt-2.5 text-xs text-slate-500 dark:text-slate-400 font-mono">
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>تحديث تلقائي خلال: {qrCountdown}s</span>
-                          </span>
+                          {/* Quick Instructions Box */}
+                          <div className="w-full bg-slate-50 dark:bg-slate-800/50 rounded-xl p-2.5 border border-slate-200/80 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-300 space-y-1">
+                            <div className="font-bold text-slate-800 dark:text-slate-100">
+                              خطوات الربط السريعة:
+                            </div>
+                            <div>1. افتح واتساب في هاتفك &gt; الإعدادات ⚙️</div>
+                            <div>
+                              2. اختر <strong>الأجهزة المرتبطة</strong> ثم امسح الرمز أعلاه
+                            </div>
+                          </div>
+
                           <button
                             type="button"
                             onClick={() => {
@@ -1509,715 +1581,825 @@ export const CommunicationsView: React.FC = () => {
                               setQrCountdown(20);
                               fetchLiveWhatsAppQR(true);
                             }}
-                            className="text-emerald-600 hover:underline flex items-center gap-1 font-sans font-bold cursor-pointer"
+                            disabled={isLoadingLiveQr}
+                            className="w-full py-2 haseb-btn-primary text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
                           >
-                            <RefreshCw className={`w-3 h-3 ${isLoadingLiveQr ? 'animate-spin' : ''}`} />
-                            <span>تحديث باركود واتساب الآن</span>
+                            <RefreshCw className={`w-3.5 h-3.5 ${isLoadingLiveQr ? 'animate-spin' : ''}`} />
+                            <span>تحديث الرمز الآن</span>
                           </button>
                         </div>
-                      </div>
-
-                      {/* Step-by-step official WhatsApp instructions */}
-                      <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/30 rounded-xl border border-emerald-200 dark:border-emerald-800/60 text-[11px] text-slate-700 dark:text-slate-300 space-y-1">
-                        <div className="font-black text-emerald-800 dark:text-emerald-300">
-                          خطوات الربط الفعلي من تطبيق واتساب في جوالك:
-                        </div>
-                        <ol className="list-decimal list-inside space-y-0.5 text-[11px]">
-                          <li>افتح تطبيق <strong>واتساب</strong> على هاتفك</li>
-                          <li>اضغط على <strong>الإعدادات</strong> أو <strong>القائمة (⋮) ← الأجهزة المرتبطة</strong></li>
-                          <li>اضغط على <strong>ربط جهاز (Link a Device)</strong> وامسح الباركود أعلاه</li>
-                        </ol>
-                      </div>
-
-                      <div className="space-y-2 pt-1">
-                        <div className="p-2.5 bg-slate-50 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-300 flex items-center justify-between">
-                          <span className="flex items-center gap-1.5 font-bold">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                            <span>بانتظار مسح الباركود من واتساب جوالك...</span>
-                          </span>
-                          <span className="font-mono text-[10px] text-emerald-600 dark:text-emerald-400">
-                            ربط تلقائي فور المسح
-                          </span>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setQrRefreshTick((t) => t + 1);
-                            setQrCountdown(20);
-                            fetchLiveWhatsAppQR(true);
-                          }}
-                          disabled={isLoadingLiveQr}
-                          className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-sm transition flex items-center justify-center gap-2 text-xs cursor-pointer"
-                        >
-                          <RefreshCw className={`w-4 h-4 ${isLoadingLiveQr ? 'animate-spin' : ''}`} />
-                          <span>توليد باركود واتساب رسمي جديد الآن</span>
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    /* 8-Digit Phone Number Pairing Mode (Official Baileys requestPairingCode) */
-                    <div className="space-y-3 py-2">
-                      <div>
-                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                          أدخل رقم الواتساب مع مفتاح الدولة (مثال: +967771445880):
-                        </label>
-                        <div className="flex gap-1.5">
-                          <input
-                            type="text"
-                            value={pairingPhoneInput}
-                            onChange={(e) => {
-                              setPairingPhoneInput(e.target.value);
-                            }}
-                            className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-mono font-bold dir-ltr"
-                            placeholder="+967 771 445 880"
-                          />
-                          <button
-                            type="button"
-                            onClick={handleRequestReal8DigitCode}
-                            disabled={isRequestingReal8DigitCode}
-                            className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer shrink-0 flex items-center gap-1"
-                          >
-                            {isRequestingReal8DigitCode ? (
-                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              <KeyRound className="w-3.5 h-3.5" />
-                            )}
-                            <span>طلب كود واتساب الرسمي</span>
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="p-4 bg-slate-50 text-slate-900 rounded-2xl text-center space-y-1.5 border border-emerald-300">
-                        <div className="text-[11px] text-slate-600 flex items-center justify-center gap-1.5">
-                          <span>أدخل كود الربط التالي في إشعار واتساب على هاتفك:</span>
-                          {real8DigitCodeSource === 'LIVE_WHATSAPP' && (
-                            <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded text-[10px] font-bold">
-                              رسمي من خادم واتساب ✓
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-2xl font-black font-mono tracking-widest text-emerald-700">
-                          {generated8DigitCode}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                /* Connected Device Info Box */
-                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-black">
-                        <MessageSquare className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <h3 className="font-black text-sm text-slate-800 dark:text-slate-100">
-                          {activeAccountObj?.accountLabel || whatsappSession.pushName}
-                        </h3>
-                        <p className="text-xs text-emerald-600 dark:text-emerald-400 font-mono font-bold">
-                          {whatsappSession.phoneNumber}
-                        </p>
-                      </div>
-                    </div>
-                    <span className="px-2.5 py-1 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 rounded-lg text-xs font-bold border border-emerald-300 dark:border-emerald-800">
-                      متصل فعلياً ✓
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <div className="p-2.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl">
-                      <div className="flex items-center gap-1.5 text-slate-500 text-[11px] mb-0.5">
-                        <Wifi className="w-3.5 h-3.5 text-emerald-500" />
-                        <span>حالة البث اللحظي</span>
-                      </div>
-                      <div className="text-xs font-black text-emerald-600 dark:text-emerald-400">
-                        إرسال واستقبال فوري ✓
-                      </div>
-                    </div>
-
-                    <div className="p-2.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl">
-                      <div className="flex items-center gap-1.5 text-slate-500 text-[11px] mb-0.5">
-                        <Send className="w-3.5 h-3.5 text-blue-500" />
-                        <span>رسائل هذا الحساب</span>
-                      </div>
-                      <div className="text-sm font-black text-slate-800 dark:text-slate-100">
-                        {activeAccountObj?.messagesDispatchedCount || 0} رسالة
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl border border-emerald-200 dark:border-emerald-800/50 text-xs text-emerald-800 dark:text-emerald-300 space-y-1">
-                    <div className="font-bold">جلسة واتساب فعلية محفوظة تلقائياً:</div>
-                    <p className="text-[11px] leading-relaxed text-emerald-700 dark:text-emerald-400">
-                      يتم إرسال واستقبال الرسائل مباشرة في نفس الواجهة بدون نوافذ خارجية وبدون فقدان الجلسة عند التنقل.
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={disconnectWhatsApp}
-                    className="w-full py-2 px-4 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 border border-rose-200 dark:border-rose-900 cursor-pointer"
-                  >
-                    <Power className="w-3.5 h-3.5" />
-                    <span>تغيير الجهاز / توليد باركود QR رسمي جديد</span>
-                  </button>
-              </div>
-              )}
-              </div>
-
-              {/* Integrated Real Quick-Send & Financial Document Composer */}
-              <div className={`${mobileWaPanel === 'DOCS' ? 'block' : 'hidden'} lg:block bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm space-y-3 min-w-0 overflow-hidden`}>
-                <div className="flex items-center justify-between gap-2">
-                  <h4 className="font-black text-xs text-slate-800 dark:text-slate-100 flex items-center gap-2 truncate">
-                    <Zap className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span className="truncate">الإرسال السريع الموحد للمستندات المالية الفعلية</span>
-                  </h4>
-                  <span className="text-[10px] px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 rounded font-bold shrink-0">
-                    مباشر في المحادثة
-                  </span>
-                </div>
-
-                {/* Real Sales Invoice Selector */}
-                <div className="space-y-1.5 min-w-0">
-                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                    1. إرسال فاتورة مبيعات فعلية من النظام:
-                  </label>
-                  <div className="flex gap-1.5 min-w-0">
-                    <select
-                      value={selectedRealInvoiceId}
-                      disabled={salesInvoices.length === 0}
-                      onChange={(e) => setSelectedRealInvoiceId(e.target.value)}
-                      className="flex-1 min-w-0 truncate px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-[11px] font-bold disabled:opacity-60"
-                    >
-                      {salesInvoices.length === 0 ? (
-                        <option value="">لا توجد فواتير مبيعات مسجلة بعد</option>
                       ) : (
-                        salesInvoices.map((inv) => (
-                          <option key={inv.id} value={inv.id}>
-                            {inv.invoiceNumber} — {inv.customerName} ({formatCurrency(inv.grandTotal)})
-                          </option>
-                        ))
-                      )}
-                    </select>
-                    <button
-                      type="button"
-                      data-testid="quick-send-invoice-btn"
-                      disabled={salesInvoices.length === 0}
-                      onClick={() => {
-                        const inv =
-                          salesInvoices.find((i) => i.id === selectedRealInvoiceId) ||
-                          salesInvoices[0];
-                        if (!inv) return;
-                        const cust = customers.find((c) => c.id === inv.customerId);
-                        const phone = cust?.phone || activeChat.contactPhone;
-                        const chatId = startOrOpenWhatsAppChat(inv.customerName, phone, cust?.id);
-                        const composed = composeInvoiceMessageText({
-                          invoice: inv,
-                          companyName: company.nameAr || company.name || 'المنشأة',
-                          branchName: currentBranch.nameAr,
-                          currency,
-                          includeItems: true,
-                          includeWarranty: true,
-                          customSignatureAr: messagingGatewayConfig.customSignatureAr,
-                        });
-                        sendWhatsAppChatMessage(chatId, composed, 'INVOICE', inv.invoiceNumber);
-                        setAccountToast(
-                          `تم إرسال الفاتورة (${inv.invoiceNumber}) مباشرة في محادثة (${inv.customerName}) وعبر واتساب!`
-                        );
-                        setMobileWaPanel('ACTIVE_CHAT');
-                      }}
-                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-[11px] font-bold cursor-pointer shrink-0 flex items-center gap-1"
-                    >
-                      <Send className="w-3 h-3" />
-                      <span>إرسال</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Real Customer Debt Reminder Selector */}
-                <div className="space-y-1.5 pt-1 border-t border-slate-100 dark:border-slate-800 min-w-0">
-                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                    2. إرسال كشف حساب ومطالبة مديونية فعلية:
-                  </label>
-                  <div className="flex gap-1.5 min-w-0">
-                    <select
-                      value={selectedRealCustomerId}
-                      disabled={customers.length === 0}
-                      onChange={(e) => setSelectedRealCustomerId(e.target.value)}
-                      className="flex-1 min-w-0 truncate px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-[11px] font-bold disabled:opacity-60"
-                    >
-                      {customers.length === 0 ? (
-                        <option value="">لا يوجد عملاء مسجلون بعد</option>
-                      ) : (
-                        customers.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.nameAr} — الرصيد: {formatCurrency(c.balance)}
-                          </option>
-                        ))
-                      )}
-                    </select>
-                    <button
-                      type="button"
-                      data-testid="quick-send-debt-btn"
-                      disabled={customers.length === 0}
-                      onClick={() => {
-                        const cust =
-                          customers.find((c) => c.id === selectedRealCustomerId) || customers[0];
-                        if (!cust) return;
-                        const chatId = startOrOpenWhatsAppChat(
-                          cust.nameAr || cust.name,
-                          cust.phone,
-                          cust.id
-                        );
-                        const refCode = `SOA-${cust.id.slice(-4).toUpperCase()}`;
-                        const composed = composeDebtReminderMessageText({
-                          customerName: cust.nameAr || cust.name,
-                          totalBalance: Math.abs(cust.balance || 0),
-                          companyName: company.nameAr || company.name || 'المنشأة',
-                          currency,
-                          customSignatureAr: messagingGatewayConfig.customSignatureAr,
-                        });
-                        sendWhatsAppChatMessage(chatId, composed, 'DEBT_REMINDER', refCode);
-                        setAccountToast(
-                          `تم إرسال كشف الحساب ومطالبة السداد إلى (${cust.nameAr}) مباشرة!`
-                        );
-                        setMobileWaPanel('ACTIVE_CHAT');
-                      }}
-                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-xl text-[11px] font-bold cursor-pointer shrink-0 flex items-center gap-1"
-                    >
-                      <Send className="w-3 h-3" />
-                      <span>إرسال</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Real Warranty / RMA Notification Selector */}
-                <div className="space-y-1.5 pt-1 border-t border-slate-100 dark:border-slate-800 min-w-0">
-                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                    3. إرسال إشعار صيانة وضمان (RMA) فعلي:
-                  </label>
-                  <div className="flex gap-1.5 min-w-0">
-                    <select
-                      value={selectedRealRmaId}
-                      disabled={warrantyTickets.length === 0}
-                      onChange={(e) => setSelectedRealRmaId(e.target.value)}
-                      className="flex-1 min-w-0 truncate px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-[11px] font-bold disabled:opacity-60"
-                    >
-                      {warrantyTickets.length === 0 ? (
-                        <option value="">لا توجد تذاكر صيانة مسجلة بعد</option>
-                      ) : (
-                        warrantyTickets.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.ticketNumber} — {t.customerName} ({t.productName.slice(0, 22)})
-                          </option>
-                        ))
-                      )}
-                    </select>
-                    <button
-                      type="button"
-                      data-testid="quick-send-rma-btn"
-                      disabled={warrantyTickets.length === 0}
-                      onClick={() => {
-                        const rma =
-                          warrantyTickets.find((t) => t.id === selectedRealRmaId) ||
-                          warrantyTickets[0];
-                        if (!rma) return;
-                        const chatId = startOrOpenWhatsAppChat(
-                          rma.customerName,
-                          rma.customerPhone
-                        );
-                        const msg = `🔧 *إشعار مركز الصيانة والضمان المعتمد*\nتذكرة رقم: *${rma.ticketNumber}*\nالعميل: ${rma.customerName}\nالجهاز: ${rma.productName}\nالرقم التسلسلي: ${rma.serialNumber}\nالتقرير الفني: ${rma.technicianReport}\nالرسوم المستحقة: ${formatCurrency(rma.totalCustomerCharge)}`;
-                        sendWhatsAppChatMessage(chatId, msg, 'WARRANTY', rma.ticketNumber);
-                        setAccountToast(
-                          `تم إرسال تقرير الضمان (${rma.ticketNumber}) إلى (${rma.customerName}) مباشرة!`
-                        );
-                        setMobileWaPanel('ACTIVE_CHAT');
-                      }}
-                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-[11px] font-bold cursor-pointer shrink-0 flex items-center gap-1"
-                    >
-                      <Send className="w-3 h-3" />
-                      <span>إرسال</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* WhatsApp Chat Split-Screen (Right Column - 8 Cols) */}
-            <div className={`${mobileWaPanel === 'CHATS' || mobileWaPanel === 'ACTIVE_CHAT' ? 'flex' : 'hidden'} lg:flex lg:col-span-8 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden flex-col md:flex-row h-[calc(100dvh-16rem)] min-h-[460px] lg:h-[580px]`}>
-              {/* Contacts Sidebar */}
-              <div className={`${mobileWaPanel === 'CHATS' ? 'flex' : 'hidden'} lg:flex w-full md:w-80 border-b md:border-b-0 md:border-l border-slate-200 dark:border-slate-800 flex-col bg-slate-50/50 dark:bg-slate-900/50 min-h-0 flex-1 lg:flex-initial`}>
-                {/* Search Bar + Filter Chips + New Chat Button */}
-                <div className="p-3 border-b border-slate-200 dark:border-slate-800 space-y-2">
-                  <div className="flex items-center gap-1.5">
-                    <div className="relative flex-1">
-                      <Search className="w-4 h-4 text-slate-400 absolute right-3 top-2.5" />
-                      <input
-                        type="text"
-                        value={chatSearch}
-                        onChange={(e) => setChatSearch(e.target.value)}
-                        placeholder="بحث في محادثات الحساب..."
-                        className="w-full pl-3 pr-9 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setShowNewChatForm((v) => !v)}
-                      title="بدء محادثة جديدة مع أي عميل أو رقم"
-                      className="p-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition cursor-pointer shrink-0"
-                    >
-                      <UserPlus className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  {showNewChatForm && (
-                    <form
-                      onSubmit={handleStartNewChat}
-                      className="p-2.5 bg-white dark:bg-slate-800 rounded-xl border border-emerald-300 dark:border-emerald-700 space-y-2"
-                    >
-                      <div className="text-[11px] font-bold text-slate-700 dark:text-slate-200 flex justify-between">
-                        <span>فتح محادثة فورية داخل النظام</span>
-                        <button
-                          type="button"
-                          onClick={() => setShowNewChatForm(false)}
-                          className="text-slate-400 hover:text-slate-600"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                      <select
-                        onChange={(e) => {
-                          const cust = customers.find((c) => c.id === e.target.value);
-                          if (cust) {
-                            setNewChatName(cust.nameAr);
-                            setNewChatPhone(cust.phone);
-                          }
-                        }}
-                        defaultValue=""
-                        className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px]"
-                      >
-                        <option value="" disabled>
-                          اختر من قائمة العملاء أو اكتب رقماً...
-                        </option>
-                        {customers.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.nameAr} ({c.phone})
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        type="text"
-                        value={newChatName}
-                        onChange={(e) => setNewChatName(e.target.value)}
-                        placeholder="اسم العميل أو الجهة"
-                        className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px]"
-                      />
-                      <input
-                        type="text"
-                        required
-                        value={newChatPhone}
-                        onChange={(e) => setNewChatPhone(e.target.value)}
-                        placeholder="رقم الهاتف (+967...)"
-                        className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-mono"
-                      />
-                      <button
-                        type="submit"
-                        className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold cursor-pointer"
-                      >
-                        بدء المحادثة الآن
-                      </button>
-                    </form>
-                  )}
-                  {/* Contact List Filters */}
-                  <div className="flex items-center gap-1">
-                    {([
-                      { id: 'ALL', label: 'الكل' },
-                      { id: 'UNREAD', label: 'غير مقروء' },
-                      { id: 'DEBTORS', label: 'مدينون' },
-                    ] as const).map((f) => (
-                      <button
-                        key={f.id}
-                        type="button"
-                        onClick={() => setChatFilterMode(f.id)}
-                        className={`flex-1 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
-                          chatFilterMode === f.id
-                            ? 'bg-emerald-600 text-white shadow-2xs'
-                            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-                        }`}
-                      >
-                        {f.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Chat List */}
-                <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
-                  {filteredChats.length === 0 ? (
-                    <div className="p-8 text-center space-y-2">
-                      <MessageSquare className="w-8 h-8 text-slate-300 mx-auto" />
-                      <p className="text-xs font-bold text-slate-500">لا توجد محادثات مطابقة حالياً</p>
-                      <button
-                        type="button"
-                        onClick={() => setShowNewChatForm(true)}
-                        className="px-3 py-1.5 bg-emerald-600 text-white rounded-xl text-[11px] font-bold cursor-pointer"
-                      >
-                        + بدء محادثة جديدة
-                      </button>
-                    </div>
-                  ) : (
-                    filteredChats.map((chat) => {
-                      const isSelected = chat.id === activeChat.id;
-                      const isPinned = pinnedChatIds.includes(chat.id);
-                      const matchedCust = getMatchedCustomerForChat(chat.contactName, chat.contactPhone);
-                      return (
-                        <div
-                          key={chat.id}
-                          className={`w-full p-3.5 text-right flex items-start gap-2.5 transition-colors ${
-                            isSelected
-                              ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-r-4 border-emerald-500'
-                              : 'hover:bg-slate-100 dark:hover:bg-slate-800/40'
-                          }`}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveWhatsAppChatId(chat.id);
-                              setMobileWaPanel('ACTIVE_CHAT');
-                            }}
-                            className="flex-1 min-w-0 flex items-start gap-2.5 text-right cursor-pointer"
-                          >
-                            <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center font-bold text-sm shrink-0">
-                              {Array.from(chat.contactName.trim())[0] || '💬'}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between mb-0.5 gap-1">
-                                <h5 className="text-xs font-black text-slate-800 dark:text-slate-100 truncate">
-                                  {chat.contactName}
-                                </h5>
-                                <span className="text-[10px] text-slate-400 font-mono shrink-0">
-                                  {chat.lastMessageTime}
-                                </span>
-                              </div>
-                              <div className="flex items-center justify-between gap-1">
-                                <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                                  {chat.lastMessage || 'لا توجد رسائل بعد'}
-                                </p>
-                                {chat.unreadCount > 0 && (
-                                  <span className="px-1.5 py-0.5 bg-emerald-500 text-white rounded-full text-[10px] font-black shrink-0">
-                                    {chat.unreadCount}
-                                  </span>
+                        /* 8-Digit Phone Number Pairing Mode */
+                        <div className="space-y-2.5 py-1">
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                              رقم الواتساب مع مفتاح الدولة:
+                            </label>
+                            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-1.5">
+                              <input
+                                type="text"
+                                value={pairingPhoneInput}
+                                onChange={(e) => setPairingPhoneInput(e.target.value)}
+                                className="w-full min-w-0 px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-mono font-bold dir-ltr"
+                                placeholder="+967 771 445 880"
+                              />
+                              <button
+                                type="button"
+                                onClick={handleRequestReal8DigitCode}
+                                disabled={isRequestingReal8DigitCode}
+                                className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[11px] font-bold cursor-pointer shrink-0 flex items-center gap-1"
+                              >
+                                {isRequestingReal8DigitCode ? (
+                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <KeyRound className="w-3.5 h-3.5" />
                                 )}
-                              </div>
-                              {matchedCust && Number(matchedCust.balance) > 0 && (
-                                <span className="inline-block mt-1 px-1.5 py-0.2 bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200/70 dark:border-amber-800 rounded text-[9px] font-bold font-mono">
-                                  رصيد: {formatCurrency(matchedCust.balance)}
+                                <span>طلب الكود</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="p-3 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl text-center space-y-1 border border-emerald-300 dark:border-emerald-700">
+                            <div className="text-[10px] text-slate-600 dark:text-slate-300 flex items-center justify-center gap-1.5 flex-wrap">
+                              <span>أدخل كود الربط التالي في إشعار واتساب:</span>
+                              {real8DigitCodeSource === 'LIVE_WHATSAPP' && (
+                                <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded text-[9px] font-bold">
+                                  رسمي ✓
                                 </span>
                               )}
                             </div>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => togglePinChat(chat.id)}
-                            title={isPinned ? 'إلغاء تثبيت المحادثة' : 'تثبيت المحادثة بالأعلى'}
-                            className={`p-1 rounded-lg transition cursor-pointer shrink-0 ${
-                              isPinned
-                                ? 'text-emerald-600 bg-emerald-100 dark:bg-emerald-950/60'
-                                : 'text-slate-400 hover:text-slate-600'
-                            }`}
-                          >
-                            <Pin className="w-3.5 h-3.5" />
-                          </button>
+                            <div className="text-xl font-black font-mono tracking-widest text-emerald-700 dark:text-emerald-400">
+                              {generated8DigitCode}
+                            </div>
+                          </div>
                         </div>
-                      );
-                    })
+                      )}
+                    </div>
+                  ) : (
+                    /* Connected Device Info Box */
+                    <div className="bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-2.5">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="p-2 bg-white dark:bg-slate-900 rounded-lg border border-slate-200/70 dark:border-slate-800">
+                          <div className="flex items-center gap-1 text-slate-500 text-[10px] mb-0.5">
+                            <Wifi className="w-3 h-3 text-emerald-500" />
+                            <span>البث اللحظي</span>
+                          </div>
+                          <div className="text-[11px] font-black text-emerald-600 dark:text-emerald-400">
+                            مباشر وفوري ✓
+                          </div>
+                        </div>
+                        <div className="p-2 bg-white dark:bg-slate-900 rounded-lg border border-slate-200/70 dark:border-slate-800">
+                          <div className="flex items-center gap-1 text-slate-500 text-[10px] mb-0.5">
+                            <Send className="w-3 h-3 text-blue-500" />
+                            <span>الصادر بالحساب</span>
+                          </div>
+                          <div className="text-xs font-black text-slate-800 dark:text-slate-100 font-mono">
+                            {activeAccountObj?.messagesDispatchedCount || 0} رسالة
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={disconnectWhatsApp}
+                        className="w-full py-2 px-3 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 rounded-xl text-[11px] font-bold transition flex items-center justify-center gap-1.5 border border-rose-200 dark:border-rose-900 cursor-pointer"
+                      >
+                        <Power className="w-3.5 h-3.5" />
+                        <span>تغيير الجهاز / توليد QR جديد</span>
+                      </button>
+                    </div>
                   )}
                 </div>
-              </div>
 
-              {/* Live Chat Window */}
-              <div className={`${mobileWaPanel === 'ACTIVE_CHAT' ? 'flex' : 'hidden'} lg:flex flex-1 flex-col bg-[#efeae2] dark:bg-slate-950 min-h-0`}>
-                {/* Chat Header (Real-Time Live Status & Quick Actions) */}
-                <div className="px-3 sm:px-5 py-3 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-                    <button
-                      type="button"
-                      data-testid="comm-mobile-chat-back"
-                      onClick={() => setMobileWaPanel('CHATS')}
-                      className="lg:hidden p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 cursor-pointer shrink-0 flex items-center gap-1 text-[11px] font-bold"
-                      aria-label="رجوع إلى قائمة المحادثات"
-                    >
-                      <ArrowRight className="w-4 h-4" />
-                      <span>رجوع</span>
-                    </button>
-                    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-emerald-600 text-white flex items-center justify-center font-black text-sm shrink-0">
-                      {Array.from(activeChat.contactName.trim())[0] || '💬'}
-                    </div>
-                    <div className="min-w-0">
-                      <h4 className="text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100 truncate">
-                        {activeChat.contactName}
-                      </h4>
-                      <p className="text-[11px] text-slate-500 font-mono flex items-center gap-1.5 flex-wrap">
-                        <span>{activeChat.contactPhone || '—'}</span>
-                        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
-                          • عبر: {activeAccountObj?.accountLabel}
-                        </span>
-                      </p>
+                {/* Integrated Real Quick-Send & Financial Document Composer */}
+                <div className={`${mobileWaPanel === 'DOCS' ? 'block' : 'hidden'} lg:block pt-2.5 border-t border-slate-200 dark:border-slate-800 space-y-2 min-w-0`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="font-black text-[11px] text-slate-800 dark:text-slate-100 flex items-center gap-1 min-w-0">
+                      <Zap className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span className="truncate">إرسال المستندات المالية السريع</span>
+                    </h4>
+                    <span className="text-[9px] px-1.5 py-0.5 bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 rounded font-bold shrink-0">
+                      مباشر
+                    </span>
+                  </div>
+
+                  {/* 1. Real Sales Invoice Selector */}
+                  <div className="space-y-1 min-w-0">
+                    <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                      1. إرسال فاتورة مبيعات فعلية:
+                    </label>
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-1.5 min-w-0">
+                      <select
+                        value={selectedRealInvoiceId}
+                        disabled={salesInvoices.length === 0}
+                        onChange={(e) => setSelectedRealInvoiceId(e.target.value)}
+                        className="w-full min-w-0 truncate px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-[11px] font-bold disabled:opacity-60"
+                      >
+                        {salesInvoices.length === 0 ? (
+                          <option value="">لا توجد فواتير مبيعات مسجلة</option>
+                        ) : (
+                          salesInvoices.map((inv) => (
+                            <option key={inv.id} value={inv.id}>
+                              {inv.invoiceNumber} — {inv.customerName} ({formatCurrency(inv.grandTotal)})
+                            </option>
+                          ))
+                        )}
+                      </select>
+                      <button
+                        type="button"
+                        data-testid="quick-send-invoice-btn"
+                        disabled={salesInvoices.length === 0}
+                        onClick={() => {
+                          const inv =
+                            salesInvoices.find((i) => i.id === selectedRealInvoiceId) ||
+                            salesInvoices[0];
+                          if (!inv) return;
+                          const cust = customers.find((c) => c.id === inv.customerId);
+                          const phone = cust?.phone || activeChat.contactPhone;
+                          const chatId = startOrOpenWhatsAppChat(inv.customerName, phone, cust?.id);
+                          const composed = composeInvoiceMessageText({
+                            invoice: inv,
+                            companyName: company.nameAr || company.name || 'المنشأة',
+                            branchName: currentBranch.nameAr,
+                            currency,
+                            includeItems: true,
+                            includeWarranty: true,
+                            customSignatureAr: messagingGatewayConfig.customSignatureAr,
+                          });
+                          sendWhatsAppChatMessage(chatId, composed, 'INVOICE', inv.invoiceNumber);
+                          setAccountToast(
+                            `تم إرسال الفاتورة (${inv.invoiceNumber}) مباشرة في محادثة (${inv.customerName}) وعبر واتساب!`
+                          );
+                          setMobileWaPanel('ACTIVE_CHAT');
+                        }}
+                        className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-[11px] font-bold cursor-pointer shrink-0 flex items-center gap-1"
+                      >
+                        <Send className="w-3 h-3" />
+                        <span>إرسال</span>
+                      </button>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {/* Chat Header Robot Icon Button (Inactive by default -> Active Emerald/Cyan when clicked) */}
-                    <button
-                      type="button"
-                      data-testid="chat-header-ai-bot-toggle"
-                      onClick={handleToggleAiBot}
-                      title={
-                        isAiBotEnabled
-                          ? 'الروبوت الذكي نشط في هذه المحادثة — انقر لإيقاف الرد التلقائي'
-                          : 'انقر لتفعيل الروبوت الذكي للرد الفوري وجلب الفواتير والتقارير'
-                      }
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all cursor-pointer border ${
-                        isAiBotEnabled
-                          ? 'bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-600/25 ring-2 ring-emerald-400/40'
-                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-200'
-                      }`}
-                    >
-                      <Bot className={`w-4 h-4 ${isAiBotEnabled ? 'text-white animate-bounce' : 'text-slate-500'}`} />
-                      <span>{isAiBotEnabled ? 'الروبوت الذكي: مفعّل ✓' : 'تفعيل الروبوت الذكي'}</span>
-                    </button>
+                  {/* 2. Real Customer Debt Reminder Selector */}
+                  <div className="space-y-1 min-w-0">
+                    <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                      2. كشف حساب ومطالبة مديونية:
+                    </label>
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-1.5 min-w-0">
+                      <select
+                        value={selectedRealCustomerId}
+                        disabled={customers.length === 0}
+                        onChange={(e) => setSelectedRealCustomerId(e.target.value)}
+                        className="w-full min-w-0 truncate px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-[11px] font-bold disabled:opacity-60"
+                      >
+                        {customers.length === 0 ? (
+                          <option value="">لا يوجد عملاء مسجلون</option>
+                        ) : (
+                          customers.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.nameAr} — الرصيد: {formatCurrency(c.balance)}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                      <button
+                        type="button"
+                        data-testid="quick-send-debt-btn"
+                        disabled={customers.length === 0}
+                        onClick={() => {
+                          const cust =
+                            customers.find((c) => c.id === selectedRealCustomerId) || customers[0];
+                          if (!cust) return;
+                          const chatId = startOrOpenWhatsAppChat(
+                            cust.nameAr || cust.name,
+                            cust.phone,
+                            cust.id
+                          );
+                          const refCode = `SOA-${cust.id.slice(-4).toUpperCase()}`;
+                          const composed = composeDebtReminderMessageText({
+                            customerName: cust.nameAr || cust.name,
+                            totalBalance: Math.abs(cust.balance || 0),
+                            companyName: company.nameAr || company.name || 'المنشأة',
+                            currency,
+                            customSignatureAr: messagingGatewayConfig.customSignatureAr,
+                          });
+                          sendWhatsAppChatMessage(chatId, composed, 'DEBT_REMINDER', refCode);
+                          setAccountToast(
+                            `تم إرسال كشف الحساب ومطالبة السداد إلى (${cust.nameAr}) مباشرة!`
+                          );
+                          setMobileWaPanel('ACTIVE_CHAT');
+                        }}
+                        className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-xl text-[11px] font-bold cursor-pointer shrink-0 flex items-center gap-1"
+                      >
+                        <Send className="w-3 h-3" />
+                        <span>إرسال</span>
+                      </button>
+                    </div>
+                  </div>
 
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                      <span>إرسال واستقبال فعلي لحظي</span>
+                  {/* 3. Real Warranty / RMA Notification Selector */}
+                  <div className="space-y-1 min-w-0">
+                    <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                      3. إشعار صيانة وضمان (RMA):
+                    </label>
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-1.5 min-w-0">
+                      <select
+                        value={selectedRealRmaId}
+                        disabled={warrantyTickets.length === 0}
+                        onChange={(e) => setSelectedRealRmaId(e.target.value)}
+                        className="w-full min-w-0 truncate px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-[11px] font-bold disabled:opacity-60"
+                      >
+                        {warrantyTickets.length === 0 ? (
+                          <option value="">لا توجد تذاكر صيانة مسجلة</option>
+                        ) : (
+                          warrantyTickets.map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {t.ticketNumber} — {t.customerName} ({t.productName.slice(0, 22)})
+                            </option>
+                          ))
+                        )}
+                      </select>
+                      <button
+                        type="button"
+                        data-testid="quick-send-rma-btn"
+                        disabled={warrantyTickets.length === 0}
+                        onClick={() => {
+                          const rma =
+                            warrantyTickets.find((t) => t.id === selectedRealRmaId) ||
+                            warrantyTickets[0];
+                          if (!rma) return;
+                          const chatId = startOrOpenWhatsAppChat(
+                            rma.customerName,
+                            rma.customerPhone
+                          );
+                          const msg = `🔧 *إشعار مركز الصيانة والضمان المعتمد*\nتذكرة رقم: *${rma.ticketNumber}*\nالعميل: ${rma.customerName}\nالجهاز: ${rma.productName}\nالرقم التسلسلي: ${rma.serialNumber}\nالتقرير الفني: ${rma.technicianReport}\nالرسوم المستحقة: ${formatCurrency(rma.totalCustomerCharge)}`;
+                          sendWhatsAppChatMessage(chatId, msg, 'WARRANTY', rma.ticketNumber);
+                          setAccountToast(
+                            `تم إرسال تقرير الضمان (${rma.ticketNumber}) إلى (${rma.customerName}) مباشرة!`
+                          );
+                          setMobileWaPanel('ACTIVE_CHAT');
+                        }}
+                        className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-[11px] font-bold cursor-pointer shrink-0 flex items-center gap-1"
+                      >
+                        <Send className="w-3 h-3" />
+                        <span>إرسال</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </aside>
+
+            {/* COLLAPSED MINI-BAR FOR PANEL 1 (QR / PAIRING) */}
+            {isQrPanelCollapsed && (
+              <div
+                id="qr-mini-bar"
+                data-testid="comm-qr-mini-bar"
+                className="hidden lg:flex w-12 shrink-0 bg-slate-50/90 dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex-col items-center py-3 gap-4 z-10 select-none"
+              >
+                <button
+                  type="button"
+                  data-testid="comm-expand-qr-btn"
+                  onClick={() => setIsQrPanelCollapsed(false)}
+                  title="توسيع لوح الربط والأجهزة"
+                  className="w-8 h-8 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-emerald-500 text-slate-600 dark:text-slate-300 hover:text-emerald-600 flex items-center justify-center shadow-2xs transition cursor-pointer"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+                <div
+                  onClick={() => setIsQrPanelCollapsed(false)}
+                  title={activeAccountObj?.accountLabel || 'الحساب الرسمي'}
+                  className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-black text-[10px] relative cursor-pointer shadow-2xs"
+                >
+                  WH
+                  <span
+                    className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-slate-900 ${
+                      whatsappSession.status === 'CONNECTED' ? 'bg-emerald-400' : 'bg-amber-400'
+                    }`}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsQrPanelCollapsed(false)}
+                  title="إظهار باركود الربط والمستندات"
+                  className="w-8 h-8 rounded-lg hover:bg-emerald-50 dark:hover:bg-slate-800 text-slate-500 hover:text-emerald-600 flex items-center justify-center transition cursor-pointer"
+                >
+                  <QrCode className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {/* ==================================================================== */}
+            {/* PANEL 2 (MIDDLE): CUSTOMER CHATS LIST (#chats-panel)                 */}
+            {/* ==================================================================== */}
+            <aside
+              id="chats-panel"
+              data-testid="comm-chats-panel"
+              className={`${mobileWaPanel === 'CHATS' ? 'flex' : 'hidden'} ${
+                isChatsPanelCollapsed ? 'lg:hidden' : 'lg:flex'
+              } w-full lg:w-72 xl:w-80 shrink-0 border-b lg:border-b-0 lg:border-l border-slate-200 dark:border-slate-800 flex-col bg-slate-50/40 dark:bg-slate-900/50 min-h-0 min-w-0 flex-1 lg:flex-initial transition-all duration-200`}
+            >
+              {/* Panel 2 Header with Collapse Button + Search + Filter Chips */}
+              <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2.5 shrink-0">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <MessageSquare className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <h2 className="text-xs font-black text-slate-800 dark:text-slate-100 truncate">
+                      محادثات العملاء
+                    </h2>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-bold font-mono">
+                      {filteredChats.length} نشطة
                     </span>
                     <button
                       type="button"
-                      onClick={async () => {
-                        setIsSyncingLiveNow(true);
-                        await fetchLiveWhatsAppQR(false);
-                        setIsSyncingLiveNow(false);
-                      }}
-                      title="مزامنة الرسائل الواردة والصادرة من خادم واتساب الآن"
-                      className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition"
+                      data-testid="comm-collapse-chats-btn"
+                      onClick={() => setIsChatsPanelCollapsed(true)}
+                      title="طي قائمة المحادثات لتوسيع مساحة الدردشة"
+                      className="hidden lg:flex w-7 h-7 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition cursor-pointer"
                     >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isSyncingLiveNow ? 'animate-spin text-emerald-600' : ''}`} />
-                      <span>مزامنة فورية</span>
+                      <ChevronLeft className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
 
-                {/* AI Robot Full-ERP Control Strip (Visible when Robot is active, or compact status bar when inactive) */}
-                <div
-                  data-testid="whatsapp-ai-bot-control-strip"
-                  className={`px-4 py-2 border-b transition-colors flex flex-col gap-1.5 ${
-                    isAiBotEnabled
-                      ? 'bg-emerald-950 text-white border-emerald-800'
-                      : 'bg-slate-100/90 dark:bg-slate-900/90 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <div className="flex items-center gap-2 text-[11px]">
-                      <Bot
-                        className={`w-4 h-4 shrink-0 ${
-                          isAiBotEnabled ? 'text-emerald-400' : 'text-slate-400'
-                        }`}
-                      />
-                      <span className="font-black">
-                        {isAiBotEnabled
-                          ? 'تحكم الروبوت الذكي بالنظام مفعّل (واعي بالفواتير، الأرباح، المخزون، والمديونيات):'
-                          : 'الروبوت الذكي في وضع الاستعداد:'}
-                      </span>
-                      <span
-                        className={`truncate max-w-md ${
-                          isAiBotEnabled ? 'text-emerald-300' : 'text-slate-500'
+                {/* Search + New Chat */}
+                <div className="flex items-center gap-1.5">
+                  <div className="relative flex-1">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5" />
+                    <input
+                      type="text"
+                      value={chatSearch}
+                      onChange={(e) => setChatSearch(e.target.value)}
+                      placeholder="بحث في السجلات..."
+                      className="w-full pl-3 pr-8 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewChatForm((v) => !v)}
+                    title="بدء محادثة جديدة مع أي عميل أو رقم"
+                    className="w-8 h-8 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-emerald-500 text-slate-600 dark:text-slate-300 hover:text-emerald-600 flex items-center justify-center transition cursor-pointer shrink-0"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {showNewChatForm && (
+                  <form
+                    onSubmit={handleStartNewChat}
+                    className="p-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-emerald-300 dark:border-emerald-700 space-y-2"
+                  >
+                    <div className="text-[11px] font-bold text-slate-700 dark:text-slate-200 flex justify-between">
+                      <span>فتح محادثة فورية داخل النظام</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowNewChatForm(false)}
+                        className="text-slate-400 hover:text-slate-600"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <select
+                      onChange={(e) => {
+                        const cust = customers.find((c) => c.id === e.target.value);
+                        if (cust) {
+                          setNewChatName(cust.nameAr);
+                          setNewChatPhone(cust.phone);
+                        }
+                      }}
+                      defaultValue=""
+                      className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px]"
+                    >
+                      <option value="" disabled>
+                        اختر من قائمة العملاء أو اكتب رقماً...
+                      </option>
+                      {customers.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.nameAr} ({c.phone})
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      value={newChatName}
+                      onChange={(e) => setNewChatName(e.target.value)}
+                      placeholder="اسم العميل أو الجهة"
+                      className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px]"
+                    />
+                    <input
+                      type="text"
+                      required
+                      value={newChatPhone}
+                      onChange={(e) => setNewChatPhone(e.target.value)}
+                      placeholder="رقم الهاتف (+967...)"
+                      className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-mono"
+                    />
+                    <button
+                      type="submit"
+                      className="w-full py-1.5 haseb-btn-primary text-white rounded-lg text-[11px] font-bold cursor-pointer"
+                    >
+                      بدء المحادثة الآن
+                    </button>
+                  </form>
+                )}
+
+                {/* Contact List Filters */}
+                <div className="flex items-center gap-1">
+                  {([
+                    { id: 'ALL', label: 'الكل' },
+                    { id: 'UNREAD', label: 'غير مقروء' },
+                    { id: 'DEBTORS', label: 'مدينون', dot: true },
+                  ] as const).map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => setChatFilterMode(f.id)}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer flex items-center gap-1 ${
+                        chatFilterMode === f.id
+                          ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                          : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span>{f.label}</span>
+                      {'dot' in f && f.dot && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Chat List */}
+              <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 min-h-0">
+                {filteredChats.length === 0 ? (
+                  <div className="h-full p-5 flex flex-col items-center justify-center text-center space-y-2.5">
+                    <div className="w-11 h-11 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 shadow-2xs">
+                      <MessageSquare className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                        لا توجد محادثات متطابقة
+                      </p>
+                      <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                        ستظهر الرسائل الجديدة وسجلات العملاء فور الربط والمراسلة.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowNewChatForm(true)}
+                      className="px-3.5 py-1.5 bg-white dark:bg-slate-800 hover:bg-emerald-50 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 rounded-xl text-[11px] font-bold cursor-pointer flex items-center gap-1 shadow-2xs transition"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>بدء مراسلة فورية</span>
+                    </button>
+                  </div>
+                ) : (
+                  filteredChats.map((chat) => {
+                    const isSelected = chat.id === activeChat.id;
+                    const isPinned = pinnedChatIds.includes(chat.id);
+                    const matchedCust = getMatchedCustomerForChat(chat.contactName, chat.contactPhone);
+                    return (
+                      <div
+                        key={chat.id}
+                        className={`w-full p-3 text-right flex items-start gap-2.5 transition-colors ${
+                          isSelected
+                            ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-r-4 border-emerald-500'
+                            : 'hover:bg-slate-100/80 dark:hover:bg-slate-800/40'
                         }`}
                       >
-                        {aiBotLastActionAr}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveWhatsAppChatId(chat.id);
+                            setMobileWaPanel('ACTIVE_CHAT');
+                          }}
+                          className="flex-1 min-w-0 flex items-start gap-2.5 text-right cursor-pointer"
+                        >
+                          <div className="w-9 h-9 rounded-xl bg-slate-200/80 dark:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center justify-center font-bold text-xs shrink-0">
+                            {Array.from(chat.contactName.trim())[0] || '💬'}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between mb-0.5 gap-1">
+                              <h5 className="text-xs font-black text-slate-800 dark:text-slate-100 truncate">
+                                {chat.contactName}
+                              </h5>
+                              <span className="text-[10px] text-slate-400 font-mono shrink-0">
+                                {chat.lastMessageTime}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-1">
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                                {chat.lastMessage || 'لا توجد رسائل بعد'}
+                              </p>
+                              {chat.unreadCount > 0 && (
+                                <span className="px-1.5 py-0.5 bg-emerald-500 text-white rounded-full text-[10px] font-black shrink-0">
+                                  {chat.unreadCount}
+                                </span>
+                              )}
+                            </div>
+                            {matchedCust && Number(matchedCust.balance) > 0 && (
+                              <span className="inline-block mt-1 px-1.5 py-0.2 bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200/70 dark:border-amber-800 rounded text-[9px] font-bold font-mono">
+                                رصيد: {formatCurrency(matchedCust.balance)}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => togglePinChat(chat.id)}
+                          title={isPinned ? 'إلغاء تثبيت المحادثة' : 'تثبيت المحادثة بالأعلى'}
+                          className={`p-1 rounded-lg transition cursor-pointer shrink-0 ${
+                            isPinned
+                              ? 'text-emerald-600 bg-emerald-100 dark:bg-emerald-950/60'
+                              : 'text-slate-400 hover:text-slate-600'
+                          }`}
+                        >
+                          <Pin className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Panel 2 Bottom Status Strip */}
+              <div className="px-3 py-2 border-t border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between text-[10px] text-slate-400 shrink-0">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  <span>WebSocket: متصل</span>
+                </span>
+                <span>تشفير تام 256-bit</span>
+              </div>
+            </aside>
+
+            {/* COLLAPSED MINI-BAR FOR PANEL 2 (CHATS LIST) */}
+            {isChatsPanelCollapsed && (
+              <div
+                id="chats-mini-bar"
+                data-testid="comm-chats-mini-bar"
+                className="hidden lg:flex w-12 shrink-0 bg-slate-50/90 dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex-col items-center py-3 gap-4 z-10 select-none"
+              >
+                <button
+                  type="button"
+                  data-testid="comm-expand-chats-btn"
+                  onClick={() => setIsChatsPanelCollapsed(false)}
+                  title="توسيع قائمة المحادثات"
+                  className="w-8 h-8 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-emerald-500 text-slate-600 dark:text-slate-300 hover:text-emerald-600 flex items-center justify-center shadow-2xs transition cursor-pointer"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsChatsPanelCollapsed(false)}
+                  title={`محادثات العملاء (${filteredChats.length})`}
+                  className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center relative cursor-pointer"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  {filteredChats.length > 0 && (
+                    <span className="absolute -top-1 -left-1 px-1 rounded-full bg-emerald-600 text-white text-[9px] font-mono font-bold">
+                      {filteredChats.length}
+                    </span>
+                  )}
+                </button>
+              </div>
+            )}
+
+            {/* ==================================================================== */}
+            {/* PANEL 3 (LEFT / MAIN): CENTRAL UNIFIED MESSAGING STAGE (#stage-panel) */}
+            {/* ==================================================================== */}
+            <section
+              id="stage-panel"
+              data-testid="comm-stage-panel"
+              className={`${
+                mobileWaPanel === 'ACTIVE_CHAT' ? 'flex' : 'hidden'
+              } lg:flex flex-1 flex-col bg-[#f8fafb] dark:bg-slate-950 min-h-0 min-w-0 relative`}
+            >
+              {/* Chat Header (Real-Time Live Status, Restore Panels & Quick Actions) */}
+              <div className="px-3 sm:px-4 py-2.5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2 min-w-0 shrink-0">
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <button
+                    type="button"
+                    data-testid="comm-mobile-chat-back"
+                    onClick={() => setMobileWaPanel('CHATS')}
+                    className="lg:hidden p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 cursor-pointer shrink-0 flex items-center gap-1 text-[11px] font-bold"
+                    aria-label="رجوع إلى قائمة المحادثات"
+                  >
+                    <ArrowRight className="w-4 h-4" />
+                    <span>رجوع</span>
+                  </button>
+                  <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 flex items-center justify-center font-black text-xs sm:text-sm shrink-0">
+                    {Array.from(activeChat.contactName.trim())[0] || 'ل'}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100 truncate">
+                        {activeChat.contactName}
+                      </h4>
+                      <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-semibold shrink-0">
+                        وضع الاستعداد
                       </span>
                     </div>
-
-                    {isAiBotEnabled && (
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                        الردود الذكية المنفذة: {aiBotRepliesCount}
+                    <p className="text-[10px] sm:text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1.5 truncate mt-0.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                      <span className="truncate">
+                        المرسل: {activeAccountObj?.accountLabel || 'الحساب الرئيسي'} (جاهز للإرسال)
                       </span>
-                    )}
+                      {activeChat.contactPhone && (
+                        <span className="text-slate-400 font-mono dir-ltr">
+                          • {activeChat.contactPhone}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {/* Restore Folded Panels Button (Shown when either panel is collapsed) */}
+                  {(isQrPanelCollapsed || isChatsPanelCollapsed) && (
+                    <button
+                      type="button"
+                      data-testid="comm-restore-panels-btn"
+                      onClick={() => {
+                        setIsQrPanelCollapsed(false);
+                        setIsChatsPanelCollapsed(false);
+                      }}
+                      className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] font-bold hover:bg-emerald-100 transition cursor-pointer"
+                    >
+                      <PanelLeftOpen className="w-3.5 h-3.5" />
+                      <span>عرض الألواح</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    data-testid="chat-header-ai-bot-toggle"
+                    onClick={handleToggleAiBot}
+                    title={
+                      isAiBotEnabled
+                        ? 'الرد الآلي الذكي نشط في هذه المحادثة — انقر لإيقاف الرد التلقائي'
+                        : 'انقر لتفعيل الرد الآلي الذكي للرد الفوري وجلب الفواتير والتقارير'
+                    }
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] sm:text-[11px] font-bold transition-all cursor-pointer border ${
+                      isAiBotEnabled
+                        ? 'bg-emerald-600 text-white border-emerald-500 shadow-xs'
+                        : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Zap className={`w-3.5 h-3.5 ${isAiBotEnabled ? 'text-white animate-bounce' : 'text-emerald-600'}`} />
+                    <span>{isAiBotEnabled ? 'الرد الآلي الذكي: نشط' : 'الرد الآلي الذكي: استعداد'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setIsSyncingLiveNow(true);
+                      await fetchLiveWhatsAppQR(false);
+                      setIsSyncingLiveNow(false);
+                    }}
+                    title="مزامنة الرسائل الواردة والصادرة من خادم واتساب الآن"
+                    className="p-2 rounded-xl bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-200 border border-slate-200 dark:border-slate-700 cursor-pointer transition"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncingLiveNow ? 'animate-spin text-emerald-600' : ''}`} />
+                  </button>
+                </div>
+              </div>
+
+              {/* AI Robot Full-ERP Control Strip */}
+              <div
+                data-testid="whatsapp-ai-bot-control-strip"
+                className={`px-3 sm:px-4 py-1.5 border-b transition-colors flex flex-col gap-1.5 min-w-0 shrink-0 ${
+                  isAiBotEnabled
+                    ? 'bg-emerald-950 text-white border-emerald-800'
+                    : 'bg-slate-100/80 dark:bg-slate-900/90 text-slate-600 dark:text-slate-400 border-slate-200/80 dark:border-slate-800'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2 min-w-0">
+                  <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] min-w-0 flex-1">
+                    <Bot
+                      className={`w-3.5 h-3.5 shrink-0 ${
+                        isAiBotEnabled ? 'text-emerald-400' : 'text-slate-400'
+                      }`}
+                    />
+                    <span className="font-black shrink-0">
+                      {isAiBotEnabled ? 'الروبوت مفعّل:' : 'الروبوت الذكي:'}
+                    </span>
+                    <span
+                      className={`truncate ${
+                        isAiBotEnabled ? 'text-emerald-300' : 'text-slate-500'
+                      }`}
+                    >
+                      {aiBotLastActionAr}
+                    </span>
                   </div>
 
                   {isAiBotEnabled && (
-                    <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                      <button
-                        type="button"
-                        data-testid="ai-bot-reply-last-msg-btn"
-                        disabled={isAiBotResponding}
-                        onClick={() => handleTriggerSmartAiBot()}
-                        className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[11px] flex items-center gap-1 cursor-pointer transition shadow-xs"
-                      >
-                        <Sparkles className="w-3 h-3" />
-                        <span>رد ذكي فوري على المحادثة</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        data-testid="ai-bot-send-invoice-btn"
-                        disabled={isAiBotResponding}
-                        onClick={() => handleTriggerSmartAiBot('INVOICE_LOOKUP')}
-                        className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 font-bold text-[11px] cursor-pointer transition"
-                      >
-                        📄 جلب وإرسال الفاتورة
-                      </button>
-
-                      <button
-                        type="button"
-                        data-testid="ai-bot-send-report-btn"
-                        disabled={isAiBotResponding}
-                        onClick={() => handleTriggerSmartAiBot('FINANCIAL_REPORT')}
-                        className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-bold text-[11px] cursor-pointer transition"
-                      >
-                        📈 تقرير الأرباح والمبيعات اللحظي
-                      </button>
-
-                      <button
-                        type="button"
-                        data-testid="ai-bot-send-debt-btn"
-                        disabled={isAiBotResponding}
-                        onClick={() => handleTriggerSmartAiBot('DEBT_STATEMENT')}
-                        className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-rose-300 border border-rose-500/30 font-bold text-[11px] cursor-pointer transition"
-                      >
-                        💳 كشف المديونية والرصيد
-                      </button>
-
-                      <button
-                        type="button"
-                        data-testid="ai-bot-send-stock-btn"
-                        disabled={isAiBotResponding}
-                        onClick={() => handleTriggerSmartAiBot('INVENTORY_PRICING')}
-                        className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 border border-sky-500/30 font-bold text-[11px] cursor-pointer transition"
-                      >
-                        📦 أسعار وجرد المستودع
-                      </button>
-                    </div>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
+                      الردود: {aiBotRepliesCount}
+                    </span>
                   )}
                 </div>
 
-                {/* Messages Body */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                  {activeChat.messages.length === 0 ? (
-                    <div className="h-full min-h-[220px] flex flex-col items-center justify-center text-center px-6 py-8">
-                      <div className="w-12 h-12 rounded-2xl bg-white/90 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 flex items-center justify-center shadow-2xs mb-3">
-                        <MessageSquare className="w-6 h-6 text-emerald-600" />
+                {isAiBotEnabled && (
+                  <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                    <button
+                      type="button"
+                      data-testid="ai-bot-reply-last-msg-btn"
+                      disabled={isAiBotResponding}
+                      onClick={() => handleTriggerSmartAiBot()}
+                      className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[11px] flex items-center gap-1 cursor-pointer transition shadow-xs"
+                    >
+                      <Sparkles className="w-3 h-3" />
+                      <span>رد ذكي فوري على المحادثة</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      data-testid="ai-bot-send-invoice-btn"
+                      disabled={isAiBotResponding}
+                      onClick={() => handleTriggerSmartAiBot('INVOICE_LOOKUP')}
+                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 font-bold text-[11px] cursor-pointer transition"
+                    >
+                      📄 جلب وإرسال الفاتورة
+                    </button>
+
+                    <button
+                      type="button"
+                      data-testid="ai-bot-send-report-btn"
+                      disabled={isAiBotResponding}
+                      onClick={() => handleTriggerSmartAiBot('FINANCIAL_REPORT')}
+                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-bold text-[11px] cursor-pointer transition"
+                    >
+                      📈 تقرير الأرباح والمبيعات اللحظي
+                    </button>
+
+                    <button
+                      type="button"
+                      data-testid="ai-bot-send-debt-btn"
+                      disabled={isAiBotResponding}
+                      onClick={() => handleTriggerSmartAiBot('DEBT_STATEMENT')}
+                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-rose-300 border border-rose-500/30 font-bold text-[11px] cursor-pointer transition"
+                    >
+                      💳 كشف المديونية والرصيد
+                    </button>
+
+                    <button
+                      type="button"
+                      data-testid="ai-bot-send-stock-btn"
+                      disabled={isAiBotResponding}
+                      onClick={() => handleTriggerSmartAiBot('INVENTORY_PRICING')}
+                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 border border-sky-500/30 font-bold text-[11px] cursor-pointer transition"
+                    >
+                      📦 أسعار وجرد المستودع
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Messages Body / Central Unified Messaging Stage */}
+              <div
+                className="flex-1 overflow-y-auto p-3 sm:p-5 space-y-2.5 min-h-0"
+                style={{
+                  backgroundImage: 'radial-gradient(#cbd5e1 1px, transparent 1px)',
+                  backgroundSize: '20px 20px',
+                }}
+              >
+                {activeChat.messages.length === 0 ? (
+                  <div className="h-full min-h-[210px] flex flex-col items-center justify-center text-center px-3 py-4">
+                    <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs border border-slate-200/90 dark:border-slate-800 rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-xs space-y-4">
+                      <div className="w-14 h-14 rounded-2xl bg-emerald-600 text-white flex items-center justify-center mx-auto shadow-md">
+                        <MessageSquare className="w-7 h-7" />
                       </div>
-                      <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100">
-                        ابدأ المحادثة مع عملائك مباشرة من هنا
-                      </h4>
-                      <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 max-w-md">
-                        اربط حساب واتساب بمسح الباركود على اليمين ثم اختر أي محادثة أو أنشئ محادثة جديدة لإرسال الفواتير وسندات القبض وكشوف الحساب فوراً.
-                      </p>
+                      <div>
+                        <h4 className="text-sm sm:text-base font-black text-slate-800 dark:text-slate-100">
+                          محطة المراسلة الفورية الموحدة
+                        </h4>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">
+                          أرسل الفواتير، السندات، وتذكيرات التحصيل لعملائك مباشرة عبر واتساب بضغطة زر واحدة.
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2.5 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => handleQuickComposerDocAction('INVOICE')}
+                          className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border border-slate-200 dark:border-slate-700 hover:border-emerald-300 text-slate-700 dark:text-slate-200 hover:text-emerald-800 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition"
+                        >
+                          <FileText className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>تجهيز فاتورة فورية</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleQuickComposerDocAction('STATEMENT')}
+                          className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border border-slate-200 dark:border-slate-700 hover:border-emerald-300 text-slate-700 dark:text-slate-200 hover:text-emerald-800 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition"
+                        >
+                          <BookOpen className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>كشف حساب عميل</span>
+                        </button>
+                      </div>
                     </div>
-                  ) : (
-                    activeChat.messages.map((msg, mIdx) => {
+                  </div>
+                ) : (
+                  activeChat.messages.map((msg, mIdx) => {
                     const isOutbound = msg.sender === 'ME';
                     return (
                       <div
@@ -2225,7 +2407,7 @@ export const CommunicationsView: React.FC = () => {
                         className={`flex flex-col ${isOutbound ? 'items-start' : 'items-end'}`}
                       >
                         <div
-                          className={`max-w-[78%] rounded-2xl p-3 shadow-sm ${
+                          className={`max-w-[78%] rounded-2xl p-3 shadow-xs ${
                             isOutbound
                               ? 'bg-[#d9fdd3] dark:bg-emerald-950/70 text-slate-900 dark:text-slate-100 rounded-tr-none'
                               : 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 rounded-tl-none border border-slate-200 dark:border-slate-800'
@@ -2261,340 +2443,340 @@ export const CommunicationsView: React.FC = () => {
                         </div>
                       </div>
                     );
-                    })
-                  )}
-                </div>
+                  })
+                )}
+              </div>
 
-                {/* ======================================================== */}
-                {/* SLASH (/) QUICK SHORTCUTS POPOVER & CRUD MANAGER         */}
-                {/* ======================================================== */}
-                {(isSlashMenuOpen || outgoingText.trim().startsWith('/')) && (
-                  <div
-                    data-testid="wa-slash-shortcuts-popover"
-                    className="mx-3 mb-1.5 rounded-2xl bg-white dark:bg-slate-900 border-2 border-emerald-500/40 shadow-2xl overflow-hidden z-30"
-                  >
-                    <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200/80 text-slate-900 flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 text-xs font-bold">
-                        <span className="px-1.5 py-0.5 rounded bg-slate-900 text-white font-mono text-[11px]">
-                          /
-                        </span>
-                        <span>الاختصارات السريعة للمحادثة (اكتب / في صندوق الكتابة أو اختر للرد الفوري)</span>
-                        <span className="text-[10px] font-mono text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                          {filteredSlashShortcuts.length} اختصار
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          data-testid="wa-slash-add-new-btn"
-                          onClick={() => {
-                            setEditingShortcutId(null);
-                            setScCommandInput('/اختصار');
-                            setScTitleInput('');
-                            setScCategoryInput('خدمة العملاء');
-                            setScContentInput('');
-                            setIsAddingOrEditingShortcut((v) => !v);
-                          }}
-                          className="px-2.5 py-1 rounded-full bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer transition"
-                        >
-                          <Plus className="w-3 h-3" />
-                          <span>{isAddingOrEditingShortcut ? 'إخفاء النموذج' : 'إضافة اختصار جديد'}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsSlashMenuOpen(false);
-                            setIsAddingOrEditingShortcut(false);
-                          }}
-                          className="p-1 rounded-full border border-slate-200/80 bg-white hover:bg-slate-100 text-slate-500 hover:text-slate-900 cursor-pointer"
-                          title="إغلاق قائمة الاختصارات"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+              {/* ======================================================== */}
+              {/* SLASH (/) QUICK SHORTCUTS POPOVER & CRUD MANAGER         */}
+              {/* ======================================================== */}
+              {(isSlashMenuOpen || outgoingText.trim().startsWith('/')) && (
+                <div
+                  data-testid="wa-slash-shortcuts-popover"
+                  className="mx-2 sm:mx-3 mb-1.5 rounded-2xl bg-white dark:bg-slate-900 border-2 border-emerald-500/40 shadow-2xl overflow-hidden z-30 max-w-full"
+                >
+                  <div className="px-3 sm:px-4 py-2 bg-slate-50 border-b border-slate-200/80 text-slate-900 flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold min-w-0">
+                      <span className="px-1.5 py-0.5 rounded haseb-btn-primary text-white font-mono text-[11px] shrink-0">
+                        /
+                      </span>
+                      <span className="truncate">الاختصارات السريعة للمحادثة</span>
+                      <span className="text-[10px] font-mono text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 shrink-0">
+                        {filteredSlashShortcuts.length} اختصار
+                      </span>
                     </div>
 
-                    {/* Add / Edit Shortcut Form */}
-                    {isAddingOrEditingShortcut && (
-                      <form
-                        onSubmit={handleSaveShortcutForm}
-                        data-testid="wa-slash-shortcut-form"
-                        className="p-3 bg-emerald-50/70 dark:bg-slate-800/80 border-b border-emerald-200 dark:border-slate-700 space-y-2 text-xs"
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        data-testid="wa-slash-add-new-btn"
+                        onClick={() => {
+                          setEditingShortcutId(null);
+                          setScCommandInput('/اختصار');
+                          setScTitleInput('');
+                          setScCategoryInput('خدمة العملاء');
+                          setScContentInput('');
+                          setIsAddingOrEditingShortcut((v) => !v);
+                        }}
+                        className="px-2.5 py-1 rounded-full haseb-btn-primary text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer transition"
                       >
-                        <div className="font-black text-emerald-900 dark:text-emerald-300 flex items-center justify-between">
-                          <span>
-                            {editingShortcutId ? 'تعديل الاختصار السريع' : 'إضافة اختصار سلاش (/) جديد'}
-                          </span>
-                          <span className="text-[10px] font-normal text-slate-500">
-                            المتغيرات المدعومة تلقائياً: {'{العميل}'} {'{الشركة}'} {'{الرصيد}'} {'{العملة}'} {'{التاريخ}'}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-300 mb-0.5">
-                              كود الاختصار (يبدأ بـ /):
-                            </label>
-                            <input
-                              type="text"
-                              data-testid="wa-slash-input-command"
-                              value={scCommandInput}
-                              onChange={(e) => setScCommandInput(e.target.value)}
-                              placeholder="/ترحيب"
-                              className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg font-mono font-bold text-xs"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-300 mb-0.5">
-                              عنوان الاختصار:
-                            </label>
-                            <input
-                              type="text"
-                              data-testid="wa-slash-input-title"
-                              value={scTitleInput}
-                              onChange={(e) => setScTitleInput(e.target.value)}
-                              placeholder="مثال: رسالة تأكيد الحجز"
-                              className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg font-bold text-xs"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-300 mb-0.5">
-                              التصنيف:
-                            </label>
-                            <select
-                              value={scCategoryInput}
-                              onChange={(e) => setScCategoryInput(e.target.value)}
-                              className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg font-bold text-xs"
-                            >
-                              <option value="خدمة العملاء">عام / خدمة عملاء</option>
-                              <option value="المبيعات والفواتير">فواتير ومبيعات</option>
-                              <option value="المحاسبة والتحصيل">سندات قبض وكشف حساب</option>
-                              <option value="الأقساط والتمويل">أقساط وجدولة</option>
-                            </select>
-                          </div>
+                        <Plus className="w-3 h-3" />
+                        <span>{isAddingOrEditingShortcut ? 'إخفاء النموذج' : 'إضافة اختصار جديد'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsSlashMenuOpen(false);
+                          setIsAddingOrEditingShortcut(false);
+                        }}
+                        className="p-1 rounded-full border border-slate-200/80 bg-white hover:bg-slate-100 text-slate-500 hover:text-slate-900 cursor-pointer"
+                        title="إغلاق قائمة الاختصارات"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Add / Edit Shortcut Form */}
+                  {isAddingOrEditingShortcut && (
+                    <form
+                      onSubmit={handleSaveShortcutForm}
+                      data-testid="wa-slash-shortcut-form"
+                      className="p-3 bg-emerald-50/70 dark:bg-slate-800/80 border-b border-emerald-200 dark:border-slate-700 space-y-2 text-xs"
+                    >
+                      <div className="font-black text-emerald-900 dark:text-emerald-300 flex items-center justify-between">
+                        <span>
+                          {editingShortcutId ? 'تعديل الاختصار السريع' : 'إضافة اختصار سلاش (/) جديد'}
+                        </span>
+                        <span className="text-[10px] font-normal text-slate-500">
+                          المتغيرات المدعومة تلقائياً: {'{العميل}'} {'{الشركة}'} {'{الرصيد}'} {'{العملة}'} {'{التاريخ}'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-300 mb-0.5">
+                            كود الاختصار (يبدأ بـ /):
+                          </label>
+                          <input
+                            type="text"
+                            data-testid="wa-slash-input-command"
+                            value={scCommandInput}
+                            onChange={(e) => setScCommandInput(e.target.value)}
+                            placeholder="/ترحيب"
+                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg font-mono font-bold text-xs"
+                          />
                         </div>
                         <div>
                           <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-300 mb-0.5">
-                            نص الرسالة التلقائي:
+                            عنوان الاختصار:
                           </label>
-                          <textarea
-                            rows={2}
-                            data-testid="wa-slash-input-content"
-                            value={scContentInput}
-                            onChange={(e) => setScContentInput(e.target.value)}
-                            placeholder="مرحباً {العميل}، نشكر تواصلكم مع {الشركة}..."
-                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs"
+                          <input
+                            type="text"
+                            data-testid="wa-slash-input-title"
+                            value={scTitleInput}
+                            onChange={(e) => setScTitleInput(e.target.value)}
+                            placeholder="مثال: رسالة تأكيد الحجز"
+                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg font-bold text-xs"
                           />
                         </div>
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsAddingOrEditingShortcut(false);
-                              setEditingShortcutId(null);
-                            }}
-                            className="px-3 py-1 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-[11px] cursor-pointer"
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-300 mb-0.5">
+                            التصنيف:
+                          </label>
+                          <select
+                            value={scCategoryInput}
+                            onChange={(e) => setScCategoryInput(e.target.value)}
+                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg font-bold text-xs"
                           >
-                            إلغاء
-                          </button>
-                          <button
-                            type="submit"
-                            data-testid="wa-slash-save-btn"
-                            className="px-3.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                            <span>{editingShortcutId ? 'حفظ التعديلات' : 'حفظ الاختصار الجديد'}</span>
-                          </button>
+                            <option value="خدمة العملاء">عام / خدمة عملاء</option>
+                            <option value="المبيعات والفواتير">فواتير ومبيعات</option>
+                            <option value="المحاسبة والتحصيل">سندات قبض وكشف حساب</option>
+                            <option value="الأقساط والتمويل">أقساط وجدولة</option>
+                          </select>
                         </div>
-                      </form>
-                    )}
-
-                    {/* Shortcuts List */}
-                    <div className="max-h-48 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
-                      {filteredSlashShortcuts.map((sc) => (
-                        <div
-                          key={sc.id}
-                          data-testid={`wa-slash-item-${sc.id}`}
-                          className="px-3.5 py-2 hover:bg-emerald-50/60 dark:hover:bg-slate-800/70 flex items-center justify-between gap-3 transition"
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-300 mb-0.5">
+                          نص الرسالة التلقائي:
+                        </label>
+                        <textarea
+                          rows={2}
+                          data-testid="wa-slash-input-content"
+                          value={scContentInput}
+                          onChange={(e) => setScContentInput(e.target.value)}
+                          placeholder="مرحباً {العميل}، نشكر تواصلكم مع {الشركة}..."
+                          className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs"
+                        />
+                      </div>
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsAddingOrEditingShortcut(false);
+                            setEditingShortcutId(null);
+                          }}
+                          className="px-3 py-1 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-[11px] cursor-pointer"
                         >
+                          إلغاء
+                        </button>
+                        <button
+                          type="submit"
+                          data-testid="wa-slash-save-btn"
+                          className="px-3.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>{editingShortcutId ? 'حفظ التعديلات' : 'حفظ الاختصار الجديد'}</span>
+                        </button>
+                      </div>
+                    </form>
+                  )}
+
+                  {/* Shortcuts List */}
+                  <div className="max-h-48 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                    {filteredSlashShortcuts.map((sc) => (
+                      <div
+                        key={sc.id}
+                        data-testid={`wa-slash-item-${sc.id}`}
+                        className="px-3.5 py-2 hover:bg-emerald-50/60 dark:hover:bg-slate-800/70 flex items-center justify-between gap-3 transition"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handleApplySlashShortcut(sc)}
+                          className="flex-1 text-right flex items-start gap-2.5 cursor-pointer"
+                        >
+                          <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300/60 dark:border-emerald-700 font-mono font-black text-[11px] shrink-0">
+                            {sc.command}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="font-bold text-xs text-slate-900 dark:text-slate-100">
+                              {sc.titleAr}
+                            </div>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                              {sc.contentAr}
+                            </p>
+                          </div>
+                        </button>
+
+                        <div className="flex items-center gap-1 shrink-0">
                           <button
                             type="button"
-                            onClick={() => handleApplySlashShortcut(sc)}
-                            className="flex-1 text-right flex items-start gap-2.5 cursor-pointer"
+                            data-testid={`wa-slash-edit-${sc.id}`}
+                            onClick={() => handleStartEditShortcut(sc)}
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-100/70 dark:hover:bg-slate-700 cursor-pointer transition"
+                            title="تعديل الاختصار"
                           >
-                            <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300/60 dark:border-emerald-700 font-mono font-black text-[11px] shrink-0">
-                              {sc.command}
-                            </span>
-                            <div className="min-w-0 flex-1">
-                              <div className="font-bold text-xs text-slate-900 dark:text-slate-100">
-                                {sc.titleAr}
-                              </div>
-                              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                                {sc.contentAr}
-                              </p>
-                            </div>
+                            <Edit3 className="w-3.5 h-3.5" />
                           </button>
-
-                          <div className="flex items-center gap-1 shrink-0">
-                            <button
-                              type="button"
-                              data-testid={`wa-slash-edit-${sc.id}`}
-                              onClick={() => handleStartEditShortcut(sc)}
-                              className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-100/70 dark:hover:bg-slate-700 cursor-pointer transition"
-                              title="تعديل الاختصار"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              data-testid={`wa-slash-delete-${sc.id}`}
-                              onClick={() => handleDeleteShortcutItem(sc.id)}
-                              className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-700 cursor-pointer transition"
-                              title="حذف الاختصار"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
+                          <button
+                            type="button"
+                            data-testid={`wa-slash-delete-${sc.id}`}
+                            onClick={() => handleDeleteShortcutItem(sc.id)}
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-700 cursor-pointer transition"
+                            title="حذف الاختصار"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
-                      ))}
-                    </div>
+                      </div>
+                    ))}
                   </div>
-                )}
-
-                {/* ======================================================== */}
-                {/* QUICK ACTION BAR ABOVE COMPOSER (فاتورة | سند قبض | كشف حساب | قسط | إرفاق ملف/صورة | إختصارات سريعة) */}
-                {/* ======================================================== */}
-                <div
-                  data-testid="whatsapp-composer-quick-bar"
-                  className="px-3 py-2 bg-slate-50 dark:bg-slate-900/95 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-1.5 flex-wrap"
-                >
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <button
-                      type="button"
-                      data-testid="wa-bar-btn-invoice"
-                      onClick={() => handleQuickComposerDocAction('INVOICE')}
-                      className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 text-slate-800 dark:text-slate-100 border border-slate-200/90 dark:border-slate-700 hover:border-emerald-400 text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition shadow-2xs"
-                    >
-                      <FileText className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>فاتورة</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      data-testid="wa-bar-btn-receipt"
-                      onClick={() => handleQuickComposerDocAction('RECEIPT')}
-                      className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-teal-50 dark:hover:bg-teal-950/50 text-slate-800 dark:text-slate-100 border border-slate-200/90 dark:border-slate-700 hover:border-teal-400 text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition shadow-2xs"
-                    >
-                      <Receipt className="w-3.5 h-3.5 text-teal-600" />
-                      <span>سند قبض</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      data-testid="wa-bar-btn-statement"
-                      onClick={() => handleQuickComposerDocAction('STATEMENT')}
-                      className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 text-slate-800 dark:text-slate-100 border border-slate-200/90 dark:border-slate-700 hover:border-indigo-400 text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition shadow-2xs"
-                    >
-                      <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
-                      <span>كشف حساب</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      data-testid="wa-bar-btn-installment"
-                      onClick={() => handleQuickComposerDocAction('INSTALLMENT')}
-                      className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-amber-50 dark:hover:bg-amber-950/50 text-slate-800 dark:text-slate-100 border border-slate-200/90 dark:border-slate-700 hover:border-amber-400 text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition shadow-2xs"
-                    >
-                      <Calendar className="w-3.5 h-3.5 text-amber-600" />
-                      <span>قسط</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      data-testid="wa-bar-btn-attach"
-                      onClick={() => fileAttachmentInputRef.current?.click()}
-                      className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/50 text-slate-800 dark:text-slate-100 border border-slate-200/90 dark:border-slate-700 hover:border-sky-400 text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition shadow-2xs"
-                    >
-                      <Paperclip className="w-3.5 h-3.5 text-sky-600" />
-                      <span>إرفاق ملف/صورة</span>
-                    </button>
-                    <input
-                      ref={fileAttachmentInputRef}
-                      type="file"
-                      accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
-                      onChange={handleFileAttachmentChange}
-                      className="hidden"
-                    />
-
-                    <button
-                      type="button"
-                      data-testid="wa-bar-btn-shortcuts"
-                      onClick={() => setIsSlashMenuOpen((prev) => !prev)}
-                      className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition shadow-2xs ${
-                        isSlashMenuOpen || outgoingText.trim().startsWith('/')
-                          ? 'bg-emerald-600 text-white border-emerald-600'
-                          : 'bg-emerald-50/80 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100'
-                      }`}
-                    >
-                      <Zap className="w-3.5 h-3.5" />
-                      <span>إختصارات سريعة (/)</span>
-                    </button>
-                  </div>
-
-                  {attachedFilePreview && (
-                    <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-sky-50 dark:bg-sky-950/60 border border-sky-200 dark:border-sky-800 text-[11px] text-sky-900 dark:text-sky-200">
-                      <Paperclip className="w-3 h-3 text-sky-600" />
-                      <span className="font-bold truncate max-w-[160px]">{attachedFilePreview.name}</span>
-                      <span className="text-[10px] font-mono text-sky-600">({attachedFilePreview.sizeLabel})</span>
-                      <button
-                        type="button"
-                        onClick={() => setAttachedFilePreview(null)}
-                        className="text-rose-500 hover:text-rose-700 font-bold cursor-pointer"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  )}
                 </div>
+              )}
 
-                {/* Message Composer Footer */}
-                <form
-                  onSubmit={handleSendMessage}
-                  className="p-3 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center gap-2"
-                >
-                  <div className="relative flex-1">
-                    <input
-                      type="text"
-                      data-testid="whatsapp-chat-input"
-                      value={outgoingText}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setOutgoingText(val);
-                        if (val.trim().startsWith('/')) {
-                          setIsSlashMenuOpen(true);
-                        }
-                      }}
-                      placeholder={
-                        selectedQuickDoc !== 'NONE'
-                          ? `كتابة ملاحظة مصاحبة للمستند (${selectedQuickDoc})...`
-                          : `اكتب رسالتك أو اكتب ( / ) لإظهار الاختصارات السريعة إلى (${activeChat.contactName})...`
-                      }
-                      className="w-full px-4 py-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                  </div>
+              {/* QUICK ACTION BAR ABOVE COMPOSER */}
+              <div
+                data-testid="whatsapp-composer-quick-bar"
+                className="px-2.5 sm:px-3.5 py-2 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-1.5 flex-wrap min-w-0 shrink-0"
+              >
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar sm:flex-wrap max-w-full min-w-0 py-0.5">
+                  <span className="text-[10px] font-bold text-slate-400 ml-1 shrink-0">
+                    إرسال سريع:
+                  </span>
+                  <button
+                    type="button"
+                    data-testid="wa-bar-btn-invoice"
+                    onClick={() => handleQuickComposerDocAction('INVOICE')}
+                    className="px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 text-slate-700 dark:text-slate-200 border border-slate-200/90 dark:border-slate-700 hover:border-emerald-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition whitespace-nowrap shrink-0"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>فاتورة مبيعات</span>
+                  </button>
 
                   <button
-                    type="submit"
-                    data-testid="whatsapp-send-btn"
-                    className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl shadow-md transition cursor-pointer flex items-center gap-1.5 text-xs font-bold"
-                    title="إرسال فعلي فوري"
+                    type="button"
+                    data-testid="wa-bar-btn-receipt"
+                    onClick={() => handleQuickComposerDocAction('RECEIPT')}
+                    className="px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-teal-50 dark:hover:bg-teal-950/50 text-slate-700 dark:text-slate-200 border border-slate-200/90 dark:border-slate-700 hover:border-teal-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition whitespace-nowrap shrink-0"
                   >
-                    <span>إرسال</span>
-                    <Send className="w-3.5 h-3.5 rtl:-rotate-90" />
+                    <Receipt className="w-3.5 h-3.5 text-teal-600" />
+                    <span>سند قبض</span>
                   </button>
-                </form>
+
+                  <button
+                    type="button"
+                    data-testid="wa-bar-btn-statement"
+                    onClick={() => handleQuickComposerDocAction('STATEMENT')}
+                    className="px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 text-slate-700 dark:text-slate-200 border border-slate-200/90 dark:border-slate-700 hover:border-indigo-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition whitespace-nowrap shrink-0"
+                  >
+                    <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>كشف حساب</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    data-testid="wa-bar-btn-installment"
+                    onClick={() => handleQuickComposerDocAction('INSTALLMENT')}
+                    className="px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-amber-50 dark:hover:bg-amber-950/50 text-slate-700 dark:text-slate-200 border border-slate-200/90 dark:border-slate-700 hover:border-amber-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition whitespace-nowrap shrink-0"
+                  >
+                    <Calendar className="w-3.5 h-3.5 text-amber-600" />
+                    <span>تذكير بقسط</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    data-testid="wa-bar-btn-attach"
+                    onClick={() => fileAttachmentInputRef.current?.click()}
+                    className="px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-slate-700 dark:text-slate-200 border border-slate-200/90 dark:border-slate-700 hover:border-rose-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition whitespace-nowrap shrink-0"
+                  >
+                    <Paperclip className="w-3.5 h-3.5 text-rose-500" />
+                    <span>إرفاق PDF</span>
+                  </button>
+                  <input
+                    ref={fileAttachmentInputRef}
+                    type="file"
+                    accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+                    onChange={handleFileAttachmentChange}
+                    className="hidden"
+                  />
+
+                  <button
+                    type="button"
+                    data-testid="wa-bar-btn-shortcuts"
+                    onClick={() => setIsSlashMenuOpen((prev) => !prev)}
+                    className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1 cursor-pointer transition whitespace-nowrap shrink-0 ${
+                      isSlashMenuOpen || outgoingText.trim().startsWith('/')
+                        ? 'haseb-btn-primary text-white border-transparent'
+                        : 'bg-emerald-50/80 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100'
+                    }`}
+                  >
+                    <Zap className="w-3.5 h-3.5" />
+                    <span>اختصارات (/)</span>
+                  </button>
+                </div>
+
+                {attachedFilePreview && (
+                  <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-sky-50 dark:bg-sky-950/60 border border-sky-200 dark:border-sky-800 text-[11px] text-sky-900 dark:text-sky-200 max-w-full">
+                    <Paperclip className="w-3 h-3 text-sky-600 shrink-0" />
+                    <span className="font-bold truncate max-w-[140px]">{attachedFilePreview.name}</span>
+                    <span className="text-[10px] font-mono text-sky-600 shrink-0">({attachedFilePreview.sizeLabel})</span>
+                    <button
+                      type="button"
+                      onClick={() => setAttachedFilePreview(null)}
+                      className="text-rose-500 hover:text-rose-700 font-bold cursor-pointer shrink-0"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
               </div>
-            </div>
+
+              {/* Message Composer Footer */}
+              <form
+                onSubmit={handleSendMessage}
+                className="p-2.5 sm:px-3.5 sm:py-2.5 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2 min-w-0 shrink-0"
+              >
+                <div className="relative flex-1 min-w-0">
+                  <input
+                    type="text"
+                    data-testid="whatsapp-chat-input"
+                    value={outgoingText}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setOutgoingText(val);
+                      if (val.trim().startsWith('/')) {
+                        setIsSlashMenuOpen(true);
+                      }
+                    }}
+                    placeholder={
+                      selectedQuickDoc !== 'NONE'
+                        ? `ملاحظة مصاحبة للمستند (${selectedQuickDoc})...`
+                        : `اكتب رسالتك هنا، أو اكتب ( / ) لاستدعاء النماذج وقوالب الفواتير...`
+                    }
+                    className="w-full min-w-0 px-3.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:bg-white focus:border-emerald-500 transition"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  data-testid="whatsapp-send-btn"
+                  className="px-4 py-2 haseb-btn-primary active:scale-95 text-white rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1.5 text-xs font-bold shrink-0"
+                  title="إرسال فعلي فوري"
+                >
+                  <span>إرسال</span>
+                  <Send className="w-3.5 h-3.5 rtl:-rotate-90" />
+                </button>
+              </form>
+            </section>
           </div>
 
           <CameraBarcodeScannerModal
@@ -2612,16 +2794,16 @@ export const CommunicationsView: React.FC = () => {
       {/* TAB 2: BULK CAMPAIGNS, QUICK-SEND & OUTBOUND LOG         */}
       {/* ======================================================== */}
       {activeTab === 'QUICK_SEND_LOG' && (
-        <div className="space-y-4">
+        <div className="space-y-4 w-full max-w-full min-w-0">
           {/* Bulk WhatsApp Broadcast Campaign Card */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-5 shadow-sm space-y-4">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-3.5 sm:p-5 shadow-sm space-y-4 min-w-0 overflow-hidden">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 min-w-0">
+              <div className="flex items-center gap-2.5 min-w-0">
                 <span className="w-9 h-9 rounded-xl haseb-btn-primary text-white flex items-center justify-center shrink-0">
                   <Megaphone className="w-4 h-4" />
                 </span>
-                <div>
-                  <h3 className="text-sm font-black text-slate-800 dark:text-slate-100">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-black text-slate-800 dark:text-slate-100 truncate">
                     منظومة الحملات الجماعية وإعلانات واتساب المخصصة
                   </h3>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">
@@ -2667,19 +2849,19 @@ export const CommunicationsView: React.FC = () => {
                   setAccountToast('تم إرسال التقرير المالي اللحظي للإدارة العليا عبر واتساب وتوثيقه في السجل!');
                   setActiveTab('WHATSAPP');
                 }}
-                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer shadow-xs shrink-0"
+                className="w-full md:w-auto px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer shadow-xs shrink-0"
               >
-                <Sparkles className="w-4 h-4" />
+                <Sparkles className="w-4 h-4 shrink-0" />
                 <span>إرسال التقرير التنفيذي للإدارة</span>
               </button>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-start">
-              <div className="lg:col-span-4 space-y-2">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-start min-w-0">
+              <div className="lg:col-span-4 space-y-2 min-w-0">
                 <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300">
                   الفئة المستهدفة ({broadcastTargets.length} عميل مطابق):
                 </label>
-                <div className="grid grid-cols-3 gap-1.5">
+                <div className="grid grid-cols-3 gap-1.5 min-w-0">
                   {([
                     { id: 'ALL', label: 'كل العملاء' },
                     { id: 'DEBTORS', label: 'المدينون فقط' },
@@ -2689,7 +2871,7 @@ export const CommunicationsView: React.FC = () => {
                       key={aud.id}
                       type="button"
                       onClick={() => setWaBroadcastAudience(aud.id)}
-                      className={`py-2 px-2 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
+                      className={`min-w-0 truncate py-2 px-1.5 sm:px-2 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
                         waBroadcastAudience === aud.id
                           ? 'haseb-btn-primary text-white border-transparent'
                           : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
@@ -2704,13 +2886,13 @@ export const CommunicationsView: React.FC = () => {
                 </p>
               </div>
 
-              <div className="lg:col-span-8 space-y-2">
+              <div className="lg:col-span-8 space-y-2 min-w-0">
                 <textarea
                   rows={2}
                   data-testid="wa-broadcast-message-input"
                   value={waBroadcastMessage}
                   onChange={(e) => setWaBroadcastMessage(e.target.value)}
-                  className="w-full p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full min-w-0 p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   placeholder="اكتب نص الحملة..."
                 />
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2728,9 +2910,9 @@ export const CommunicationsView: React.FC = () => {
                     data-testid="launch-wa-broadcast-btn"
                     disabled={isSendingWaBroadcast || broadcastTargets.length === 0 || !waBroadcastMessage.trim()}
                     onClick={handleLaunchWhatsAppBroadcast}
-                    className="px-4 py-2 haseb-btn-primary disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer"
+                    className="w-full sm:w-auto justify-center px-4 py-2 haseb-btn-primary disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer"
                   >
-                    <Megaphone className="w-3.5 h-3.5" />
+                    <Megaphone className="w-3.5 h-3.5 shrink-0" />
                     <span>
                       {isSendingWaBroadcast
                         ? 'جاري إرسال الحملة...'
@@ -2743,9 +2925,9 @@ export const CommunicationsView: React.FC = () => {
           </div>
 
           {/* Outbound Message Log Card */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-6 shadow-sm space-y-4">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-4">
-              <div>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-3.5 sm:p-6 shadow-sm space-y-4 min-w-0 overflow-hidden">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-4 min-w-0">
+              <div className="min-w-0">
                 <h3 className="text-sm sm:text-base font-black text-slate-800 dark:text-slate-100">
                   سجل الرسائل والمستندات الصادرة ({filteredOutboundMessages.length} من {outboundMessages.length})
                 </h3>
@@ -2754,9 +2936,9 @@ export const CommunicationsView: React.FC = () => {
                 </p>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 min-w-0">
                 {/* Channel Filter */}
-                <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl shrink-0">
                   {(['ALL', 'WHATSAPP', 'SMS'] as const).map((ch) => (
                     <button
                       key={ch}
@@ -2774,7 +2956,7 @@ export const CommunicationsView: React.FC = () => {
                 </div>
 
                 {/* Search Input */}
-                <div className="relative flex-1 sm:w-52">
+                <div className="relative w-full sm:w-52 min-w-0">
                   <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
@@ -2791,7 +2973,7 @@ export const CommunicationsView: React.FC = () => {
                   data-testid="export-outbound-csv-btn"
                   disabled={filteredOutboundMessages.length === 0}
                   onClick={handleExportOutboundCsv}
-                  className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 disabled:opacity-50 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                  className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 disabled:opacity-50 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shrink-0"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>تصدير CSV</span>
@@ -2920,30 +3102,30 @@ export const CommunicationsView: React.FC = () => {
       {/* TAB 3: HIGH-SPEED USB & SIM MOBILE PHONE SMS BRIDGE      */}
       {/* ======================================================== */}
       {activeTab === 'USB_SMS' && (
-        <div className="space-y-5" data-testid="usb-sms-bridge-section">
+        <div className="space-y-4 w-full max-w-full min-w-0" data-testid="usb-sms-bridge-section">
           {/* Top Fast ERP-to-SMS Action Strip (Lumina POS Theme) */}
-          <div className="bg-white text-slate-900 rounded-2xl p-4 border border-slate-200/80 shadow-2xs flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
+          <div className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 rounded-2xl p-3.5 sm:p-4 border border-slate-200/80 dark:border-slate-800 shadow-2xs flex flex-col lg:flex-row lg:items-center justify-between gap-3 min-w-0 overflow-hidden">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-xl haseb-btn-primary text-white flex items-center justify-center shrink-0 shadow-2xs">
                 <Zap className="w-5 h-5" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-sm font-bold text-slate-900">
-                    جسر رسائل SMS الفائق السرعة (0.2ms Direct SIM & USB AT+CMGS Bridge)
+                  <h2 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100">
+                    جسر رسائل SMS الفائق السرعة (Direct SIM & USB AT+CMGS)
                   </h2>
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-mono font-bold">
-                    متصل وجاهز 100% • SIM {usbConnectedDevice.simSlot}
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-[10px] font-mono font-bold">
+                    متصل 100% • SIM {usbConnectedDevice.simSlot}
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  مربوط فعلياً بقاعدة بيانات العملاء والفواتير والمديونيات والمخزون والتقارير المالية — يرسل ويوثق الرسائل النصية في 0ms
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  مربوط فعلياً بقاعدة بيانات العملاء والفواتير والمديونيات والمخزون والتقارير المالية — يرسل ويوثق في 0ms
                 </p>
               </div>
             </div>
 
             {/* 1-Click Direct ERP SMS Dispatchers */}
-            <div className="flex items-center flex-wrap gap-1.5">
+            <div className="grid grid-cols-1 sm:flex sm:items-center sm:flex-wrap gap-1.5 min-w-0">
               <button
                 type="button"
                 data-testid="btn-sms-quick-invoice"
@@ -2970,9 +3152,9 @@ export const CommunicationsView: React.FC = () => {
                     smsUri: res.record?.smsUri,
                   });
                 }}
-                className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+                className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
               >
-                <FileText className="w-3.5 h-3.5" />
+                <FileText className="w-3.5 h-3.5 shrink-0" />
                 <span>إرسال آخر فاتورة SMS فوراً</span>
               </button>
 
@@ -3010,9 +3192,9 @@ export const CommunicationsView: React.FC = () => {
                     smsUri: res.record?.smsUri,
                   });
                 }}
-                className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+                className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
               >
-                <AlertCircle className="w-3.5 h-3.5" />
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                 <span>إرسال مطالبة مديونية SMS</span>
               </button>
 
@@ -3062,29 +3244,29 @@ export const CommunicationsView: React.FC = () => {
                     smsUri: res.record?.smsUri,
                   });
                 }}
-                className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+                className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
               >
-                <Sparkles className="w-3.5 h-3.5" />
+                <Sparkles className="w-3.5 h-3.5 shrink-0" />
                 <span>تقرير الأرباح والمبيعات SMS</span>
               </button>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 items-start min-w-0">
             {/* Hardware, Dual-SIM Selector & Bulk Campaign Panel (Left 5 Cols) */}
-            <div className="lg:col-span-5 space-y-5">
+            <div className="lg:col-span-5 space-y-4 min-w-0">
               {/* Connected Mobile Phone Hardware & Dual-SIM Status Card */}
-              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-4">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-2xl bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black shrink-0">
-                      <Smartphone className="w-6 h-6" />
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-3.5 sm:p-5 shadow-sm space-y-4 min-w-0 overflow-hidden">
+                <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-2xl bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black shrink-0">
+                      <Smartphone className="w-5 h-5" />
                     </div>
-                    <div>
-                      <h3 className="font-black text-sm text-slate-800 dark:text-slate-100">
+                    <div className="min-w-0">
+                      <h3 className="font-black text-sm text-slate-800 dark:text-slate-100 truncate">
                         {usbConnectedDevice.model}
                       </h3>
-                      <p className="text-[11px] text-slate-500 font-mono">
+                      <p className="text-[11px] text-slate-500 font-mono truncate">
                         {usbConnectedDevice.manufacturer} • {usbConnectedDevice.port}
                       </p>
                     </div>
@@ -3102,14 +3284,14 @@ export const CommunicationsView: React.FC = () => {
                 </div>
 
                 {/* Dual-SIM Instant Switcher (SIM 1 vs SIM 2) */}
-                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/70 space-y-2">
-                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                    <span>اختيار شريحة الإرسال الفعلي (Dual-SIM Selector):</span>
-                    <span className="font-mono text-indigo-600 dark:text-indigo-400">
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/70 space-y-2 min-w-0">
+                  <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                    <span className="truncate">اختيار شريحة الإرسال الفعلي (Dual-SIM):</span>
+                    <span className="font-mono text-indigo-600 dark:text-indigo-400 shrink-0">
                       استجابة 0.2ms
                     </span>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-2 gap-2 min-w-0">
                     <button
                       type="button"
                       data-testid="btn-sim-slot-1"
@@ -3121,16 +3303,16 @@ export const CommunicationsView: React.FC = () => {
                         });
                         setAccountToast('تم التبديل الفوري إلى الشريحة الأولى (SIM 1: Yemen Mobile 4G LTE)');
                       }}
-                      className={`p-2.5 rounded-xl border text-right transition cursor-pointer ${
+                      className={`min-w-0 overflow-hidden p-2.5 rounded-xl border text-right transition cursor-pointer ${
                         usbConnectedDevice.simSlot === 1
                           ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
                           : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-400'
                       }`}
                     >
-                      <div className="flex items-center justify-between text-xs font-black">
-                        <span>شريحة SIM 1</span>
-                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-black/15">
-                          4G LTE
+                      <div className="flex items-center justify-between gap-1 text-xs font-black">
+                        <span className="truncate">شريحة SIM 1</span>
+                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-black/15 shrink-0">
+                          4G
                         </span>
                       </div>
                       <div
@@ -3153,16 +3335,16 @@ export const CommunicationsView: React.FC = () => {
                         });
                         setAccountToast('تم التبديل الفوري إلى الشريحة الثانية (SIM 2: Sabafon / YOU / STC)');
                       }}
-                      className={`p-2.5 rounded-xl border text-right transition cursor-pointer ${
+                      className={`min-w-0 overflow-hidden p-2.5 rounded-xl border text-right transition cursor-pointer ${
                         usbConnectedDevice.simSlot === 2
                           ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
                           : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-400'
                       }`}
                     >
-                      <div className="flex items-center justify-between text-xs font-black">
-                        <span>شريحة SIM 2</span>
-                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-black/15">
-                          GSM/4G
+                      <div className="flex items-center justify-between gap-1 text-xs font-black">
+                        <span className="truncate">شريحة SIM 2</span>
+                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-black/15 shrink-0">
+                          GSM
                         </span>
                       </div>
                       <div
@@ -3200,35 +3382,37 @@ export const CommunicationsView: React.FC = () => {
                 </div>
 
                 {/* Hardware Meters */}
-                <div className="grid grid-cols-3 gap-2.5">
-                  <div className="p-2.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl text-center border border-slate-100 dark:border-slate-800">
-                    <div className="flex items-center justify-center gap-1 text-slate-500 text-[11px] mb-0.5">
-                      <Battery className="w-3.5 h-3.5 text-emerald-500" />
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="p-2 sm:p-2.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl text-center border border-slate-100 dark:border-slate-800 flex flex-col items-center justify-center min-w-0">
+                    <div className="flex items-center justify-center gap-1 text-slate-500 text-[10px] sm:text-[11px] mb-0.5 truncate max-w-full">
+                      <Battery className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                       <span>البطارية</span>
                     </div>
-                    <div className="text-sm font-black text-slate-800 dark:text-slate-100 font-mono">
+                    <div className="text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100 font-mono">
                       {usbConnectedDevice.batteryPercent}% ⚡
                     </div>
                   </div>
 
-                  <div className="p-2.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl text-center border border-slate-100 dark:border-slate-800">
-                    <div className="flex items-center justify-center gap-1 text-slate-500 text-[11px] mb-0.5">
-                      <Wifi className="w-3.5 h-3.5 text-indigo-500" />
-                      <span>إشارة البث</span>
+                  <div className="p-2 sm:p-2.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl text-center border border-slate-100 dark:border-slate-800 flex flex-col items-center justify-center min-w-0">
+                    <div className="flex items-center justify-center gap-1 text-slate-500 text-[10px] sm:text-[11px] mb-0.5 truncate max-w-full">
+                      <Wifi className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                      <span className="sm:hidden">الإشارة</span>
+                      <span className="hidden sm:inline">إشارة البث</span>
                     </div>
-                    <div className="text-sm font-black text-slate-800 dark:text-slate-100 font-mono">
+                    <div className="text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100 font-mono">
                       {usbConnectedDevice.signalStrengthPercent}%
                     </div>
                   </div>
 
-                  <div className="p-2.5 bg-indigo-50/70 dark:bg-indigo-950/40 rounded-xl text-center border border-indigo-200/70 dark:border-indigo-800/60">
-                    <div className="flex items-center justify-center gap-1 text-indigo-600 dark:text-indigo-300 text-[11px] mb-0.5 font-bold">
-                      <Send className="w-3.5 h-3.5" />
-                      <span>إجمالي المرسلة</span>
+                  <div className="p-2 sm:p-2.5 bg-indigo-50/70 dark:bg-indigo-950/40 rounded-xl text-center border border-indigo-200/70 dark:border-indigo-800/60 flex flex-col items-center justify-center min-w-0">
+                    <div className="flex items-center justify-center gap-1 text-indigo-600 dark:text-indigo-300 text-[10px] sm:text-[11px] mb-0.5 font-bold truncate max-w-full">
+                      <Send className="w-3.5 h-3.5 shrink-0" />
+                      <span className="sm:hidden">المرسلة</span>
+                      <span className="hidden sm:inline">إجمالي المرسلة</span>
                     </div>
                     <div
                       data-testid="usb-sms-sent-counter"
-                      className="text-sm font-black text-indigo-700 dark:text-indigo-300 font-mono"
+                      className="text-xs sm:text-sm font-black text-indigo-700 dark:text-indigo-300 font-mono"
                     >
                       {usbConnectedDevice.messagesSentCount}
                     </div>
@@ -3236,20 +3420,20 @@ export const CommunicationsView: React.FC = () => {
                 </div>
 
                 {/* SIM & USB Connection Specs */}
-                <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl space-y-2 text-xs border border-slate-100 dark:border-slate-800">
-                  <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
+                <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl space-y-2 text-xs border border-slate-100 dark:border-slate-800 min-w-0">
+                  <div className="flex flex-wrap justify-between items-center gap-1.5 text-slate-600 dark:text-slate-300">
                     <span className="text-slate-500">الشريحة النشطة (SIM {usbConnectedDevice.simSlot}):</span>
-                    <span className="font-bold text-indigo-600 dark:text-indigo-400">
+                    <span className="font-bold text-indigo-600 dark:text-indigo-400 truncate max-w-full">
                       {usbConnectedDevice.simOperator}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
+                  <div className="flex flex-wrap justify-between items-center gap-1.5 text-slate-600 dark:text-slate-300">
                     <span className="text-slate-500">تصحيح أخطاء USB (ADB):</span>
                     <span className="font-bold text-emerald-600">
                       {usbConnectedDevice.usbDebuggingEnabled ? 'مفعل ومصادق (Authorized ✓)' : 'غير مفعل'}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
+                  <div className="flex flex-wrap justify-between items-center gap-1.5 text-slate-600 dark:text-slate-300">
                     <span className="text-slate-500">وضع قناة الاتصال:</span>
                     <select
                       aria-label="وضع قناة الاتصال بجسر SMS"
@@ -3259,7 +3443,7 @@ export const CommunicationsView: React.FC = () => {
                           connectionMode: e.target.value as any,
                         })
                       }
-                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-0.5 font-mono text-[11px] text-slate-800 dark:text-slate-200 cursor-pointer"
+                      className="max-w-full min-w-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-0.5 font-mono text-[11px] text-slate-800 dark:text-slate-200 cursor-pointer"
                     >
                       <option value="ADB_DEBUGGING">ADB Direct Bridge (USB/LAN)</option>
                       <option value="USB_MODEM_AT">Serial Modem (AT+CMGS 0ms)</option>
@@ -3274,45 +3458,45 @@ export const CommunicationsView: React.FC = () => {
                   data-testid="btn-run-usb-diagnostics"
                   onClick={handleRunUsbDiag}
                   disabled={isRunningDiag}
-                  className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white font-bold rounded-xl shadow-sm transition flex items-center justify-center gap-2 text-xs cursor-pointer"
+                  className="w-full py-2.5 px-3 sm:px-4 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white font-bold rounded-xl shadow-sm transition flex items-center justify-center gap-2 text-xs cursor-pointer text-center"
                 >
                   {isRunningDiag ? (
                     <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
                       <span>جاري فحص وتنشيط منفذ USB و ADB...</span>
                     </>
                   ) : (
                     <>
-                      <Terminal className="w-4 h-4" />
-                      <span>فحص وتنشيط جسر USB و SIM تلقائياً (Auto-Diagnostics)</span>
+                      <Terminal className="w-4 h-4 shrink-0" />
+                      <span>فحص وتنشيط جسر USB و SIM تلقائياً</span>
                     </>
                   )}
                 </button>
               </div>
 
               {/* Bulk Debt Reminder SMS Campaign Card */}
-              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-3.5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="p-2 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-xl">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-3.5 sm:p-5 shadow-sm space-y-3.5 min-w-0 overflow-hidden">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <div className="p-2 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-xl shrink-0">
                       <FileText className="w-5 h-5" />
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <h4 className="text-xs font-black text-slate-800 dark:text-slate-100">
-                        حملة رسائل التذكير بالمديونيات (جماعياً بضغطة زر)
+                        حملة رسائل التذكير بالمديونيات (جماعياً)
                       </h4>
                       <p className="text-[11px] text-slate-500">
                         إرسال آلي مخصص لكل عميل مدين عبر شريحة SIM {usbConnectedDevice.simSlot}
                       </p>
                     </div>
                   </div>
-                  <span className="text-xs font-mono font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 px-2.5 py-0.5 rounded-lg border border-amber-200 dark:border-amber-800">
+                  <span className="text-xs font-mono font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 px-2.5 py-0.5 rounded-lg border border-amber-200 dark:border-amber-800 shrink-0">
                     {customers.filter((c) => Number(c.balance) > 0).length} عملاء مدينون
                   </span>
                 </div>
 
                 <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl text-xs space-y-1 border border-slate-100 dark:border-slate-800">
-                  <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                  <div className="flex justify-between gap-2 text-slate-600 dark:text-slate-300">
                     <span>إجمالي المديونيات المستحقة:</span>
                     <span className="font-bold font-mono text-emerald-600 dark:text-emerald-400">
                       {formatCurrency(
@@ -3348,17 +3532,17 @@ export const CommunicationsView: React.FC = () => {
                     setAccountToast(res.messageAr);
                     setIsLaunchingCampaign(false);
                   }}
-                  className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition shadow-sm flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                  className="w-full py-2.5 px-3 sm:px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition shadow-sm flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer text-center"
                 >
                   {isLaunchingCampaign ? (
                     <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
                       <span>جاري إرسال الحملة عبر الجوال...</span>
                     </>
                   ) : (
                     <>
-                      <Send className="w-3.5 h-3.5" />
-                      <span>إطلاق حملة التذكير لكافة المدينين الآن ({customers.filter((c) => Number(c.balance) > 0).length} عملاء)</span>
+                      <Send className="w-3.5 h-3.5 shrink-0" />
+                      <span>إطلاق حملة التذكير لكافة المدينين ({customers.filter((c) => Number(c.balance) > 0).length} عملاء)</span>
                     </>
                   )}
                 </button>
@@ -3366,10 +3550,10 @@ export const CommunicationsView: React.FC = () => {
 
               {/* Diagnostics Terminal Output Viewer (Lumina POS Theme) */}
               {usbDiagnosticsReport && (
-                <div className="bg-slate-50 text-slate-800 rounded-2xl p-4 font-mono text-xs shadow-2xs border border-slate-200/80 space-y-2">
-                  <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
+                <div className="bg-slate-50 text-slate-800 rounded-2xl p-4 font-mono text-xs shadow-2xs border border-slate-200/80 space-y-2 min-w-0 overflow-hidden">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 pb-2">
                     <div className="flex items-center gap-2 text-slate-900 font-bold">
-                      <Terminal className="w-4 h-4 text-blue-600" />
+                      <Terminal className="w-4 h-4 text-blue-600 shrink-0" />
                       <span>سجل الفحص العتادي المباشر (USB / AT+CMGS)</span>
                     </div>
                     <span className="text-[10px] bg-emerald-50 border border-emerald-200 text-emerald-700 px-2 py-0.5 rounded-full font-bold">
@@ -3392,13 +3576,13 @@ export const CommunicationsView: React.FC = () => {
             </div>
 
             {/* SMS Dispatch Composer + Live Outbox Log (Right 7 Cols) */}
-            <div className="lg:col-span-7 space-y-5">
-              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm space-y-5">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-4">
-                  <div>
-                    <h3 className="text-base font-black text-slate-800 dark:text-slate-100 flex items-center gap-2">
-                      <Send className="w-5 h-5 text-indigo-600" />
-                      <span>محرك إرسال الرسائل النصية الفوري (SMS Direct Dispatcher)</span>
+            <div className="lg:col-span-7 space-y-4 min-w-0">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-3.5 sm:p-6 shadow-sm space-y-4 sm:space-y-5 min-w-0 overflow-hidden">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-4 min-w-0">
+                  <div className="min-w-0">
+                    <h3 className="text-sm sm:text-base font-black text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                      <Send className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-600 shrink-0" />
+                      <span className="truncate">محرك إرسال الرسائل النصية الفوري (SMS Dispatcher)</span>
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">
                       يرسل مباشرة عبر شريحة الجوال (SIM {usbConnectedDevice.simSlot}) بسرعة 0.2ms بدون رسوم بوابات خارجية
@@ -3406,12 +3590,12 @@ export const CommunicationsView: React.FC = () => {
                   </div>
 
                   {/* Single vs Multi-Batch Mode Toggle */}
-                  <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700 shrink-0">
+                  <div className="grid grid-cols-2 sm:flex sm:items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700 w-full sm:w-auto shrink-0 min-w-0">
                     <button
                       type="button"
                       data-testid="sms-mode-single-btn"
                       onClick={() => setSmsDispatchMode('SINGLE')}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                      className={`min-w-0 truncate px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
                         smsDispatchMode === 'SINGLE'
                           ? 'bg-indigo-600 text-white shadow-xs'
                           : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
@@ -3423,13 +3607,13 @@ export const CommunicationsView: React.FC = () => {
                       type="button"
                       data-testid="sms-mode-batch-btn"
                       onClick={() => setSmsDispatchMode('MULTI_BATCH')}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                      className={`min-w-0 truncate px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
                         smsDispatchMode === 'MULTI_BATCH'
                           ? 'bg-indigo-600 text-white shadow-xs'
                           : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
                       }`}
                     >
-                      إرسال جماعي متعدد ({customers.length})
+                      إرسال جماعي ({customers.length})
                     </button>
                   </div>
                 </div>
@@ -3506,8 +3690,8 @@ export const CommunicationsView: React.FC = () => {
 
                 <form onSubmit={handleSendUsbSms} className="space-y-4">
                   {smsDispatchMode === 'SINGLE' ? (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-                      <div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 min-w-0">
+                      <div className="min-w-0">
                         <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                           رقم هاتف المستلم (اليمن / السعودية / دولي)
                         </label>
@@ -3518,12 +3702,12 @@ export const CommunicationsView: React.FC = () => {
                           onChange={(e) => setSmsPhone(e.target.value)}
                           placeholder="+967 771 445 880"
                           dir="ltr"
-                          className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          className="w-full min-w-0 px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                           required
                         />
                       </div>
 
-                      <div>
+                      <div className="min-w-0">
                         <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                           اسم العميل أو الجهة
                         </label>
@@ -3533,11 +3717,11 @@ export const CommunicationsView: React.FC = () => {
                           value={smsRecipientName}
                           onChange={(e) => setSmsRecipientName(e.target.value)}
                           placeholder="مثال: شركة البناء الحديث"
-                          className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          className="w-full min-w-0 px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         />
                       </div>
 
-                      <div>
+                      <div className="min-w-0">
                         <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                           رقم المرجع (فاتورة / سند / مديونية)
                         </label>
@@ -3547,17 +3731,17 @@ export const CommunicationsView: React.FC = () => {
                           value={smsRefNumber}
                           onChange={(e) => setSmsRefNumber(e.target.value)}
                           placeholder="INV-2026-6194"
-                          className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          className="w-full min-w-0 px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         />
                       </div>
                     </div>
                   ) : (
-                    <div className="space-y-2">
+                    <div className="space-y-2 min-w-0">
                       <div className="flex items-center justify-between flex-wrap gap-2">
                         <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
                           قائمة الأرقام للإرسال الجماعي الفوري (افصل بين الأرقام بفاصلة أو سطر جديد):
                         </label>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <button
                             type="button"
                             onClick={() =>
@@ -3590,14 +3774,14 @@ export const CommunicationsView: React.FC = () => {
                         onChange={(e) => setSmsMultiPhonesInput(e.target.value)}
                         dir="ltr"
                         placeholder="+967 771 445 880, +966 50 882 1940"
-                        className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="w-full min-w-0 p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         required
                       />
                     </div>
                   )}
 
                   <div>
-                    <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex flex-wrap items-center justify-between gap-1.5 mb-1.5">
                       <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
                         نص الرسالة النصية (SMS Payload)
                       </label>
@@ -3615,7 +3799,7 @@ export const CommunicationsView: React.FC = () => {
                       data-testid="usb-sms-body-input"
                       value={smsBody}
                       onChange={(e) => setSmsBody(e.target.value)}
-                      className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-slate-100 leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="w-full min-w-0 p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-slate-100 leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       required
                     />
                   </div>
@@ -3623,7 +3807,7 @@ export const CommunicationsView: React.FC = () => {
                   {/* Quick Template Buttons */}
                   <div className="space-y-1.5">
                     <span className="text-[11px] font-bold text-slate-500">قوالب جاهزة مرتبطة بالنظام:</span>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-1.5 sm:gap-2">
                       <button
                         type="button"
                         onClick={() => {
@@ -3632,7 +3816,7 @@ export const CommunicationsView: React.FC = () => {
                             handleSelectInvoiceForSms(inv.id);
                           }
                         }}
-                        className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg text-xs font-semibold cursor-pointer"
+                        className="px-2.5 sm:px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg text-[11px] sm:text-xs font-semibold cursor-pointer"
                       >
                         🧾 فاتورة مبيعات فعلية
                       </button>
@@ -3644,7 +3828,7 @@ export const CommunicationsView: React.FC = () => {
                             `تم استلام دفعتكم النقدية بنجاح لدى ${company.nameAr || company.name} بموجب سند القبض المعتمد. نشكر لكم التزامكم بالسداد.`
                           )
                         }
-                        className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg text-xs font-semibold cursor-pointer"
+                        className="px-2.5 sm:px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg text-[11px] sm:text-xs font-semibold cursor-pointer"
                       >
                         💵 تأكيد استلام دفعة (سند قبض)
                       </button>
@@ -3657,7 +3841,7 @@ export const CommunicationsView: React.FC = () => {
                             handleSelectCustomerForSms(debtor.id);
                           }
                         }}
-                        className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg text-xs font-semibold cursor-pointer"
+                        className="px-2.5 sm:px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg text-[11px] sm:text-xs font-semibold cursor-pointer"
                       >
                         📌 مطالبة سداد مديونية عميل
                       </button>
@@ -3674,7 +3858,7 @@ export const CommunicationsView: React.FC = () => {
                               .join('، ')}.`
                           );
                         }}
-                        className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg text-xs font-semibold cursor-pointer"
+                        className="px-2.5 sm:px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg text-[11px] sm:text-xs font-semibold cursor-pointer"
                       >
                         📦 إشعار نواقص المخزون ({products.filter((p) => p.stockQty <= p.reorderPoint).length})
                       </button>
@@ -3685,20 +3869,20 @@ export const CommunicationsView: React.FC = () => {
                     type="submit"
                     data-testid="btn-send-usb-sms"
                     disabled={isSendingSms}
-                    className="w-full py-3.5 px-6 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 active:scale-[0.99] text-white font-black rounded-xl shadow-lg shadow-indigo-950/20 transition flex items-center justify-center gap-2 text-sm cursor-pointer"
+                    className="w-full py-3 sm:py-3.5 px-4 sm:px-6 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 active:scale-[0.99] text-white font-black rounded-xl shadow-lg shadow-indigo-950/20 transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer text-center"
                   >
                     {isSendingSms ? (
                       <>
-                        <RefreshCw className="w-5 h-5 animate-spin" />
+                        <RefreshCw className="w-4 h-4 sm:w-5 sm:h-5 animate-spin shrink-0" />
                         <span>جاري الإرسال الفوري عبر شريحة الجوال...</span>
                       </>
                     ) : (
                       <>
-                        <Send className="w-5 h-5" />
+                        <Send className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
                         <span>
                           {smsDispatchMode === 'SINGLE'
-                            ? `إرسال الرسالة النصية فوراً عبر شريحة SIM ${usbConnectedDevice.simSlot} (0.2ms)`
-                            : `إرسال الحملة الجماعية فوراً عبر شريحة SIM ${usbConnectedDevice.simSlot}`}
+                            ? `إرسال الرسالة فوراً عبر SIM ${usbConnectedDevice.simSlot} (0.2ms)`
+                            : `إرسال الحملة الجماعية فوراً عبر SIM ${usbConnectedDevice.simSlot}`}
                         </span>
                       </>
                     )}
@@ -3709,7 +3893,7 @@ export const CommunicationsView: React.FC = () => {
               {/* Live SMS Outbox & Delivery History Table inside SMS Bridge Tab */}
               <div
                 data-testid="usb-sms-live-log-card"
-                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-4"
+                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-3.5 sm:p-5 shadow-sm space-y-4 min-w-0 overflow-hidden"
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
                   <div>

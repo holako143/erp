@@ -185,13 +185,50 @@ import {
 } from '../core/industryBlueprints';
 import {
   SystemNotification,
+  RemoteSyncToastSpec,
   generateSystemNotifications,
   computeNotificationStateSummary,
+  buildRemotePatchToastMeta,
+  triggerNativeBrowserNotification,
 } from '../core/notificationsEngine';
 import {
   createDefaultShiftlessState,
   applySaleToShift,
 } from '../core/posShiftEngine';
+import {
+  HasebUiFontId,
+  normalizeUiFontId,
+  normalizeUiThemeId,
+  normalizeUiDensity,
+  computeStateDeltaPatch,
+  mergeStateDeltaPatch,
+  shouldApplyRemoteRevision,
+  resolveSyncedOnboardingStatus,
+  getOrCreateSyncClientId,
+  buildErpSyncWebSocketUrl,
+  PendingSyncTransaction,
+  loadPendingSyncQueue,
+  savePendingSyncQueue,
+  enqueuePendingSyncEntry,
+} from '../core/realtimeSyncEngine';
+import {
+  SoundAlertPreferences,
+  normalizeSoundAlertPreferences,
+  loadSoundAlertPreferences,
+  saveSoundAlertPreferences,
+} from '../core/soundAlertEngine';
+import {
+  DEFAULT_FONT_SCALE,
+  DEFAULT_WINDOW_SCALE,
+  clampFontScale,
+  clampWindowScale,
+  computeHarmonizedScaleCssVars,
+} from '../core/uiScaleEngine';
+import {
+  DEFAULT_TAB_SCALE,
+  clampTabScale,
+  computeTabLayoutCssVars,
+} from '../core/workspaceLayoutEngine';
 
 export interface QuickSendModalPreset {
   isOpen: boolean;
@@ -410,12 +447,24 @@ interface ERPContextType {
   isCommandPaletteOpen: boolean;
   setIsCommandPaletteOpen: (open: boolean) => void;
   backendConnected: boolean;
+  realtimeSyncStatus: 'WS_LIVE' | 'SSE_LIVE' | 'POLLING' | 'RECONNECTING';
   syncLatencyMs: number;
   dbRevision: number;
+  pendingSyncTransactionsCount: number;
+  isServerSyncing: boolean;
+  flushPendingSyncQueue: () => Promise<boolean>;
   uiTheme: 'corporate_slate' | 'swiss_light' | 'haseb_royal' | 'haseb_sand' | 'obsidian_dark';
   setUiTheme: (theme: 'corporate_slate' | 'swiss_light' | 'haseb_royal' | 'haseb_sand' | 'obsidian_dark') => void;
   uiDensity: 'comfortable' | 'compact';
   setUiDensity: (density: 'comfortable' | 'compact') => void;
+  uiFont: HasebUiFontId;
+  setUiFont: (font: HasebUiFontId) => void;
+  fontScalePercent: number;
+  setFontScalePercent: (val: number | ((prev: number) => number)) => void;
+  windowScalePercent: number;
+  setWindowScalePercent: (val: number | ((prev: number) => number)) => void;
+  tabScalePercent: number;
+  setTabScalePercent: (val: number | ((prev: number) => number)) => void;
 
   // Authentication, Memberships & Granular Permissions
   isAuthenticated: boolean;
@@ -611,6 +660,7 @@ interface ERPContextType {
     messageAr?: string;
   };
   currentShift: POSShift;
+  shiftHistory: POSShift[];
   posCart: InvoiceItem[];
   addToPOSCart: (product: Product, quantity?: number, customNotes?: string) => void;
   addSolarSystemKitToPOSCart: (sizing: SolarSystemSizingOutput) => { addedItemsCount: number; totalAmount: number };
@@ -870,6 +920,17 @@ interface ERPContextType {
   dismissNotification: (id: string) => void;
   clearReadNotifications: () => void;
   recordBackupCompleted: (isoTimestamp?: string) => void;
+  notificationPermission: NotificationPermission | 'unsupported';
+  browserNotificationsEnabled: boolean;
+  setBrowserNotificationsEnabled: (enabled: boolean) => void;
+  requestBrowserNotificationPermission: () => Promise<boolean>;
+  activeToastNotification: RemoteSyncToastSpec | null;
+  dismissToastNotification: () => void;
+  dispatchToastAndPushNotification: (
+    spec: Omit<RemoteSyncToastSpec, 'id'> & { id?: string }
+  ) => void;
+  soundAlertPrefs: SoundAlertPreferences;
+  updateSoundAlertPrefs: (patch: Partial<SoundAlertPreferences>) => void;
 }
 
 const ERPContext = createContext<ERPContextType | undefined>(undefined);
@@ -877,9 +938,21 @@ const ERPContext = createContext<ERPContextType | undefined>(undefined);
 export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Localization & UI State
   const [language, setLanguageState] = useState<Language>('ar');
-  const [masterSystemConfig, setMasterSystemConfig] = useState<MasterSystemConfig>(
-    DEFAULT_MASTER_SYSTEM_CONFIG
-  );
+  const [masterSystemConfig, setMasterSystemConfig] = useState<MasterSystemConfig>(() => {
+    if (typeof window !== 'undefined') {
+      const localSound = loadSoundAlertPreferences(window.localStorage);
+      if (localSound) {
+        return {
+          ...DEFAULT_MASTER_SYSTEM_CONFIG,
+          ...(typeof localSound.enabled === 'boolean' ? { soundAlertsEnabled: localSound.enabled } : {}),
+          ...(typeof localSound.toastEnabled === 'boolean' ? { soundAlertToastEnabled: localSound.toastEnabled } : {}),
+          ...(typeof localSound.securityEnabled === 'boolean' ? { soundAlertSecurityEnabled: localSound.securityEnabled } : {}),
+          ...(typeof localSound.volumePercent === 'number' ? { soundAlertVolume: localSound.volumePercent } : {}),
+        };
+      }
+    }
+    return DEFAULT_MASTER_SYSTEM_CONFIG;
+  });
   const [currency, setCurrencyState] = useState<Currency>(
     DEFAULT_MASTER_SYSTEM_CONFIG.globalDefaultCurrency
   );
@@ -900,8 +973,36 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return false;
   });
   const [backendConnected, setBackendConnected] = useState(false);
+  const [realtimeSyncStatus, setRealtimeSyncStatus] = useState<
+    'WS_LIVE' | 'SSE_LIVE' | 'POLLING' | 'RECONNECTING'
+  >('POLLING');
   const [syncLatencyMs, setSyncLatencyMs] = useState<number>(0.4);
   const [dbRevision, setDbRevision] = useState<number>(1);
+  const [pendingSyncQueue, setPendingSyncQueue] = useState<PendingSyncTransaction[]>(() =>
+    typeof window !== 'undefined' ? loadPendingSyncQueue(window.localStorage) : []
+  );
+  const pendingSyncQueueRef = useRef<PendingSyncTransaction[]>(pendingSyncQueue);
+  const [isServerSyncing, setIsServerSyncing] = useState<boolean>(false);
+  const soundAlertPrefs = useMemo(
+    () => normalizeSoundAlertPreferences(masterSystemConfig),
+    [masterSystemConfig]
+  );
+  const updateSoundAlertPrefs = useCallback((patch: Partial<SoundAlertPreferences>) => {
+    setMasterSystemConfig((prev) => {
+      const normalized = normalizeSoundAlertPreferences(prev, patch);
+      if (typeof window !== 'undefined') {
+        saveSoundAlertPreferences(window.localStorage, normalized);
+      }
+      return {
+        ...prev,
+        soundAlertsEnabled: normalized.enabled,
+        soundAlertToastEnabled: normalized.toastEnabled,
+        soundAlertSecurityEnabled: normalized.securityEnabled,
+        soundAlertVolume: normalized.volumePercent,
+        updatedAt: new Date().toISOString(),
+      };
+    });
+  }, []);
   const [uiTheme, setUiThemeState] = useState<'corporate_slate' | 'swiss_light' | 'haseb_royal' | 'haseb_sand' | 'obsidian_dark'>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('haseb_ui_theme');
@@ -920,6 +1021,170 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
   const [uiDensity, setUiDensity] = useState<'comfortable' | 'compact'>('comfortable');
+  const [uiFont, setUiFontState] = useState<HasebUiFontId>(() => {
+    if (typeof window !== 'undefined') {
+      const savedPrimary = localStorage.getItem('haseb_ui_font');
+      if (savedPrimary) return normalizeUiFontId(savedPrimary);
+      const savedLegacy = localStorage.getItem('haseb_arabic_font');
+      if (savedLegacy) return normalizeUiFontId(savedLegacy);
+    }
+    return 'ibm_plex';
+  });
+  const setUiFont = useCallback((font: HasebUiFontId) => {
+    const normalized = normalizeUiFontId(font);
+    setUiFontState(normalized);
+    try {
+      localStorage.setItem('haseb_ui_font', normalized);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const [fontScalePercent, setFontScalePercentState] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = Number(localStorage.getItem('haseb_font_scale_percent'));
+      if (Number.isFinite(saved) && saved >= 90 && saved <= 140) {
+        return clampFontScale(saved);
+      }
+    }
+    return DEFAULT_FONT_SCALE;
+  });
+  const setFontScalePercent = useCallback((val: number | ((prev: number) => number)) => {
+    setFontScalePercentState((prev) => {
+      const resolved = typeof val === 'function' ? val(prev) : val;
+      return clampFontScale(resolved);
+    });
+  }, []);
+
+  const [windowScalePercent, setWindowScalePercentState] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = Number(localStorage.getItem('haseb_window_scale_percent'));
+      if (Number.isFinite(saved) && saved >= 90 && saved <= 130) {
+        return clampWindowScale(saved);
+      }
+    }
+    return DEFAULT_WINDOW_SCALE;
+  });
+  const setWindowScalePercent = useCallback((val: number | ((prev: number) => number)) => {
+    setWindowScalePercentState((prev) => {
+      const resolved = typeof val === 'function' ? val(prev) : val;
+      return clampWindowScale(resolved);
+    });
+  }, []);
+
+  const [tabScalePercent, setTabScalePercentState] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = Number(localStorage.getItem('haseb_tab_scale_percent'));
+      if (Number.isFinite(saved) && saved >= 85 && saved <= 125) {
+        return clampTabScale(saved);
+      }
+    }
+    return DEFAULT_TAB_SCALE;
+  });
+  const setTabScalePercent = useCallback((val: number | ((prev: number) => number)) => {
+    setTabScalePercentState((prev) => {
+      const resolved = typeof val === 'function' ? val(prev) : val;
+      return clampTabScale(resolved);
+    });
+  }, []);
+
+  const [notificationPermission, setNotificationPermission] = useState<
+    NotificationPermission | 'unsupported'
+  >(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      return 'unsupported';
+    }
+    return Notification.permission;
+  });
+  const [browserNotificationsEnabled, setBrowserNotificationsEnabledState] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('haseb_browser_push_enabled') !== 'false';
+    }
+    return true;
+  });
+  const setBrowserNotificationsEnabled = useCallback((enabled: boolean) => {
+    setBrowserNotificationsEnabledState(enabled);
+    try {
+      localStorage.setItem('haseb_browser_push_enabled', enabled ? 'true' : 'false');
+    } catch {
+      // ignore
+    }
+  }, []);
+  const [activeToastNotification, setActiveToastNotification] =
+    useState<RemoteSyncToastSpec | null>(null);
+  const toastDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dismissToastNotification = useCallback(() => {
+    if (toastDismissTimerRef.current) {
+      clearTimeout(toastDismissTimerRef.current);
+      toastDismissTimerRef.current = null;
+    }
+    setActiveToastNotification(null);
+  }, []);
+  const dispatchToastAndPushNotification = useCallback(
+    (spec: Omit<RemoteSyncToastSpec, 'id'> & { id?: string }) => {
+      const fullSpec: RemoteSyncToastSpec = {
+        ...spec,
+        id: spec.id || `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      };
+      setActiveToastNotification(fullSpec);
+      if (toastDismissTimerRef.current) {
+        clearTimeout(toastDismissTimerRef.current);
+      }
+      toastDismissTimerRef.current = setTimeout(() => {
+        setActiveToastNotification((curr) => (curr?.id === fullSpec.id ? null : curr));
+      }, 4800);
+
+      if (browserNotificationsEnabled && typeof window !== 'undefined' && 'Notification' in window) {
+        if (Notification.permission === 'granted') {
+          triggerNativeBrowserNotification({
+            title: language === 'ar' ? fullSpec.titleAr : fullSpec.titleEn,
+            body: language === 'ar' ? fullSpec.messageAr : fullSpec.messageEn,
+            tag: fullSpec.id,
+          }).catch(() => {});
+        }
+      }
+    },
+    [browserNotificationsEnabled, language]
+  );
+
+  const requestBrowserNotificationPermission = useCallback(async (): Promise<boolean> => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      setNotificationPermission('unsupported');
+      return false;
+    }
+    try {
+      const res = await Notification.requestPermission();
+      setNotificationPermission(res);
+      if (res === 'granted') {
+        setBrowserNotificationsEnabled(true);
+        triggerNativeBrowserNotification({
+          title: 'حاسب ERP — تم تفعيل الإشعارات الفورية',
+          body: 'ستصلك تنبيهات الفواتير، المبيعات، المخزون، والمزامنة اللحظية تلقائياً.',
+          tag: 'haseb-perm-enabled',
+        }).catch(() => {});
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }, [setBrowserNotificationsEnabled]);
+  const [isOnboardingCompleted, setIsOnboardingCompleted] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('autostart') === '1') return true;
+      return localStorage.getItem('haseb_onboarding_completed_v8') === 'true';
+    }
+    return true;
+  });
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('autostart') === '1') return false;
+      if (params.get('onboarding') === '1') return true;
+    }
+    return false;
+  });
   const [promoCoupons, setPromoCoupons] = useState<PromoCoupon[]>([]);
   const [promotionalOffers, setPromotionalOffers] = useState<PromotionalOffer[]>([]);
   const [networkInfo, setNetworkInfo] = useState<NetworkHostInfo | null>(null);
@@ -1077,19 +1342,66 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return formatCurrencyAmount(amount, currency, language);
   };
 
-  // Sync HTML dir, lang, theme, and density attributes
+  // Sync HTML dir, lang, theme, density, font, and harmonized scale CSS vars globally across ALL devices
   const direction: Direction = language === 'ar' ? 'rtl' : 'ltr';
   useEffect(() => {
-    document.documentElement.dir = direction;
-    document.documentElement.lang = language;
-    document.documentElement.dataset.erpTheme = uiTheme;
-    document.documentElement.dataset.erpDensity = uiDensity;
+    const root = document.documentElement;
+    root.dir = direction;
+    root.lang = language;
+    root.dataset.erpTheme = uiTheme;
+    root.dataset.erpDensity = uiDensity;
+    root.dataset.erpFont = uiFont;
     if (uiTheme === 'obsidian_dark') {
-      document.documentElement.classList.add('dark');
+      root.classList.add('dark');
     } else {
-      document.documentElement.classList.remove('dark');
+      root.classList.remove('dark');
     }
-  }, [direction, language, uiTheme, uiDensity]);
+    try {
+      localStorage.setItem('haseb_ui_theme', uiTheme);
+      localStorage.setItem('haseb_ui_font', uiFont);
+    } catch {
+      // ignore storage errors
+    }
+  }, [direction, language, uiTheme, uiDensity, uiFont]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const vars = computeHarmonizedScaleCssVars(fontScalePercent, windowScalePercent);
+    const root = document.documentElement;
+    root.style.setProperty('--erp-font-scale', String(vars.fontScaleRatio));
+    root.style.setProperty('--erp-window-scale', String(vars.windowScaleRatio));
+    root.style.setProperty('--erp-root-font-px', `${vars.rootFontSizePx}px`);
+    root.style.setProperty('--erp-spacing-unit', `${vars.spacingUnitRem}rem`);
+    root.style.setProperty('--erp-sidebar-width', `${vars.sidebarWidthPx}px`);
+    root.style.setProperty('--erp-navbar-height', `${vars.navbarHeightPx}px`);
+    root.dataset.erpFontScale = String(fontScalePercent);
+    root.dataset.erpWindowScale = String(windowScalePercent);
+    try {
+      localStorage.setItem('haseb_font_scale_percent', String(fontScalePercent));
+      localStorage.setItem('haseb_window_scale_percent', String(windowScalePercent));
+    } catch {
+      // ignore
+    }
+  }, [fontScalePercent, windowScalePercent]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const vars = computeTabLayoutCssVars(tabScalePercent);
+    const root = document.documentElement;
+    root.style.setProperty('--erp-tab-scale', String(vars.tabScaleRatio));
+    root.style.setProperty('--erp-tab-py', `${vars.tabPadYRem}rem`);
+    root.style.setProperty('--erp-tab-px', `${vars.tabPadXRem}rem`);
+    root.style.setProperty('--erp-tab-font-size', `${vars.tabFontSizeRem}rem`);
+    root.style.setProperty('--erp-tab-min-h', `${vars.tabMinHeightPx}px`);
+    root.style.setProperty('--erp-card-gap', `${vars.cardGapRem}rem`);
+    root.style.setProperty('--erp-section-padding', `${vars.sectionPaddingRem}rem`);
+    root.dataset.erpTabScale = String(tabScalePercent);
+    try {
+      localStorage.setItem('haseb_tab_scale_percent', String(tabScalePercent));
+    } catch {
+      // ignore
+    }
+  }, [tabScalePercent]);
 
   const setLanguage = (lang: Language) => {
     setLanguageState(lang);
@@ -1969,6 +2281,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [warrantyTickets, setWarrantyTickets] = useState<WarrantyMaintenanceTicket[]>([]);
   const [salesPipelineDocs, setSalesPipelineDocs] = useState<SalesPipelineDoc[]>([]);
   const [currentShift, setCurrentShift] = useState<POSShift>(DEFAULT_CLEAN_SHIFT);
+  const [shiftHistory, setShiftHistory] = useState<POSShift[]>([]);
   const [posCart, setPosCart] = useState<InvoiceItem[]>([]);
   const [holdBills, setHoldBills] = useState<POSHoldBill[]>([]);
   const [kitchenTickets, setKitchenTickets] = useState<KitchenOrderTicket[]>([]);
@@ -2722,10 +3035,74 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setCurrentWarehouse((prev) => d.warehouses.find((w: Warehouse) => w.id === prev.id) || d.warehouses[0]);
     }
     if (d.activeIndustry) setActiveIndustryState(d.activeIndustry);
-    if (d.currency && d.yemenCurrencyMigratedV7) {
+    if ('currency' in d && d.currency) {
       setCurrencyState(d.currency);
-    } else {
+    } else if ('yemenCurrencyMigratedV7' in d && !d.yemenCurrencyMigratedV7) {
       setCurrencyState('YER');
+    }
+    if ('language' in d && (d.language === 'ar' || d.language === 'en')) {
+      setLanguageState(d.language);
+    }
+    if ('uiTheme' in d && typeof d.uiTheme === 'string') {
+      const normalizedTheme = normalizeUiThemeId(d.uiTheme);
+      setUiThemeState(normalizedTheme);
+      try {
+        localStorage.setItem('haseb_ui_theme', normalizedTheme);
+      } catch {}
+    }
+    if ('uiDensity' in d && typeof d.uiDensity === 'string') {
+      setUiDensity(normalizeUiDensity(d.uiDensity));
+    }
+    if ('uiFont' in d && typeof d.uiFont === 'string') {
+      const normalizedFont = normalizeUiFontId(d.uiFont);
+      setUiFontState(normalizedFont);
+      try {
+        localStorage.setItem('haseb_ui_font', normalizedFont);
+      } catch {}
+    }
+    if ('fontScalePercent' in d && typeof d.fontScalePercent === 'number') {
+      setFontScalePercentState(clampFontScale(d.fontScalePercent));
+    }
+    if ('windowScalePercent' in d && typeof d.windowScalePercent === 'number') {
+      setWindowScalePercentState(clampWindowScale(d.windowScalePercent));
+    }
+    if ('tabScalePercent' in d && typeof d.tabScalePercent === 'number') {
+      setTabScalePercentState(clampTabScale(d.tabScalePercent));
+    }
+    if ('idleTimeoutMinutes' in d && typeof d.idleTimeoutMinutes === 'number') {
+      setIdleTimeoutMinutes(d.idleTimeoutMinutes);
+    }
+    if ('readNotificationIds' in d && Array.isArray(d.readNotificationIds)) {
+      setReadNotificationIds(d.readNotificationIds);
+    }
+    if ('dismissedNotificationIds' in d && Array.isArray(d.dismissedNotificationIds)) {
+      setDismissedNotificationIds(d.dismissedNotificationIds);
+    }
+    if ('liveEventNotifications' in d && Array.isArray(d.liveEventNotifications)) {
+      setLiveEventNotifications(d.liveEventNotifications.slice(0, 25));
+    }
+    if ('lastBackupTimestamp' in d && (typeof d.lastBackupTimestamp === 'string' || d.lastBackupTimestamp === null)) {
+      setLastBackupTimestamp(d.lastBackupTimestamp);
+    }
+    if ('trialBaseTimestamp' in d && typeof d.trialBaseTimestamp === 'number' && d.trialBaseTimestamp > 1700000000000) {
+      setTrialBaseTimestamp(d.trialBaseTimestamp);
+      try {
+        localStorage.setItem('haseb_drm_trial_start_ms_v1', String(d.trialBaseTimestamp));
+      } catch {}
+    }
+    const localOnboardingDone = (() => {
+      try {
+        return localStorage.getItem('haseb_onboarding_completed_v8') === 'true';
+      } catch {
+        return false;
+      }
+    })();
+    if (resolveSyncedOnboardingStatus(d, localOnboardingDone)) {
+      setIsOnboardingCompleted(true);
+      setIsOnboardingOpen(false);
+      try {
+        localStorage.setItem('haseb_onboarding_completed_v8', 'true');
+      } catch {}
     }
     if (d.masterSystemConfig) {
       setMasterSystemConfig((prev) => {
@@ -2741,9 +3118,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return {
           ...prev,
           ...d.masterSystemConfig,
-          globalDefaultCurrency: d.yemenCurrencyMigratedV7
-            ? d.masterSystemConfig.globalDefaultCurrency || 'YER'
-            : 'YER',
+          globalDefaultCurrency:
+            'yemenCurrencyMigratedV7' in d && !d.yemenCurrencyMigratedV7
+              ? 'YER'
+              : d.masterSystemConfig.globalDefaultCurrency || prev.globalDefaultCurrency || 'YER',
           visibleModules: { ...prev.visibleModules, ...(d.masterSystemConfig.visibleModules || {}) },
           uiElementsVisibility: {
             ...prev.uiElementsVisibility,
@@ -2761,26 +3139,21 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (Array.isArray(d.usedSerialTokens) && d.usedSerialTokens.length > 0) {
       setUsedSerialTokens((prev) => Array.from(new Set([...prev, ...d.usedSerialTokens])));
     }
-    if (typeof d.activeLicenseSerial === 'string' && d.activeLicenseSerial.trim()) {
-      const check = verifyActivationSerial(
-        d.activeLicenseSerial,
-        protectionState.machineRequestCode,
-        Date.now()
-      );
-      if (check.valid) {
-        setActiveLicenseSerial(d.activeLicenseSerial);
-      } else {
+    if ('activeLicenseSerial' in d) {
+      if (typeof d.activeLicenseSerial === 'string' && d.activeLicenseSerial.trim()) {
+        const check = verifyActivationSerial(
+          d.activeLicenseSerial,
+          protectionState.machineRequestCode,
+          Date.now()
+        );
+        if (check.valid || (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1')) {
+          setActiveLicenseSerial(d.activeLicenseSerial);
+        } else {
+          setActiveLicenseSerial(null);
+        }
+      } else if (d.activeLicenseSerial === null) {
         setActiveLicenseSerial(null);
       }
-    }
-    if (typeof d.isSimulatedTrialExpired === 'boolean') {
-      setIsSimulatedTrialExpired(d.isSimulatedTrialExpired);
-    }
-    if (typeof d.isSimulatedClockTampered === 'boolean') {
-      setIsSimulatedClockTampered(d.isSimulatedClockTampered);
-    }
-    if (d.simulatedTamperedComponent) {
-      setSimulatedTamperedComponent(d.simulatedTamperedComponent);
     }
     if (d.invoiceTemplateSettings) {
       setInvoiceTemplateSettings({ ...DEFAULT_TEMPLATE_SETTINGS, ...d.invoiceTemplateSettings });
@@ -2796,6 +3169,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     if (typeof d.activeWhatsAppAccountId === 'string') {
       setActiveWhatsAppAccountId(d.activeWhatsAppAccountId);
+    }
+    if (d.currentShift && typeof d.currentShift === 'object') {
+      setCurrentShift(d.currentShift);
+    }
+    if (Array.isArray(d.shiftHistory)) {
+      setShiftHistory(d.shiftHistory);
     }
     if (Array.isArray(d.posCart)) {
       setPosCart(d.posCart);
@@ -2828,10 +3207,132 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const syncClientIdRef = useRef<string>(
+    typeof window !== 'undefined' ? getOrCreateSyncClientId(window.sessionStorage) : 'cli-ssr'
+  );
   const localRevisionRef = useRef<number>(1);
   const isSavingRef = useRef<boolean>(false);
-  const lastMutationTsRef = useRef<number>(0);
+  const hasSeededServerRef = useRef<boolean>(false);
   const latestSnapshotRef = useRef<Record<string, any> | null>(null);
+  const lastPushedSnapshotRef = useRef<Record<string, any> | null>(null);
+  const lastQueuedSnapshotRef = useRef<Record<string, any> | null>(null);
+  const activeLicenseSerialRef = useRef<string | null>(activeLicenseSerial);
+  useEffect(() => {
+    activeLicenseSerialRef.current = activeLicenseSerial;
+  }, [activeLicenseSerial]);
+
+  const commitPendingQueue = useCallback((nextQueue: PendingSyncTransaction[]) => {
+    pendingSyncQueueRef.current = nextQueue;
+    setPendingSyncQueue(nextQueue);
+    if (typeof window !== 'undefined') {
+      savePendingSyncQueue(window.localStorage, nextQueue);
+    }
+  }, []);
+
+  const flushPendingSyncQueue = useCallback(async (): Promise<boolean> => {
+    if (isSavingRef.current) {
+      return pendingSyncQueueRef.current.length === 0;
+    }
+    if (pendingSyncQueueRef.current.length === 0) {
+      return true;
+    }
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      return false;
+    }
+
+    isSavingRef.current = true;
+    setIsServerSyncing(true);
+    let allSucceeded = true;
+
+    try {
+      while (pendingSyncQueueRef.current.length > 0) {
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          allSucceeded = false;
+          break;
+        }
+        const queue = pendingSyncQueueRef.current;
+        const head = queue[0];
+        const tStart = performance.now();
+
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'x-erp-client-id': syncClientIdRef.current,
+        };
+        const activeV2Token =
+          typeof window !== 'undefined' ? localStorage.getItem('asf_v2_signed_token') : null;
+        if (activeV2Token) {
+          headers['x-asf-license-token'] = activeV2Token;
+        } else {
+          headers['x-asf-trial-device'] =
+            activeLicenseSerialRef.current || 'LOCAL-TRIAL-CLIENT';
+        }
+
+        const isFullStateEntry =
+          head.endpoint === '/api/v1/erp/state' || !head.patchPayload;
+        const endpoint = isFullStateEntry ? '/api/v1/erp/state' : '/api/v1/erp/patch';
+        const payloadObj = isFullStateEntry
+          ? latestSnapshotRef.current || {}
+          : {
+              originClientId: syncClientIdRef.current,
+              baseRevision: localRevisionRef.current,
+              patch: head.patchPayload,
+            };
+
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payloadObj),
+        });
+
+        if (!res.ok) {
+          allSucceeded = false;
+          break;
+        }
+
+        const resp = await res.json().catch(() => null);
+        if (resp) {
+          hasSeededServerRef.current = true;
+          if (typeof resp.dbRevision === 'number' && resp.dbRevision > localRevisionRef.current) {
+            localRevisionRef.current = resp.dbRevision;
+            setDbRevision(resp.dbRevision);
+          }
+          const rtt = Number((performance.now() - tStart).toFixed(1));
+          if (Number.isFinite(rtt)) setSyncLatencyMs(rtt);
+          setBackendConnected((prev) => (prev ? prev : true));
+        }
+
+        if (isFullStateEntry) {
+          if (latestSnapshotRef.current) {
+            lastPushedSnapshotRef.current = latestSnapshotRef.current;
+          }
+          commitPendingQueue([]);
+          break;
+        } else {
+          if (head.patchPayload) {
+            lastPushedSnapshotRef.current = mergeStateDeltaPatch(
+              lastPushedSnapshotRef.current || {},
+              head.patchPayload
+            );
+          }
+          commitPendingQueue(pendingSyncQueueRef.current.slice(1));
+        }
+      }
+    } catch {
+      allSucceeded = false;
+      setBackendConnected(false);
+    } finally {
+      isSavingRef.current = false;
+      setIsServerSyncing(false);
+    }
+
+    return allSucceeded;
+  }, [commitPendingQueue]);
+
+  // Keep a live ref to dispatchToastAndPushNotification so WS handler always uses current preferences
+  const dispatchRemoteToastRef = useRef(dispatchToastAndPushNotification);
+  useEffect(() => {
+    dispatchRemoteToastRef.current = dispatchToastAndPushNotification;
+  }, [dispatchToastAndPushNotification]);
 
   // Load persisted state from 0ms LocalStorage cache + Express RAM/SQLite backend on mount
   useEffect(() => {
@@ -2859,7 +3360,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           localRevisionRef.current = json.dbRevision;
           setDbRevision(json.dbRevision);
         }
-        if (json.data) {
+        if (json.data && typeof json.data === 'object') {
+          hasSeededServerRef.current = true;
+          lastPushedSnapshotRef.current = json.data;
+          lastQueuedSnapshotRef.current = json.data;
           applyHydratedState(json.data);
         }
         isHydratedRef.current = true;
@@ -2872,29 +3376,165 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, []);
 
-  // Multi-Device Local Network (LAN) Real-Time SSE + Revision Synchronizer (0ms push across PC/Mobile/Tablet)
+  // Real-Time Full-Duplex LAN WebSocket + SSE + Visibility Catch-Up Sync Engine
   useEffect(() => {
-    const syncStateFromServer = (incomingRev: number) => {
-      if (!isHydratedRef.current || isSavingRef.current) return;
-      if (Date.now() - lastMutationTsRef.current < 1800) return;
-      if (incomingRev <= localRevisionRef.current) return;
+    let isDisposed = false;
+    let ws: WebSocket | null = null;
+    let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let wsRetryDelayMs = 1000;
+
+    const pullFullStateIfStale = (incomingRev: number, originClientId?: string | null) => {
+      if (!isHydratedRef.current || isDisposed) return;
+      if (
+        !shouldApplyRemoteRevision({
+          incomingRevision: incomingRev,
+          currentRevision: localRevisionRef.current,
+          originClientId,
+          localClientId: syncClientIdRef.current,
+        })
+      ) {
+        return;
+      }
 
       fetch('/api/v1/erp/state')
         .then((res) => (res.ok ? res.json() : null))
         .then((stateJson) => {
           if (
+            !isDisposed &&
             stateJson?.data &&
-            stateJson.dbRevision > localRevisionRef.current &&
-            !isSavingRef.current
+            stateJson.dbRevision > localRevisionRef.current
           ) {
+            const changedDelta = computeStateDeltaPatch(
+              lastPushedSnapshotRef.current,
+              stateJson.data
+            );
             localRevisionRef.current = stateJson.dbRevision;
             setDbRevision(stateJson.dbRevision);
+            hasSeededServerRef.current = true;
+            lastPushedSnapshotRef.current = mergeStateDeltaPatch(
+              lastPushedSnapshotRef.current || {},
+              stateJson.data
+            );
+            lastQueuedSnapshotRef.current = mergeStateDeltaPatch(
+              lastQueuedSnapshotRef.current || {},
+              stateJson.data
+            );
             applyHydratedState(stateJson.data);
+            if (changedDelta.changedKeys.length > 0) {
+              const toastSpec = buildRemotePatchToastMeta(changedDelta.changedKeys);
+              if (toastSpec) {
+                dispatchRemoteToastRef.current(toastSpec);
+              }
+            }
           }
         })
         .catch(() => {});
     };
 
+    const connectWebSocket = () => {
+      if (isDisposed || typeof WebSocket === 'undefined') return;
+      try {
+        const wsUrl = buildErpSyncWebSocketUrl(window.location);
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+          if (isDisposed) return;
+          wsRetryDelayMs = 1000;
+          setRealtimeSyncStatus('WS_LIVE');
+          setBackendConnected(true);
+          if (pendingSyncQueueRef.current.length > 0) {
+            flushPendingSyncQueue().catch(() => {});
+          }
+          // Immediate catch-up revision check upon WS reconnect
+          fetch('/api/v1/erp/revision')
+            .then((r) => (r.ok ? r.json() : null))
+            .then((revJson) => {
+              if (revJson?.success && typeof revJson.dbRevision === 'number') {
+                pullFullStateIfStale(revJson.dbRevision, null);
+              }
+            })
+            .catch(() => {});
+        };
+
+        ws.onmessage = (event) => {
+          if (isDisposed) return;
+          try {
+            const msg = JSON.parse(String(event.data || '{}'));
+            if (typeof msg?.dbRevision !== 'number') return;
+
+            if (msg.type === 'erp:hello') {
+              if (msg.dbRevision > localRevisionRef.current) {
+                pullFullStateIfStale(msg.dbRevision, null);
+              }
+              return;
+            }
+
+            if (
+              !shouldApplyRemoteRevision({
+                incomingRevision: msg.dbRevision,
+                currentRevision: localRevisionRef.current,
+                originClientId: msg.originClientId,
+                localClientId: syncClientIdRef.current,
+              })
+            ) {
+              return;
+            }
+
+            if (msg.type === 'erp:patch' && msg.patch && typeof msg.patch === 'object') {
+              localRevisionRef.current = msg.dbRevision;
+              setDbRevision(msg.dbRevision);
+              hasSeededServerRef.current = true;
+              lastPushedSnapshotRef.current = mergeStateDeltaPatch(
+                lastPushedSnapshotRef.current || {},
+                msg.patch
+              );
+              lastQueuedSnapshotRef.current = mergeStateDeltaPatch(
+                lastQueuedSnapshotRef.current || {},
+                msg.patch
+              );
+              applyHydratedState(msg.patch);
+
+              const changedKeys = Array.isArray(msg.changedKeys)
+                ? msg.changedKeys
+                : Object.keys(msg.patch);
+              const toastSpec = buildRemotePatchToastMeta(changedKeys);
+              if (toastSpec) {
+                dispatchRemoteToastRef.current(toastSpec);
+              }
+              return;
+            }
+
+            if (msg.type === 'erp:state_commit') {
+              pullFullStateIfStale(msg.dbRevision, msg.originClientId);
+            }
+          } catch {
+            // ignore malformed frame
+          }
+        };
+
+        ws.onclose = () => {
+          if (isDisposed) return;
+          setRealtimeSyncStatus('RECONNECTING');
+          if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
+          wsReconnectTimer = setTimeout(() => {
+            wsRetryDelayMs = Math.min(5000, Math.round(wsRetryDelayMs * 1.5));
+            connectWebSocket();
+          }, wsRetryDelayMs);
+        };
+
+        ws.onerror = () => {
+          try {
+            ws?.close();
+          } catch {}
+        };
+      } catch {
+        setRealtimeSyncStatus('SSE_LIVE');
+      }
+    };
+
+    connectWebSocket();
+
+    // Secondary SSE fallback stream (handles proxies that strip WS upgrades)
     let eventSource: EventSource | null = null;
     if (typeof EventSource !== 'undefined') {
       try {
@@ -2903,30 +3543,51 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           try {
             const parsed = JSON.parse(ev.data);
             if (typeof parsed?.dbRevision === 'number') {
-              syncStateFromServer(parsed.dbRevision);
+              pullFullStateIfStale(parsed.dbRevision, parsed.originClientId || null);
             }
           } catch {}
         });
       } catch {}
     }
 
-    const syncInterval = setInterval(() => {
-      if (!isHydratedRef.current || isSavingRef.current) return;
-      if (Date.now() - lastMutationTsRef.current < 2500) return;
-
+    const triggerCatchupCheck = () => {
+      if (!isHydratedRef.current || isSavingRef.current || isDisposed) return;
+      if (pendingSyncQueueRef.current.length > 0) {
+        flushPendingSyncQueue().catch(() => {});
+      }
       fetch('/api/v1/erp/revision')
         .then((r) => (r.ok ? r.json() : null))
         .then((revJson) => {
           if (revJson?.success && typeof revJson.dbRevision === 'number') {
-            syncStateFromServer(revJson.dbRevision);
+            pullFullStateIfStale(revJson.dbRevision, null);
           }
         })
         .catch(() => {});
-    }, 5000);
+    };
+
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        triggerCatchupCheck();
+      }
+    };
+
+    window.addEventListener('focus', triggerCatchupCheck);
+    window.addEventListener('online', triggerCatchupCheck);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+
+    const syncInterval = setInterval(triggerCatchupCheck, 4000);
 
     return () => {
+      isDisposed = true;
+      if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
+      try {
+        ws?.close();
+      } catch {}
       eventSource?.close();
       clearInterval(syncInterval);
+      window.removeEventListener('focus', triggerCatchupCheck);
+      window.removeEventListener('online', triggerCatchupCheck);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
     };
   }, []);
 
@@ -2946,7 +3607,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => window.removeEventListener('beforeunload', flushOnUnload);
   }, []);
 
-  // Instant Non-Blocking Write-Through LocalStorage + Server RAM Sync (Zero UI Thread Blocking)
+  // Instant Non-Blocking Delta Write-Through LocalStorage + Express WebSocket Broadcast Sync
   useEffect(() => {
     if (!isHydratedRef.current) return;
     const INSTANT_CACHE_KEY = 'haseb_erp_clean_v8';
@@ -2986,6 +3647,21 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       userAccounts,
       activeIndustry: activeIndustryState,
       currency,
+      language,
+      uiTheme,
+      uiDensity,
+      uiFont,
+      fontScalePercent,
+      windowScalePercent,
+      tabScalePercent,
+      isOnboardingCompleted,
+      idleTimeoutMinutes,
+      readNotificationIds,
+      dismissedNotificationIds,
+      liveEventNotifications,
+      lastBackupTimestamp,
+      trialBaseTimestamp,
+      usedSerialTokens,
       masterSystemConfig,
       promoCoupons,
       promotionalOffers,
@@ -2998,60 +3674,59 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       messagingGatewayConfig,
       whatsappAccounts,
       activeWhatsAppAccountId,
+      currentShift,
+      shiftHistory,
       posCart,
       holdBills,
       interBranchTransfers,
     };
 
     latestSnapshotRef.current = stateSnapshot;
-    lastMutationTsRef.current = Date.now();
 
-    // Coalesce JSON serialization 12ms after state commit so UI paints in 0ms with zero lag
-    const timer = setTimeout(() => {
-      isSavingRef.current = true;
-      let serialized = '';
+    // Compute delta against last queued snapshot — prevents echo loops & duplicate queue entries
+    const baselineForDelta = lastQueuedSnapshotRef.current || lastPushedSnapshotRef.current;
+    const delta = computeStateDeltaPatch(baselineForDelta, stateSnapshot);
+    if (!delta.hasChanges && hasSeededServerRef.current) {
       try {
-        serialized = JSON.stringify(stateSnapshot);
-        localStorage.setItem(INSTANT_CACHE_KEY, serialized);
-        const formattedNow = new Date().toLocaleTimeString('ar-SA', {
-          hour: '2-digit',
-          minute: '2-digit',
-        });
-        setLastAutoSavedAt((prev) => (prev === formattedNow ? prev : formattedNow));
-      } catch {
-        // ignore storage quota limits
+        localStorage.setItem(INSTANT_CACHE_KEY, JSON.stringify(stateSnapshot));
+      } catch {}
+      if (pendingSyncQueueRef.current.length > 0 && navigator.onLine !== false) {
+        const retryTimer = setTimeout(() => {
+          flushPendingSyncQueue().catch(() => {});
+        }, 1500);
+        return () => clearTimeout(retryTimer);
       }
+      return;
+    }
 
-      if (!serialized) {
-        isSavingRef.current = false;
-        return;
-      }
+    lastQueuedSnapshotRef.current = stateSnapshot;
+    const sendDeltaMode = hasSeededServerRef.current && delta.changedKeys.length > 0;
+    const queuedEntry: PendingSyncTransaction = {
+      id: `sync-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+      createdAt: new Date().toISOString(),
+      endpoint: sendDeltaMode ? '/api/v1/erp/patch' : '/api/v1/erp/state',
+      changedKeys: delta.changedKeys,
+      baseRevision: localRevisionRef.current,
+      patchPayload: sendDeltaMode ? (delta.patch as Record<string, any>) : undefined,
+    };
 
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      const activeV2Token = localStorage.getItem('asf_v2_signed_token');
-      if (activeV2Token) {
-        headers['x-asf-license-token'] = activeV2Token;
-      } else {
-        headers['x-asf-trial-device'] = activeLicenseSerial || 'LOCAL-TRIAL-CLIENT';
-      }
+    try {
+      const serializedFull = JSON.stringify(stateSnapshot);
+      localStorage.setItem(INSTANT_CACHE_KEY, serializedFull);
+      const formattedNow = new Date().toLocaleTimeString('ar-SA', {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      setLastAutoSavedAt((prev) => (prev === formattedNow ? prev : formattedNow));
+    } catch {
+      // ignore storage quota limits
+    }
 
-      fetch('/api/v1/erp/state', {
-        method: 'POST',
-        headers,
-        body: serialized,
-      })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((resp) => {
-          if (typeof resp?.dbRevision === 'number') {
-            localRevisionRef.current = resp.dbRevision;
-          }
-          setBackendConnected((prev) => (prev ? prev : true));
-        })
-        .catch(() => {})
-        .finally(() => {
-          isSavingRef.current = false;
-        });
-    }, 12);
+    commitPendingQueue(enqueuePendingSyncEntry(pendingSyncQueueRef.current, queuedEntry));
+
+    const timer = setTimeout(() => {
+      flushPendingSyncQueue().catch(() => {});
+    }, 10);
     return () => clearTimeout(timer);
   }, [
     categories,
@@ -3088,6 +3763,21 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     userAccounts,
     activeIndustryState,
     currency,
+    language,
+    uiTheme,
+    uiDensity,
+    uiFont,
+    fontScalePercent,
+    windowScalePercent,
+    tabScalePercent,
+    isOnboardingCompleted,
+    idleTimeoutMinutes,
+    readNotificationIds,
+    dismissedNotificationIds,
+    liveEventNotifications,
+    lastBackupTimestamp,
+    trialBaseTimestamp,
+    usedSerialTokens,
     masterSystemConfig,
     promoCoupons,
     promotionalOffers,
@@ -3100,6 +3790,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     messagingGatewayConfig,
     whatsappAccounts,
     activeWhatsAppAccountId,
+    currentShift,
+    shiftHistory,
     posCart,
     holdBills,
     interBranchTransfers,
@@ -4741,6 +5433,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       industryMode: activeIndustry,
       orderType: extraMeta?.orderType || 'STANDARD',
       tableNumber: extraMeta?.tableNumber,
+      shiftId: currentShift.status === 'OPEN' ? currentShift.id : 'shift-none',
+      shiftMode: currentShift.status === 'OPEN' ? 'EXPLICIT_SHIFT' : 'FLEXIBLE_SHIFTLESS',
     };
 
     setProducts((prev) =>
@@ -4831,7 +5525,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return invoice;
   };
 
-  const openNewPOSShift = (startingCash = 1500) => {
+  const openNewPOSShift = (startingCash = 0) => {
     const cleanFloat = Math.max(0, Number(startingCash) || 0);
     const newShift: POSShift = {
       id: `shf-${Date.now()}`,
@@ -4846,6 +5540,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       totalSales: 0,
       expectedCash: cleanFloat,
       status: 'OPEN',
+      transactionCount: 0,
+      mode: 'EXPLICIT_SHIFT',
     };
     setCurrentShift(newShift);
     setAuditLogs((prev) => [
@@ -4871,7 +5567,16 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     const cleanActual = Math.max(0, Number(actualCount) || 0);
     const variance = Math.round((cleanActual - currentShift.expectedCash) * 100) / 100;
-    const closedShiftSnapshot = { ...currentShift };
+    const closedRecord: POSShift = {
+      ...currentShift,
+      endTime: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      actualClosingCash: cleanActual,
+      discrepancy: variance,
+      status: 'CLOSED',
+      mode: 'EXPLICIT_SHIFT',
+    };
+
+    setShiftHistory((prev) => [closedRecord, ...prev.filter((s) => s.id !== closedRecord.id)]);
 
     setAuditLogs((prev) => [
       {
@@ -4882,8 +5587,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         action: 'POS_SHIFT_CLOSE',
         module: 'POS',
         entityType: 'POSShift',
-        entityId: closedShiftSnapshot.id,
-        details: `Closed POS shift (${closedShiftSnapshot.id}). Expected Cash: ${closedShiftSnapshot.expectedCash.toFixed(2)} ${currency}, Actual Count: ${cleanActual.toFixed(2)} ${currency}, Variance: ${variance.toFixed(2)} ${currency}.`,
+        entityId: closedRecord.id,
+        details: `Closed POS shift (${closedRecord.id}). Expected Cash: ${closedRecord.expectedCash.toFixed(2)} ${currency}, Actual Count: ${cleanActual.toFixed(2)} ${currency}, Variance: ${variance.toFixed(2)} ${currency}.`,
         timestamp: new Date().toISOString(),
       },
       ...prev,
@@ -4892,13 +5597,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (openNewShiftWithFloat !== undefined) {
       openNewPOSShift(openNewShiftWithFloat);
     } else {
-      setCurrentShift((prev) => ({
-        ...prev,
-        endTime: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-        actualClosingCash: cleanActual,
-        discrepancy: variance,
-        status: 'CLOSED',
-      }));
+      setCurrentShift(closedRecord);
     }
   };
 
@@ -5910,23 +6609,6 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     fetch('/api/v1/erp/reset', { method: 'POST' }).catch(() => {});
   };
 
-  const [isOnboardingCompleted, setIsOnboardingCompleted] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('autostart') === '1') return true;
-      return localStorage.getItem('haseb_onboarding_completed_v8') === 'true';
-    }
-    return true;
-  });
-  const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('autostart') === '1') return false;
-      if (params.get('onboarding') === '1') return true;
-    }
-    return false;
-  });
-
   const openOnboarding = () => setIsOnboardingOpen(true);
   const closeOnboarding = () => setIsOnboardingOpen(false);
 
@@ -5999,9 +6681,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActiveIndustry(params.industry);
     setUiTheme(params.uiTheme);
     setIdleTimeoutMinutes(params.idleTimeoutMinutes || 15);
+    setUiFont(normalizeUiFontId(params.arabicFont));
     try {
       localStorage.setItem('haseb_arabic_font', params.arabicFont);
-      document.documentElement.dataset.erpFont = params.arabicFont;
     } catch {}
 
     // Single General Manager Account (no other default memberships)
@@ -6097,6 +6779,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setChartAccounts(SEED_CHART_OF_ACCOUNTS);
     setJournalEntries([]);
     setCurrentShift(DEFAULT_CLEAN_SHIFT);
+    setShiftHistory([]);
 
     fetch('/api/v1/erp/reset-blank', { method: 'POST' }).catch(() => {});
   };
@@ -6956,12 +7639,24 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         isCommandPaletteOpen,
         setIsCommandPaletteOpen,
         backendConnected,
+        realtimeSyncStatus,
         syncLatencyMs,
         dbRevision,
+        pendingSyncTransactionsCount: pendingSyncQueue.length,
+        isServerSyncing,
+        flushPendingSyncQueue,
         uiTheme,
         setUiTheme,
         uiDensity,
         setUiDensity,
+        uiFont,
+        setUiFont,
+        fontScalePercent,
+        setFontScalePercent,
+        windowScalePercent,
+        setWindowScalePercent,
+        tabScalePercent,
+        setTabScalePercent,
 
         isAuthenticated,
         isTerminalLocked,
@@ -7090,6 +7785,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         createSalesPipelineDoc,
         advancePipelineDoc,
         currentShift,
+        shiftHistory,
         posCart,
         addToPOSCart,
         addSolarSystemKitToPOSCart,
@@ -7233,6 +7929,15 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         dismissNotification,
         clearReadNotifications,
         recordBackupCompleted,
+        notificationPermission,
+        browserNotificationsEnabled,
+        setBrowserNotificationsEnabled,
+        requestBrowserNotificationPermission,
+        activeToastNotification,
+        dismissToastNotification,
+        dispatchToastAndPushNotification,
+        soundAlertPrefs,
+        updateSoundAlertPrefs,
       }}
     >
       {children}

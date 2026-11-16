@@ -141,6 +141,10 @@ export const DEFAULT_MASTER_SYSTEM_CONFIG: MasterSystemConfig = {
   },
   keyboardShortcutsEnabled: true,
   lanSyncEnabled: true,
+  soundAlertsEnabled: true,
+  soundAlertToastEnabled: true,
+  soundAlertSecurityEnabled: true,
+  soundAlertVolume: 35,
   updatedAt: '2026-11-10T00:00:00.000Z',
 };
 

@@ -21,10 +21,12 @@ import {
   Maximize2,
   RotateCcw,
   Lock,
+  Play,
   Sparkles,
 } from 'lucide-react';
 import { SystemNotificationCenterModal } from '../common/SystemNotificationCenterModal';
 import { HasebBrandLogo } from '../common/HasebBrandLogo';
+import { getShiftActionControlMeta } from '../../core/posShiftEngine';
 import {
   GlobalPopoverId,
   derivePopoverFlags,
@@ -169,6 +171,7 @@ export const Navbar: React.FC = () => {
     salesInvoices,
     holdBills,
     currentShift,
+    openShiftModal,
     interBranchTransfers,
     uiTheme,
     setUiTheme,
@@ -183,6 +186,12 @@ export const Navbar: React.FC = () => {
     openOnboarding,
     unreadNotificationsCount,
     company,
+    uiFont,
+    setUiFont,
+    fontScalePercent,
+    setFontScalePercent,
+    windowScalePercent,
+    setWindowScalePercent,
   } = useERP();
 
   const [activePopover, setActivePopover] = useState<GlobalPopoverId>('NONE');
@@ -208,68 +217,6 @@ export const Navbar: React.FC = () => {
 
   const notificationsContainerRef = useRef<HTMLDivElement | null>(null);
   const profileContainerRef = useRef<HTMLDivElement | null>(null);
-
-  const [uiFont, setUiFont] = useState<HasebFontId>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('haseb_ui_font') as HasebFontId | null;
-      if (saved && ['cairo', 'readex', 'tajawal', 'ibm_plex'].includes(saved)) {
-        return saved;
-      }
-    }
-    return 'ibm_plex';
-  });
-
-  const [fontScalePercent, setFontScalePercent] = useState<number>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = Number(localStorage.getItem('haseb_font_scale_percent'));
-      if (Number.isFinite(saved) && saved >= FONT_SCALE_MIN && saved <= FONT_SCALE_MAX) {
-        return clampFontScale(saved);
-      }
-    }
-    return DEFAULT_FONT_SCALE;
-  });
-
-  const [windowScalePercent, setWindowScalePercent] = useState<number>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = Number(localStorage.getItem('haseb_window_scale_percent'));
-      if (Number.isFinite(saved) && saved >= WINDOW_SCALE_MIN && saved <= WINDOW_SCALE_MAX) {
-        return clampWindowScale(saved);
-      }
-    }
-    return DEFAULT_WINDOW_SCALE;
-  });
-
-  useEffect(() => {
-    if (typeof document !== 'undefined') {
-      document.documentElement.dataset.erpFont = uiFont;
-      try {
-        localStorage.setItem('haseb_ui_font', uiFont);
-      } catch {
-        // ignore storage errors
-      }
-    }
-  }, [uiFont]);
-
-  useEffect(() => {
-    if (typeof document !== 'undefined') {
-      const vars = computeHarmonizedScaleCssVars(fontScalePercent, windowScalePercent);
-      const root = document.documentElement;
-      root.style.setProperty('--erp-font-scale', String(vars.fontScaleRatio));
-      root.style.setProperty('--erp-window-scale', String(vars.windowScaleRatio));
-      root.style.setProperty('--erp-root-font-px', `${vars.rootFontSizePx}px`);
-      root.style.setProperty('--erp-spacing-unit', `${vars.spacingUnitRem}rem`);
-      root.style.setProperty('--erp-sidebar-width', `${vars.sidebarWidthPx}px`);
-      root.style.setProperty('--erp-navbar-height', `${vars.navbarHeightPx}px`);
-      root.dataset.erpFontScale = String(fontScalePercent);
-      root.dataset.erpWindowScale = String(windowScalePercent);
-      try {
-        localStorage.setItem('haseb_font_scale_percent', String(fontScalePercent));
-        localStorage.setItem('haseb_window_scale_percent', String(windowScalePercent));
-      } catch {
-        // ignore storage errors
-      }
-    }
-  }, [fontScalePercent, windowScalePercent]);
 
   // If any global modal (Command Palette, LAN Portal, Quick Send Modal) opens, automatically close Navbar popovers
   useEffect(() => {
@@ -443,7 +390,7 @@ export const Navbar: React.FC = () => {
 
   return (
     <header
-      className={`h-13 sm:h-14 border-b px-2.5 sm:px-5 flex items-center justify-between gap-2 shrink-0 z-30 transition-colors duration-200 relative ${
+      className={`w-full max-w-full h-13 sm:h-14 border-b px-2 sm:px-5 flex items-center justify-between gap-1.5 sm:gap-2 shrink-0 z-30 transition-colors duration-200 relative overflow-x-clip ${
         isDark
           ? 'bg-[#0B111E] border-slate-800/90 text-slate-100'
           : isSand
@@ -452,7 +399,7 @@ export const Navbar: React.FC = () => {
       }`}
     >
       {/* Right: Brand Identity & Active Module Badge (7 Rapid Clicks opens Security & Permissions) */}
-      <div className="flex items-center gap-2 sm:gap-3 shrink-0 min-w-0">
+      <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 flex-1 md:flex-initial">
         <div
           data-testid="haseb-brand-identity"
           onClick={handleBrandRapidClick}
@@ -461,7 +408,7 @@ export const Navbar: React.FC = () => {
               ? 'حاسب ERP (انقر للرئيسية • 7 نقرات متتالية سريعة لفتح مركز الأمان والصلاحيات)'
               : 'Haseb ERP (Click for POS • 7 rapid clicks for Security & Permissions)'
           }
-          className="flex items-center gap-2 cursor-pointer group select-none min-w-0"
+          className="flex items-center gap-1.5 sm:gap-2 cursor-pointer group select-none min-w-0"
         >
           {company.logo ? (
             <img
@@ -470,12 +417,12 @@ export const Navbar: React.FC = () => {
               className="w-8 h-8 rounded-xl object-cover border border-slate-200 dark:border-slate-700 shrink-0"
             />
           ) : (
-            <HasebBrandLogo size="sm" theme={uiTheme} />
+            <HasebBrandLogo size="sm" theme={uiTheme} className="shrink-0" />
           )}
           <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
             <span
               data-testid="navbar-company-name"
-              className="font-bold text-xs sm:text-sm tracking-tight text-slate-900 dark:text-white truncate max-w-[115px] sm:max-w-[220px]"
+              className="font-bold text-xs sm:text-sm tracking-tight text-slate-900 dark:text-white truncate max-w-[110px] sm:max-w-[220px]"
             >
               {(language === 'ar' ? company.nameAr : company.name) ||
                 company.nameAr ||
@@ -606,7 +553,7 @@ export const Navbar: React.FC = () => {
                 ? `العضوية الحالية: ${currentAccount.nameAr} — التحكم السريع والمظهر والخطوط والحجم`
                 : `Current Account: ${currentAccount.name} — Quick Controls, Themes, Fonts & Scale`
             }
-            className={`flex items-center gap-1.5 sm:gap-2 pl-2 sm:pl-2.5 pr-1 py-1 rounded-full border transition cursor-pointer ${
+            className={`flex items-center gap-1 sm:gap-2 p-1 sm:pl-2.5 sm:pr-1 rounded-full border transition cursor-pointer shrink-0 ${
               isProfileMenuOpen
                 ? isDark
                   ? 'bg-slate-800 border-blue-500 text-white'
@@ -622,10 +569,10 @@ export const Navbar: React.FC = () => {
             >
               {accountInitials}
             </div>
-            <div className="text-[11px] leading-none flex items-center gap-1.5">
+            <div className="text-[11px] leading-none hidden sm:flex items-center gap-1.5">
               <span
                 data-testid="navbar-logged-in-account-name"
-                className="font-semibold text-slate-700 dark:text-slate-200 max-w-[85px] sm:max-w-[160px] truncate"
+                className="font-semibold text-slate-700 dark:text-slate-200 max-w-[90px] sm:max-w-[160px] truncate"
               >
                 {cleanAccountName}
               </span>
@@ -646,54 +593,81 @@ export const Navbar: React.FC = () => {
               }`}
             >
               {/* Header: User Membership Identity Card */}
-              <div
-                className={`p-3 rounded-xl border flex items-center justify-between gap-2.5 ${
-                  isDark
-                    ? 'bg-slate-900/90 border-slate-800'
-                    : 'bg-slate-50/90 border-slate-200/80'
-                }`}
-              >
-                <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                  <div className="w-9 h-9 rounded-xl haseb-card-gradient text-white flex items-center justify-center font-black shrink-0">
-                    <UserAvatarIcon className="w-4.5 h-4.5" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="font-black text-xs truncate">
-                      {language === 'ar' ? currentAccount.nameAr : currentAccount.name}
-                    </div>
-                    <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate mt-0.5">
-                      {currentAccount.role} • @{currentAccount.username}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    type="button"
-                    data-testid="navbar-lock-terminal-btn"
-                    onClick={() => {
-                      setIsProfileMenuOpen(false);
-                      lockTerminal();
-                    }}
-                    title={language === 'ar' ? 'قفل الشاشة فوراً (Ctrl+L)' : 'Lock Screen (Ctrl+L)'}
-                    className="px-2.5 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800/70 text-amber-700 dark:text-amber-300 font-bold text-[11px] hover:bg-amber-100 transition flex items-center gap-1 cursor-pointer shrink-0"
+              {(() => {
+                const shiftMeta = getShiftActionControlMeta(currentShift, language);
+                return (
+                  <div
+                    className={`p-3 rounded-xl border flex flex-wrap items-center justify-between gap-2 ${
+                      isDark
+                        ? 'bg-slate-900/90 border-slate-800'
+                        : 'bg-slate-50/90 border-slate-200/80'
+                    }`}
                   >
-                    <Lock className="w-3.5 h-3.5" />
-                    <span>{language === 'ar' ? 'قفل' : 'Lock'}</span>
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="navbar-logout-btn"
-                    onClick={() => {
-                      setIsProfileMenuOpen(false);
-                      logout();
-                    }}
-                    className="px-2.5 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800/70 text-rose-600 dark:text-rose-300 font-bold text-[11px] hover:bg-rose-100 transition flex items-center gap-1 cursor-pointer shrink-0"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    <span>{language === 'ar' ? 'خروج' : 'Sign Out'}</span>
-                  </button>
-                </div>
-              </div>
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <div className="w-9 h-9 rounded-xl haseb-card-gradient text-white flex items-center justify-center font-black shrink-0">
+                        <UserAvatarIcon className="w-4.5 h-4.5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-black text-xs truncate">
+                          {language === 'ar' ? currentAccount.nameAr : currentAccount.name}
+                        </div>
+                        <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate mt-0.5">
+                          {currentAccount.role} • @{currentAccount.username}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center flex-wrap gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        data-testid="navbar-menu-shift-btn"
+                        data-shift-status={currentShift.status}
+                        onClick={() => {
+                          setIsProfileMenuOpen(false);
+                          openShiftModal();
+                        }}
+                        title={shiftMeta.statusBadge}
+                        className={`px-2.5 py-1.5 rounded-lg border font-bold text-[11px] transition flex items-center gap-1 cursor-pointer shrink-0 ${
+                          shiftMeta.isOpen
+                            ? 'bg-orange-50 dark:bg-orange-950/50 border-orange-200 dark:border-orange-800/70 text-orange-700 dark:text-orange-300 hover:bg-orange-100'
+                            : 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800/70 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100'
+                        }`}
+                      >
+                        {shiftMeta.isOpen ? (
+                          <Lock className="w-3.5 h-3.5" />
+                        ) : (
+                          <Play className="w-3.5 h-3.5" />
+                        )}
+                        <span>{shiftMeta.shortLabel}</span>
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="navbar-lock-terminal-btn"
+                        onClick={() => {
+                          setIsProfileMenuOpen(false);
+                          lockTerminal();
+                        }}
+                        title={language === 'ar' ? 'قفل الشاشة فوراً (Ctrl+L)' : 'Lock Screen (Ctrl+L)'}
+                        className="px-2.5 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800/70 text-amber-700 dark:text-amber-300 font-bold text-[11px] hover:bg-amber-100 transition flex items-center gap-1 cursor-pointer shrink-0"
+                      >
+                        <Lock className="w-3.5 h-3.5" />
+                        <span>{language === 'ar' ? 'قفل' : 'Lock'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="navbar-logout-btn"
+                        onClick={() => {
+                          setIsProfileMenuOpen(false);
+                          logout();
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800/70 text-rose-600 dark:text-rose-300 font-bold text-[11px] hover:bg-rose-100 transition flex items-center gap-1 cursor-pointer shrink-0"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        <span>{language === 'ar' ? 'خروج' : 'Sign Out'}</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* =================================================================
                   ACCORDION 1: التحكم السريع والنظام (Language, Currency, Settings, Comms, LAN)
@@ -1307,24 +1281,35 @@ export const Navbar: React.FC = () => {
           )}
         </div>
 
-        {/* Quiet Close Shift Action */}
-        <button
-          type="button"
-          data-testid="navbar-close-shift-btn"
-          onClick={() => {
-            setIsNotificationsOpen(false);
-            setIsProfileMenuOpen(false);
-            setActiveTab('pos');
-            setTimeout(() => {
-              window.dispatchEvent(new CustomEvent('haseb-open-close-shift-modal'));
-            }, 40);
-          }}
-          className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-full text-slate-600 dark:text-slate-300 hover:text-rose-700 hover:bg-rose-50 text-xs font-medium transition-colors cursor-pointer"
-          title={language === 'ar' ? 'إغلاق الوردية' : 'Close Shift'}
-        >
-          <Lock className="w-3.5 h-3.5 shrink-0" />
-          <span className="hidden sm:inline">{language === 'ar' ? 'إغلاق الوردية' : 'Close Shift'}</span>
-        </button>
+        {/* Dynamic Open / Close Shift Toggle (Opens Unified Modal In-Place) */}
+        {(() => {
+          const shiftMeta = getShiftActionControlMeta(currentShift, language);
+          return (
+            <button
+              type="button"
+              data-testid="navbar-close-shift-btn"
+              data-shift-status={currentShift.status}
+              onClick={() => {
+                setIsNotificationsOpen(false);
+                setIsProfileMenuOpen(false);
+                openShiftModal();
+              }}
+              className={`flex items-center justify-center gap-1.5 w-8 h-8 sm:w-auto sm:h-auto sm:px-3 sm:py-1.5 rounded-full text-xs font-medium transition-colors cursor-pointer shrink-0 ${
+                shiftMeta.isOpen
+                  ? 'text-rose-700 dark:text-rose-300 bg-rose-50/90 dark:bg-rose-950/40 hover:bg-rose-100 border border-rose-200/80 dark:border-rose-800/60'
+                  : 'text-slate-600 dark:text-slate-300 bg-slate-50 sm:bg-transparent dark:bg-slate-900 sm:dark:bg-transparent border border-slate-200/80 sm:border-transparent hover:text-emerald-700 hover:bg-emerald-50/90 dark:hover:bg-emerald-950/40'
+              }`}
+              title={`${shiftMeta.label} — ${shiftMeta.statusBadge}`}
+            >
+              {shiftMeta.isOpen ? (
+                <Lock className="w-3.5 h-3.5 shrink-0 text-rose-600 dark:text-rose-400" />
+              ) : (
+                <Play className="w-3.5 h-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              )}
+              <span className="hidden sm:inline">{shiftMeta.label}</span>
+            </button>
+          );
+        })()}
       </div>
     </header>
   );

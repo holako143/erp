@@ -274,7 +274,7 @@ export const BusinessModulesView: React.FC = () => {
                   type="button"
                   data-testid="open-add-employee-btn"
                   onClick={() => setShowEmpForm(!showEmpForm)}
-                  className="px-3.5 py-2 bg-slate-900 hover:bg-indigo-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                  className="px-3.5 py-2 haseb-btn-primary text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
                   <span>{language === 'ar' ? 'إضافة موظف جديد' : 'Add Employee'}</span>
@@ -723,7 +723,7 @@ export const BusinessModulesView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setShowAssetForm(!showAssetForm)}
-                className="px-3.5 py-2 bg-slate-900 hover:bg-indigo-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                className="px-3.5 py-2 haseb-btn-primary text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
               >
                 <Plus className="w-4 h-4" />
                 <span>{language === 'ar' ? 'إضافة أصل ثابت' : 'Add Fixed Asset'}</span>

@@ -6,6 +6,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { createRequire } from 'module';
 
 const requireModule = createRequire(import.meta.url);
@@ -50,6 +51,15 @@ export class HasebLocalSqliteEngine {
   private dbFilePath: string;
   private lastWriteLatencyMs = 0.28;
   private lastReadLatencyMs = 0.14;
+  private lastTableHashes: Record<string, string> = {};
+
+  private computeHash(value: unknown): string {
+    try {
+      return crypto.createHash('sha1').update(JSON.stringify(value)).digest('hex');
+    } catch {
+      return `${Date.now()}-${Math.random()}`;
+    }
+  }
 
   constructor(dataDir: string) {
     if (!fs.existsSync(dataDir)) {
@@ -250,146 +260,162 @@ export class HasebLocalSqliteEngine {
       `);
       upsertSnapshot.run(schemaVersion, revision, JSON.stringify(state), nowIso);
 
-      // 2. Sync normalized relational erp_products table
+      // 2. Sync normalized relational erp_products table (skip if unchanged)
       if (Array.isArray(state.products)) {
-        this.db.exec('DELETE FROM erp_products');
-        const insertProd = this.db.prepare(`
-          INSERT INTO erp_products (
-            id, sku, barcode, name_ar, name_en, category_id,
-            cost_price, sale_price, stock_qty, reorder_point, warranty_months, industry, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        for (const p of state.products) {
-          insertProd.run(
-            String(p.id || ''),
-            String(p.sku || ''),
-            String(p.barcode || ''),
-            String(p.nameAr || p.name || ''),
-            String(p.name || ''),
-            String(p.categoryId || ''),
-            Number(p.costPrice) || 0,
-            Number(p.salePrice) || 0,
-            Number(p.stockQty) || 0,
-            Number(p.reorderPoint) || 0,
-            Number(p.warrantyMonths) || 0,
-            String(p.industry || 'electronics'),
-            nowIso
-          );
+        const prodHash = this.computeHash(state.products);
+        if (this.lastTableHashes.products !== prodHash) {
+          this.db.exec('DELETE FROM erp_products');
+          const insertProd = this.db.prepare(`
+            INSERT INTO erp_products (
+              id, sku, barcode, name_ar, name_en, category_id,
+              cost_price, sale_price, stock_qty, reorder_point, warranty_months, industry, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const p of state.products) {
+            insertProd.run(
+              String(p.id || ''),
+              String(p.sku || ''),
+              String(p.barcode || ''),
+              String(p.nameAr || p.name || ''),
+              String(p.name || ''),
+              String(p.categoryId || ''),
+              Number(p.costPrice) || 0,
+              Number(p.salePrice) || 0,
+              Number(p.stockQty) || 0,
+              Number(p.reorderPoint) || 0,
+              Number(p.warrantyMonths) || 0,
+              String(p.industry || 'electronics'),
+              nowIso
+            );
+          }
+          this.lastTableHashes.products = prodHash;
         }
       }
 
-      // 3. Sync normalized relational erp_sales_invoices & erp_serial_registry tables
+      // 3. Sync normalized relational erp_sales_invoices & erp_serial_registry tables (skip if unchanged)
       if (Array.isArray(state.salesInvoices)) {
-        this.db.exec('DELETE FROM erp_sales_invoices');
-        this.db.exec('DELETE FROM erp_serial_registry');
-        const insertInv = this.db.prepare(`
-          INSERT INTO erp_sales_invoices (
-            id, invoice_number, customer_id, customer_name, customer_phone, branch_id,
-            date, subtotal, discount_amount, tax_amount, grand_total, paid_amount,
-            payment_method, status, items_json, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        const insertSerial = this.db.prepare(`
-          INSERT OR REPLACE INTO erp_serial_registry (
-            serial_number, product_id, sku, invoice_number, customer_name, customer_phone, warranty_months, sold_date
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `);
+        const invHash = this.computeHash([state.salesInvoices, state.serialNumbers || []]);
+        if (this.lastTableHashes.salesInvoices !== invHash) {
+          this.db.exec('DELETE FROM erp_sales_invoices');
+          this.db.exec('DELETE FROM erp_serial_registry');
+          const insertInv = this.db.prepare(`
+            INSERT INTO erp_sales_invoices (
+              id, invoice_number, customer_id, customer_name, customer_phone, branch_id,
+              date, subtotal, discount_amount, tax_amount, grand_total, paid_amount,
+              payment_method, status, items_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          const insertSerial = this.db.prepare(`
+            INSERT OR REPLACE INTO erp_serial_registry (
+              serial_number, product_id, sku, invoice_number, customer_name, customer_phone, warranty_months, sold_date
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `);
 
-        for (const inv of state.salesInvoices) {
-          insertInv.run(
-            String(inv.id || ''),
-            String(inv.invoiceNumber || ''),
-            String(inv.customerId || ''),
-            String(inv.customerName || ''),
-            String(inv.customerPhone || ''),
-            String(inv.branchId || ''),
-            String(inv.date || ''),
-            Number(inv.subtotal) || 0,
-            Number(inv.discountAmount) || 0,
-            0, // Zero-tax invariant
-            Number(inv.grandTotal) || 0,
-            Number(inv.paidAmount) || 0,
-            String(inv.paymentMethod || 'CASH'),
-            String(inv.status || 'PAID'),
-            JSON.stringify(inv.items || []),
-            nowIso
-          );
+          for (const inv of state.salesInvoices) {
+            insertInv.run(
+              String(inv.id || ''),
+              String(inv.invoiceNumber || ''),
+              String(inv.customerId || ''),
+              String(inv.customerName || ''),
+              String(inv.customerPhone || ''),
+              String(inv.branchId || ''),
+              String(inv.date || ''),
+              Number(inv.subtotal) || 0,
+              Number(inv.discountAmount) || 0,
+              0, // Zero-tax invariant
+              Number(inv.grandTotal) || 0,
+              Number(inv.paidAmount) || 0,
+              String(inv.paymentMethod || 'CASH'),
+              String(inv.status || 'PAID'),
+              JSON.stringify(inv.items || []),
+              nowIso
+            );
 
-          if (Array.isArray(inv.items)) {
-            for (const item of inv.items) {
-              if (item.serialNumber && String(item.serialNumber).trim()) {
+            if (Array.isArray(inv.items)) {
+              for (const item of inv.items) {
+                if (item.serialNumber && String(item.serialNumber).trim()) {
+                  insertSerial.run(
+                    String(item.serialNumber).trim(),
+                    String(item.productId || ''),
+                    String(item.sku || ''),
+                    String(inv.invoiceNumber || ''),
+                    String(inv.customerName || ''),
+                    String(inv.customerPhone || ''),
+                    Number(item.warrantyMonths) || 12,
+                    String(inv.date || '')
+                  );
+                }
+              }
+            }
+          }
+
+          if (Array.isArray(state.serialNumbers)) {
+            for (const sn of state.serialNumbers) {
+              if (sn?.serialNumber && String(sn.serialNumber).trim()) {
                 insertSerial.run(
-                  String(item.serialNumber).trim(),
-                  String(item.productId || ''),
-                  String(item.sku || ''),
-                  String(inv.invoiceNumber || ''),
-                  String(inv.customerName || ''),
-                  String(inv.customerPhone || ''),
-                  Number(item.warrantyMonths) || 12,
-                  String(inv.date || '')
+                  String(sn.serialNumber).trim(),
+                  String(sn.productId || ''),
+                  String(sn.sku || ''),
+                  String(sn.invoiceId || sn.invoiceNumber || 'STOCK-REG'),
+                  String(sn.customerName || 'مخزون المستودع'),
+                  String(sn.customerPhone || ''),
+                  Number(sn.warrantyMonths) || 24,
+                  String(sn.soldDate || sn.receivedDate || nowIso.slice(0, 10))
                 );
               }
             }
           }
-        }
-
-        if (Array.isArray(state.serialNumbers)) {
-          for (const sn of state.serialNumbers) {
-            if (sn?.serialNumber && String(sn.serialNumber).trim()) {
-              insertSerial.run(
-                String(sn.serialNumber).trim(),
-                String(sn.productId || ''),
-                String(sn.sku || ''),
-                String(sn.invoiceId || sn.invoiceNumber || 'STOCK-REG'),
-                String(sn.customerName || 'مخزون المستودع'),
-                String(sn.customerPhone || ''),
-                Number(sn.warrantyMonths) || 24,
-                String(sn.soldDate || sn.receivedDate || nowIso.slice(0, 10))
-              );
-            }
-          }
+          this.lastTableHashes.salesInvoices = invHash;
         }
       }
 
-      // 4. Sync normalized relational erp_customers table
+      // 4. Sync normalized relational erp_customers table (skip if unchanged)
       if (Array.isArray(state.customers)) {
-        this.db.exec('DELETE FROM erp_customers');
-        const insertCust = this.db.prepare(`
-          INSERT INTO erp_customers (id, code, name_ar, phone, balance, credit_limit, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `);
-        for (const c of state.customers) {
-          insertCust.run(
-            String(c.id || ''),
-            String(c.code || ''),
-            String(c.nameAr || c.name || ''),
-            String(c.phone || ''),
-            Number(c.balance) || 0,
-            Number(c.creditLimit) || 0,
-            nowIso
-          );
+        const custHash = this.computeHash(state.customers);
+        if (this.lastTableHashes.customers !== custHash) {
+          this.db.exec('DELETE FROM erp_customers');
+          const insertCust = this.db.prepare(`
+            INSERT INTO erp_customers (id, code, name_ar, phone, balance, credit_limit, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const c of state.customers) {
+            insertCust.run(
+              String(c.id || ''),
+              String(c.code || ''),
+              String(c.nameAr || c.name || ''),
+              String(c.phone || ''),
+              Number(c.balance) || 0,
+              Number(c.creditLimit) || 0,
+              nowIso
+            );
+          }
+          this.lastTableHashes.customers = custHash;
         }
       }
 
-      // 5. Sync normalized relational erp_journal_entries table
+      // 5. Sync normalized relational erp_journal_entries table (skip if unchanged)
       if (Array.isArray(state.journalEntries)) {
-        this.db.exec('DELETE FROM erp_journal_entries');
-        const insertJe = this.db.prepare(`
-          INSERT INTO erp_journal_entries (
-            id, entry_number, date, description_ar, total_debit, total_credit, status, lines_json
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        for (const je of state.journalEntries) {
-          insertJe.run(
-            String(je.id || ''),
-            String(je.entryNumber || ''),
-            String(je.date || ''),
-            String(je.descriptionAr || je.description || ''),
-            Number(je.totalDebit) || 0,
-            Number(je.totalCredit) || 0,
-            String(je.status || 'POSTED'),
-            JSON.stringify(je.lines || [])
-          );
+        const jeHash = this.computeHash(state.journalEntries);
+        if (this.lastTableHashes.journalEntries !== jeHash) {
+          this.db.exec('DELETE FROM erp_journal_entries');
+          const insertJe = this.db.prepare(`
+            INSERT INTO erp_journal_entries (
+              id, entry_number, date, description_ar, total_debit, total_credit, status, lines_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const je of state.journalEntries) {
+            insertJe.run(
+              String(je.id || ''),
+              String(je.entryNumber || ''),
+              String(je.date || ''),
+              String(je.descriptionAr || je.description || ''),
+              Number(je.totalDebit) || 0,
+              Number(je.totalCredit) || 0,
+              String(je.status || 'POSTED'),
+              JSON.stringify(je.lines || [])
+            );
+          }
+          this.lastTableHashes.journalEntries = jeHash;
         }
       }
 
@@ -421,6 +447,7 @@ export class HasebLocalSqliteEngine {
         DELETE FROM erp_journal_entries;
         COMMIT;
       `);
+      this.lastTableHashes = {};
     } catch (err) {
       try {
         this.db.exec('ROLLBACK');
