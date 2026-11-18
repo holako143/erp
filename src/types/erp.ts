@@ -32,7 +32,8 @@ export type StandardInvoiceTemplateType =
   | 'a4_warranty_electronics'
   | 'a4_medical_pharmacy'
   | 'a4_contracting_specs'
-  | 'a4_minimalist_clean';
+  | 'a4_minimalist_clean'
+  | 'a4_executive_grid_pro';
 
 export interface InvoiceTemplateSettings {
   thermalTemplate: ThermalTemplateType;
@@ -68,6 +69,11 @@ export interface InvoiceTemplateSettings {
   watermarkText?: string;
   qrSizePx?: number;
   barcodeWidthPx?: number;
+  bankIban?: string;
+  bankSwift?: string;
+  activeCustomLayoutId?: string;
+  activeCustomLayout?: import('../core/invoiceTemplateLayoutEngine').CustomInvoiceLayoutTemplate;
+  savedCustomLayouts?: import('../core/invoiceTemplateLayoutEngine').CustomInvoiceLayoutTemplate[];
 }
 
 export type UserRole =
@@ -562,6 +568,10 @@ export interface SalesInvoice {
   taxAmount: number;
   grandTotal: number;
   paidAmount: number;
+  remainingAmount?: number;
+  cashPaidAmount?: number;
+  cardPaidAmount?: number;
+  tenderedAmount?: number;
   paymentMethod: 'CASH' | 'CARD' | 'SPLIT' | 'CREDIT';
   status: 'DRAFT' | 'PAID' | 'PARTIAL' | 'OVERDUE' | 'VOID';
   qrData?: string;
@@ -575,6 +585,7 @@ export interface SalesInvoice {
   discountValue?: number;
   shiftId?: string;
   shiftMode?: 'EXPLICIT_SHIFT' | 'FLEXIBLE_SHIFTLESS';
+  customerSignatureBase64?: string;
 }
 
 export interface POSShift {
@@ -1115,6 +1126,7 @@ export interface MasterSystemConfig {
   soundAlertToastEnabled?: boolean;
   soundAlertSecurityEnabled?: boolean;
   soundAlertVolume?: number;
+  communicationsExplicitlyHidden?: boolean;
   updatedAt: string;
   lastUpdatedAt?: string;
   lastUpdatedBy?: string;

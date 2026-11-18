@@ -103,6 +103,7 @@ export const POSCartItemRow: React.FC<POSCartItemRowProps> = React.memo(
             <div className="flex items-center gap-0.5 sm:gap-1 bg-white border border-slate-200/80 rounded-lg sm:rounded-xl p-0.5 sm:p-1">
               <button
                 type="button"
+                data-testid={`pos-cart-qty-dec-${item.productId}`}
                 onClick={(e) => {
                   e.stopPropagation();
                   onUpdateQty(item.productId, item.quantity - 1);
@@ -113,6 +114,7 @@ export const POSCartItemRow: React.FC<POSCartItemRowProps> = React.memo(
                 -
               </button>
               <span
+                data-testid={`pos-cart-qty-value-${item.productId}`}
                 className="w-7 sm:w-8 text-center text-[11px] sm:text-xs font-mono font-bold text-slate-800"
                 dir="ltr"
               >
@@ -120,16 +122,36 @@ export const POSCartItemRow: React.FC<POSCartItemRowProps> = React.memo(
               </span>
               <button
                 type="button"
+                data-testid={`pos-cart-qty-inc-${item.productId}`}
                 onClick={(e) => {
                   e.stopPropagation();
                   onUpdateQty(item.productId, item.quantity + 1);
                 }}
-                className="w-6.5 h-6.5 sm:w-7.5 sm:h-7.5 rounded-md sm:rounded-lg hover:bg-slate-100 active:bg-slate-200 text-slate-700 flex items-center justify-center text-xs sm:text-sm font-bold cursor-pointer touch-manipulation"
+                className={`w-6.5 h-6.5 sm:w-7.5 sm:h-7.5 rounded-md sm:rounded-lg flex items-center justify-center text-xs sm:text-sm font-bold cursor-pointer touch-manipulation ${
+                  product && item.quantity * (item.conversionFactor || 1) >= product.stockQty
+                    ? 'bg-amber-50 text-amber-700 hover:bg-amber-100'
+                    : 'hover:bg-slate-100 active:bg-slate-200 text-slate-700'
+                }`}
                 aria-label="زيادة الكمية"
               >
                 +
               </button>
             </div>
+            {product && (
+              <span
+                data-testid={`pos-cart-item-stock-badge-${item.productId}`}
+                className={`px-1.5 py-0.5 rounded-md text-[9.5px] font-bold border ${
+                  item.quantity * (item.conversionFactor || 1) >= product.stockQty
+                    ? 'bg-amber-50 text-amber-800 border-amber-200'
+                    : 'bg-white text-slate-500 border-slate-200/80'
+                }`}
+              >
+                المتوفر: {product.stockQty}
+                {item.quantity * (item.conversionFactor || 1) >= product.stockQty
+                  ? ' (الحد الأقصى)'
+                  : ''}
+              </span>
+            )}
             {unitChoices.length > 1 && onUpdateUnit && (
               <select
                 data-testid={`pos-cart-unit-${item.productId}`}

@@ -23,7 +23,10 @@ import QRCode from 'qrcode';
 import fs from 'fs';
 import path from 'path';
 
-const AUTH_BASE_DIR = path.resolve(process.cwd(), '.data', 'whatsapp_auth');
+const AUTH_BASE_DIR = path.resolve(
+  process.env.HASEB_DATA_DIR || path.resolve(process.cwd(), '.data'),
+  'whatsapp_auth'
+);
 if (!fs.existsSync(AUTH_BASE_DIR)) {
   fs.mkdirSync(AUTH_BASE_DIR, { recursive: true });
 }

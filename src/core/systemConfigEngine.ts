@@ -116,7 +116,7 @@ export const DEFAULT_MASTER_SYSTEM_CONFIG: MasterSystemConfig = {
     saasPlatform: false,
     security: false,
     settings: false,
-    communications: false,
+    communications: true,
   },
   uiElementsVisibility: {
     showIndustrySwitcher: false,
@@ -181,7 +181,7 @@ export function applySectorModePreset(
         saasPlatform: false,
         security: false,
         settings: false,
-        communications: false,
+        communications: true,
       },
       uiElementsVisibility: {
         ...config.uiElementsVisibility,
@@ -256,6 +256,12 @@ export function isModuleVisibleUnderMasterConfig(
     ) {
       return false;
     }
+  }
+  if (moduleId === 'communications') {
+    if (config.visibleModules && typeof config.visibleModules.communications === 'boolean') {
+      return config.visibleModules.communications;
+    }
+    return true;
   }
   if (
     config.sectorModeEnabled ||

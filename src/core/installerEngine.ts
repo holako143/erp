@@ -22,6 +22,9 @@ export interface SystemReadinessReport {
   primaryLanUrl: string;
   distReady: boolean;
   bundleReady: boolean;
+  exeInstallerReady: boolean;
+  exeInstallerSizeMb: number | null;
+  embeddedDistReady: boolean;
   adbAvailable: boolean;
   adbPath: string | null;
   adbDaemonRunning: boolean;
@@ -321,19 +324,20 @@ export function generatePortableReadmeAr(options: InstallerScriptOptions = {}): 
     '====================================================================',
     '',
     '1) محتويات هذه الحزمة جاهزة للعمل الفوري بدون تحميل اعتماديات:',
-    '   - dist/                    : ملفات الواجهة المترجمة بالكامل',
-    '   - bundle/server.bundle.cjs : الخادم المدمج بدون الحاجة لـ node_modules',
-    '   - installer_windows.bat    : ملف التسطيب التلقائي لويندوز',
-    '   - installer_linux_mac.sh   : ملف التسطيب لأنظمة Linux و Mac',
+    '   - Haseb_ERP_Setup_Offline.exe : ملف التسطيب التنفيذي المباشر (EXE مستقل بدون Node.js)',
+    '   - dist/                       : ملفات الواجهة المترجمة بالكامل',
+    '   - bundle/server.bundle.cjs    : الخادم المدمج بدون الحاجة لـ node_modules',
+    '   - installer_windows.bat       : ملف التسطيب التلقائي لويندوز',
+    '   - installer_linux_mac.sh      : ملف التسطيب لأنظمة Linux و Mac',
     '',
     '2) طريقة التشغيل على Windows:',
-    '   - فك الضغط في أي مجلد (مثلاً C:\\HasebERP).',
-    '   - انقر نقراً مزدوجاً على ملف: installer_windows.bat',
-    '   - سيطلب صلاحية المسؤول تلقائياً ليقوم بـ:',
+    '   - الطريقة الأسرع: شغّل ملف Haseb_ERP_Setup_Offline.exe مباشرة (بنقرة واحدة بدون أي برامج إضافية).',
+    '   - أو فك ضغط الحزمة المحمولة وانقر نقراً مزدوجاً على: installer_windows.bat',
+    '   - سيطلب صلاحية المسؤول لمرة واحدة تلقائياً ليقوم بـ:',
     `     * فتح جدار الحماية للمنافذ ${port} و 3443 و 5037`,
     '     * تفعيل صلاحيات الشبكة المحلية LAN للربط مع الجوالات',
     '     * تشغيل خدمة ADB للتعرف الفوري على جوال SMS بمجرد توصيل السلك',
-    '     * إنشاء اختصار مباشر على سطح المكتب وفتح البرنامج فوراً.',
+    '     * تثبيت اختصار مباشر على سطح المكتب وفتح البرنامج فوراً.',
     '',
     '3) تفعيل جسر رسائل SMS عبر كابل USB:',
     '   - على جوال الأندرويد: فعّل "خيارات المطور" ثم "تصحيح أخطاء USB (USB Debugging)".',

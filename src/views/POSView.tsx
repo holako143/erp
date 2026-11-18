@@ -1,4 +1,13 @@
-import React, { useState, useMemo, useRef, useEffect, useCallback, Suspense, lazy } from 'react';
+import React, {
+  useState,
+  useMemo,
+  useRef,
+  useEffect,
+  useCallback,
+  useDeferredValue,
+  Suspense,
+  lazy,
+} from 'react';
 import { useERP } from '../context/ERPContext';
 import {
   CreditCard,
@@ -31,6 +40,9 @@ import {
   EyeOff,
   ChefHat,
   Columns2,
+  AlertTriangle,
+  SlidersHorizontal,
+  PenTool,
 } from 'lucide-react';
 import type { ScannedBatchItem } from '../components/common/CameraBarcodeScannerModal';
 import { WorkspaceTabResizerBar } from '../components/common/WorkspaceTabResizerBar';
@@ -64,6 +76,14 @@ import {
 } from '../core/posKeyboardNavigation';
 import { POSProductCard } from '../components/pos/POSProductCard';
 import { POSCartItemRow } from '../components/pos/POSCartItemRow';
+import { POSItemSearchDropdown } from '../components/pos/POSItemSearchDropdown';
+import { POSBulkStockAdjustModal } from '../components/pos/POSBulkStockAdjustModal';
+import { POSSignaturePadModal } from '../components/pos/POSSignaturePadModal';
+import {
+  validateStrictPosStockBeforeAdd,
+  StrictStockValidationResult,
+  BulkStockAdjustmentBatchResult,
+} from '../core/posStrictStockValidationService';
 import { findProductAndUnitByBarcodeOrSku } from '../core/multiUnitAndProcurementEngine';
 import { MobileQuickActionsSheet } from '../components/common/MobileQuickActionsSheet';
 import {
@@ -102,6 +122,7 @@ export const POSView: React.FC = React.memo(() => {
   const {
     products,
     updateProduct,
+    batchUpdateProducts,
     categories,
     posCart,
     addToPOSCart,
@@ -163,9 +184,12 @@ export const POSView: React.FC = React.memo(() => {
   // Checkout & Payment Settlement State
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [isQuickNumpadOpen, setIsQuickNumpadOpen] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'SPLIT'>('CASH');
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'SPLIT' | 'CREDIT'>('CASH');
   const [cashTendered, setCashTendered] = useState<number>(0);
+  const [cardPaidAmount, setCardPaidAmount] = useState<number>(0);
   const [splitCashAmount, setSplitCashAmount] = useState<number>(0);
+  const [splitCardAmount, setSplitCardAmount] = useState<number>(0);
+  const [creditDownPayment, setCreditDownPayment] = useState<number>(0);
   const [cardReference, setCardReference] = useState<string>('');
   const [checkoutNotes, setCheckoutNotes] = useState<string>('');
   const [completedInvoice, setCompletedInvoice] = useState<SalesInvoice | null>(null);
@@ -179,11 +203,68 @@ export const POSView: React.FC = React.memo(() => {
   );
 
   const [posBanner, setPosBanner] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [strictShortageToast, setStrictShortageToast] = useState<{
+    sku: string;
+    title: string;
+    message: string;
+    shortageQty: number;
+    availableQty: number;
+  } | null>(null);
 
   const showBanner = useCallback((type: 'success' | 'error', text: string) => {
     setPosBanner({ type, text });
     setTimeout(() => setPosBanner(null), 4000);
   }, []);
+
+  const triggerHighVisibilityShortageToast = useCallback(
+    (validation: StrictStockValidationResult, product: Product) => {
+      const title = language === 'ar' ? validation.toastTitleAr : validation.toastTitleEn;
+      const message = language === 'ar' ? validation.toastMessageAr : validation.toastMessageEn;
+      setStrictShortageToast({
+        sku: product.sku,
+        title,
+        message,
+        shortageQty: validation.shortageQty,
+        availableQty: validation.remainingAvailableStock,
+      });
+      showBanner('error', message);
+    },
+    [language, showBanner]
+  );
+
+  const [isBulkAdjustModalOpen, setIsBulkAdjustModalOpen] = useState(false);
+  const [isSignaturePadOpen, setIsSignaturePadOpen] = useState(false);
+
+  const handleSaveCustomerSignature = useCallback(
+    (base64Png: string) => {
+      if (completedInvoice) {
+        setCompletedInvoice({
+          ...completedInvoice,
+          customerSignatureBase64: base64Png,
+        });
+        showBanner('success', 'تم اعتماد وإرفاق توقيع العميل الرقمي بالفاتورة بنجاح.');
+      }
+    },
+    [completedInvoice, showBanner]
+  );
+
+  const handleCommitPosBulkAdjustments = useCallback(
+    (result: BulkStockAdjustmentBatchResult) => {
+      if (result.updatedCount === 0) return;
+      batchUpdateProducts(result.updatedProducts, {
+        updatedCount: result.updatedCount,
+        skippedCount: result.skippedCount,
+        totalFieldChanges: result.updatedCount,
+      });
+      showBanner(
+        'success',
+        `تم اعتماد التعديل الجماعي للمخزون بنجاح (${result.updatedCount} صنف — صافي الفارق: ${
+          result.netVariance > 0 ? `+${result.netVariance}` : result.netVariance
+        }).`
+      );
+    },
+    [batchUpdateProducts, showBanner]
+  );
 
   // Customer & Warranty Beneficiary State in POS Cart (Defaults to Walk-in Cash Customer: "عميل نقدي عام")
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('cust-pos-walkin');
@@ -234,11 +315,19 @@ export const POSView: React.FC = React.memo(() => {
         const prod = products.find((p) => p.id === target.productId || p.sku === target.sku);
         if (!prod) return;
         if (action.id === 'pos-prod-add-1') {
-          addToPOSCart(prod, 1);
-          showBanner('success', `تمت إضافة قطعة واحدة (+1) من (${prod.nameAr}) للسلة`);
+          const res = addToPOSCart(prod, 1);
+          if (res.wasCapped) {
+            showBanner('error', res.messageAr);
+          } else {
+            showBanner('success', `تمت إضافة قطعة واحدة (+1) من (${prod.nameAr}) للسلة`);
+          }
         } else if (action.id === 'pos-prod-add-5') {
-          addToPOSCart(prod, 5);
-          showBanner('success', `تمت إضافة (5) وحدات من (${prod.nameAr}) للسلة دفعة واحدة`);
+          const res = addToPOSCart(prod, 5);
+          if (res.wasCapped) {
+            showBanner('error', res.messageAr);
+          } else {
+            showBanner('success', `تمت إضافة (5) وحدات من (${prod.nameAr}) للسلة دفعة واحدة`);
+          }
         } else if (action.id === 'pos-prod-probe') {
           openCrossBranchModal(prod.sku);
         } else if (action.id === 'pos-prod-whatsapp') {
@@ -258,12 +347,20 @@ export const POSView: React.FC = React.memo(() => {
         const cartItem = posCart.find((it) => it.productId === target.productId);
         if (!cartItem) return;
         if (action.id === 'cart-item-inc') {
-          updatePOSCartQty(cartItem.productId, cartItem.quantity + 1);
-          showBanner('success', `تمت زيادة كمية (${cartItem.productName}) إلى ${cartItem.quantity + 1}`);
+          const res = updatePOSCartQty(cartItem.productId, cartItem.quantity + 1);
+          if (res?.wasCapped) {
+            showBanner('error', res.messageAr);
+          } else {
+            showBanner('success', `تمت زيادة كمية (${cartItem.productName}) إلى ${cartItem.quantity + 1}`);
+          }
         } else if (action.id === 'cart-item-double') {
           const doubled = Math.max(2, cartItem.quantity * 2);
-          updatePOSCartQty(cartItem.productId, doubled);
-          showBanner('success', `تمت مضاعفة كمية (${cartItem.productName}) إلى ${doubled}`);
+          const res = updatePOSCartQty(cartItem.productId, doubled);
+          if (res?.wasCapped) {
+            showBanner('error', res.messageAr);
+          } else {
+            showBanner('success', `تمت مضاعفة كمية (${cartItem.productName}) إلى ${doubled}`);
+          }
         } else if (action.id === 'cart-item-focus-sn') {
           const snField = `pos-cart-serial-${cartItem.productId}`;
           setActivePosFieldId(snField);
@@ -446,16 +543,28 @@ export const POSView: React.FC = React.memo(() => {
   const taxAmount = 0;
   const grandTotal = Math.round(netTaxable * 100) / 100;
 
-  // Memoized Filtered Products for touch grid - Strictly limited to active industry
+  // Deferred values for heavy catalog filtering & analytics so typing/tapping never drops frames
+  const deferredSearchTerm = useDeferredValue(searchTerm);
+  const deferredSelectedCategory = useDeferredValue(selectedCategory);
+  const deferredSelectedElectronicsSubCat = useDeferredValue(selectedElectronicsSubCat);
+  const deferredProducts = useDeferredValue(products);
+  const isCatalogFilteringPending =
+    searchTerm !== deferredSearchTerm ||
+    selectedCategory !== deferredSelectedCategory ||
+    selectedElectronicsSubCat !== deferredSelectedElectronicsSubCat ||
+    products !== deferredProducts;
+
+  // Memoized Filtered Products for touch grid - Strictly limited to active industry (using deferred values)
   const filteredProducts = useMemo(() => {
-    const q = searchTerm.trim().toLowerCase();
-    return products.filter((p) => {
-      const matchesCat = selectedCategory === 'all' || p.categoryId === selectedCategory;
+    const q = deferredSearchTerm.trim().toLowerCase();
+    return deferredProducts.filter((p) => {
+      const matchesCat =
+        deferredSelectedCategory === 'all' || p.categoryId === deferredSelectedCategory;
       const matchesSubCat =
         activeIndustry !== 'electronics' ||
-        selectedElectronicsSubCat === 'ALL' ||
-        p.subCategory === selectedElectronicsSubCat ||
-        (selectedElectronicsSubCat === 'LITHIUM_BATTERY' &&
+        deferredSelectedElectronicsSubCat === 'ALL' ||
+        p.subCategory === deferredSelectedElectronicsSubCat ||
+        (deferredSelectedElectronicsSubCat === 'LITHIUM_BATTERY' &&
           (p.subCategory === 'LITHIUM_BATTERY' || p.subCategory === 'GEL_BATTERY'));
       const matchesInd =
         activeIndustry === 'general' ||
@@ -464,19 +573,66 @@ export const POSView: React.FC = React.memo(() => {
       const matchesSearch =
         !q ||
         p.name.toLowerCase().includes(q) ||
-        p.nameAr.includes(searchTerm) ||
+        p.nameAr.includes(deferredSearchTerm) ||
         p.sku.toLowerCase().includes(q) ||
-        p.barcode.includes(searchTerm);
+        p.barcode.includes(deferredSearchTerm);
       return matchesCat && matchesSubCat && matchesInd && matchesSearch;
     });
-  }, [products, selectedCategory, activeIndustry, selectedElectronicsSubCat, searchTerm]);
+  }, [
+    deferredProducts,
+    deferredSelectedCategory,
+    activeIndustry,
+    deferredSelectedElectronicsSubCat,
+    deferredSearchTerm,
+  ]);
 
-  // Memoized Product Card & Cart Row Callbacks
+  // Memoized Product Card & Cart Row Callbacks (Backed by StrictStockValidationService)
   const handleAddProductToCart = useCallback(
     (product: Product) => {
-      addToPOSCart(product, 1);
+      const currentInCart = cartQtyByProductId[product.id] || 0;
+      const strictValidation = validateStrictPosStockBeforeAdd({
+        product,
+        inCartBaseQty: currentInCart,
+        requestedAddQty: 1,
+        conversionFactor: 1,
+        unitNameAr: product.uom || 'وحدة',
+      });
+      if (!strictValidation.allowed) {
+        triggerHighVisibilityShortageToast(strictValidation, product);
+        return;
+      }
+      const res = addToPOSCart(product, 1);
+      if (res.wasCapped) {
+        showBanner('error', language === 'ar' ? res.messageAr : res.messageEn);
+      } else if (strictValidation.safetyIndicator.showAmberWarningIcon) {
+        showBanner(
+          'success',
+          language === 'ar'
+            ? strictValidation.toastMessageAr
+            : strictValidation.toastMessageEn
+        );
+      }
     },
-    [addToPOSCart]
+    [addToPOSCart, cartQtyByProductId, language, showBanner, triggerHighVisibilityShortageToast]
+  );
+
+  const handleStrictDropdownValidatedAdd = useCallback(
+    (product: Product, requestedQty: number, validation: StrictStockValidationResult) => {
+      if (!validation.allowed) {
+        triggerHighVisibilityShortageToast(validation, product);
+        return;
+      }
+      const res = addToPOSCart(product, requestedQty);
+      if (res.wasCapped) {
+        showBanner('error', language === 'ar' ? res.messageAr : res.messageEn);
+      } else {
+        showBanner(
+          'success',
+          language === 'ar' ? validation.toastMessageAr : validation.toastMessageEn
+        );
+      }
+    },
+    [addToPOSCart, language, showBanner, triggerHighVisibilityShortageToast]
   );
 
   const handleUpdateProductImage = useCallback(
@@ -503,9 +659,12 @@ export const POSView: React.FC = React.memo(() => {
 
   const handleUpdateCartQty = useCallback(
     (productId: string, newQty: number) => {
-      updatePOSCartQty(productId, newQty);
+      const res = updatePOSCartQty(productId, newQty);
+      if (res?.wasCapped) {
+        showBanner('error', language === 'ar' ? res.messageAr : res.messageEn);
+      }
     },
-    [updatePOSCartQty]
+    [updatePOSCartQty, language, showBanner]
   );
 
   const handleUpdateCartMeta = useCallback(
@@ -517,9 +676,12 @@ export const POSView: React.FC = React.memo(() => {
 
   const handleUpdateCartUnit = useCallback(
     (productId: string, unitName: string) => {
-      updatePOSCartItemUnit(productId, unitName);
+      const res = updatePOSCartItemUnit(productId, unitName);
+      if (res?.wasCapped) {
+        showBanner('error', language === 'ar' ? res.messageAr : res.messageEn);
+      }
     },
-    [updatePOSCartItemUnit]
+    [updatePOSCartItemUnit, language, showBanner]
   );
 
   const handleFocusCartField = useCallback((fieldId: string) => {
@@ -543,32 +705,40 @@ export const POSView: React.FC = React.memo(() => {
 
         if (scaleProduct) {
           if (scaleParsed.mode === 'WEIGHT_GRAMS' && scaleParsed.weightKg) {
-            addToPOSCart(
+            const res = addToPOSCart(
               scaleProduct,
               scaleParsed.weightKg,
               `باركود ميزان إلكتروني (GS1-${scaleParsed.prefix}): ${scaleParsed.weightKg} كجم (${scaleParsed.weightGrams} جم)`
             );
             setBarcodeInput('');
-            showBanner(
-              'success',
-              `تم قراءة باركود الوزن (بادئة ${scaleParsed.prefix}): ${scaleProduct.nameAr} — الوزن: ${scaleParsed.weightKg} كجم`
-            );
+            if (res.wasCapped) {
+              showBanner('error', language === 'ar' ? res.messageAr : res.messageEn);
+            } else {
+              showBanner(
+                'success',
+                `تم قراءة باركود الوزن (بادئة ${scaleParsed.prefix}): ${scaleProduct.nameAr} — الوزن: ${scaleParsed.weightKg} كجم`
+              );
+            }
             return;
           } else if (scaleParsed.mode === 'PRICE_HALALAS' && scaleParsed.embeddedPrice) {
             const calculatedQty =
               scaleProduct.salePrice > 0
                 ? Number((scaleParsed.embeddedPrice / scaleProduct.salePrice).toFixed(3))
                 : 1;
-            addToPOSCart(
+            const res = addToPOSCart(
               scaleProduct,
               calculatedQty,
               `باركود ميزان تسعير (GS1-20): السعر المضمن ${scaleParsed.embeddedPrice} ${currency}`
             );
             setBarcodeInput('');
-            showBanner(
-              'success',
-              `تم قراءة باركود السعر (بادئة 20): ${scaleProduct.nameAr} — القيمة: ${scaleParsed.embeddedPrice} ${currency} (${calculatedQty} كجم)`
-            );
+            if (res.wasCapped) {
+              showBanner('error', language === 'ar' ? res.messageAr : res.messageEn);
+            } else {
+              showBanner(
+                'success',
+                `تم قراءة باركود السعر (بادئة 20): ${scaleProduct.nameAr} — القيمة: ${scaleParsed.embeddedPrice} ${currency} (${calculatedQty} كجم)`
+              );
+            }
             return;
           }
         }
@@ -576,12 +746,16 @@ export const POSView: React.FC = React.memo(() => {
 
       const unitHit = findProductAndUnitByBarcodeOrSku(products, raw);
       if (unitHit) {
-        addToPOSCart(unitHit.product, 1, undefined, unitHit.unit.unitNameAr);
+        const res = addToPOSCart(unitHit.product, 1, undefined, unitHit.unit.unitNameAr);
         setBarcodeInput('');
-        showBanner(
-          'success',
-          `تمت إضافة الصنف: ${unitHit.product.nameAr} (${unitHit.unit.unitNameAr})`
-        );
+        if (res.wasCapped) {
+          showBanner('error', language === 'ar' ? res.messageAr : res.messageEn);
+        } else {
+          showBanner(
+            'success',
+            `تمت إضافة الصنف: ${unitHit.product.nameAr} (${unitHit.unit.unitNameAr})`
+          );
+        }
       } else {
         showBanner(
           'error',
@@ -672,6 +846,28 @@ export const POSView: React.FC = React.memo(() => {
     [addToPOSCart, language, showBanner]
   );
 
+  // Compute exact paid vs remaining debt in Checkout Modal
+  const checkoutPaidAmount = useMemo(() => {
+    const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+    if (paymentMethod === 'CASH') {
+      return Math.min(grandTotal, Math.max(0, r2(cashTendered)));
+    }
+    if (paymentMethod === 'CARD') {
+      return Math.min(grandTotal, Math.max(0, r2(cardPaidAmount)));
+    }
+    if (paymentMethod === 'SPLIT') {
+      const cashPart = Math.min(grandTotal, Math.max(0, r2(splitCashAmount)));
+      const cardPart = Math.min(Math.max(0, r2(grandTotal - cashPart)), Math.max(0, r2(splitCardAmount)));
+      return Math.min(grandTotal, r2(cashPart + cardPart));
+    }
+    return Math.min(grandTotal, Math.max(0, r2(creditDownPayment)));
+  }, [paymentMethod, grandTotal, cashTendered, cardPaidAmount, splitCashAmount, splitCardAmount, creditDownPayment]);
+
+  const checkoutRemainingDebt = useMemo(
+    () => Math.max(0, Math.round((grandTotal - checkoutPaidAmount) * 100) / 100),
+    [grandTotal, checkoutPaidAmount]
+  );
+
   // Perform Checkout
   const handlePerformCheckout = useCallback(
     (preferA4Warranty = false) => {
@@ -692,7 +888,13 @@ export const POSView: React.FC = React.memo(() => {
           customerName: warrantyCustomerName.trim() || undefined,
           customerPhone: warrantyCustomerPhone.trim() || undefined,
           splitCashAmount: paymentMethod === 'SPLIT' ? splitCashAmount : undefined,
-          cardReference: paymentMethod !== 'CASH' ? cardReference.trim() || undefined : undefined,
+          splitCardAmount: paymentMethod === 'SPLIT' ? splitCardAmount : undefined,
+          paidAmount: checkoutPaidAmount,
+          tenderedAmount: paymentMethod === 'CASH' ? cashTendered : checkoutPaidAmount,
+          cardReference:
+            paymentMethod === 'CARD' || paymentMethod === 'SPLIT'
+              ? cardReference.trim() || undefined
+              : undefined,
           notes: checkoutNotes.trim() || undefined,
         });
         setCompletedInvoice(inv);
@@ -726,6 +928,9 @@ export const POSView: React.FC = React.memo(() => {
       warrantyCustomerName,
       warrantyCustomerPhone,
       splitCashAmount,
+      splitCardAmount,
+      checkoutPaidAmount,
+      cashTendered,
       cardReference,
       checkoutNotes,
       showBanner,
@@ -824,9 +1029,13 @@ export const POSView: React.FC = React.memo(() => {
   useEffect(() => {
     const handleTriggerCheckout = () => {
       if (posCart.length > 0) {
+        const half = Math.round((grandTotal / 2) * 100) / 100;
         setPaymentMethod('CASH');
         setCashTendered(grandTotal);
-        setSplitCashAmount(Math.round((grandTotal / 2) * 100) / 100);
+        setCardPaidAmount(grandTotal);
+        setSplitCashAmount(half);
+        setSplitCardAmount(Math.max(0, Math.round((grandTotal - half) * 100) / 100));
+        setCreditDownPayment(0);
         setCardReference(`RRN-${Math.floor(100000 + Math.random() * 900000)}`);
         setIsQuickNumpadOpen(false);
         setIsCheckoutModalOpen(true);
@@ -851,8 +1060,8 @@ export const POSView: React.FC = React.memo(() => {
     let screenCount = 0;
     let computingCount = 0;
 
-    for (let i = 0; i < products.length; i += 1) {
-      const p = products[i];
+    for (let i = 0; i < deferredProducts.length; i += 1) {
+      const p = deferredProducts[i];
       if (p.industry === 'electronics') allCount += 1;
       if (p.subCategory === 'SOLAR_PANEL') solarPanelCount += 1;
       else if (p.subCategory === 'HYBRID_INVERTER') inverterCount += 1;
@@ -870,7 +1079,7 @@ export const POSView: React.FC = React.memo(() => {
       { id: 'SMART_SCREEN' as const, labelAr: 'شاشات ذكية 4K', count: screenCount },
       { id: 'COMPUTING_MOBILE' as const, labelAr: 'حواسيب وتجهيزات', count: computingCount },
     ];
-  }, [products]);
+  }, [deferredProducts]);
 
   const getProductSpecChips = useCallback((p: Product): [string, string] => {
     const skuMap: Record<string, [string, string]> = {
@@ -929,9 +1138,13 @@ export const POSView: React.FC = React.memo(() => {
         !isCheckoutModalOpen
       ) {
         e.preventDefault();
+        const half = Math.round((grandTotal / 2) * 100) / 100;
         setPaymentMethod('CASH');
         setCashTendered(grandTotal);
-        setSplitCashAmount(Math.round((grandTotal / 2) * 100) / 100);
+        setCardPaidAmount(grandTotal);
+        setSplitCashAmount(half);
+        setSplitCardAmount(Math.max(0, Math.round((grandTotal - half) * 100) / 100));
+        setCreditDownPayment(0);
         setCardReference(`RRN-${Math.floor(100000 + Math.random() * 900000)}`);
         setIsCheckoutModalOpen(true);
         return;
@@ -1019,6 +1232,7 @@ export const POSView: React.FC = React.memo(() => {
       >
         {posBanner && (
           <div
+            data-testid="pos-banner-alert"
             className={`shrink-0 px-3.5 py-2 rounded-xl border text-xs font-semibold flex items-center justify-between ${
               posBanner.type === 'success'
                 ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
@@ -1056,9 +1270,35 @@ export const POSView: React.FC = React.memo(() => {
           </div>
         )}
 
-        {/* Top Row: Barcode Scanner + Compact Controls (De-duplicated: Shift is in Navbar, Beneficiary Customer is in Cart) */}
-        <div className="flex items-center gap-1 sm:gap-2 shrink-0 min-w-0 max-w-full">
-          <form onSubmit={handleBarcodeSubmit} className="pos-focus-group relative flex-1 min-w-0">
+        {strictShortageToast && (
+          <div
+            data-testid="pos-strict-stock-toast"
+            role="alert"
+            className="shrink-0 px-4 py-2.5 rounded-2xl bg-rose-600 text-white border-2 border-amber-300 shadow-lg flex items-center justify-between gap-3 text-xs animate-pulse"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <AlertTriangle className="w-5 h-5 text-amber-300 shrink-0" />
+              <div className="min-w-0">
+                <div className="font-black text-xs">{strictShortageToast.title}</div>
+                <div className="text-[11px] text-rose-100 truncate">
+                  {strictShortageToast.message}
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              data-testid="pos-strict-stock-toast-dismiss"
+              onClick={() => setStrictShortageToast(null)}
+              className="px-2 py-1 rounded-lg bg-rose-700 hover:bg-rose-800 text-white font-bold text-xs cursor-pointer shrink-0"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* Top Row: Barcode Scanner + POS Item Search Dropdown with Safety Threshold Warnings + Compact Controls */}
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-1 sm:gap-2 shrink-0 min-w-0 max-w-full">
+          <form onSubmit={handleBarcodeSubmit} className="pos-focus-group relative flex-1 min-w-[150px]">
             <Barcode className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-400 absolute right-2.5 sm:right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
@@ -1089,6 +1329,18 @@ export const POSView: React.FC = React.memo(() => {
               </kbd>
             </div>
           </form>
+
+          {/* POS Item Search Dropdown with Amber Safety Threshold Warning Indicator & Strict Stock Validation */}
+          <POSItemSearchDropdown
+            products={products}
+            cartQtyByProductId={cartQtyByProductId}
+            currency={currency}
+            language={language}
+            searchTerm={searchTerm}
+            onSearchTermChange={setSearchTerm}
+            onStrictValidatedAdd={handleStrictDropdownValidatedAdd}
+            onTriggerShortageToast={triggerHighVisibilityShortageToast}
+          />
 
           <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
             {/* 2-Mode POS Product Display Toggle: WITH_IMAGES vs DATA_ONLY */}
@@ -1196,6 +1448,17 @@ export const POSView: React.FC = React.memo(() => {
                 <span className="hidden xl:inline">{isCartPinnedOpen ? 'مثبتة دائماً' : 'تثبيت دائم'}</span>
               </button>
             </div>
+
+            <button
+              type="button"
+              data-testid="pos-open-bulk-adjust-btn"
+              onClick={() => setIsBulkAdjustModalOpen(true)}
+              title="التعديل الجماعي السريع لأرصدة المخزون من نقطة البيع (Bulk Stock Adjust)"
+              className="px-2 sm:px-3 py-1.5 sm:py-2 bg-amber-50 hover:bg-amber-100 border border-amber-300/90 rounded-xl text-[10px] sm:text-xs font-bold text-amber-900 flex items-center gap-1 transition-colors shadow-2xs shrink-0 cursor-pointer"
+            >
+              <SlidersHorizontal className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-700" />
+              <span>تعديل المخزون (Bulk Adjust)</span>
+            </button>
 
             <button
               type="button"
@@ -1332,7 +1595,10 @@ export const POSView: React.FC = React.memo(() => {
             data-testid="pos-products-grid"
             data-display-mode={posDisplayMode}
             data-cart-visible={cartVisibility.isVisible ? 'true' : 'false'}
-            className={`grid gap-2 sm:gap-3.5 ${
+            data-filtering-pending={isCatalogFilteringPending ? 'true' : 'false'}
+            className={`grid gap-2 sm:gap-3.5 transition-opacity duration-150 ${
+              isCatalogFilteringPending ? 'opacity-80' : 'opacity-100'
+            } ${
               filteredProducts.length === 0
                 ? 'grid-cols-1'
                 : cartVisibility.isVisible
@@ -2093,27 +2359,32 @@ export const POSView: React.FC = React.memo(() => {
                 </div>
               </div>
 
-              {/* Payment Method Cards (Touch-Ergonomic 3-Col Grid) */}
+              {/* Payment Method Cards (Touch-Ergonomic 4-Col Grid including Credit / مديونية) */}
               <div>
                 <label className="block font-bold text-slate-700 mb-1.5 text-[11px]">
                   اختر وسيلة السداد المعتمدة:
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {[
                     {
                       id: 'CASH',
                       titleAr: masterSystemConfig.cashPaymentLabelAr || 'نقداً (كاش)',
-                      subAr: 'صندوق الكاشير',
+                      subAr: 'سداد كلي أو جزئي',
                     },
                     {
                       id: 'CARD',
                       titleAr: 'بطاقة / تحويل',
-                      subAr: 'الكريمي • ام فلوس',
+                      subAr: 'شبكة • حوالة',
                     },
                     {
                       id: 'SPLIT',
                       titleAr: 'دفع مشترك',
                       subAr: 'نقدي + مصرفي',
+                    },
+                    {
+                      id: 'CREDIT',
+                      titleAr: 'آجل / مديونية',
+                      subAr: 'على حساب العميل',
                     },
                   ].map((m) => {
                     const isSelected = paymentMethod === m.id;
@@ -2124,10 +2395,16 @@ export const POSView: React.FC = React.memo(() => {
                         data-testid={`pos-payment-method-${m.id}`}
                         onClick={() => {
                           setPaymentMethod(m.id as any);
+                          const half = Math.round((grandTotal / 2) * 100) / 100;
                           if (m.id === 'CASH') {
                             setCashTendered(grandTotal);
+                          } else if (m.id === 'CARD') {
+                            setCardPaidAmount(grandTotal);
                           } else if (m.id === 'SPLIT') {
-                            setSplitCashAmount(Math.round((grandTotal / 2) * 100) / 100);
+                            setSplitCashAmount(half);
+                            setSplitCardAmount(Math.max(0, Math.round((grandTotal - half) * 100) / 100));
+                          } else if (m.id === 'CREDIT') {
+                            setCreditDownPayment(0);
                           }
                         }}
                         className={`p-2.5 sm:p-3 rounded-xl border text-start transition cursor-pointer flex flex-col justify-between ${
@@ -2155,17 +2432,17 @@ export const POSView: React.FC = React.memo(() => {
                 </div>
               </div>
 
-              {/* 1. CASH PAYMENT PANEL */}
+              {/* 1. CASH PAYMENT PANEL (Supports full tender OR partial payment with remaining debt) */}
               {paymentMethod === 'CASH' && (
                 <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
                   <div className="flex items-center justify-between gap-2">
                     <label className="font-bold text-slate-800 text-[11px]">
-                      المبلغ المستلم من العميل:
+                      المبلغ المدفوع / المستلم من العميل (نقص المبلغ يُسجل مديونية تلقائياً):
                     </label>
                     <button
                       type="button"
                       onClick={() => setCashTendered(grandTotal)}
-                      className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 underline cursor-pointer"
+                      className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 underline cursor-pointer shrink-0"
                     >
                       مطابقة تامّة ({formatCleanNumber(grandTotal)})
                     </button>
@@ -2179,6 +2456,13 @@ export const POSView: React.FC = React.memo(() => {
                       className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-bold text-[10px] shrink-0 cursor-pointer"
                     >
                       المبلغ كامل
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCashTendered(0)}
+                      className="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 font-bold text-[10px] shrink-0 cursor-pointer"
+                    >
+                      0 (مديونية كاملة)
                     </button>
                     {[1000, 5000, 10000, 50000].map((denom) => (
                       <button
@@ -2296,18 +2580,18 @@ export const POSView: React.FC = React.memo(() => {
                     )}
                   </div>
 
-                  {/* Change Due / Shortage Display */}
+                  {/* Change Due / Debt Remaining Display */}
                   <div
                     className={`p-3 rounded-xl border flex items-center justify-between font-bold ${
                       cashTendered >= grandTotal
                         ? 'bg-emerald-50/90 border-emerald-200 text-emerald-950'
-                        : 'bg-rose-50 border-rose-200 text-rose-950'
+                        : 'bg-amber-50 border-amber-300 text-amber-950'
                     }`}
                   >
                     <span className="text-[11px] sm:text-xs">
                       {cashTendered >= grandTotal
-                        ? 'الباقي المستحق للعميل:'
-                        : 'المبلغ المتبقي للتحصيل:'}
+                        ? 'الباقي المستحق للعميل (فكّة):'
+                        : 'المتبقي (يُسجل مديونية على العميل):'}
                     </span>
                     <span className="font-mono tabular-nums text-base sm:text-lg font-black" dir="ltr">
                       {formatCleanNumber(Math.abs(cashTendered - grandTotal))} {currency}
@@ -2323,8 +2607,32 @@ export const POSView: React.FC = React.memo(() => {
                     <span className="font-bold text-slate-800 text-[11px]">
                       مبلغ السداد عبر الشبكة / التحويل المصرفي:
                     </span>
-                    <span className="font-mono font-bold text-sm text-emerald-700" dir="ltr">
-                      {formatCleanNumber(grandTotal)} {currency}
+                    <button
+                      type="button"
+                      onClick={() => setCardPaidAmount(grandTotal)}
+                      className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 underline cursor-pointer"
+                    >
+                      كامل الفاتورة ({formatCleanNumber(grandTotal)})
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      max={grandTotal}
+                      data-pos-modal-field="checkout-card-amount"
+                      data-testid="pos-checkout-card-amount-input"
+                      value={cardPaidAmount === 0 ? '' : cardPaidAmount}
+                      onFocus={(e) => e.currentTarget.select()}
+                      onChange={(e) =>
+                        setCardPaidAmount(Math.min(grandTotal, Math.max(0, Number(e.target.value) || 0)))
+                      }
+                      className="w-full px-3.5 py-2 bg-white border-2 border-slate-300 focus:border-slate-900 rounded-xl font-mono tabular-nums font-black text-base text-slate-900 outline-hidden"
+                      dir="ltr"
+                    />
+                    <span className="absolute end-3.5 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-slate-400">
+                      {currency}
                     </span>
                   </div>
                   <div>
@@ -2333,7 +2641,6 @@ export const POSView: React.FC = React.memo(() => {
                     </label>
                     <input
                       type="text"
-                      autoFocus
                       data-pos-modal-field="checkout-card-reference"
                       value={cardReference}
                       onFocus={(e) => e.currentTarget.select()}
@@ -2346,13 +2653,13 @@ export const POSView: React.FC = React.memo(() => {
                 </div>
               )}
 
-              {/* 3. SPLIT PAYMENT PANEL (Cash + Card) */}
+              {/* 3. SPLIT PAYMENT PANEL (Cash + Card, supports partial sum + debt) */}
               {paymentMethod === 'SPLIT' && (
                 <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2.5">
                   <div className="grid grid-cols-2 gap-2.5">
                     <div>
                       <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                        الجزء المدفوع نقداً (كاش):
+                        المدفوع نقداً (كاش):
                       </label>
                       <input
                         type="number"
@@ -2364,23 +2671,46 @@ export const POSView: React.FC = React.memo(() => {
                         value={splitCashAmount}
                         onFocus={(e) => e.currentTarget.select()}
                         onChange={(e) => {
-                          const val = Math.min(grandTotal, Math.max(0, Number(e.target.value)));
+                          const val = Math.min(grandTotal, Math.max(0, Number(e.target.value) || 0));
                           setSplitCashAmount(val);
+                          setSplitCardAmount(Math.max(0, Math.round((grandTotal - val) * 100) / 100));
                         }}
                         className="w-full px-3 py-2 bg-white border border-slate-300 focus:border-slate-900 rounded-xl font-mono tabular-nums font-bold text-sm text-slate-900 outline-hidden"
                         dir="ltr"
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                        الجزء المسدد بالبطاقة / التحويل:
-                      </label>
-                      <div
-                        className="w-full px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl font-mono tabular-nums font-bold text-sm text-emerald-900"
-                        dir="ltr"
-                      >
-                        {formatCleanNumber(Math.max(0, grandTotal - splitCashAmount))} {currency}
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-[11px] font-bold text-slate-700">
+                          المسدد بالبطاقة / التحويل:
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSplitCardAmount(
+                              Math.max(0, Math.round((grandTotal - splitCashAmount) * 100) / 100)
+                            )
+                          }
+                          className="text-[10px] font-bold text-emerald-700 underline cursor-pointer"
+                        >
+                          المتبقي
+                        </button>
                       </div>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        max={Math.max(0, grandTotal - splitCashAmount)}
+                        data-pos-modal-field="checkout-split-card"
+                        value={splitCardAmount}
+                        onFocus={(e) => e.currentTarget.select()}
+                        onChange={(e) => {
+                          const maxCard = Math.max(0, grandTotal - splitCashAmount);
+                          setSplitCardAmount(Math.min(maxCard, Math.max(0, Number(e.target.value) || 0)));
+                        }}
+                        className="w-full px-3 py-2 bg-white border border-slate-300 focus:border-slate-900 rounded-xl font-mono tabular-nums font-bold text-sm text-slate-900 outline-hidden"
+                        dir="ltr"
+                      />
                     </div>
                   </div>
                   <div>
@@ -2395,6 +2725,105 @@ export const POSView: React.FC = React.memo(() => {
                       onChange={(e) => setCardReference(e.target.value)}
                       placeholder="رقم إيصال التحويل أو الشبكة..."
                       className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-xl font-mono text-xs text-slate-800 outline-hidden"
+                      dir="ltr"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 4. CREDIT / DEFERRED PAYMENT PANEL */}
+              {paymentMethod === 'CREDIT' && (
+                <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <label className="font-bold text-amber-950 text-[11px]">
+                      دفعة مقدمة مستلمة الآن (اتركها 0 لتسجيل كامل الفاتورة مديونية):
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setCreditDownPayment(0)}
+                      className="text-[10px] font-bold text-amber-800 underline cursor-pointer"
+                    >
+                      آجل بالكامل (0)
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      max={grandTotal}
+                      autoFocus
+                      data-pos-modal-field="checkout-credit-downpayment"
+                      data-testid="pos-checkout-credit-downpayment-input"
+                      value={creditDownPayment === 0 ? '' : creditDownPayment}
+                      onFocus={(e) => e.currentTarget.select()}
+                      onChange={(e) =>
+                        setCreditDownPayment(Math.min(grandTotal, Math.max(0, Number(e.target.value) || 0)))
+                      }
+                      placeholder="0"
+                      className="w-full px-3.5 py-2 bg-white border-2 border-amber-300 focus:border-slate-900 rounded-xl font-mono tabular-nums font-black text-base text-slate-900 outline-hidden"
+                      dir="ltr"
+                    />
+                    <span className="absolute end-3.5 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-slate-400">
+                      {currency}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* LIVE DEBT REGISTRATION ALERT (Shown whenever Paid < GrandTotal) */}
+              {checkoutRemainingDebt > 0.01 && (
+                <div
+                  data-testid="pos-checkout-debt-alert"
+                  className="p-3 rounded-2xl bg-rose-50 border border-rose-200 space-y-2 text-xs"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-black text-rose-900 flex items-center gap-1.5">
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                      <span>تنبيه تسجيل مديونية على العميل</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsCustomerPickerOpen(true)}
+                      className="px-2.5 py-1 rounded-lg bg-white border border-rose-200 hover:bg-rose-100 text-rose-800 font-bold text-[10px] cursor-pointer shrink-0"
+                    >
+                      تغيير العميل ({warrantyCustomerName || 'عميل نقدي عام'})
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5 text-center font-mono text-[11px]">
+                    <div className="bg-white/90 rounded-lg p-1.5 border border-rose-100">
+                      <div className="text-[9px] text-slate-500 font-sans">إجمالي الفاتورة</div>
+                      <div className="font-black text-slate-900" dir="ltr">
+                        {formatCleanNumber(grandTotal)}
+                      </div>
+                    </div>
+                    <div className="bg-white/90 rounded-lg p-1.5 border border-emerald-200">
+                      <div className="text-[9px] text-slate-500 font-sans">المدفوع الآن</div>
+                      <div className="font-black text-emerald-700" dir="ltr">
+                        {formatCleanNumber(checkoutPaidAmount)}
+                      </div>
+                    </div>
+                    <div className="bg-rose-600 text-white rounded-lg p-1.5">
+                      <div className="text-[9px] text-rose-100 font-sans">المديونية المتبقية</div>
+                      <div className="font-black" dir="ltr">
+                        {formatCleanNumber(checkoutRemainingDebt)} {currency}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 pt-0.5">
+                    <input
+                      type="text"
+                      value={warrantyCustomerName}
+                      onChange={(e) => setWarrantyCustomerName(e.target.value)}
+                      placeholder="اسم العميل أو المشتري بالمديونية..."
+                      className="px-2.5 py-1.5 bg-white border border-rose-200 rounded-lg text-[11px] font-bold text-slate-800 outline-hidden"
+                    />
+                    <input
+                      type="text"
+                      value={warrantyCustomerPhone}
+                      onChange={(e) => setWarrantyCustomerPhone(e.target.value)}
+                      placeholder="رقم جوال العميل (للمطالبة)..."
+                      className="px-2.5 py-1.5 bg-white border border-rose-200 rounded-lg text-[11px] font-mono text-slate-800 outline-hidden"
                       dir="ltr"
                     />
                   </div>
@@ -2480,21 +2909,22 @@ export const POSView: React.FC = React.memo(() => {
 
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
                 {[
-                  { mode: 'a4', tpl: 'a4_onyx_yemen', label: 'A4 اليمني المعتمد' },
-                  { mode: 'a4', tpl: 'a4_global_sap_odoo', label: 'A4 التجاري الدولي' },
-                  { mode: 'a4', tpl: 'a4_warranty_electronics', label: 'A4 شهادة ضمان' },
-                  { mode: 'a4', tpl: 'a4_corporate_classic', label: 'A4 مؤسسية' },
-                  { mode: 'a4', tpl: 'a4_modern_blue', label: 'A4 أزرق عصري' },
-                  { mode: 'a4', tpl: 'a4_contracting_specs', label: 'A4 مقاولات' },
-                  { mode: 'a4', tpl: 'a4_medical_pharmacy', label: 'A4 طبي FEFO' },
-                  { mode: 'a4', tpl: 'a4_minimalist_clean', label: 'A4 مينيمل' },
-                  { mode: 'thermal', tpl: 'thermal_80mm_onyx_pos', label: 'حراري 80mm اليمني' },
-                  { mode: 'thermal', tpl: 'thermal_80mm_warranty', label: 'حراري 80mm ضمان' },
-                  { mode: 'thermal', tpl: 'thermal_80mm_standard', label: 'حراري 80mm قياسي' },
-                  { mode: 'thermal', tpl: 'thermal_80mm_modern', label: 'حراري 80mm عصري' },
-                  { mode: 'thermal', tpl: 'thermal_80mm_minimal', label: 'حراري 80mm مينيمل' },
-                  { mode: 'thermal', tpl: 'thermal_80mm_restaurant', label: 'حراري 80mm مطاعم' },
-                  { mode: 'thermal', tpl: 'thermal_58mm_compact', label: 'حراري 58mm مضغوط' },
+                  { mode: 'a4', tpl: 'a4_onyx_yemen', label: 'A4 القالب التنفيذي المعتمد' },
+                  { mode: 'a4', tpl: 'a4_executive_grid_pro', label: 'A4 الشبكي التنفيذي Pro' },
+                  { mode: 'a4', tpl: 'a4_global_sap_odoo', label: 'A4 الضريبي المؤسسي B2B' },
+                  { mode: 'a4', tpl: 'a4_warranty_electronics', label: 'A4 وثيقة الضمان والسيريال' },
+                  { mode: 'a4', tpl: 'a4_corporate_classic', label: 'A4 الكلاسيكي للشركات' },
+                  { mode: 'a4', tpl: 'a4_modern_blue', label: 'A4 الهوية البصرية المتدرج' },
+                  { mode: 'a4', tpl: 'a4_contracting_specs', label: 'A4 المستخلصات الهندسية' },
+                  { mode: 'a4', tpl: 'a4_medical_pharmacy', label: 'A4 التوريد الطبي FEFO' },
+                  { mode: 'a4', tpl: 'a4_minimalist_clean', label: 'A4 السويسري النقي' },
+                  { mode: 'thermal', tpl: 'thermal_80mm_onyx_pos', label: '80mm الإيصال التنفيذي Pro' },
+                  { mode: 'thermal', tpl: 'thermal_80mm_warranty', label: '80mm إيصال الضمان S/N' },
+                  { mode: 'thermal', tpl: 'thermal_80mm_standard', label: '80mm الضريبي القياسي' },
+                  { mode: 'thermal', tpl: 'thermal_80mm_modern', label: '80mm الهوية الرقمية' },
+                  { mode: 'thermal', tpl: 'thermal_80mm_minimal', label: '80mm السويسري الموفّر' },
+                  { mode: 'thermal', tpl: 'thermal_80mm_restaurant', label: '80mm الضيافة والمطاعم' },
+                  { mode: 'thermal', tpl: 'thermal_58mm_compact', label: '58mm المدمج المحمول' },
                 ].map((opt) => (
                   <button
                     key={opt.tpl}
@@ -2574,6 +3004,15 @@ export const POSView: React.FC = React.memo(() => {
                 إغلاق والبدء بعملية بيع جديدة
               </button>
               <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  data-testid="pos-open-signature-pad-btn"
+                  onClick={() => setIsSignaturePadOpen(true)}
+                  className="px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-md text-xs flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <PenTool className="w-4 h-4" />
+                  <span>توقيع العميل الإلكتروني</span>
+                </button>
                 <button
                   type="button"
                   data-testid="pos-receipt-whatsapp-btn"
@@ -2849,6 +3288,26 @@ export const POSView: React.FC = React.memo(() => {
           />
         </Suspense>
       )}
+
+      {/* POS Bulk Stock Adjustment Modal for Managers */}
+      <POSBulkStockAdjustModal
+        isOpen={isBulkAdjustModalOpen}
+        onClose={() => setIsBulkAdjustModalOpen(false)}
+        products={products}
+        cartQtyByProductId={cartQtyByProductId}
+        language={language}
+        onCommitBulkAdjustments={handleCommitPosBulkAdjustments}
+      />
+
+      {/* POS Customer Signature Pad Modal */}
+      <POSSignaturePadModal
+        isOpen={isSignaturePadOpen}
+        onClose={() => setIsSignaturePadOpen(false)}
+        onSaveSignature={handleSaveCustomerSignature}
+        language={language}
+        customerName={completedInvoice?.customerName}
+        invoiceNumber={completedInvoice?.invoiceNumber}
+      />
 
       {/* Mobile Double-Tap Quick Actions Sheet for POS Products & Cart Items */}
       <MobileQuickActionsSheet

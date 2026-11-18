@@ -9,7 +9,20 @@ import path from 'path';
 import crypto from 'crypto';
 import { createRequire } from 'module';
 
-const requireModule = createRequire(import.meta.url);
+const getRequireFn = (): NodeRequire => {
+  try {
+    if (typeof require === 'function') {
+      return require;
+    }
+  } catch {
+    // ignore in strict ESM
+  }
+  const metaUrl =
+    typeof import.meta !== 'undefined' && import.meta.url
+      ? import.meta.url
+      : `file://${path.join(process.cwd(), 'package.json')}`;
+  return createRequire(metaUrl);
+};
 
 export interface LocalSqliteTableStats {
   productsCount: number;
@@ -71,7 +84,8 @@ export class HasebLocalSqliteEngine {
 
   private initDatabase(): void {
     try {
-      const sqliteMod = requireModule('node:sqlite');
+      const reqFn = getRequireFn();
+      const sqliteMod = reqFn('node:sqlite');
       const DatabaseSync = sqliteMod.DatabaseSync;
       this.db = new DatabaseSync(this.dbFilePath);
 

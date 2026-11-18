@@ -1402,3 +1402,126 @@ export function getProductVisualIllustrationUri(product: {
   return PRESET_PRODUCT_ILLUSTRATIONS[0].dataUri;
 }
 
+export interface PosCartStockCheckResult {
+  allowedQtyInUnit: number;
+  maxAllowedQtyInUnit: number;
+  availableBaseStock: number;
+  addedDeltaInUnit: number;
+  wasCapped: boolean;
+  status: 'OK' | 'CAPPED_AT_MAX_STOCK' | 'ALREADY_AT_MAX_STOCK' | 'OUT_OF_STOCK';
+  titleAr: string;
+  titleEn: string;
+  messageAr: string;
+  messageEn: string;
+}
+
+/**
+ * Enforces that POS / Sales cart quantities never exceed the available inventory stock
+ * (accounting for unit conversion factors). If the requested quantity exceeds stock,
+ * caps the quantity at the exact available stock and returns localized notification messages.
+ */
+export function evaluatePosCartStockConstraint(params: {
+  productNameAr: string;
+  productNameEn?: string;
+  availableBaseStock: number;
+  requestedTotalQtyInUnit: number;
+  currentCartQtyInUnit?: number;
+  conversionFactor?: number;
+  unitNameAr?: string;
+  isWeightedScale?: boolean;
+}): PosCartStockCheckResult {
+  const {
+    productNameAr,
+    productNameEn = productNameAr,
+    availableBaseStock: rawStock,
+    requestedTotalQtyInUnit: rawRequested,
+    currentCartQtyInUnit: rawCurrent = 0,
+    conversionFactor: rawFactor = 1,
+    unitNameAr = 'وحدة',
+    isWeightedScale = false,
+  } = params;
+
+  const availableBaseStock = Math.max(0, Math.round((Number(rawStock) || 0) * 1000) / 1000);
+  const factor = Math.max(0.001, Number(rawFactor) || 1);
+  const currentCartQtyInUnit = Math.max(0, Math.round((Number(rawCurrent) || 0) * 1000) / 1000);
+  const requestedTotalQtyInUnit = Math.max(0, Math.round((Number(rawRequested) || 0) * 1000) / 1000);
+
+  const rawMaxInUnit = availableBaseStock / factor;
+  const maxAllowedQtyInUnit = isWeightedScale
+    ? Math.max(0, Math.floor(rawMaxInUnit * 1000) / 1000)
+    : factor > 1
+    ? Math.max(0, Math.floor(rawMaxInUnit))
+    : Math.max(0, Math.floor(rawMaxInUnit * 1000) / 1000);
+
+  if (availableBaseStock <= 0 || maxAllowedQtyInUnit <= 0) {
+    const isUnitTooLarge = availableBaseStock > 0 && maxAllowedQtyInUnit <= 0;
+    return {
+      allowedQtyInUnit: 0,
+      maxAllowedQtyInUnit: 0,
+      availableBaseStock,
+      addedDeltaInUnit: 0,
+      wasCapped: true,
+      status: 'OUT_OF_STOCK',
+      titleAr: isUnitTooLarge
+        ? 'المخزون لا يكفي لوحدة التعبئة المختارة'
+        : 'نفد المخزون المتاح لهذا الصنف',
+      titleEn: isUnitTooLarge
+        ? 'Insufficient Stock for Selected Pack Unit'
+        : 'Product Out of Stock',
+      messageAr: isUnitTooLarge
+        ? `الرصيد المتاح في المخزون للصنف (${productNameAr}) هو (${availableBaseStock}) فقط ولا يكفي لوحدة (${unitNameAr} ×${factor}).`
+        : `لا يمكن إضافة الصنف (${productNameAr}) إلى السلة لأن الرصيد المتوفر في المخزون هو (0).`,
+      messageEn: isUnitTooLarge
+        ? `Available stock for (${productNameEn}) is (${availableBaseStock}), which is insufficient for unit (${unitNameAr} ×${factor}).`
+        : `Cannot add (${productNameEn}) to cart because available inventory stock is (0).`,
+    };
+  }
+
+  if (requestedTotalQtyInUnit > maxAllowedQtyInUnit) {
+    const allowedQtyInUnit = maxAllowedQtyInUnit;
+    const addedDeltaInUnit = Math.max(
+      0,
+      Math.round((allowedQtyInUnit - currentCartQtyInUnit) * 1000) / 1000
+    );
+    const alreadyAtMax = currentCartQtyInUnit >= maxAllowedQtyInUnit;
+
+    return {
+      allowedQtyInUnit,
+      maxAllowedQtyInUnit,
+      availableBaseStock,
+      addedDeltaInUnit,
+      wasCapped: true,
+      status: alreadyAtMax ? 'ALREADY_AT_MAX_STOCK' : 'CAPPED_AT_MAX_STOCK',
+      titleAr: alreadyAtMax
+        ? 'تنبيه المخزون: وصلت للحد الأقصى المتوفر'
+        : 'تنبيه المخزون: تم تقييد الكمية بالمتوفر فقط',
+      titleEn: alreadyAtMax
+        ? 'Stock Limit Reached'
+        : 'Quantity Capped to Available Stock',
+      messageAr: alreadyAtMax
+        ? `لا يمكن إضافة المزيد من (${productNameAr}) — الكمية الموجودة في السلة (${allowedQtyInUnit} ${unitNameAr}) هي كامل الرصيد المتوفر في المخزون (${availableBaseStock}).`
+        : `الكمية المطلوبة من (${productNameAr}) تتجاوز المخزون المتاح (${availableBaseStock}) — تم قبول المتوفر في المخزون فقط وضبط الكمية في السلة على (${allowedQtyInUnit} ${unitNameAr}).`,
+      messageEn: alreadyAtMax
+        ? `Cannot add more of (${productNameEn}) — Cart already contains the maximum available stock (${availableBaseStock}).`
+        : `Requested quantity for (${productNameEn}) exceeds available stock (${availableBaseStock}) — Cart quantity capped at (${allowedQtyInUnit}).`,
+    };
+  }
+
+  return {
+    allowedQtyInUnit: requestedTotalQtyInUnit,
+    maxAllowedQtyInUnit,
+    availableBaseStock,
+    addedDeltaInUnit: Math.max(
+      0,
+      Math.round((requestedTotalQtyInUnit - currentCartQtyInUnit) * 1000) / 1000
+    ),
+    wasCapped: false,
+    status: 'OK',
+    titleAr: 'تم تحديث السلة',
+    titleEn: 'Cart Updated',
+    messageAr: `تمت إضافة (${productNameAr}) للسلة — الكمية الحالية: ${requestedTotalQtyInUnit} من أصل ${availableBaseStock} بالمخزون.`,
+    messageEn: `Added (${productNameEn}) to cart — Current qty: ${requestedTotalQtyInUnit} of ${availableBaseStock} in stock.`,
+  };
+}
+
+

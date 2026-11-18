@@ -1,4 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { BatchProcessingPanel } from '../components/business/BatchProcessingPanel';
+import { EnterpriseOperationsSuite } from '../components/business/EnterpriseOperationsSuite';
+import { HrAttendanceTrackerPanel } from '../components/business/HrAttendanceTrackerPanel';
+import { VisualWorkflowBuilderStudio } from '../components/business/VisualWorkflowBuilderStudio';
 import { useERP } from '../context/ERPContext';
 import {
   Briefcase,
@@ -39,8 +43,37 @@ export const BusinessModulesView: React.FC = () => {
   } = useERP();
 
   const [activeSubModule, setActiveSubModule] = useState<
-    'hr' | 'crm' | 'ecommerce' | 'workflows' | 'assets' | 'quality'
-  >('hr');
+    'hr' | 'crm' | 'ecommerce' | 'workflows' | 'assets' | 'quality' | 'batch'
+  >(() => {
+    if (typeof window !== 'undefined' && (window as any).__hasebOpenBatchTab) {
+      return 'batch';
+    }
+    return 'hr';
+  });
+
+  const subTabBarRef = React.useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && (window as any).__hasebOpenBatchTab) {
+      delete (window as any).__hasebOpenBatchTab;
+      setActiveSubModule('batch');
+    }
+    const handleOpenBatch = () => {
+      if (typeof window !== 'undefined') {
+        delete (window as any).__hasebOpenBatchTab;
+      }
+      setActiveSubModule('batch');
+    };
+    window.addEventListener('haseb-open-batch-processing', handleOpenBatch);
+    return () => window.removeEventListener('haseb-open-batch-processing', handleOpenBatch);
+  }, []);
+
+  useEffect(() => {
+    const activeBtn = subTabBarRef.current?.querySelector(
+      `[data-testid="biz-tab-${activeSubModule}"]`
+    ) as HTMLElement | null;
+    activeBtn?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }, [activeSubModule]);
 
   const [statusBanner, setStatusBanner] = useState<string | null>(null);
 
@@ -212,8 +245,14 @@ export const BusinessModulesView: React.FC = () => {
         </div>
       )}
 
+      {/* Enterprise Operations Suite: Employee Onboarding, Team Task Collaboration & Predictive Maintenance */}
+      <EnterpriseOperationsSuite />
+
       {/* Sub-module Selector Bar */}
-      <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs font-bold text-slate-700 overflow-x-auto">
+      <div
+        ref={subTabBarRef}
+        className="flex flex-wrap lg:flex-nowrap items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs font-bold text-slate-700 lg:overflow-x-auto"
+      >
         {[
           { id: 'hr', labelAr: 'الموارد البشرية والرواتب', labelEn: 'HR & Payroll', icon: Users },
           { id: 'crm', labelAr: 'إدارة علاقات العملاء CRM', labelEn: 'CRM Pipeline', icon: Target },
@@ -221,6 +260,7 @@ export const BusinessModulesView: React.FC = () => {
           { id: 'workflows', labelAr: 'سير العمل والاعتمادات', labelEn: 'Workflow Approvals', icon: GitPullRequest },
           { id: 'assets', labelAr: 'الأصول الثابتة والإهلاك', labelEn: 'Assets & Deprec.', icon: Wrench },
           { id: 'quality', labelAr: 'إدارة الجودة QC', labelEn: 'Quality Control', icon: CheckCheck },
+          { id: 'batch', labelAr: 'المعالجة الجماعية (CSV)', labelEn: 'Batch Processing (CSV)', icon: FileSpreadsheet },
         ].map((mod) => {
           const Icon = mod.icon;
           const isAct = activeSubModule === mod.id;
@@ -244,6 +284,7 @@ export const BusinessModulesView: React.FC = () => {
       {/* 1. HR & Payroll */}
       {activeSubModule === 'hr' && (
         <div className="space-y-4">
+          <HrAttendanceTrackerPanel />
           <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
             <div className="p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -615,7 +656,9 @@ export const BusinessModulesView: React.FC = () => {
 
       {/* 4. Enterprise Workflow Approvals */}
       {activeSubModule === 'workflows' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+        <div className="space-y-4">
+          <VisualWorkflowBuilderStudio />
+          <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
           <div className="p-4 border-b border-slate-100 flex items-center justify-between">
             <div>
               <h3 className="font-bold text-slate-800 text-sm">
@@ -691,6 +734,7 @@ export const BusinessModulesView: React.FC = () => {
                 </div>
               </div>
             ))}
+          </div>
           </div>
         </div>
       )}
@@ -913,6 +957,9 @@ export const BusinessModulesView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 7. Batch Processing (CSV Bulk Updates) */}
+      {activeSubModule === 'batch' && <BatchProcessingPanel />}
     </div>
   );
 };

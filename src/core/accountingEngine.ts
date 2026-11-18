@@ -75,49 +75,92 @@ export function createSalesInvoiceJournal(
   tenantId: string,
   entryNumber: string
 ): JournalEntry {
+  const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
   const lines: JournalLine[] = [];
-  const isCash = invoice.paymentMethod === 'CASH';
-  const isBank = invoice.paymentMethod === 'CARD';
+  const revenueNet = Math.max(0, round2((invoice.subtotal || 0) - (invoice.discountAmount || 0)));
+  const taxNet = Math.max(0, round2(invoice.taxAmount || 0));
+  const grandTotal = round2(revenueNet + taxNet);
 
-  // 1. Debit Asset Account (Cash 1101, Bank 1102, or A/R 1201)
-  const assetAccountId = isCash ? 'acc-1101' : isBank ? 'acc-1102' : 'acc-1201';
-  const assetAccountCode = isCash ? '1101' : isBank ? '1102' : '1201';
-  const assetAccountName = isCash ? 'Cash on Hand' : isBank ? 'Bank Account' : 'Accounts Receivable';
-  const assetAccountNameAr = isCash ? 'النقدية بالصندوق' : isBank ? 'البنك' : 'العملاء (ذمم مدينة)';
+  const paidAmount =
+    invoice.paidAmount !== undefined
+      ? Math.min(grandTotal, Math.max(0, round2(invoice.paidAmount)))
+      : grandTotal;
+  const unpaidDebt = Math.max(0, round2(grandTotal - paidAmount));
 
-  lines.push({
-    id: `jl-${Date.now()}-1`,
-    accountId: assetAccountId,
-    accountCode: assetAccountCode,
-    accountName: assetAccountName,
-    accountNameAr: assetAccountNameAr,
-    debit: invoice.grandTotal,
-    credit: 0,
-    memo: `Sale invoice ${invoice.invoiceNumber} - ${invoice.customerName}`,
-  });
+  let cashDebit = 0;
+  let cardDebit = 0;
+
+  if (invoice.cashPaidAmount !== undefined || invoice.cardPaidAmount !== undefined) {
+    cashDebit = Math.min(paidAmount, Math.max(0, round2(invoice.cashPaidAmount || 0)));
+    cardDebit = Math.max(0, round2(paidAmount - cashDebit));
+  } else if (invoice.paymentMethod === 'CARD') {
+    cardDebit = paidAmount;
+  } else {
+    cashDebit = paidAmount;
+  }
+
+  let lineIdx = 1;
+  if (cashDebit > 0) {
+    lines.push({
+      id: `jl-${Date.now()}-${lineIdx++}`,
+      accountId: 'acc-1101',
+      accountCode: '1101',
+      accountName: 'Cash on Hand',
+      accountNameAr: 'النقدية بالصندوق',
+      debit: cashDebit,
+      credit: 0,
+      memo: `Cash collected on invoice ${invoice.invoiceNumber} - ${invoice.customerName}`,
+    });
+  }
+
+  if (cardDebit > 0) {
+    lines.push({
+      id: `jl-${Date.now()}-${lineIdx++}`,
+      accountId: 'acc-1102',
+      accountCode: '1102',
+      accountName: 'Bank Account',
+      accountNameAr: 'البنك',
+      debit: cardDebit,
+      credit: 0,
+      memo: `Card/Bank collected on invoice ${invoice.invoiceNumber} - ${invoice.customerName}`,
+    });
+  }
+
+  if (unpaidDebt > 0 || lines.length === 0) {
+    lines.push({
+      id: `jl-${Date.now()}-${lineIdx++}`,
+      accountId: 'acc-1201',
+      accountCode: '1201',
+      accountName: 'Accounts Receivable',
+      accountNameAr: 'العملاء (ذمم مدينة)',
+      debit: unpaidDebt,
+      credit: 0,
+      memo: `Customer receivable balance for invoice ${invoice.invoiceNumber} - ${invoice.customerName}`,
+    });
+  }
 
   // 2. Credit Sales Revenue (4101)
   lines.push({
-    id: `jl-${Date.now()}-2`,
+    id: `jl-${Date.now()}-${lineIdx++}`,
     accountId: 'acc-4101',
     accountCode: '4101',
     accountName: 'Sales Revenue',
     accountNameAr: 'إيرادات المبيعات',
     debit: 0,
-    credit: invoice.subtotal - invoice.discountAmount,
+    credit: revenueNet,
     memo: `Revenue from invoice ${invoice.invoiceNumber}`,
   });
 
   // 3. Credit Output VAT (2201)
-  if (invoice.taxAmount > 0) {
+  if (taxNet > 0) {
     lines.push({
-      id: `jl-${Date.now()}-3`,
+      id: `jl-${Date.now()}-${lineIdx++}`,
       accountId: 'acc-2201',
       accountCode: '2201',
       accountName: 'VAT Output Tax Payable',
       accountNameAr: 'ضريبة القيمة المضافة المستحقة (مخرجات)',
       debit: 0,
-      credit: invoice.taxAmount,
+      credit: taxNet,
       memo: `VAT Output for invoice ${invoice.invoiceNumber}`,
     });
   }

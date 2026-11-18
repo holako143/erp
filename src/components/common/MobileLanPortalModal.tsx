@@ -574,6 +574,16 @@ export const MobileLanPortalModal: React.FC = () => {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
               <a
+                href="/api/v1/installer/windows-setup.exe"
+                download="Haseb_ERP_Setup_Offline.exe"
+                data-testid="lan-download-windows-exe-btn"
+                className="py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-2xs transition cursor-pointer"
+              >
+                <Download className="w-4 h-4 text-emerald-100 shrink-0" />
+                <span className="truncate">مثبت Windows المباشر (.exe)</span>
+              </a>
+
+              <a
                 href="/api/v1/installer/portable-bundle.zip"
                 download="Haseb_ERP_Portable_Offline_Bundle.zip"
                 data-testid="lan-download-portable-zip-btn"

@@ -7,15 +7,16 @@ import express from 'express';
 import http from 'http';
 import https from 'https';
 import { WebSocketServer, WebSocket } from 'ws';
-import { createServer as createViteServer } from 'vite';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
+import zlib from 'zlib';
 import { execSync, execFileSync } from 'child_process';
 import dotenv from 'dotenv';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 import { parseStructuredVendorInvoiceText } from './src/core/inventoryEngine';
+import { generateCohesivePaletteVariants } from './src/core/themeContrastEngine';
 import {
   createInitialWhatsAppSession,
   generatePairingQRToken,
@@ -41,6 +42,7 @@ import {
   getLanIpv4Addresses,
   inspectSystemReadiness,
   probeHostUsbMobileBridgeState,
+  probeHostUsbMobileBridgeStateAsync,
   resolveAdbExecutablePath,
   startUsbCableHotplugWatcher,
 } from './src/server/usbAndInstallerHost';
@@ -109,10 +111,12 @@ app.use((req, res, next) => {
 });
 
 // Persistent Storage File Path & High-Concurrency In-Memory Write-Through Engine
-const DATA_DIR = path.resolve(process.cwd(), '.data');
+const ROOT_DIR = process.env.HASEB_ROOT_DIR || process.cwd();
+const DATA_DIR = process.env.HASEB_DATA_DIR || path.resolve(ROOT_DIR, '.data');
 const DB_FILE = path.join(DATA_DIR, 'erp_store.json');
 const TMP_DB_FILE = path.join(DATA_DIR, 'erp_store.json.tmp');
 const CURRENT_SCHEMA_VERSION = '8.0-haseb-clean-production';
+let activeEmbeddedAssetsMap: Record<string, { mime: string; gzB64: string }> | null = null;
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -672,9 +676,41 @@ app.get('/api/v1/installer/linux-setup.sh', (_req, res) => {
   res.send(shContent);
 });
 
+app.get('/api/v1/installer/windows-setup.exe', (_req, res) => {
+  const candidates = [
+    path.join(ROOT_DIR, 'bundle', 'Haseb_ERP_Setup_Offline.exe'),
+    path.join(process.cwd(), 'bundle', 'Haseb_ERP_Setup_Offline.exe'),
+    ...(path.extname(process.execPath).toLowerCase() === '.exe' ? [process.execPath] : []),
+  ];
+  const foundExe = candidates.find((p) => {
+    try {
+      return fs.existsSync(p) && fs.statSync(p).isFile();
+    } catch {
+      return false;
+    }
+  });
+  if (!foundExe) {
+    res.status(404).json({
+      success: false,
+      error: 'Windows EXE installer is not built yet. Run npm run build:portable.',
+      errorAr: 'ملف التسطيب التنفيذي (.exe) قيد التجهيز. نفّذ الأمر npm run build:portable أو حمل الحزمة المضغوطة (.zip).',
+    });
+    return;
+  }
+  const stat = fs.statSync(foundExe);
+  res.setHeader('Content-Type', 'application/vnd.microsoft.portable-executable');
+  res.setHeader(
+    'Content-Disposition',
+    'attachment; filename="Haseb_ERP_Setup_Offline.exe"'
+  );
+  res.setHeader('Content-Length', String(stat.size));
+  fs.createReadStream(foundExe).pipe(res);
+});
+
 app.get('/api/v1/installer/portable-bundle.zip', async (_req, res) => {
   try {
     const zip = await buildPortableOfflineZipBundle({
+      rootDir: ROOT_DIR,
       port: Number(PORT),
       httpsPort: Number(HTTPS_PORT),
     });
@@ -694,15 +730,18 @@ app.get('/api/v1/installer/portable-bundle.zip', async (_req, res) => {
 
 app.get('/api/v1/system/readiness', (_req, res) => {
   const readiness = inspectSystemReadiness({
+    rootDir: ROOT_DIR,
     port: Number(PORT),
     httpsPort: Number(HTTPS_PORT),
     httpsEnabled: isHttpsActive,
+    embeddedAssetsActive: Boolean(activeEmbeddedAssetsMap),
   });
   res.json({ success: true, readiness });
 });
 
 app.post('/api/v1/system/apply-permissions', (_req, res) => {
   const result = applyHostPermissionsAndServices({
+    rootDir: ROOT_DIR,
     port: Number(PORT),
     httpsPort: Number(HTTPS_PORT),
   });
@@ -1580,7 +1619,11 @@ setInterval(() => {
       ? Date.parse(backupConfigState.nextBackupAt)
       : 0;
     if (!dueMs || Date.now() >= dueMs) {
-      createVerifiedServerBackup('AUTO');
+      const created = createVerifiedServerBackup('AUTO');
+      broadcastWsMessage({
+        type: 'erp:daily_backup_completed',
+        backup: created,
+      });
     }
   } catch {
     // ignore scheduler tick error
@@ -1626,9 +1669,10 @@ app.post('/api/v1/backups/config', (req, res) => {
   });
 });
 
-app.post('/api/v1/backups/run-now', (_req, res) => {
+app.post('/api/v1/backups/run-now', (req, res) => {
   try {
-    const created = createVerifiedServerBackup('MANUAL');
+    const requestedTrigger = req.body?.trigger === 'AUTO' ? 'AUTO' : 'MANUAL';
+    const created = createVerifiedServerBackup(requestedTrigger);
     res.json({
       success: true,
       created,
@@ -1637,6 +1681,27 @@ app.post('/api/v1/backups/run-now', (_req, res) => {
     });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err?.message || 'Backup creation failed' });
+  }
+});
+
+app.get('/api/v1/backups/download-latest', (_req, res) => {
+  try {
+    let backups = listServerBackupsMetadata();
+    let targetName = backups[0]?.filename;
+    if (!targetName) {
+      const created = createVerifiedServerBackup('MANUAL');
+      targetName = created.filename;
+    }
+    const targetPath = path.join(BACKUP_DIR, path.basename(targetName));
+    if (!fs.existsSync(targetPath)) {
+      res.status(404).json({ success: false, message: 'Latest backup file not found' });
+      return;
+    }
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${path.basename(targetName)}"`);
+    fs.createReadStream(targetPath).pipe(res);
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err?.message || 'Failed to download latest backup' });
   }
 });
 
@@ -1873,12 +1938,11 @@ function buildCurrentServerErpSnapshot(overrideSnapshot?: any) {
   };
 }
 
-// Dynamically load native ESM Baileys Gateway
-const loadNativeModule = new Function('specifier', 'return import(specifier)');
+// Dynamically load native ESM Baileys Gateway (bundler-compatible ES import)
 let baileysGatewayPromise: Promise<any> | null = null;
 function getBaileysGateway() {
   if (!baileysGatewayPromise) {
-    baileysGatewayPromise = loadNativeModule('./src/server/whatsappMultiAccountGateway.mjs').catch(
+    baileysGatewayPromise = import('./src/server/whatsappMultiAccountGateway.mjs').catch(
       (err: any) => {
         console.error('Failed to load whatsappMultiAccountGateway.mjs:', err);
         baileysGatewayPromise = null;
@@ -2567,20 +2631,29 @@ let usbBridgeSentCounter = 0;
 
 function probeHostUsbMobileBridge() {
   return probeHostUsbMobileBridgeState({
+    rootDir: ROOT_DIR,
     sentCounter: usbBridgeSentCounter,
     clientRegisteredDevice: clientRegisteredUsbDevice,
   });
 }
 
-app.get('/api/v1/usb/device', (_req, res) => {
-  const device = probeHostUsbMobileBridge();
+async function probeHostUsbMobileBridgeAsync() {
+  return probeHostUsbMobileBridgeStateAsync({
+    rootDir: ROOT_DIR,
+    sentCounter: usbBridgeSentCounter,
+    clientRegisteredDevice: clientRegisteredUsbDevice,
+  });
+}
+
+app.get('/api/v1/usb/device', async (_req, res) => {
+  const device = await probeHostUsbMobileBridgeAsync();
   res.json({
     success: true,
     device,
   });
 });
 
-app.post('/api/v1/usb/register-client-device', (req, res) => {
+app.post('/api/v1/usb/register-client-device', async (req, res) => {
   const payload = req.body?.device;
   if (!payload || typeof payload !== 'object') {
     res.status(400).json({ success: false, errorAr: 'بيانات الجهاز غير صالحة.' });
@@ -2591,7 +2664,7 @@ app.post('/api/v1/usb/register-client-device', (req, res) => {
     ...payload,
     lastCheckedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
   };
-  const updatedDevice = probeHostUsbMobileBridge();
+  const updatedDevice = await probeHostUsbMobileBridgeAsync();
   broadcastWsMessage({ type: 'erp:usb_device_update', device: updatedDevice });
   res.json({
     success: true,
@@ -2599,9 +2672,9 @@ app.post('/api/v1/usb/register-client-device', (req, res) => {
   });
 });
 
-app.post('/api/v1/usb/disconnect', (_req, res) => {
+app.post('/api/v1/usb/disconnect', async (_req, res) => {
   clientRegisteredUsbDevice = null;
-  const updatedDevice = probeHostUsbMobileBridge();
+  const updatedDevice = await probeHostUsbMobileBridgeAsync();
   broadcastWsMessage({ type: 'erp:usb_device_update', device: updatedDevice });
   res.json({
     success: true,
@@ -2686,7 +2759,7 @@ app.post('/api/v1/usb/diagnostics', async (req, res) => {
     }
   }
 
-  const device = probeHostUsbMobileBridge();
+  const device = await probeHostUsbMobileBridgeAsync();
   const report = runUsbAutoDiagnostics(device);
   const ready = isUsbDeviceReady(device);
 
@@ -3193,14 +3266,340 @@ app.post('/api/v1/ai/ocr', async (req, res) => {
   }
 });
 
+// 7. Server-Side Gemini AI Inventory Demand Forecasting & Optimal Reorder Points
+app.post('/api/v1/ai/inventory-forecast', async (req, res) => {
+  const rawItems = req.body?.items;
+  if (!Array.isArray(rawItems) || rawItems.length === 0) {
+    res.status(400).json({
+      success: false,
+      errorCode: 'INVALID_REQUEST',
+      error: 'Inventory items array with historical sales metrics is required.',
+      errorAr: 'يجب إرسال مصفوفة الأصناف وبيانات المبيعات التاريخية لتشغيل التنبؤ.',
+    });
+    return;
+  }
+
+  const ai = getGeminiClient();
+  if (!ai) {
+    res.status(503).json({
+      success: false,
+      errorCode: 'GEMINI_API_KEY_MISSING',
+      error: 'Gemini API key is not configured on the server. Set GEMINI_API_KEY in Settings > Secrets.',
+      errorAr:
+        'مفتاح Gemini API غير مهيأ على الخادم. يرجى ضبط GEMINI_API_KEY في Settings > Secrets لتشغيل التنبؤ بالذكاء الاصطناعي.',
+    });
+    return;
+  }
+
+  const lookbackDays = Math.max(1, Math.min(365, Number(req.body?.lookbackDays) || 30));
+  const leadTimeDays = Math.max(1, Math.min(180, Number(req.body?.leadTimeDays) || 7));
+  const safetyBufferDays = Math.max(0, Math.min(90, Number(req.body?.safetyBufferDays) || 5));
+  const language = req.body?.language === 'en' ? 'en' : 'ar';
+
+  const compactItems = rawItems.slice(0, 45).map((item: any) => ({
+    productId: String(item.productId || ''),
+    sku: String(item.sku || ''),
+    name: String(item.name || ''),
+    nameAr: String(item.nameAr || ''),
+    currentStock: Math.max(0, Number(item.currentStock) || 0),
+    minStock: Math.max(0, Number(item.minStock) || 0),
+    currentReorderPoint: Math.max(0, Number(item.currentReorderPoint) || 0),
+    windowUnitsSold: Math.max(0, Number(item.windowUnitsSold) || 0),
+    totalUnitsSold: Math.max(0, Number(item.totalUnitsSold) || 0),
+    invoiceHits: Math.max(0, Number(item.invoiceHits) || 0),
+    avgDailyDemand: Math.max(0, Number(item.avgDailyDemand) || 0),
+    demandVolatility: Math.max(0, Number(item.demandVolatility) || 0),
+    daysOfCover: item.daysOfCover === null || item.daysOfCover === undefined ? null : Number(item.daysOfCover),
+    statisticalReorderPoint: Math.max(1, Number(item.statisticalReorderPoint) || 1),
+    riskTier: String(item.riskTier || 'OPTIMAL'),
+    recentDailySeries: Array.isArray(item.recentDailySeries) ? item.recentDailySeries.slice(-10) : [],
+  }));
+
+  const systemInstruction =
+    language === 'ar'
+      ? 'أنت خبير تخطيط سلاسل الإمداد والمخزون في أنظمة ERP. حلل سرعة المبيعات التاريخية، وتذبذب الطلب، ومدة التوريد، وهامش الأمان لتحديد نقطة إعادة الطلب المثلى (suggestedReorderPoint) وكمية الشراء المقترحة (suggestedOrderQty) لكل صنف. التزم تماماً بمعرّفات productId و sku المرسلة، واكتب الملخص التنفيذي والمبررات باللغة العربية الواضحة والمختصرة.'
+      : 'You are an enterprise inventory supply-chain planner. Analyze historical sales velocity, demand volatility, supplier lead time, and safety buffer days to recommend the optimal integer suggestedReorderPoint and suggestedOrderQty for each SKU. Preserve exact productId and sku values and provide concise rationales.';
+
+  const promptPayload = JSON.stringify({
+    parameters: { lookbackDays, leadTimeDays, safetyBufferDays },
+    items: compactItems,
+  });
+
+  const invokeGeminiForecast = async () => {
+    return Promise.race([
+      ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: `Analyze these inventory historical demand metrics and return optimal reorder recommendations:\n${promptPayload}`,
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          systemInstruction,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              executiveSummary: {
+                type: Type.STRING,
+                description: 'Concise executive supply-chain assessment across low-stock items.',
+              },
+              suggestions: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    productId: { type: Type.STRING },
+                    sku: { type: Type.STRING },
+                    forecastDailyDemand: { type: Type.NUMBER },
+                    projected30DayDemand: { type: Type.NUMBER },
+                    suggestedReorderPoint: { type: Type.INTEGER },
+                    suggestedSafetyStock: { type: Type.INTEGER },
+                    suggestedOrderQty: { type: Type.INTEGER },
+                    urgency: {
+                      type: Type.STRING,
+                      description: 'Must be one of CRITICAL, HIGH, MODERATE, OPTIMAL',
+                    },
+                    confidencePercent: { type: Type.NUMBER },
+                    rationale: { type: Type.STRING },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Gemini forecast request timed out (20000ms)')), 20000)
+      ),
+    ]);
+  };
+
+  try {
+    let response;
+    let lastErr: any = null;
+    const retryDelaysMs = [0, 1200, 2600];
+    for (let attempt = 0; attempt < retryDelaysMs.length; attempt++) {
+      if (retryDelaysMs[attempt] > 0) {
+        await new Promise((r) => setTimeout(r, retryDelaysMs[attempt]));
+      }
+      try {
+        response = await invokeGeminiForecast();
+        lastErr = null;
+        break;
+      } catch (err: any) {
+        lastErr = err;
+        const msg = String(err?.message || '');
+        const status = Number(err?.status || err?.statusCode || err?.code || 0);
+        const isTransient =
+          status >= 500 ||
+          status === 429 ||
+          /UNAVAILABLE|503|timed out|high demand/i.test(msg);
+        if (!isTransient || attempt === retryDelaysMs.length - 1) {
+          throw err;
+        }
+      }
+    }
+    if (!response) {
+      throw lastErr || new Error('Gemini AI forecast failed without response');
+    }
+
+    const jsonText = (response.text ?? '{}').trim();
+    const parsed = JSON.parse(jsonText);
+    const allowedUrgency = new Set(['CRITICAL', 'HIGH', 'MODERATE', 'OPTIMAL']);
+
+    const suggestions = Array.isArray(parsed?.suggestions)
+      ? parsed.suggestions.map((s: any) => {
+          const matchedSource =
+            compactItems.find((c) => c.productId === String(s.productId || '')) ||
+            compactItems.find((c) => c.sku.toUpperCase() === String(s.sku || '').trim().toUpperCase());
+          const rawUrgency = String(s.urgency || 'MODERATE').toUpperCase();
+          const urgency = allowedUrgency.has(rawUrgency) ? rawUrgency : 'MODERATE';
+          return {
+            productId: matchedSource?.productId || String(s.productId || ''),
+            sku: matchedSource?.sku || String(s.sku || ''),
+            forecastDailyDemand: Math.max(0, Math.round((Number(s.forecastDailyDemand) || 0) * 100) / 100),
+            projected30DayDemand: Math.max(0, Math.round((Number(s.projected30DayDemand) || 0) * 10) / 10),
+            suggestedReorderPoint: Math.max(1, Math.round(Number(s.suggestedReorderPoint) || 1)),
+            suggestedSafetyStock: Math.max(0, Math.round(Number(s.suggestedSafetyStock) || 0)),
+            suggestedOrderQty: Math.max(0, Math.round(Number(s.suggestedOrderQty) || 0)),
+            urgency,
+            confidencePercent: Math.max(1, Math.min(100, Math.round(Number(s.confidencePercent) || 85))),
+            rationale: String(s.rationale || ''),
+          };
+        })
+      : [];
+
+    res.json({
+      success: true,
+      modelUsed: 'gemini-4-hydrogen',
+      generatedAt: new Date().toISOString(),
+      executiveSummary: String(parsed?.executiveSummary || ''),
+      suggestions,
+    });
+  } catch (err: any) {
+    const rawMsg = String(err?.message || 'Gemini AI forecast failed');
+    const numericStatus = Number(err?.status || err?.statusCode || 0);
+    const isAuthIssue =
+      numericStatus === 400 ||
+      numericStatus === 403 ||
+      /API_KEY_INVALID|PERMISSION_DENIED|403/i.test(rawMsg);
+    const isQuotaIssue = numericStatus === 429 || /RESOURCE_EXHAUSTED|429/i.test(rawMsg);
+    const isUnavailable = numericStatus === 503 || /UNAVAILABLE|503|high demand/i.test(rawMsg);
+
+    const httpStatus = isAuthIssue ? 403 : isQuotaIssue ? 429 : isUnavailable ? 503 : 502;
+    const errorCode = isAuthIssue
+      ? 'GEMINI_AUTH_ERROR'
+      : isQuotaIssue
+      ? 'GEMINI_RATE_LIMIT'
+      : isUnavailable
+      ? 'GEMINI_TEMPORARILY_UNAVAILABLE'
+      : 'GEMINI_UPSTREAM_ERROR';
+    const errorAr = isAuthIssue
+      ? 'تعذر المصادقة مع Gemini API (403/400). يرجى التحقق من صلاحية GEMINI_API_KEY في Settings > Secrets.'
+      : isQuotaIssue
+      ? 'تم تجاوز حد طلبات Gemini API (429). يرجى الانتظار قليلاً أو مراجعة خطة الفوترة.'
+      : isUnavailable
+      ? 'خادم Gemini AI يشهد ضغطاً مؤقتاً حالياً (503). يرجى إعادة المحاولة بعد لحظات.'
+      : 'تعذر إتمام التنبؤ عبر خادم Gemini AI حالياً. يرجى المحاولة مجدداً.';
+
+    res.status(httpStatus).json({
+      success: false,
+      errorCode,
+      error: rawMsg,
+      errorAr,
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// AI Color Theme Generator Endpoint (Gemini Brand Palette from Company Logo)
+// ---------------------------------------------------------------------------
+app.post('/api/gemini/theme-palette', async (req, res) => {
+  const {
+    companyName = 'RLM Enterprise',
+    moodPrompt = '',
+    polarity = 'light',
+    logoDataUrl = '',
+    dominantSeedHex = '#1e3a8a',
+    language = 'ar',
+  } = req.body || {};
+
+  const safePolarity: 'light' | 'dark' | 'warm' =
+    polarity === 'dark' || polarity === 'warm' ? polarity : 'light';
+
+  const fallbackVariants = generateCohesivePaletteVariants(
+    dominantSeedHex,
+    companyName,
+    safePolarity
+  ).map((p) => ({ ...p, source: 'GEMINI_AI' as const }));
+
+  try {
+    const ai = getGeminiClient();
+    if (!ai) {
+      res.json({ ...fallbackVariants[0], palettes: fallbackVariants });
+      return;
+    }
+
+    const parts: any[] = [];
+    if (typeof logoDataUrl === 'string' && logoDataUrl.startsWith('data:image/')) {
+      const match = logoDataUrl.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/);
+      if (match && match[2]) {
+        parts.push({
+          inlineData: {
+            mimeType: match[1],
+            data: match[2],
+          },
+        });
+      }
+    }
+
+    parts.push({
+      text: `Analyze the company brand "${companyName}" (seed color ${dominantSeedHex}, polarity "${safePolarity}", industry/style mood "${moodPrompt || 'commercial enterprise ERP & accounting'}", language ${language}). Generate 3 distinct, WCAG AA high-contrast enterprise UI color palettes suited for accounting ledgers, POS terminals, and commercial invoices. Return JSON matching the schema.`,
+    });
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-4-hydrogen',
+      contents: { parts },
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            palettes: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  paletteNameAr: { type: Type.STRING },
+                  paletteNameEn: { type: Type.STRING },
+                  primaryHex: { type: Type.STRING },
+                  secondaryHex: { type: Type.STRING },
+                  accentHex: { type: Type.STRING },
+                  surfaceHex: { type: Type.STRING },
+                  backgroundHex: { type: Type.STRING },
+                  textHex: { type: Type.STRING },
+                  rationaleAr: { type: Type.STRING },
+                  rationaleEn: { type: Type.STRING },
+                },
+                required: [
+                  'paletteNameAr',
+                  'paletteNameEn',
+                  'primaryHex',
+                  'secondaryHex',
+                  'accentHex',
+                  'surfaceHex',
+                  'backgroundHex',
+                  'textHex',
+                  'rationaleAr',
+                  'rationaleEn',
+                ],
+              },
+            },
+          },
+          required: ['palettes'],
+        },
+      },
+    });
+
+    const parsed = JSON.parse(response.text || '{}');
+    if (Array.isArray(parsed?.palettes) && parsed.palettes.length > 0 && parsed.palettes[0]?.primaryHex) {
+      const normalizedPalettes = parsed.palettes.slice(0, 3).map((p: any) => ({
+        ...fallbackVariants[0],
+        ...p,
+        polarity: safePolarity,
+        source: 'GEMINI_AI' as const,
+      }));
+      res.json({
+        ...normalizedPalettes[0],
+        palettes: normalizedPalettes,
+        source: 'GEMINI_AI',
+      });
+      return;
+    }
+    res.json({ ...fallbackVariants[0], palettes: fallbackVariants });
+  } catch {
+    res.json({ ...fallbackVariants[0], palettes: fallbackVariants });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Mount Vite Dev Server or Static Production Bundle
 // ---------------------------------------------------------------------------
-async function startServer() {
+export type EmbeddedDistAssetsMap = Record<string, { mime: string; gzB64: string }>;
+
+export interface StartServerOptions {
+  embeddedAssets?: EmbeddedDistAssetsMap;
+  onListening?: (info: { port: number; httpsPort: number; httpsEnabled: boolean }) => void;
+}
+
+export async function startServer(options: StartServerOptions = {}) {
   const isProd = process.env.NODE_ENV === 'production';
+  if (options.embeddedAssets) {
+    activeEmbeddedAssetsMap = options.embeddedAssets;
+  }
 
   if (!isProd) {
     process.env.DISABLE_HMR = 'true';
+    const vitePkgName = 'vite';
+    const { createServer: createViteServer } = await import(/* @vite-ignore */ vitePkgName);
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
@@ -3239,10 +3638,68 @@ async function startServer() {
 
     app.use(vite.middlewares);
   } else {
-    const distPath = path.resolve(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+    const distPath = process.env.HASEB_DIST_DIR || path.resolve(ROOT_DIR, 'dist');
+    const embeddedCache = new Map<string, { mime: string; buf: Buffer }>();
+    const hasDiskDist = fs.existsSync(path.join(distPath, 'index.html'));
+
+    if (hasDiskDist) {
+      app.use(
+        express.static(distPath, {
+          maxAge: '7d',
+          setHeaders: (res, filePath) => {
+            if (filePath.endsWith('index.html') || filePath.endsWith('sw.js')) {
+              res.setHeader('Cache-Control', 'no-cache');
+            }
+          },
+        })
+      );
+    }
+
+    const resolveEmbeddedAsset = (reqPath: string): { mime: string; buf: Buffer } | null => {
+      const assets = options.embeddedAssets || activeEmbeddedAssetsMap;
+      if (!assets) return null;
+      const cleanPath = reqPath === '/' ? 'index.html' : reqPath.replace(/^\/+/, '').split('?')[0];
+      const hitKey = assets[cleanPath]
+        ? cleanPath
+        : !cleanPath.includes('.') && assets['index.html']
+        ? 'index.html'
+        : null;
+      if (!hitKey) return null;
+      let cached = embeddedCache.get(hitKey);
+      if (!cached) {
+        const meta = assets[hitKey];
+        cached = {
+          mime: meta.mime,
+          buf: zlib.gunzipSync(Buffer.from(meta.gzB64, 'base64')),
+        };
+        embeddedCache.set(hitKey, cached);
+      }
+      return cached;
+    };
+
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api/') || req.path.startsWith('/ws/')) {
+        next();
+        return;
+      }
+      if (hasDiskDist) {
+        const indexPath = path.join(distPath, 'index.html');
+        if (fs.existsSync(indexPath)) {
+          res.sendFile(indexPath);
+          return;
+        }
+      }
+      const asset = resolveEmbeddedAsset(req.path);
+      if (asset) {
+        res.setHeader('Content-Type', asset.mime);
+        res.setHeader(
+          'Cache-Control',
+          asset.mime.includes('text/html') ? 'no-cache' : 'public, max-age=604800'
+        );
+        res.send(asset.buf);
+        return;
+      }
+      res.status(404).send('Haseb ERP frontend bundle not found.');
     });
   }
 
@@ -3383,10 +3840,16 @@ async function startServer() {
 
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`[Haseb ERP Server] Running on http://0.0.0.0:${PORT}`);
+    options.onListening?.({
+      port: PORT,
+      httpsPort: HTTPS_PORT,
+      httpsEnabled: isHttpsActive,
+    });
   });
 
-  // Start Live Plug-and-Play USB Cable Watcher & broadcast instant updates to all connected clients
+  // Start Live Plug-and-Play Non-Blocking USB Cable Watcher & broadcast instant updates
   startUsbCableHotplugWatcher({
+    rootDir: ROOT_DIR,
     getSentCounter: () => usbBridgeSentCounter,
     getClientRegisteredDevice: () => clientRegisteredUsbDevice,
     onDeviceChange: (device) => {
@@ -3396,7 +3859,7 @@ async function startServer() {
         serverTimestampMs: Date.now(),
       });
     },
-    intervalMs: 2500,
+    intervalMs: 3500,
   });
 
   // Companion Self-Signed HTTPS Server for Mobile LAN Camera & OS Notifications (Secure Context)
@@ -3405,6 +3868,8 @@ async function startServer() {
     if (!fs.existsSync(certDir)) fs.mkdirSync(certDir, { recursive: true });
     const keyPath = path.join(certDir, 'key.pem');
     const certPath = path.join(certDir, 'cert.pem');
+    const pfxPath = path.join(certDir, 'lan-cert.pfx');
+    const pfxPass = 'HasebLanCert2026';
     const sanMetaPath = path.join(certDir, 'san-ips.json');
 
     const nets = os.networkInterfaces();
@@ -3420,20 +3885,56 @@ async function startServer() {
     const sanEntries = ['DNS:localhost', ...uniqueIps.map((ip) => `IP:${ip}`)].join(',');
     const prevSan = fs.existsSync(sanMetaPath) ? fs.readFileSync(sanMetaPath, 'utf-8') : '';
 
-    if (!fs.existsSync(keyPath) || !fs.existsSync(certPath) || prevSan !== sanEntries) {
-      const opensslCmd = `openssl req -x509 -newkey rsa:2048 -nodes -keyout "${keyPath}" -out "${certPath}" -days 825 -subj "/CN=Haseb-ERP-LAN" -addext "subjectAltName=${sanEntries}"`;
-      execSync(opensslCmd, { stdio: 'ignore', timeout: 8000 });
-      fs.writeFileSync(sanMetaPath, sanEntries, 'utf-8');
+    if ((!fs.existsSync(keyPath) || !fs.existsSync(certPath)) && !fs.existsSync(pfxPath) || prevSan !== sanEntries) {
+      let generated = false;
+      try {
+        const opensslCmd = `openssl req -x509 -newkey rsa:2048 -nodes -keyout "${keyPath}" -out "${certPath}" -days 825 -subj "/CN=Haseb-ERP-LAN" -addext "subjectAltName=${sanEntries}"`;
+        execSync(opensslCmd, { stdio: 'ignore', timeout: 8000 });
+        generated = fs.existsSync(keyPath) && fs.existsSync(certPath);
+      } catch {
+        generated = false;
+      }
+
+      if (!generated && process.platform === 'win32') {
+        try {
+          const dnsList = ['localhost', ...uniqueIps].map((d) => `'${d}'`).join(',');
+          const psCmd = [
+            `$c = New-SelfSignedCertificate -DnsName ${dnsList} -CertStoreLocation 'Cert:\\CurrentUser\\My' -FriendlyName 'Haseb ERP LAN' -NotAfter (Get-Date).AddYears(3);`,
+            `$pw = ConvertTo-SecureString -String '${pfxPass}' -Force -AsPlainText;`,
+            `Export-PfxCertificate -Cert $c -FilePath '${pfxPath.replace(/'/g, "''")}' -Password $pw | Out-Null;`,
+            `Remove-Item -Path ('Cert:\\CurrentUser\\My\\' + $c.Thumbprint) -Force -ErrorAction SilentlyContinue`,
+          ].join(' ');
+          execFileSync(
+            'powershell',
+            ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psCmd],
+            { stdio: 'ignore', timeout: 10000 }
+          );
+          generated = fs.existsSync(pfxPath);
+        } catch {
+          generated = false;
+        }
+      }
+
+      if (generated) {
+        fs.writeFileSync(sanMetaPath, sanEntries, 'utf-8');
+      }
     }
 
+    let tlsOptions: https.ServerOptions | null = null;
     if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
-      const httpsServer = https.createServer(
-        {
-          key: fs.readFileSync(keyPath),
-          cert: fs.readFileSync(certPath),
-        },
-        app
-      );
+      tlsOptions = {
+        key: fs.readFileSync(keyPath),
+        cert: fs.readFileSync(certPath),
+      };
+    } else if (fs.existsSync(pfxPath)) {
+      tlsOptions = {
+        pfx: fs.readFileSync(pfxPath),
+        passphrase: pfxPass,
+      };
+    }
+
+    if (tlsOptions) {
+      const httpsServer = https.createServer(tlsOptions, app);
       httpsServer.on('upgrade', handleWsUpgrade);
       httpsServer.listen(HTTPS_PORT, '0.0.0.0', () => {
         isHttpsActive = true;
@@ -3446,8 +3947,10 @@ async function startServer() {
     }
   } catch (err) {
     isHttpsActive = false;
-    console.warn('[Haseb ERP HTTPS LAN] OpenSSL cert generation skipped:', (err as any)?.message || err);
+    console.warn('[Haseb ERP HTTPS LAN] Cert generation skipped:', (err as any)?.message || err);
   }
 }
 
-startServer();
+if (process.env.HASEB_DEFER_AUTOSTART !== '1') {
+  startServer();
+}

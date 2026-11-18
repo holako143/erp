@@ -262,6 +262,21 @@ export function composeInvoiceMessageText(params: {
     customSignatureAr,
   } = params;
 
+  const totalQtySold = Array.isArray(invoice.items)
+    ? Math.round(invoice.items.reduce((s, it) => s + (Number(it.quantity) || 0), 0) * 100) / 100
+    : 0;
+  const paidAmt = Math.min(
+    invoice.grandTotal || 0,
+    Math.max(0, Math.round((invoice.paidAmount ?? invoice.grandTotal) * 100) / 100)
+  );
+  const unpaid = Math.max(0, Math.round(((invoice.grandTotal || 0) - paidAmt) * 100) / 100);
+  const statusAr =
+    unpaid <= 0.01
+      ? 'مسددة بالكامل ✅'
+      : paidAmt > 0
+      ? 'سداد جزئي — متبقي مديونية ⚠️'
+      : 'آجل — مديونية كاملة على العميل 🔴';
+
   const lines: string[] = [
     `📄 *فاتورة مبيعات معتمدة (${invoice.invoiceNumber})*`,
     `🏢 *${companyName}*${branchName ? ` - ${branchName}` : ''}`,
@@ -269,22 +284,25 @@ export function composeInvoiceMessageText(params: {
     `👤 العميل: ${invoice.customerName}`,
     `💳 طريقة الدفع: ${
       invoice.paymentMethod === 'CASH'
-        ? 'نقداً'
+        ? 'نقداً (كاش)'
         : invoice.paymentMethod === 'CARD'
         ? 'شبكة / تحويل إلكتروني'
+        : invoice.paymentMethod === 'SPLIT'
+        ? 'دفع مشترك (نقدي + شبكة)'
         : 'آجل (ذمم عملاء)'
     }`,
+    `📌 حالة السداد: ${statusAr}`,
     `────────────────────`,
   ];
 
   if (includeItems && Array.isArray(invoice.items) && invoice.items.length > 0) {
-    lines.push(`📦 *الأصناف المباعة (${invoice.items.length}):*`);
+    lines.push(`📦 *الأصناف المباعة (${invoice.items.length} صنف • إجمالي الكمية: ${totalQtySold}):*`);
     invoice.items.forEach((item, idx) => {
       const serialPart = item.serialNumber ? ` | S/N: ${item.serialNumber}` : '';
       const warrantyPart =
         includeWarranty && item.warrantyMonths ? ` | ضمان: ${item.warrantyMonths} شهر` : '';
       lines.push(
-        `${idx + 1}. ${item.productName} (×${item.quantity}) = ${item.total.toLocaleString()} ${currency}${serialPart}${warrantyPart}`
+        `${idx + 1}. ${item.productName} (×${item.quantity} × ${item.unitPrice.toLocaleString()}) = ${item.total.toLocaleString()} ${currency}${serialPart}${warrantyPart}`
       );
     });
     lines.push(`────────────────────`);
@@ -299,15 +317,11 @@ export function composeInvoiceMessageText(params: {
   if (invoice.taxAmount > 0) {
     lines.push(`🏛️ الضريبة المضافة: ${invoice.taxAmount.toLocaleString()} ${currency}`);
   }
-  lines.push(`✅ *الإجمالي النهائي: ${invoice.grandTotal.toLocaleString()} ${currency}*`);
+  lines.push(`✅ *الإجمالي النهائي للفاتورة: ${invoice.grandTotal.toLocaleString()} ${currency}*`);
+  lines.push(`💵 المدفوع الآن: ${paidAmt.toLocaleString()} ${currency}`);
 
-  const unpaid = Math.max(
-    0,
-    Math.round(((invoice.grandTotal || 0) - (invoice.paidAmount ?? invoice.grandTotal)) * 100) /
-      100
-  );
   if (unpaid > 0) {
-    lines.push(`⚠️ المتبقي بالذمة (آجل): ${unpaid.toLocaleString()} ${currency}`);
+    lines.push(`⚠️ *المتبقي (مديونية مسجلة على العميل): ${unpaid.toLocaleString()} ${currency}*`);
   }
 
   if (customSignatureAr) {

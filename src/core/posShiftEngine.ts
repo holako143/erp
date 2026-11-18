@@ -171,47 +171,53 @@ export const buildShiftAnalyticsReport = (params: {
   const explicitIds = new Set(explicitShiftMap.keys());
   const rows: ShiftAnalyticsRow[] = [];
 
+  const summarizeInvoicesForRow = (invs: SalesInvoice[]) => {
+    let cashPayments = 0;
+    let cardPayments = 0;
+    let splitPayments = 0;
+    let creditPayments = 0;
+    let totalSales = 0;
+    let paidTotal = 0;
+
+    for (const inv of invs) {
+      const grand = round2(inv.grandTotal || 0);
+      const paid = Math.min(grand, Math.max(0, round2(inv.paidAmount ?? grand)));
+      const unpaid = Math.max(0, round2(grand - paid));
+
+      totalSales += grand;
+      paidTotal += paid;
+      creditPayments += unpaid;
+
+      if (inv.paymentMethod === 'CASH') cashPayments += paid;
+      else if (inv.paymentMethod === 'CARD') cardPayments += paid;
+      else if (inv.paymentMethod === 'SPLIT') splitPayments += paid;
+      else if (inv.paymentMethod === 'CREDIT') cashPayments += paid;
+      else cashPayments += paid;
+    }
+
+    return {
+      cashPayments: round2(cashPayments),
+      cardPayments: round2(cardPayments),
+      splitPayments: round2(splitPayments),
+      creditPayments: round2(creditPayments),
+      totalSales: round2(totalSales),
+      paidTotal: round2(paidTotal),
+    };
+  };
+
   // 1. Process explicit shifts (مفعلة)
   const explicitList = Array.from(explicitShiftMap.values()).reverse();
   explicitList.forEach((sh, index) => {
     const linkedInvoices = validInvoices.filter((inv) => inv.shiftId === sh.id);
     const hasLinked = linkedInvoices.length > 0;
+    const summary = hasLinked ? summarizeInvoicesForRow(linkedInvoices) : null;
 
-    const cashPayments = hasLinked
-      ? round2(
-          linkedInvoices
-            .filter((i) => i.paymentMethod === 'CASH')
-            .reduce((s, i) => s + i.paidAmount, 0)
-        )
-      : round2(sh.cashSales);
-    const cardPayments = hasLinked
-      ? round2(
-          linkedInvoices
-            .filter((i) => i.paymentMethod === 'CARD')
-            .reduce((s, i) => s + i.paidAmount, 0)
-        )
-      : round2(sh.cardSales);
-    const splitPayments = hasLinked
-      ? round2(
-          linkedInvoices
-            .filter((i) => i.paymentMethod === 'SPLIT')
-            .reduce((s, i) => s + i.paidAmount, 0)
-        )
-      : 0;
-    const creditPayments = hasLinked
-      ? round2(
-          linkedInvoices
-            .filter((i) => i.paymentMethod === 'CREDIT')
-            .reduce((s, i) => s + i.grandTotal, 0)
-        )
-      : 0;
-
-    const totalSales = hasLinked
-      ? round2(linkedInvoices.reduce((s, i) => s + i.grandTotal, 0))
-      : round2(sh.totalSales);
-    const paidTotal = hasLinked
-      ? round2(linkedInvoices.reduce((s, i) => s + i.paidAmount, 0))
-      : round2(sh.cashSales + sh.cardSales);
+    const cashPayments = summary ? summary.cashPayments : round2(sh.cashSales);
+    const cardPayments = summary ? summary.cardPayments : round2(sh.cardSales);
+    const splitPayments = summary ? summary.splitPayments : 0;
+    const creditPayments = summary ? summary.creditPayments : 0;
+    const totalSales = summary ? summary.totalSales : round2(sh.totalSales);
+    const paidTotal = summary ? summary.paidTotal : round2(sh.cashSales + sh.cardSales);
 
     const txCount = hasLinked
       ? linkedInvoices.length
@@ -266,20 +272,13 @@ export const buildShiftAnalyticsReport = (params: {
   const sortedDates = Array.from(byDate.keys()).sort((a, b) => b.localeCompare(a));
   sortedDates.forEach((dateKey) => {
     const invs = byDate.get(dateKey) || [];
-    const cashPayments = round2(
-      invs.filter((i) => i.paymentMethod === 'CASH').reduce((s, i) => s + i.paidAmount, 0)
-    );
-    const cardPayments = round2(
-      invs.filter((i) => i.paymentMethod === 'CARD').reduce((s, i) => s + i.paidAmount, 0)
-    );
-    const splitPayments = round2(
-      invs.filter((i) => i.paymentMethod === 'SPLIT').reduce((s, i) => s + i.paidAmount, 0)
-    );
-    const creditPayments = round2(
-      invs.filter((i) => i.paymentMethod === 'CREDIT').reduce((s, i) => s + i.grandTotal, 0)
-    );
-    const totalSales = round2(invs.reduce((s, i) => s + i.grandTotal, 0));
-    const paidTotal = round2(invs.reduce((s, i) => s + i.paidAmount, 0));
+    const summary = summarizeInvoicesForRow(invs);
+    const cashPayments = summary.cashPayments;
+    const cardPayments = summary.cardPayments;
+    const splitPayments = summary.splitPayments;
+    const creditPayments = summary.creditPayments;
+    const totalSales = summary.totalSales;
+    const paidTotal = summary.paidTotal;
 
     rows.push({
       rowId: `shiftless-${dateKey}`,

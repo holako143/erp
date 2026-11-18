@@ -24,10 +24,16 @@ import {
   generateUniqueBatchNumber,
   renderBarcodeSVG,
 } from '../core/barcodeEngine';
+import {
+  BatchScanBufferItem,
+  appendScanToBatchBuffer,
+  buildArWarehouseOverlayData,
+} from '../core/warehouseAdvancedEngine';
 
 export const BarcodeEngineView: React.FC = () => {
   const {
     products,
+    updateProduct,
     barcodes,
     generateBarcodeForProduct,
     traceabilityEvents,
@@ -39,11 +45,81 @@ export const BarcodeEngineView: React.FC = () => {
     currentWarehouse,
     currentUser,
     currentTenant,
+    dispatchToastAndPushNotification,
   } = useERP();
 
   const [activeSubTab, setActiveSubTab] = useState<
-    'generator' | 'labels' | 'scanner' | 'ocrCamera' | 'traceability'
+    'generator' | 'labels' | 'scanner' | 'ocrCamera' | 'traceability' | 'batchScan' | 'arWarehouse'
   >('generator');
+
+  // Batch Scan Mode Temporary Buffer State
+  const [batchBuffer, setBatchBuffer] = useState<BatchScanBufferItem[]>(() => {
+    const p0 = products[0];
+    if (!p0) return [];
+    return appendScanToBatchBuffer([], p0.barcode || p0.sku, products, barcodes || [], 2).updatedBuffer;
+  });
+  const [batchScanInput, setBatchScanInput] = useState<string>('');
+  const [batchScanQty, setBatchScanQty] = useState<number>(1);
+  const [batchCommitFeedback, setBatchCommitFeedback] = useState<string | null>(null);
+
+  // AR Warehouse View State
+  const [arTargetProductId, setArTargetProductId] = useState<string>(products[0]?.id || '');
+  const arOverlayNodes = buildArWarehouseOverlayData(products, arTargetProductId);
+  const arOverlayData = arOverlayNodes[0] || null;
+
+  React.useEffect(() => {
+    const onVoiceAction = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      if (detail?.action === 'OPEN_BATCH_SCAN') {
+        setActiveSubTab('batchScan');
+      } else if (detail?.action === 'OPEN_AR_WAREHOUSE') {
+        setActiveSubTab('arWarehouse');
+      } else if (detail?.action === 'START_SCAN') {
+        setActiveSubTab('scanner');
+      }
+    };
+    window.addEventListener('erp-voice-action', onVoiceAction);
+    return () => window.removeEventListener('erp-voice-action', onVoiceAction);
+  }, []);
+
+  const handleBatchScanAdd = (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = batchScanInput.trim() || products[0]?.barcode || '6281042000019';
+    setBatchBuffer((prev) =>
+      appendScanToBatchBuffer(prev, code, products, barcodes || [], batchScanQty).updatedBuffer
+    );
+    setBatchScanInput('');
+  };
+
+  const handleCommitBatchBufferIntake = () => {
+    let updatedCount = 0;
+    batchBuffer.forEach((item) => {
+      if (item.productId) {
+        const prod = products.find((p) => p.id === item.productId);
+        if (prod) {
+          updateProduct({
+            ...prod,
+            stockQty: (Number(prod.stockQty) || 0) + item.scannedIntakeQty,
+          });
+          updatedCount += item.scannedIntakeQty;
+        }
+      }
+    });
+    const msg =
+      language === 'ar'
+        ? `تم اعتماد إدخال الدفعة المجمعة (${batchBuffer.length} صنف / +${updatedCount} وحدة) إلى رصيد المستودع بنجاح!`
+        : `Committed batch scan intake (${batchBuffer.length} items / +${updatedCount} units) to inventory!`;
+    setBatchCommitFeedback(msg);
+    setBatchBuffer([]);
+    dispatchToastAndPushNotification({
+      titleAr: 'المسح المتتابع المجمع (Batch Scan)',
+      titleEn: 'Batch Scan Intake Committed',
+      messageAr: msg,
+      messageEn: msg,
+      severity: 'success',
+      category: 'LIVE_EVENTS',
+    });
+  };
 
   // Smart Camera / Label OCR State
   const [ocrLabelInput, setOcrLabelInput] = useState<string>(
@@ -173,6 +249,22 @@ export const BarcodeEngineView: React.FC = () => {
             className={`px-3 py-1.5 rounded transition cursor-pointer ${activeSubTab === 'traceability' ? 'bg-white text-slate-900 shadow-2xs' : 'hover:text-slate-900'}`}
           >
             {language === 'ar' ? 'سجل التتبع الزمني' : 'Audit Traceability'}
+          </button>
+          <button
+            type="button"
+            data-testid="barcode-tab-batchScan"
+            onClick={() => setActiveSubTab('batchScan')}
+            className={`px-3 py-1.5 rounded transition cursor-pointer ${activeSubTab === 'batchScan' ? 'bg-indigo-600 text-white shadow-2xs' : 'hover:text-slate-900'}`}
+          >
+            {language === 'ar' ? 'المسح المتتابع (Batch Scan)' : 'Batch Scan Mode'}
+          </button>
+          <button
+            type="button"
+            data-testid="barcode-tab-arWarehouse"
+            onClick={() => setActiveSubTab('arWarehouse')}
+            className={`px-3 py-1.5 rounded transition cursor-pointer ${activeSubTab === 'arWarehouse' ? 'bg-indigo-600 text-white shadow-2xs' : 'hover:text-slate-900'}`}
+          >
+            {language === 'ar' ? 'ملاحة المستودع بالواقع المعزز (AR)' : 'AR Warehouse View'}
           </button>
         </div>
       </div>
@@ -816,6 +908,218 @@ export const BarcodeEngineView: React.FC = () => {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* SUB-TAB 5: Batch Scan Mode (Sequential Temporary Buffer Intake) */}
+      {activeSubTab === 'batchScan' && (
+        <div
+          data-testid="barcode-batch-scan-panel"
+          className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-4"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+            <div>
+              <h3 className="font-bold text-sm text-slate-900">
+                {language === 'ar'
+                  ? 'وضع المسح التتابعي السريع في الذاكرة المؤقتة (Batch Scan Mode Buffer)'
+                  : 'Sequential Batch Scan Mode & Temporary Intake Buffer'}
+              </h3>
+              <p className="text-xs text-slate-500">
+                {language === 'ar'
+                  ? 'امسح عدة أصناف متتالية في سلة مؤقتة سريعة ثم اعتمد إضافتها دفعة واحدة للمخزون'
+                  : 'Rapidly scan multiple items sequentially into a temporary buffer for faster inventory intake'}
+              </p>
+            </div>
+            <button
+              type="button"
+              data-testid="batch-scan-commit-btn"
+              disabled={batchBuffer.length === 0}
+              onClick={handleCommitBatchBufferIntake}
+              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs font-bold cursor-pointer"
+            >
+              {language === 'ar'
+                ? `اعتماد وترحيل الدفعة للمخزون (${batchBuffer.reduce((s, i) => s + i.scannedIntakeQty, 0)} وحدة)`
+                : `Commit Batch Intake (${batchBuffer.reduce((s, i) => s + i.scannedIntakeQty, 0)} units)`}
+            </button>
+          </div>
+
+          {batchCommitFeedback && (
+            <div
+              data-testid="batch-scan-commit-banner"
+              className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-bold"
+            >
+              {batchCommitFeedback}
+            </div>
+          )}
+
+          <form onSubmit={handleBatchScanAdd} className="flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              data-testid="batch-scan-code-input"
+              value={batchScanInput}
+              onChange={(e) => setBatchScanInput(e.target.value)}
+              placeholder={
+                language === 'ar'
+                  ? 'امسح الباركود أو SKU (أو اضغط مسح لإضافة الصنف الافتراضي)...'
+                  : 'Scan barcode or SKU...'
+              }
+              className="flex-1 min-w-[220px] px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-mono"
+            />
+            <input
+              type="number"
+              min={1}
+              max={500}
+              data-testid="batch-scan-qty-input"
+              value={batchScanQty}
+              onChange={(e) => setBatchScanQty(Math.max(1, Number(e.target.value) || 1))}
+              className="w-24 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-mono"
+            />
+            <button
+              type="submit"
+              data-testid="batch-scan-append-btn"
+              className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold cursor-pointer"
+            >
+              {language === 'ar' ? '+ مسح وإضافة للذاكرة المؤقتة' : '+ Scan to Buffer'}
+            </button>
+          </form>
+
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-100 text-slate-700">
+                  <th className="p-2.5 text-start">{language === 'ar' ? 'الرمز الممسوح' : 'Scanned Code'}</th>
+                  <th className="p-2.5 text-start">{language === 'ar' ? 'الصنف المطابق' : 'Matched Item'}</th>
+                  <th className="p-2.5 text-center">{language === 'ar' ? 'الرف' : 'Bin'}</th>
+                  <th className="p-2.5 text-center">{language === 'ar' ? 'الكمية بالذاكرة' : 'Buffered Qty'}</th>
+                  <th className="p-2.5 text-center">{language === 'ar' ? 'سعر الوحدة' : 'Unit Cost'}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {batchBuffer.map((item) => (
+                  <tr key={item.id} className="border-t border-slate-100">
+                    <td className="p-2.5 font-mono font-bold">{item.barcode}</td>
+                    <td className="p-2.5 font-semibold">
+                      {language === 'ar' ? item.nameAr : item.nameEn} ({item.sku})
+                    </td>
+                    <td className="p-2.5 text-center font-mono">{item.binLocation}</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-indigo-600">
+                      +{item.scannedIntakeQty}
+                    </td>
+                    <td className="p-2.5 text-center font-mono">
+                      {item.unitCost.toLocaleString()} {currency}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* SUB-TAB 6: AR Warehouse View (Live Camera Feed + Stock HUD + Aisle Navigation Path) */}
+      {activeSubTab === 'arWarehouse' && arOverlayData && (
+        <div
+          data-testid="barcode-ar-warehouse-panel"
+          className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-4"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+            <div>
+              <h3 className="font-bold text-sm text-slate-900">
+                {language === 'ar'
+                  ? 'منظور المستودع بالواقع المعزز وتوجيه الممرات (AR Warehouse Navigation View)'
+                  : 'AR Warehouse Camera Overlay & Aisle Path Navigation'}
+              </h3>
+              <p className="text-xs text-slate-500">
+                {language === 'ar'
+                  ? 'يعرض بيانات الرصيد الفوري ومسار التوجيه البصري للممر والرف مباشرة فوق بث الكاميرا'
+                  : 'Overlays real-time stock telemetry and aisle navigation paths onto the camera feed'}
+              </p>
+            </div>
+
+            <select
+              data-testid="ar-warehouse-product-select"
+              value={arTargetProductId}
+              onChange={(e) => setArTargetProductId(e.target.value)}
+              className="px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold"
+            >
+              {products.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.sku} — {language === 'ar' ? p.nameAr : p.name} ({p.binLocation || 'Z1-A01'})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div
+            data-testid="ar-warehouse-camera-hud"
+            className="relative rounded-2xl overflow-hidden bg-slate-950 border-2 border-indigo-500/60 min-h-[380px] p-5 flex flex-col justify-between text-white"
+          >
+            {/* Top AR HUD Telemetry Overlay */}
+            <div className="flex flex-wrap items-start justify-between gap-4 z-10">
+              <div className="p-3.5 rounded-xl bg-slate-900/85 backdrop-blur-md border border-cyan-400/50 space-y-1 max-w-sm">
+                <div className="flex items-center gap-2 text-[11px] font-mono text-cyan-300">
+                  <span>AR TARGET LOCK</span>
+                  <span>•</span>
+                  <span>BIN: {arOverlayData.binCode}</span>
+                </div>
+                <div className="text-sm font-black">
+                  {language === 'ar' ? arOverlayData.nameAr : arOverlayData.nameEn}
+                </div>
+                <div className="text-xs font-mono text-slate-300">
+                  SKU: {arOverlayData.sku} · Stock: {arOverlayData.stockQty} units · Status:{' '}
+                  <span className="text-emerald-400 font-bold">{arOverlayData.stockStatus}</span>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-slate-900/85 backdrop-blur-md border border-indigo-400/50 text-end font-mono">
+                <div className="text-[10px] text-indigo-300">AISLE NAVIGATION TELEMETRY</div>
+                <div className="text-lg font-black text-cyan-300">
+                  {arOverlayData.distanceMeters}m · ~{Math.ceil(arOverlayData.distanceMeters * 1.4)}s
+                </div>
+                <div className="text-[11px] text-slate-300">
+                  Zone {arOverlayData.zone} → Aisle {arOverlayData.aisle} → Shelf {arOverlayData.shelfLevel}
+                </div>
+              </div>
+            </div>
+
+            {/* Center SVG AR Path Navigation Overlay */}
+            <div className="my-2 flex items-center justify-center z-10">
+              <svg
+                data-testid="ar-warehouse-path-svg"
+                viewBox="0 0 100 100"
+                className="w-full max-w-md h-48"
+              >
+                <defs>
+                  <linearGradient id="arPathGrad" x1="0" y1="1" x2="0" y2="0">
+                    <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.95" />
+                    <stop offset="100%" stopColor="#22c55e" stopOpacity="0.95" />
+                  </linearGradient>
+                </defs>
+                {/* Perspective Corridor Grid Lines */}
+                <line x1="12" y1="95" x2="36" y2="12" stroke="#334155" strokeWidth="1" strokeDasharray="2 2" />
+                <line x1="88" y1="95" x2="64" y2="12" stroke="#334155" strokeWidth="1" strokeDasharray="2 2" />
+                {/* Dynamic Aisle Navigation Path */}
+                <polyline
+                  fill="none"
+                  stroke="url(#arPathGrad)"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  points={arOverlayData.svgPathWaypoints.map((pt) => `${pt.x},${pt.y}`).join(' ')}
+                />
+                {arOverlayData.svgPathWaypoints.map((wp, idx) => (
+                  <g key={idx} transform={`translate(${wp.x}, ${wp.y})`}>
+                    <circle r="3.5" fill="#06b6d4" stroke="#ffffff" strokeWidth="1" />
+                  </g>
+                ))}
+              </svg>
+            </div>
+
+            {/* Bottom Waypoint Guidance Strip */}
+            <div className="p-3 rounded-xl bg-slate-900/85 border border-slate-700 text-xs font-bold text-cyan-200 z-10">
+              {language === 'ar' ? arOverlayData.turnDirectionAr : arOverlayData.turnDirectionEn}
+            </div>
           </div>
         </div>
       )}

@@ -143,10 +143,14 @@ export const MasterAdminControlView: React.FC = () => {
     refreshNetworkInfo,
     setIsStandaloneKeygenOpen,
     setActiveIndustry,
+    auditLogs,
+    systemNotifications,
   } = useERP();
 
   const isAr = language === 'ar';
 
+  const [activitySearch, setActivitySearch] = useState('');
+  const [activityFilter, setActivityFilter] = useState<'ALL' | 'SECURITY' | 'CONFIG' | 'USER'>('ALL');
   const [newCouponCode, setNewCouponCode] = useState('');
   const [newCouponTitleAr, setNewCouponTitleAr] = useState('');
   const [newCouponType, setNewCouponType] = useState<'PERCENTAGE' | 'FIXED_AMOUNT'>('PERCENTAGE');
@@ -949,6 +953,127 @@ export const MasterAdminControlView: React.FC = () => {
               </div>
             ))}
           </div>
+        </div>
+      </div>
+
+      {/* Real-Time System Activity Widget (Recent User Actions, Security Events & Configuration Changes) */}
+      <div
+        data-testid="master-system-activity-widget"
+        className="erp-card p-5 space-y-4"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+          <div>
+            <h2 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-amber-500" />
+              <span>
+                {isAr
+                  ? 'سجل نشاط النظام الفوري (Real-Time System Activity & Security Telemetry)'
+                  : 'Real-Time System Activity, Security Events & Configuration Log'}
+              </span>
+            </h2>
+            <p className="text-[11px] text-slate-500">
+              {isAr
+                ? 'مراقبة حية لإجراءات المستخدمين، أحداث الأمان، وتعديلات إعدادات النظام السيادية'
+                : 'Live stream of recent user actions, security events, and configuration changes'}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              data-testid="master-activity-search-input"
+              value={activitySearch}
+              onChange={(e) => setActivitySearch(e.target.value)}
+              placeholder={isAr ? 'بحث في سجل النشاط...' : 'Search activity log...'}
+              className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs"
+            />
+            {(['ALL', 'SECURITY', 'CONFIG', 'USER'] as const).map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                data-testid={`master-activity-filter-${cat}`}
+                onClick={() => setActivityFilter(cat)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer ${
+                  activityFilter === cat
+                    ? 'bg-amber-500 text-slate-950'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-2 max-h-72 overflow-y-auto">
+          {[
+            ...auditLogs.slice(0, 12).map((log) => ({
+              id: log.id,
+              title: `${log.action} — ${log.entityType}`,
+              detail: log.details,
+              actor: log.userName,
+              timestamp: log.timestamp,
+              category:
+                log.action.includes('SECURITY') || log.action.includes('LOGIN')
+                  ? ('SECURITY' as const)
+                  : log.action.includes('CONFIG') || log.action.includes('THEME')
+                  ? ('CONFIG' as const)
+                  : ('USER' as const),
+            })),
+            ...systemNotifications.slice(0, 8).map((n) => ({
+              id: `notif-${n.id}`,
+              title: isAr ? n.titleAr : n.titleEn,
+              detail: isAr ? n.messageAr : n.messageEn,
+              actor: 'SYSTEM_MONITOR',
+              timestamp: n.timestamp,
+              category:
+                n.category === 'SYSTEM_BACKUP' ? ('SECURITY' as const) : ('CONFIG' as const),
+            })),
+          ]
+            .filter((item) => {
+              if (activityFilter !== 'ALL' && item.category !== activityFilter) return false;
+              if (!activitySearch.trim()) return true;
+              const q = activitySearch.toLowerCase();
+              return (
+                item.title.toLowerCase().includes(q) ||
+                item.detail.toLowerCase().includes(q) ||
+                item.actor.toLowerCase().includes(q)
+              );
+            })
+            .slice(0, 12)
+            .map((entry) => (
+              <div
+                key={entry.id}
+                data-testid="master-activity-row"
+                className="p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60 flex flex-wrap items-center justify-between gap-2 text-xs"
+              >
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`px-2 py-0.5 rounded font-mono text-[10px] font-bold ${
+                        entry.category === 'SECURITY'
+                          ? 'bg-rose-100 text-rose-800'
+                          : entry.category === 'CONFIG'
+                          ? 'bg-amber-100 text-amber-800'
+                          : 'bg-blue-100 text-blue-800'
+                      }`}
+                    >
+                      {entry.category}
+                    </span>
+                    <span className="font-bold text-slate-900 dark:text-slate-100">
+                      {entry.title}
+                    </span>
+                  </div>
+                  <div className="text-slate-600 dark:text-slate-400 text-[11px]">
+                    {entry.detail}
+                  </div>
+                </div>
+                <div className="text-end font-mono text-[11px] text-slate-500">
+                  <div>{entry.actor}</div>
+                  <div>{String(entry.timestamp).slice(0, 19).replace('T', ' ')}</div>
+                </div>
+              </div>
+            ))}
         </div>
       </div>
     </div>

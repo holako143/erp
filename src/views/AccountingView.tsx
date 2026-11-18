@@ -36,6 +36,7 @@ import {
 } from '../core/posShiftEngine';
 import { AccountType, Currency } from '../types/erp';
 import { WorkspaceTabResizerBar } from '../components/common/WorkspaceTabResizerBar';
+import { AccountingPdfAndVersioningStudio } from '../components/accounting/AccountingPdfAndVersioningStudio';
 
 export const AccountingView: React.FC = () => {
   const {
@@ -79,6 +80,7 @@ export const AccountingView: React.FC = () => {
     | 'multiCurrency'
     | 'budgets'
     | 'shiftAnalytics'
+    | 'pdfStudio'
   >('journal');
   const [shiftFilterMode, setShiftFilterMode] = useState<'ALL' | 'EXPLICIT_ONLY' | 'SHIFTLESS_ONLY'>('ALL');
   const [shiftSearchQuery, setShiftSearchQuery] = useState('');
@@ -445,6 +447,23 @@ export const AccountingView: React.FC = () => {
                 {language === 'ar'
                   ? 'الموازنات ومراكز التكلفة'
                   : 'Cost Center Budgets'}
+              </span>
+            </button>
+            <button
+              type="button"
+              data-testid="acc-tab-pdfStudio"
+              onClick={() => setActiveTab('pdfStudio')}
+              className={`erp-resizable-tab px-4 py-1.5 rounded-full border whitespace-nowrap shrink-0 transition cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'pdfStudio'
+                  ? 'haseb-nav-active text-white font-semibold shadow-2xs'
+                  : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
+              }`}
+            >
+              <Printer className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                {language === 'ar'
+                  ? 'استوديو قوالب PDF وإصدارات المستندات'
+                  : 'PDF Studio & Versioning'}
               </span>
             </button>
             <button
@@ -2414,6 +2433,7 @@ export const AccountingView: React.FC = () => {
           </div>
         </div>
       )}
+      {activeTab === 'pdfStudio' && <AccountingPdfAndVersioningStudio />}
     </div>
   );
 };

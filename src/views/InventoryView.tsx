@@ -1,4 +1,13 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback, Suspense, lazy } from 'react';
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useMemo,
+  useCallback,
+  useDeferredValue,
+  Suspense,
+  lazy,
+} from 'react';
 import { useERP } from '../context/ERPContext';
 import {
   isSecureCameraContext,
@@ -33,6 +42,7 @@ import {
   VolumeX,
   Zap,
   AlertTriangle,
+  Brain,
   Image as ImageIcon,
 } from 'lucide-react';
 import type { ScannedBatchItem } from '../components/common/CameraBarcodeScannerModal';
@@ -70,6 +80,12 @@ const CameraBarcodeScannerModal = lazy(() =>
 const InventoryMiniDashboard = lazy(() => import('../components/inventory/InventoryMiniDashboard'));
 const InventoryBulkImportModal = lazy(
   () => import('../components/inventory/InventoryBulkImportModal')
+);
+const InventoryDemandForecastPanel = lazy(
+  () => import('../components/inventory/InventoryDemandForecastPanel')
+);
+const InventoryAdvancedSuitePanel = lazy(
+  () => import('../components/inventory/InventoryAdvancedSuitePanel')
 );
 
 const InventoryModalLoadingFallback: React.FC = () => (
@@ -114,7 +130,9 @@ export const InventoryView: React.FC = React.memo(() => {
     salesInvoices,
   } = useERP();
 
-  const [inventorySubTab, setInventorySubTab] = useState<'ITEMS' | 'STOCK_TAKING' | 'BRANCH_TRANSFERS'>('ITEMS');
+  const [inventorySubTab, setInventorySubTab] = useState<
+    'ITEMS' | 'STOCK_TAKING' | 'BRANCH_TRANSFERS' | 'AI_FORECAST' | 'ADVANCED_SUITE'
+  >('ITEMS');
   const [transferFeedback, setTransferFeedback] = useState<string | null>(null);
 
   // Interactive Recharts Mini-Dashboard State
@@ -246,6 +264,19 @@ export const InventoryView: React.FC = React.memo(() => {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+
+  useEffect(() => {
+    const onCmdNavigate = (ev: Event) => {
+      const item = (ev as CustomEvent)?.detail;
+      if (!item || item.targetModule !== 'inventory') return;
+      setSelectedCategory('all');
+      if (item.searchToken) {
+        setSearchQuery(String(item.searchToken));
+      }
+    };
+    window.addEventListener('haseb-command-navigate', onCmdNavigate);
+    return () => window.removeEventListener('haseb-command-navigate', onCmdNavigate);
+  }, []);
   const [selectedSubCatFilter, setSelectedSubCatFilter] = useState<string>('ALL');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
@@ -624,38 +655,67 @@ export const InventoryView: React.FC = React.memo(() => {
     setTimeout(() => setProductModalNotice(null), 3500);
   };
 
-  // Filtered Products dedicated to Electronics, Solar Energy, Batteries, Inverters & Smart Screens (Memoized)
+  // Deferred values for heavy inventory filtering, analytics & stock-take reconciliation
+  const deferredProducts = useDeferredValue(products);
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const deferredSelectedCategory = useDeferredValue(selectedCategory);
+  const deferredSelectedSubCatFilter = useDeferredValue(selectedSubCatFilter);
+  const deferredSalesInvoices = useDeferredValue(salesInvoices);
+  const deferredStockCountsMap = useDeferredValue(stockCountsMap);
+
+  const isInventoryFilteringPending =
+    searchQuery !== deferredSearchQuery ||
+    selectedCategory !== deferredSelectedCategory ||
+    selectedSubCatFilter !== deferredSelectedSubCatFilter ||
+    products !== deferredProducts;
+
+  // Filtered Products dedicated to Electronics, Solar Energy, Batteries, Inverters & Smart Screens (Memoized + Deferred)
   const electronicsProducts = useMemo(
-    () => products.filter((p) => !p.industry || p.industry === 'electronics'),
-    [products]
+    () => deferredProducts.filter((p) => !p.industry || p.industry === 'electronics'),
+    [deferredProducts]
+  );
+
+  const lowStockForecastCount = useMemo(
+    () =>
+      electronicsProducts.filter(
+        (p) =>
+          p.stockQty <= 0 ||
+          p.stockQty <= Math.max(Number(p.minStock) || 0, Number(p.reorderPoint) || 0)
+      ).length,
+    [electronicsProducts]
   );
 
   const filteredProducts = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
+    const q = deferredSearchQuery.trim().toLowerCase();
     const specForCat = SPECIFIC_INVENTORY_CLASSIFICATIONS.find(
-      (c) => c.categoryId === selectedCategory
+      (c) => c.categoryId === deferredSelectedCategory
     );
     return electronicsProducts.filter((p) => {
       const matchesSearch =
         !q ||
         p.name.toLowerCase().includes(q) ||
-        p.nameAr.includes(searchQuery) ||
+        p.nameAr.includes(deferredSearchQuery) ||
         p.sku.toLowerCase().includes(q) ||
-        p.barcode.includes(searchQuery);
+        p.barcode.includes(deferredSearchQuery);
 
       const matchesCategory =
-        selectedCategory === 'all' ||
-        p.categoryId === selectedCategory ||
+        deferredSelectedCategory === 'all' ||
+        p.categoryId === deferredSelectedCategory ||
         Boolean(specForCat && p.subCategory === specForCat.subCategory);
 
       const matchesSubCat =
-        selectedSubCatFilter === 'ALL' ||
-        p.subCategory === selectedSubCatFilter ||
-        (selectedSubCatFilter === 'LITHIUM_BATTERY' &&
+        deferredSelectedSubCatFilter === 'ALL' ||
+        p.subCategory === deferredSelectedSubCatFilter ||
+        (deferredSelectedSubCatFilter === 'LITHIUM_BATTERY' &&
           (p.subCategory === 'LITHIUM_BATTERY' || p.subCategory === 'GEL_BATTERY'));
       return matchesSearch && matchesCategory && matchesSubCat;
     });
-  }, [electronicsProducts, searchQuery, selectedCategory, selectedSubCatFilter]);
+  }, [
+    electronicsProducts,
+    deferredSearchQuery,
+    deferredSelectedCategory,
+    deferredSelectedSubCatFilter,
+  ]);
 
   // Inline Quick Stock Adjustment (+1 / -1) in Inventory Table (Memoized)
   const handleQuickStockStep = useCallback(
@@ -1045,12 +1105,12 @@ export const InventoryView: React.FC = React.memo(() => {
     URL.revokeObjectURL(url);
   }, [filteredProducts, categories, currentTenant.code]);
 
-  // Stock-taking live summary stats (Memoized)
+  // Stock-taking live summary stats (Memoized + Deferred counts for smooth rapid barcode scanning)
   const stockTakeSummary = useMemo(
     () =>
       filteredProducts.reduce(
         (acc, p) => {
-          const counted = stockCountsMap[p.id] ?? p.stockQty;
+          const counted = deferredStockCountsMap[p.id] ?? p.stockQty;
           const v = calculateStockAdjustmentVariance(p.id, p.stockQty, counted, p.costPrice);
           if (v.adjustmentType === 'SURPLUS') {
             acc.surplusCount += 1;
@@ -1063,16 +1123,16 @@ export const InventoryView: React.FC = React.memo(() => {
         },
         { surplusCount: 0, deficitCount: 0, netValueImpact: 0 }
       ),
-    [filteredProducts, stockCountsMap]
+    [filteredProducts, deferredStockCountsMap]
   );
 
-  // Build Recharts Mini-Dashboard Analytics only when mini-dashboard is open (Memoized)
+  // Build Recharts Mini-Dashboard Analytics only when mini-dashboard is open (Memoized + Deferred)
   const miniDashboardAnalytics = useMemo(
     () =>
       isMiniDashboardOpen
-        ? buildInventoryMiniDashboardAnalytics(electronicsProducts, salesInvoices)
+        ? buildInventoryMiniDashboardAnalytics(electronicsProducts, deferredSalesInvoices)
         : null,
-    [isMiniDashboardOpen, electronicsProducts, salesInvoices]
+    [isMiniDashboardOpen, electronicsProducts, deferredSalesInvoices]
   );
 
   // Execute Sequential Barcode / SKU Scan in Fast Stock-Take Mode
@@ -1191,7 +1251,7 @@ export const InventoryView: React.FC = React.memo(() => {
 
         {/* Row 2: POS-Style Rounded-Full Pill Sub-Tabs + Utility Actions */}
         <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2.5 min-w-0 max-w-full">
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5 max-w-full min-w-0 w-full xl:w-auto">
+          <div className="flex flex-wrap lg:flex-nowrap items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5 max-w-full min-w-0 w-full xl:w-auto">
             <button
               type="button"
               data-testid="subtab-inventory-items"
@@ -1246,6 +1306,45 @@ export const InventoryView: React.FC = React.memo(() => {
                   {interBranchTransfers.length}
                 </span>
               )}
+            </button>
+
+            <button
+              type="button"
+              data-testid="subtab-ai-forecast"
+              onClick={() => setInventorySubTab('AI_FORECAST')}
+              className={`erp-resizable-tab px-4 py-1.5 rounded-full text-xs flex items-center gap-2 border transition cursor-pointer whitespace-nowrap shrink-0 ${
+                inventorySubTab === 'AI_FORECAST'
+                  ? 'haseb-nav-active text-white font-semibold shadow-2xs'
+                  : 'border-slate-200/80 dark:border-slate-700 bg-white dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
+              }`}
+            >
+              <Brain className="w-3.5 h-3.5 shrink-0" />
+              <span>التنبؤ الذكي بالطلب (AI)</span>
+              {lowStockForecastCount > 0 && (
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                    inventorySubTab === 'AI_FORECAST'
+                      ? 'bg-white/20 text-white'
+                      : 'bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300'
+                  }`}
+                >
+                  {lowStockForecastCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              data-testid="subtab-advanced-suite"
+              onClick={() => setInventorySubTab('ADVANCED_SUITE')}
+              className={`erp-resizable-tab px-4 py-1.5 rounded-full text-xs flex items-center gap-2 border transition cursor-pointer whitespace-nowrap shrink-0 ${
+                inventorySubTab === 'ADVANCED_SUITE'
+                  ? 'haseb-nav-active text-white font-semibold shadow-2xs'
+                  : 'border-slate-200/80 dark:border-slate-700 bg-white dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 hover:bg-slate-50 font-medium'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 shrink-0" />
+              <span>منظومة المستودع الذكي (QR / D3 / السعة / الصلاحية)</span>
             </button>
           </div>
 
@@ -1310,7 +1409,7 @@ export const InventoryView: React.FC = React.memo(() => {
       </div>
 
       {/* Interactive Recharts Mini-Dashboard Inside Inventory Screen (Lazy-Loaded Code-Split Chunk) */}
-      {isMiniDashboardOpen && miniDashboardAnalytics && (
+      {isMiniDashboardOpen && miniDashboardAnalytics && inventorySubTab !== 'AI_FORECAST' && (
         <Suspense
           fallback={
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/70 p-6 text-center text-xs font-bold text-slate-500">
@@ -1401,7 +1500,13 @@ export const InventoryView: React.FC = React.memo(() => {
           </div>
 
           {/* Products Table (Lumina Card Surface) */}
-          <div className="bg-white rounded-2xl border border-slate-200/70 shadow-2xs overflow-hidden">
+          <div
+            data-testid="inventory-products-table-card"
+            data-filtering-pending={isInventoryFilteringPending ? 'true' : 'false'}
+            className={`bg-white rounded-2xl border border-slate-200/70 shadow-2xs overflow-hidden transition-opacity duration-150 ${
+              isInventoryFilteringPending ? 'opacity-80' : 'opacity-100'
+            }`}
+          >
             <div className="overflow-x-auto">
               <table className="w-full text-xs text-start">
                 <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
@@ -2187,6 +2292,38 @@ export const InventoryView: React.FC = React.memo(() => {
             </div>
           </div>
         </div>
+      )}
+
+      {inventorySubTab === 'AI_FORECAST' && (
+        <Suspense
+          fallback={
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/70 dark:border-slate-800 p-6 text-center text-xs font-bold text-slate-500">
+              جاري تحميل محرك التنبؤ الذكي بالطلب...
+            </div>
+          }
+        >
+          <InventoryDemandForecastPanel />
+        </Suspense>
+      )}
+
+      {inventorySubTab === 'ADVANCED_SUITE' && (
+        <Suspense
+          fallback={
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/70 dark:border-slate-800 p-6 text-center text-xs font-bold text-slate-500">
+              جاري تحميل منظومة المستودع الذكي...
+            </div>
+          }
+        >
+          <InventoryAdvancedSuitePanel
+            onSelectDigitalCardProduct={(pid) => {
+              const found = products.find((p) => p.id === pid);
+              setInventorySubTab('ITEMS');
+              if (found) {
+                setSearchQuery(found.sku);
+              }
+            }}
+          />
+        </Suspense>
       )}
 
       {/* Add / Edit Product Modal (إضافة صنف طاقة شمسية / إلكترونيات / شاشات جديد) */}

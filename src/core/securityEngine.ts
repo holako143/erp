@@ -1183,3 +1183,408 @@ export function verifySecurityCenterPasscode(candidate: string): boolean {
   );
 }
 
+// ============================================================================
+// Enterprise RBAC Security Configuration Matrix (Sidebar & Navbar Visibility)
+// ============================================================================
+
+export type SecurityRoleKey =
+  | 'MASTER_SYSTEM_ADMIN'
+  | 'SUPER_ADMIN'
+  | 'COMPANY_ADMIN'
+  | 'ADMIN'
+  | 'ACCOUNTANT'
+  | 'WAREHOUSE_MANAGER'
+  | 'CASHIER'
+  | 'SALES_REP'
+  | 'HR_MANAGER'
+  | 'VIEWER';
+
+export interface RoleSecurityProfile {
+  role: SecurityRoleKey;
+  labelAr: string;
+  labelEn: string;
+  defaultModules: string[];
+  defaultPermissions: {
+    canCreate: boolean;
+    canEdit: boolean;
+    canDelete: boolean;
+    canExport: boolean;
+    canApprove: boolean;
+    canManageUsers: boolean;
+    canManageLicense: boolean;
+  };
+}
+
+export const ALL_SECURITY_MODULES: string[] = [
+  'dashboard',
+  'pos',
+  'barcodeEngine',
+  'inventory',
+  'purchasing',
+  'sales',
+  'accounting',
+  'reportsAndAI',
+  'aiInsights',
+  'saasPlatform',
+  'communications',
+  'security',
+  'settings',
+  'masterAdmin',
+  'standaloneKeygen',
+];
+
+export const ROLE_DEFAULT_SECURITY_PROFILES: Record<SecurityRoleKey, RoleSecurityProfile> = {
+  MASTER_SYSTEM_ADMIN: {
+    role: 'MASTER_SYSTEM_ADMIN',
+    labelAr: 'المدير الأعلى للنظام (Master System Admin)',
+    labelEn: 'Master System Administrator',
+    defaultModules: [...ALL_SECURITY_MODULES],
+    defaultPermissions: {
+      canCreate: true,
+      canEdit: true,
+      canDelete: true,
+      canExport: true,
+      canApprove: true,
+      canManageUsers: true,
+      canManageLicense: true,
+    },
+  },
+  SUPER_ADMIN: {
+    role: 'SUPER_ADMIN',
+    labelAr: 'المدير العام المطلق (Super Admin)',
+    labelEn: 'Super Administrator',
+    defaultModules: [...ALL_SECURITY_MODULES],
+    defaultPermissions: {
+      canCreate: true,
+      canEdit: true,
+      canDelete: true,
+      canExport: true,
+      canApprove: true,
+      canManageUsers: true,
+      canManageLicense: true,
+    },
+  },
+  COMPANY_ADMIN: {
+    role: 'COMPANY_ADMIN',
+    labelAr: 'مدير الشركة (Company Admin)',
+    labelEn: 'Company Administrator',
+    defaultModules: ALL_SECURITY_MODULES.filter(
+      (m) => m !== 'masterAdmin' && m !== 'standaloneKeygen'
+    ),
+    defaultPermissions: {
+      canCreate: true,
+      canEdit: true,
+      canDelete: true,
+      canExport: true,
+      canApprove: true,
+      canManageUsers: true,
+      canManageLicense: false,
+    },
+  },
+  ADMIN: {
+    role: 'ADMIN',
+    labelAr: 'مدير النظام (Admin)',
+    labelEn: 'System Administrator',
+    defaultModules: ALL_SECURITY_MODULES.filter(
+      (m) => m !== 'masterAdmin' && m !== 'standaloneKeygen'
+    ),
+    defaultPermissions: {
+      canCreate: true,
+      canEdit: true,
+      canDelete: true,
+      canExport: true,
+      canApprove: true,
+      canManageUsers: true,
+      canManageLicense: false,
+    },
+  },
+  ACCOUNTANT: {
+    role: 'ACCOUNTANT',
+    labelAr: 'محاسب مالي (Accountant)',
+    labelEn: 'Financial Accountant',
+    defaultModules: [
+      'dashboard',
+      'sales',
+      'purchasing',
+      'accounting',
+      'reportsAndAI',
+      'communications',
+    ],
+    defaultPermissions: {
+      canCreate: true,
+      canEdit: true,
+      canDelete: false,
+      canExport: true,
+      canApprove: true,
+      canManageUsers: false,
+      canManageLicense: false,
+    },
+  },
+  CASHIER: {
+    role: 'CASHIER',
+    labelAr: 'أمين صندوق / كاشير (Cashier)',
+    labelEn: 'POS Cashier',
+    defaultModules: ['dashboard', 'pos', 'sales'],
+    defaultPermissions: {
+      canCreate: true,
+      canEdit: false,
+      canDelete: false,
+      canExport: false,
+      canApprove: false,
+      canManageUsers: false,
+      canManageLicense: false,
+    },
+  },
+  WAREHOUSE_MANAGER: {
+    role: 'WAREHOUSE_MANAGER',
+    labelAr: 'مدير المستودعات والمخزون (Warehouse Manager)',
+    labelEn: 'Warehouse Manager',
+    defaultModules: [
+      'dashboard',
+      'inventory',
+      'barcodeEngine',
+      'purchasing',
+      'reportsAndAI',
+    ],
+    defaultPermissions: {
+      canCreate: true,
+      canEdit: true,
+      canDelete: false,
+      canExport: true,
+      canApprove: false,
+      canManageUsers: false,
+      canManageLicense: false,
+    },
+  },
+  HR_MANAGER: {
+    role: 'HR_MANAGER',
+    labelAr: 'مدير الموارد البشرية (HR Manager)',
+    labelEn: 'HR Manager',
+    defaultModules: ['dashboard', 'saasPlatform', 'reportsAndAI', 'communications'],
+    defaultPermissions: {
+      canCreate: true,
+      canEdit: true,
+      canDelete: false,
+      canExport: true,
+      canApprove: true,
+      canManageUsers: false,
+      canManageLicense: false,
+    },
+  },
+  SALES_REP: {
+    role: 'SALES_REP',
+    labelAr: 'مندوب مبيعات (Sales Rep)',
+    labelEn: 'Sales Representative',
+    defaultModules: ['dashboard', 'pos', 'sales', 'inventory', 'communications'],
+    defaultPermissions: {
+      canCreate: true,
+      canEdit: true,
+      canDelete: false,
+      canExport: false,
+      canApprove: false,
+      canManageUsers: false,
+      canManageLicense: false,
+    },
+  },
+  VIEWER: {
+    role: 'VIEWER',
+    labelAr: 'مراقب / مستعرض فقط (Viewer)',
+    labelEn: 'Read-Only Viewer',
+    defaultModules: ['dashboard', 'reportsAndAI'],
+    defaultPermissions: {
+      canCreate: false,
+      canEdit: false,
+      canDelete: false,
+      canExport: true,
+      canApprove: false,
+      canManageUsers: false,
+      canManageLicense: false,
+    },
+  },
+};
+
+export function getDefaultProfileForRole(role: SecurityRoleKey | string): RoleSecurityProfile {
+  return (
+    ROLE_DEFAULT_SECURITY_PROFILES[role as SecurityRoleKey] ||
+    ROLE_DEFAULT_SECURITY_PROFILES.VIEWER
+  );
+}
+
+export interface EvaluatableUserAccount {
+  id?: string;
+  role: SecurityRoleKey | string;
+  isActive?: boolean;
+  isHiddenMasterAdmin?: boolean;
+  allowedModules?: string[];
+  permissions?: Partial<RoleSecurityProfile['defaultPermissions']>;
+}
+
+export interface EvaluatableMasterConfig {
+  visibleModules?: Record<string, boolean>;
+  enabledModules?: Record<string, boolean>;
+}
+
+/**
+ * Evaluates whether a given user account is permitted to access a specific ERP module
+ * based on role, explicit allowedModules, and system master configuration.
+ */
+export function evaluateUserModuleAccess(
+  account: EvaluatableUserAccount | null | undefined,
+  moduleId: string,
+  masterConfig?: EvaluatableMasterConfig | null
+): boolean {
+  const modMap = masterConfig?.visibleModules || masterConfig?.enabledModules;
+  if (modMap && moduleId in modMap && modMap[moduleId] === false) {
+    return false;
+  }
+
+  if (!account) return true;
+  if (account.isActive === false) return false;
+
+  if (
+    account.isHiddenMasterAdmin ||
+    account.role === 'MASTER_SYSTEM_ADMIN' ||
+    account.role === 'SUPER_ADMIN'
+  ) {
+    return true;
+  }
+
+  if (moduleId === 'masterAdmin' || moduleId === 'standaloneKeygen') {
+    return Array.isArray(account.allowedModules) && account.allowedModules.includes(moduleId);
+  }
+
+  if (moduleId === 'security') {
+    if (account.permissions?.canManageUsers || account.permissions?.canManageLicense) return true;
+    return Array.isArray(account.allowedModules) && account.allowedModules.includes('security');
+  }
+
+  if (Array.isArray(account.allowedModules) && account.allowedModules.length > 0) {
+    return account.allowedModules.includes(moduleId);
+  }
+
+  const roleDefault = getDefaultProfileForRole(account.role);
+  return roleDefault.defaultModules.includes(moduleId);
+}
+
+export interface NavbarMenuVisibility {
+  canOpenShiftModal: boolean;
+  canSwitchCurrency: boolean;
+  canSwitchBranch: boolean;
+  canOpenQuickCreate: boolean;
+  canAccessSettings: boolean;
+  canAccessCommunications: boolean;
+  canAccessSecurityCenter: boolean;
+  canAccessMasterAdmin: boolean;
+  canAccessDeveloperKeygen: boolean;
+  canOpenLanPortal: boolean;
+  canOpenWelcomeWizard: boolean;
+  canUseVoiceCommands: boolean;
+  showShiftControls: boolean;
+  showCurrencySwitcher: boolean;
+  showSystemSettings: boolean;
+  showCommunicationsStation: boolean;
+  showLanPortal: boolean;
+  showWelcomeWizard: boolean;
+  allowSecurityCenterRapidTrigger: boolean;
+  allowStandaloneKeygenRapidTrigger: boolean;
+  visibleQuickCreateModuleIds: string[];
+}
+
+/**
+ * Computes dynamic Navbar menu item and action visibility based on the current user's
+ * security role, granular permissions, and allowed modules.
+ */
+export function resolveNavbarMenuVisibility(
+  account: EvaluatableUserAccount | null | undefined,
+  masterConfig?: EvaluatableMasterConfig | null
+): NavbarMenuVisibility {
+  const isSuperAdmin =
+    !account ||
+    Boolean(account.isHiddenMasterAdmin) ||
+    account.role === 'MASTER_SYSTEM_ADMIN' ||
+    account.role === 'SUPER_ADMIN';
+  const isAdmin = isSuperAdmin || account?.role === 'COMPANY_ADMIN' || account?.role === 'ADMIN';
+  const perms = account?.permissions || {};
+
+  const canAccessPosOrSales =
+    evaluateUserModuleAccess(account, 'pos', masterConfig) ||
+    evaluateUserModuleAccess(account, 'sales', masterConfig);
+
+  const canCreate = isSuperAdmin || Boolean(perms.canCreate);
+  const canEdit = isSuperAdmin || Boolean(perms.canEdit);
+  const canManageUsers = isSuperAdmin || Boolean(perms.canManageUsers);
+
+  const candidateQuickModules = [
+    'pos',
+    'sales',
+    'purchasing',
+    'inventory',
+    'barcodeEngine',
+    'accounting',
+    'saasPlatform',
+    'communications',
+  ];
+
+  const visibleQuickCreateModuleIds = candidateQuickModules.filter((modId) =>
+    evaluateUserModuleAccess(account, modId, masterConfig)
+  );
+
+  const canOpenShiftModal =
+    isSuperAdmin || (canAccessPosOrSales && (canCreate || account?.role === 'CASHIER'));
+  const canSwitchCurrency =
+    isSuperAdmin || isAdmin || account?.role === 'ACCOUNTANT' || Boolean(perms.canApprove);
+  const canAccessSettings =
+    isSuperAdmin ||
+    isAdmin ||
+    evaluateUserModuleAccess(account, 'settings', masterConfig);
+  const canAccessCommunications =
+    isSuperAdmin ||
+    evaluateUserModuleAccess(account, 'communications', masterConfig);
+  const canAccessSecurityCenter =
+    isSuperAdmin ||
+    canManageUsers ||
+    evaluateUserModuleAccess(account, 'security', masterConfig);
+  const canAccessMasterAdmin =
+    isSuperAdmin ||
+    evaluateUserModuleAccess(account, 'masterAdmin', masterConfig);
+  const canAccessDeveloperKeygen =
+    isSuperAdmin ||
+    Boolean(perms.canManageLicense) ||
+    evaluateUserModuleAccess(account, 'standaloneKeygen', masterConfig);
+  const canOpenLanPortal =
+    isSuperAdmin ||
+    isAdmin ||
+    canEdit ||
+    evaluateUserModuleAccess(account, 'settings', masterConfig);
+  const canOpenWelcomeWizard =
+    isSuperAdmin ||
+    isAdmin ||
+    evaluateUserModuleAccess(account, 'settings', masterConfig);
+
+  return {
+    canOpenShiftModal,
+    canSwitchCurrency,
+    canSwitchBranch: true,
+    canOpenQuickCreate: canCreate && visibleQuickCreateModuleIds.length > 0,
+    canAccessSettings,
+    canAccessCommunications,
+    canAccessSecurityCenter,
+    canAccessMasterAdmin,
+    canAccessDeveloperKeygen,
+    canOpenLanPortal,
+    canOpenWelcomeWizard,
+    canUseVoiceCommands: account?.isActive !== false,
+    showShiftControls: canOpenShiftModal,
+    showCurrencySwitcher: canSwitchCurrency,
+    showSystemSettings: canAccessSettings,
+    showCommunicationsStation: canAccessCommunications,
+    showLanPortal: canOpenLanPortal,
+    showWelcomeWizard: canOpenWelcomeWizard,
+    allowSecurityCenterRapidTrigger: canAccessSecurityCenter,
+    allowStandaloneKeygenRapidTrigger: canAccessDeveloperKeygen,
+    visibleQuickCreateModuleIds,
+  };
+}
+
+
+

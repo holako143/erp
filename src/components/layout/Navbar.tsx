@@ -23,10 +23,13 @@ import {
   Lock,
   Play,
   Sparkles,
+  Mic,
 } from 'lucide-react';
 import { SystemNotificationCenterModal } from '../common/SystemNotificationCenterModal';
 import { HasebBrandLogo } from '../common/HasebBrandLogo';
 import { getShiftActionControlMeta } from '../../core/posShiftEngine';
+import { resolveNavbarMenuVisibility } from '../../core/securityEngine';
+import { parseErpVoiceCommand } from '../../core/warehouseAdvancedEngine';
 import {
   GlobalPopoverId,
   derivePopoverFlags,
@@ -192,7 +195,101 @@ export const Navbar: React.FC = () => {
     setFontScalePercent,
     windowScalePercent,
     setWindowScalePercent,
+    dispatchToastAndPushNotification,
   } = useERP();
+
+  const navbarVisibility = useMemo(
+    () => resolveNavbarMenuVisibility(currentAccount, masterSystemConfig),
+    [currentAccount, masterSystemConfig]
+  );
+
+  const [isVoicePopoverOpen, setIsVoicePopoverOpen] = useState(false);
+  const [isListeningVoice, setIsListeningVoice] = useState(false);
+  const [voiceCommandText, setVoiceCommandText] = useState('');
+  const [lastVoiceFeedback, setLastVoiceFeedback] = useState('');
+
+  const executeParsedVoiceTranscript = (rawTranscript: string) => {
+    const parsed = parseErpVoiceCommand(rawTranscript);
+    setVoiceCommandText(rawTranscript);
+    setLastVoiceFeedback(
+      language === 'ar' ? parsed.feedbackMessageAr : parsed.feedbackMessageEn
+    );
+
+    const targetMod = parsed.targetModuleId || parsed.targetTab;
+    if (parsed.intent === 'NAVIGATE_MODULE' && targetMod) {
+      setActiveTab(targetMod);
+    } else if (parsed.intent === 'CREATE_INVOICE') {
+      setActiveTab(targetMod || 'sales');
+      window.dispatchEvent(new CustomEvent('erp-voice-action', { detail: { action: 'CREATE_INVOICE' } }));
+    } else if (parsed.intent === 'START_SCAN' || parsed.intent === 'OPEN_BATCH_SCAN') {
+      setActiveTab(targetMod || 'barcodeEngine');
+      window.dispatchEvent(
+        new CustomEvent('erp-voice-action', {
+          detail: { action: parsed.intent === 'OPEN_BATCH_SCAN' ? 'OPEN_BATCH_SCAN' : 'START_SCAN' },
+        })
+      );
+    } else if (parsed.intent === 'OPEN_AR_WAREHOUSE') {
+      setActiveTab('barcodeEngine');
+      window.dispatchEvent(new CustomEvent('erp-voice-action', { detail: { action: 'OPEN_AR_WAREHOUSE' } }));
+    } else if (parsed.intent === 'CHECK_LOW_STOCK') {
+      setActiveTab('inventory');
+    }
+
+    if (parsed.intent !== 'UNKNOWN') {
+      setIsVoicePopoverOpen(false);
+    }
+
+    dispatchToastAndPushNotification({
+      titleAr: 'المساعد الصوتي الذكي (Voice Command)',
+      titleEn: 'Voice Command Assistant',
+      messageAr: parsed.feedbackMessageAr,
+      messageEn: parsed.feedbackMessageEn,
+      severity: parsed.intent === 'UNKNOWN' ? 'warning' : 'success',
+      category: 'LIVE_EVENTS',
+    });
+  };
+
+  const handleToggleMicrophoneListening = () => {
+    const SpeechRec =
+      typeof window !== 'undefined'
+        ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+        : null;
+
+    if (!SpeechRec) {
+      setIsListeningVoice(false);
+      setLastVoiceFeedback(
+        language === 'ar'
+          ? 'المتصفح الحالي في وضع المعاينة — استخدم الأزرار الصوتية الفورية أو اكتب الأمر بالأسفل.'
+          : 'Select a voice command preset or type a spoken command below.'
+      );
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRec();
+      recognition.lang = language === 'ar' ? 'ar-SA' : 'en-US';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      setIsListeningVoice(true);
+
+      recognition.onresult = (event: any) => {
+        const transcript = event?.results?.[0]?.[0]?.transcript || '';
+        setIsListeningVoice(false);
+        if (transcript) {
+          executeParsedVoiceTranscript(transcript);
+        }
+      };
+      recognition.onerror = () => {
+        setIsListeningVoice(false);
+      };
+      recognition.onend = () => {
+        setIsListeningVoice(false);
+      };
+      recognition.start();
+    } catch {
+      setIsListeningVoice(false);
+    }
+  };
 
   const [activePopover, setActivePopover] = useState<GlobalPopoverId>('NONE');
   const popoverFlags = derivePopoverFlags(activePopover);
@@ -312,13 +409,13 @@ export const Navbar: React.FC = () => {
     closeQuickSendModal();
     setIsCommandPaletteOpen(false);
 
-    if (recentClicks.length >= 7) {
+    if (recentClicks.length >= 7 && navbarVisibility.allowSecurityCenterRapidTrigger) {
       brandClickTimestampsRef.current = [];
       window.dispatchEvent(new CustomEvent('haseb-lock-security-center'));
       setActiveTab('security');
     } else {
       brandClickTimeoutRef.current = setTimeout(() => {
-        setActiveTab('pos');
+        setActiveTab(navbarVisibility.showShiftControls ? 'pos' : 'dashboard');
       }, 280);
     }
   };
@@ -335,11 +432,11 @@ export const Navbar: React.FC = () => {
       clearTimeout(clickTimeoutRef.current);
     }
 
-    if (recentClicks.length >= 7) {
+    if (recentClicks.length >= 7 && navbarVisibility.allowStandaloneKeygenRapidTrigger) {
       clickTimestampsRef.current = [];
       setIsProfileMenuOpen(false);
       setIsStandaloneKeygenOpen(true);
-    } else {
+    } else if (navbarVisibility.showSystemSettings) {
       clickTimeoutRef.current = setTimeout(() => {
         setIsProfileMenuOpen(false);
         setActiveTab('settings');
@@ -493,6 +590,125 @@ export const Navbar: React.FC = () => {
           <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
         </button>
 
+        {/* Hands-Free Voice-Command Interface Trigger (Microphone API) */}
+        <div className="relative">
+          <button
+            type="button"
+            data-testid="navbar-voice-command-btn"
+            onClick={() => setIsVoicePopoverOpen((prev) => !prev)}
+            title={
+              language === 'ar'
+                ? 'الأوامر الصوتية الذكية (Microphone Voice Commands)'
+                : 'Hands-Free Voice Command Interface'
+            }
+            className={`relative flex items-center justify-center w-7.5 h-7.5 sm:w-9 sm:h-9 rounded-full border transition cursor-pointer ${
+              isVoicePopoverOpen || isListeningVoice
+                ? 'bg-blue-600 text-white border-blue-500 shadow-xs'
+                : isDark
+                ? 'bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800'
+                : 'bg-slate-50 hover:bg-slate-100 border-slate-200/80 text-slate-700'
+            }`}
+          >
+            <Mic className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${isListeningVoice ? 'animate-pulse' : ''}`} />
+          </button>
+
+          {isVoicePopoverOpen && (
+            <div
+              data-testid="navbar-voice-command-popover"
+              className={`fixed inset-x-2 top-12 sm:inset-x-auto sm:absolute sm:top-11 sm:left-0 w-auto sm:w-84 rounded-2xl border shadow-2xl p-3.5 z-50 text-xs space-y-3 ${
+                isDark
+                  ? 'bg-[#0f172a] border-slate-700 text-slate-100'
+                  : 'bg-white border-slate-200 text-slate-800'
+              }`}
+            >
+              <div className="flex items-center justify-between border-b border-slate-200/70 dark:border-slate-800 pb-2">
+                <div className="flex items-center gap-2 font-bold">
+                  <Mic className="w-4 h-4 text-blue-600" />
+                  <span>
+                    {language === 'ar'
+                      ? 'التحكم الصوتي الذكي (Voice Commands)'
+                      : 'Hands-Free Voice Commands'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleToggleMicrophoneListening}
+                  data-testid="voice-mic-listen-btn"
+                  className={`px-2.5 py-1 rounded-lg font-bold text-[11px] cursor-pointer ${
+                    isListeningVoice
+                      ? 'bg-rose-600 text-white animate-pulse'
+                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
+                >
+                  {isListeningVoice
+                    ? language === 'ar'
+                      ? 'جاري الاستماع...'
+                      : 'Listening...'
+                    : language === 'ar'
+                    ? '🎙️ تحدث الآن'
+                    : '🎙️ Speak'}
+                </button>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  data-testid="voice-command-text-input"
+                  value={voiceCommandText}
+                  onChange={(e) => setVoiceCommandText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && voiceCommandText.trim()) {
+                      executeParsedVoiceTranscript(voiceCommandText);
+                    }
+                  }}
+                  placeholder={
+                    language === 'ar'
+                      ? 'قل أو اكتب: "create invoice" أو "start scan"...'
+                      : 'Say or type: "create invoice", "start scan"...'
+                  }
+                  className="flex-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs"
+                />
+                <button
+                  type="button"
+                  data-testid="voice-command-execute-btn"
+                  onClick={() => executeParsedVoiceTranscript(voiceCommandText || 'create invoice')}
+                  className="px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white font-bold cursor-pointer"
+                >
+                  {language === 'ar' ? 'تنفيذ' : 'Run'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-1.5">
+                {[
+                  { cmd: 'create invoice', ar: 'إنشاء فاتورة', en: 'Create Invoice' },
+                  { cmd: 'start scan', ar: 'بدء المسح الضوئي', en: 'Start Scan' },
+                  { cmd: 'go to inventory', ar: 'فتح المخزون', en: 'Open Inventory' },
+                  { cmd: 'AR warehouse', ar: 'ملاحة المستودع AR', en: 'AR Warehouse' },
+                ].map((preset) => (
+                  <button
+                    key={preset.cmd}
+                    type="button"
+                    data-testid={`voice-preset-${preset.cmd.replace(/\s+/g, '-')}`}
+                    onClick={() => executeParsedVoiceTranscript(preset.cmd)}
+                    className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/70 hover:border-blue-500 text-start font-semibold text-[11px] cursor-pointer"
+                  >
+                    🎤 {language === 'ar' ? preset.ar : preset.en}
+                  </button>
+                ))}
+              </div>
+
+              {lastVoiceFeedback && (
+                <div
+                  data-testid="voice-command-feedback"
+                  className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-[11px] font-semibold text-blue-800 dark:text-blue-200"
+                >
+                  {lastVoiceFeedback}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* System Notifications Bell Button (Anchored Downward Dropdown) */}
         <div ref={notificationsContainerRef} className="relative">
           <button
@@ -618,28 +834,30 @@ export const Navbar: React.FC = () => {
                       </div>
                     </div>
                     <div className="flex items-center flex-wrap gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        data-testid="navbar-menu-shift-btn"
-                        data-shift-status={currentShift.status}
-                        onClick={() => {
-                          setIsProfileMenuOpen(false);
-                          openShiftModal();
-                        }}
-                        title={shiftMeta.statusBadge}
-                        className={`px-2.5 py-1.5 rounded-lg border font-bold text-[11px] transition flex items-center gap-1 cursor-pointer shrink-0 ${
-                          shiftMeta.isOpen
-                            ? 'bg-orange-50 dark:bg-orange-950/50 border-orange-200 dark:border-orange-800/70 text-orange-700 dark:text-orange-300 hover:bg-orange-100'
-                            : 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800/70 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100'
-                        }`}
-                      >
-                        {shiftMeta.isOpen ? (
-                          <Lock className="w-3.5 h-3.5" />
-                        ) : (
-                          <Play className="w-3.5 h-3.5" />
-                        )}
-                        <span>{shiftMeta.shortLabel}</span>
-                      </button>
+                      {navbarVisibility.showShiftControls && (
+                        <button
+                          type="button"
+                          data-testid="navbar-menu-shift-btn"
+                          data-shift-status={currentShift.status}
+                          onClick={() => {
+                            setIsProfileMenuOpen(false);
+                            openShiftModal();
+                          }}
+                          title={shiftMeta.statusBadge}
+                          className={`px-2.5 py-1.5 rounded-lg border font-bold text-[11px] transition flex items-center gap-1 cursor-pointer shrink-0 ${
+                            shiftMeta.isOpen
+                              ? 'bg-orange-50 dark:bg-orange-950/50 border-orange-200 dark:border-orange-800/70 text-orange-700 dark:text-orange-300 hover:bg-orange-100'
+                              : 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800/70 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100'
+                          }`}
+                        >
+                          {shiftMeta.isOpen ? (
+                            <Lock className="w-3.5 h-3.5" />
+                          ) : (
+                            <Play className="w-3.5 h-3.5" />
+                          )}
+                          <span>{shiftMeta.shortLabel}</span>
+                        </button>
+                      )}
                       <button
                         type="button"
                         data-testid="navbar-lock-terminal-btn"
@@ -695,8 +913,8 @@ export const Navbar: React.FC = () => {
                       </div>
                       <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
                         {language === 'ar'
-                          ? `العملة (${currency}) • اللغة • الإعدادات • التواصل والشبكة`
-                          : `Currency (${currency}) • Language • Settings • LAN`}
+                          ? `العملة (${currency}) • اللغة • الإعدادات والشبكة`
+                          : `Currency (${currency}) • Language • Settings & LAN`}
                       </div>
                     </div>
                   </div>
@@ -731,7 +949,7 @@ export const Navbar: React.FC = () => {
                       </button>
 
                       {/* Currency Switcher */}
-                      {masterSystemConfig.uiElementsVisibility.showCurrencySwitcher && (
+                      {navbarVisibility.showCurrencySwitcher && (
                         <div
                           className={`min-w-0 overflow-hidden flex items-center justify-between px-2.5 py-1.5 rounded-xl border ${
                             isDark
@@ -773,13 +991,13 @@ export const Navbar: React.FC = () => {
                       )}
                     </div>
 
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {/* System Settings Button (with 7-click stealth keygen support) */}
+                    {/* System Settings Button (with 7-click stealth keygen support) */}
+                    {navbarVisibility.showSystemSettings && (
                       <button
                         type="button"
                         data-testid="navbar-settings-stealth-trigger"
                         onClick={handleSettingsRapidClick}
-                        className={`min-w-0 overflow-hidden flex items-center gap-2 px-3 py-2 rounded-xl border font-bold transition cursor-pointer ${
+                        className={`w-full min-w-0 overflow-hidden flex items-center justify-center gap-2 px-3 py-2 rounded-xl border font-bold transition cursor-pointer ${
                           isDark
                             ? 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-slate-200'
                             : 'bg-slate-50 border-slate-200/80 hover:bg-slate-100 text-slate-700'
@@ -790,86 +1008,65 @@ export const Navbar: React.FC = () => {
                           {language === 'ar' ? 'إعدادات النظام' : 'System Settings'}
                         </span>
                       </button>
-
-                      {/* Communications Station */}
-                      <button
-                        type="button"
-                        data-testid="navbar-whatsapp-station-btn"
-                        onClick={() => {
-                          setIsProfileMenuOpen(false);
-                          setActiveTab('communications');
-                        }}
-                        className={`min-w-0 overflow-hidden flex items-center justify-between px-3 py-2 rounded-xl border font-bold transition cursor-pointer ${
-                          isDark
-                            ? 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-slate-200'
-                            : 'bg-slate-50 border-slate-200/80 hover:bg-slate-100 text-slate-700'
-                        }`}
-                      >
-                        <span className="flex items-center gap-1.5 truncate">
-                          <MessageSquare className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                          <span className="truncate">
-                            {language === 'ar' ? 'خدمات التواصل' : 'Communications'}
-                          </span>
-                        </span>
-                        <span className="px-1.5 py-0.5 rounded bg-emerald-600/15 text-emerald-700 font-mono text-[10px] shrink-0">
-                          {connectedWaCount}/{whatsappAccounts.length}
-                        </span>
-                      </button>
-                    </div>
+                    )}
 
                     {/* Desktop & LAN Full-Width Button + First-Run Welcome Wizard Button */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                      <button
-                        type="button"
-                        data-testid="navbar-lan-portal-btn"
-                        onClick={() => {
-                          setIsProfileMenuOpen(false);
-                          openLanPortal();
-                        }}
-                        className={`w-full min-w-0 overflow-hidden flex items-center justify-between px-3 py-2 rounded-xl border font-bold transition cursor-pointer ${
-                          isDark
-                            ? 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-slate-200'
-                            : 'bg-slate-50 border-slate-200/80 hover:bg-slate-100 text-slate-700'
-                        }`}
-                      >
-                        <span className="flex items-center gap-1.5 truncate">
-                          <MonitorSmartphone className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                          <span className="truncate">
-                            {language === 'ar'
-                              ? 'الشبكة المحلية (LAN)'
-                              : 'Local Network (LAN)'}
+                      {navbarVisibility.showLanPortal && (
+                        <button
+                          type="button"
+                          data-testid="navbar-lan-portal-btn"
+                          onClick={() => {
+                            setIsProfileMenuOpen(false);
+                            openLanPortal();
+                          }}
+                          className={`w-full min-w-0 overflow-hidden flex items-center justify-between px-3 py-2 rounded-xl border font-bold transition cursor-pointer ${
+                            isDark
+                              ? 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-slate-200'
+                              : 'bg-slate-50 border-slate-200/80 hover:bg-slate-100 text-slate-700'
+                          }`}
+                        >
+                          <span className="flex items-center gap-1.5 truncate">
+                            <MonitorSmartphone className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                            <span className="truncate">
+                              {language === 'ar'
+                                ? 'الشبكة المحلية (LAN)'
+                                : 'Local Network (LAN)'}
+                            </span>
                           </span>
-                        </span>
-                        <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-mono text-[10px] shrink-0">
-                          متصل
-                        </span>
-                      </button>
+                          <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-mono text-[10px] shrink-0">
+                            متصل
+                          </span>
+                        </button>
+                      )}
 
-                      <button
-                        type="button"
-                        data-testid="navbar-open-welcome-wizard-btn"
-                        onClick={() => {
-                          setIsProfileMenuOpen(false);
-                          openOnboarding();
-                        }}
-                        className={`w-full min-w-0 overflow-hidden flex items-center justify-between px-3 py-2 rounded-xl border font-bold transition cursor-pointer ${
-                          isDark
-                            ? 'bg-blue-950/60 border-blue-800 hover:bg-blue-900/70 text-blue-200'
-                            : 'bg-blue-50/80 border-blue-200 hover:bg-blue-100/80 text-blue-800'
-                        }`}
-                      >
-                        <span className="flex items-center gap-1.5 truncate">
-                          <Sparkles className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                          <span className="truncate">
-                            {language === 'ar'
-                              ? 'واجهة الترحيب الأولية'
-                              : 'Welcome Wizard'}
+                      {navbarVisibility.showWelcomeWizard && (
+                        <button
+                          type="button"
+                          data-testid="navbar-open-welcome-wizard-btn"
+                          onClick={() => {
+                            setIsProfileMenuOpen(false);
+                            openOnboarding();
+                          }}
+                          className={`w-full min-w-0 overflow-hidden flex items-center justify-between px-3 py-2 rounded-xl border font-bold transition cursor-pointer ${
+                            isDark
+                              ? 'bg-blue-950/60 border-blue-800 hover:bg-blue-900/70 text-blue-200'
+                              : 'bg-blue-50/80 border-blue-200 hover:bg-blue-100/80 text-blue-800'
+                          }`}
+                        >
+                          <span className="flex items-center gap-1.5 truncate">
+                            <Sparkles className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                            <span className="truncate">
+                              {language === 'ar'
+                                ? 'واجهة الترحيب الأولية'
+                                : 'Welcome Wizard'}
+                            </span>
                           </span>
-                        </span>
-                        <span className="px-1.5 py-0.5 rounded bg-blue-600 text-white font-mono text-[9px] shrink-0">
-                          تهيئة
-                        </span>
-                      </button>
+                          <span className="px-1.5 py-0.5 rounded bg-blue-600 text-white font-mono text-[9px] shrink-0">
+                            تهيئة
+                          </span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}

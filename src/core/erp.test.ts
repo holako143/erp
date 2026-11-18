@@ -52,6 +52,11 @@ import {
   composeOtpVerificationSmsText,
   composeShiftSummarySmsText,
 } from './messagingEngine';
+import {
+  buildHistoricalDemandAnalysis,
+  applySuggestedReorderPoints,
+} from './demandForecastingEngine';
+import { buildPerformanceDashboardMetrics } from './performanceDashboardEngine';
 
 // --- Barcode Engine Tests ---
 test('calculateEAN13CheckDigit calculates GS1 standard check digit accurately', () => {
@@ -4681,3 +4686,2044 @@ test('Track 53: Zero-Download Installers (Windows/Linux Firewall & Ports), Pure 
   assert.equal(delivered.reasonCode, 'DELIVERED');
 });
 
+test('Track 54: Native Windows EXE Readiness, Non-Blocking Async USB Bridge Probe & ADB Path TTL Cache', async () => {
+  const { generatePortableReadmeAr } = await import('./installerEngine');
+  const {
+    clearAdbPathCacheForTests,
+    resolveAdbExecutablePathAsync,
+    probeHostUsbMobileBridgeStateAsync,
+    inspectSystemReadiness,
+  } = await import('../server/usbAndInstallerHost');
+
+  const readmeAr = generatePortableReadmeAr({ port: 3000, httpsPort: 3443 });
+  assert.ok(readmeAr.includes('Haseb_ERP_Setup_Offline.exe'));
+
+  clearAdbPathCacheForTests();
+  const adbFirst = await resolveAdbExecutablePathAsync(process.cwd());
+  const t0 = performance.now();
+  const adbSecond = await resolveAdbExecutablePathAsync(process.cwd());
+  const elapsedMs = performance.now() - t0;
+  assert.equal(adbFirst, adbSecond);
+  assert.ok(elapsedMs < 25, `Expected cached ADB lookup <25ms, got ${elapsedMs.toFixed(2)}ms`);
+
+  const dev = await probeHostUsbMobileBridgeStateAsync({
+    rootDir: process.cwd(),
+    sentCounter: 3,
+    clientRegisteredDevice: null,
+  });
+  assert.ok(dev.status === 'DISCONNECTED' || dev.status === 'CONNECTED' || dev.status === 'AUTHORIZING');
+  assert.equal(dev.messagesSentCount, 3);
+
+  const readiness = inspectSystemReadiness({
+    rootDir: process.cwd(),
+    port: 3000,
+    httpsPort: 3443,
+    httpsEnabled: true,
+    embeddedAssetsActive: true,
+  });
+  assert.equal(typeof readiness.exeInstallerReady, 'boolean');
+  assert.equal(readiness.embeddedDistReady, true);
+  assert.ok(readiness.exeInstallerSizeMb === null || readiness.exeInstallerSizeMb > 0);
+});
+
+test('Track 55: Partial Payment & Credit Receivables (مديونية) Split Journals, Shift Analytics & Invoice Messaging', async () => {
+  const { createSalesInvoiceJournal, validateJournalBalance } = await import('./accountingEngine');
+  const { buildShiftAnalyticsReport, createDefaultShiftlessState } = await import('./posShiftEngine');
+  const { composeInvoiceMessageText } = await import('./messagingEngine');
+
+  // 1. Partial CASH sale (1000 total, 400 paid in cash, 600 remaining debt on customer)
+  const partialCashInv = {
+    id: 'inv-part-cash',
+    tenantId: 'ten-1',
+    invoiceNumber: 'INV-2026-8801',
+    customerId: 'cust-pos-walkin',
+    customerName: 'عميل نقدي عام',
+    branchId: 'branch-main-01',
+    date: '2026-06-15',
+    subtotal: 1000,
+    discountAmount: 0,
+    taxAmount: 0,
+    grandTotal: 1000,
+    paidAmount: 400,
+    remainingAmount: 600,
+    cashPaidAmount: 400,
+    cardPaidAmount: 0,
+    paymentMethod: 'CASH' as const,
+    status: 'PARTIAL' as const,
+    items: [
+      {
+        productId: 'prod-1',
+        productName: 'لوح طاقة شمسية 585W',
+        sku: 'SOL-PNL-585W',
+        quantity: 2,
+        unitPrice: 500,
+        discount: 0,
+        taxRate: 0,
+        taxAmount: 0,
+        total: 1000,
+      },
+    ],
+  };
+
+  const jePartial = createSalesInvoiceJournal(partialCashInv, 'ten-1', 'JE-PART-1');
+  assert.equal(validateJournalBalance(jePartial.lines).isValid, true);
+  const cashDebitLine = jePartial.lines.find((l) => l.accountCode === '1101');
+  const arDebitLine = jePartial.lines.find((l) => l.accountCode === '1201');
+  const revCreditLine = jePartial.lines.find((l) => l.accountCode === '4101');
+  assert.equal(cashDebitLine?.debit, 400);
+  assert.equal(arDebitLine?.debit, 600);
+  assert.equal(revCreditLine?.credit, 1000);
+
+  // 2. Partial SPLIT sale (500 total: 150 cash + 200 card = 350 paid, 150 remaining debt)
+  const partialSplitInv = {
+    ...partialCashInv,
+    id: 'inv-part-split',
+    invoiceNumber: 'INV-2026-8802',
+    subtotal: 500,
+    grandTotal: 500,
+    paidAmount: 350,
+    remainingAmount: 150,
+    cashPaidAmount: 150,
+    cardPaidAmount: 200,
+    paymentMethod: 'SPLIT' as const,
+    shiftId: 'shift-none',
+    shiftMode: 'FLEXIBLE_SHIFTLESS' as const,
+  };
+  const jeSplit = createSalesInvoiceJournal(partialSplitInv, 'ten-1', 'JE-SPLIT-1');
+  assert.equal(validateJournalBalance(jeSplit.lines).isValid, true);
+  assert.equal(jeSplit.lines.find((l) => l.accountCode === '1101')?.debit, 150);
+  assert.equal(jeSplit.lines.find((l) => l.accountCode === '1102')?.debit, 200);
+  assert.equal(jeSplit.lines.find((l) => l.accountCode === '1201')?.debit, 150);
+
+  // 3. Full CREDIT sale (0 paid, 100% A/R 1201)
+  const fullCreditInv = {
+    ...partialCashInv,
+    id: 'inv-full-credit',
+    invoiceNumber: 'INV-2026-8803',
+    subtotal: 700,
+    grandTotal: 700,
+    paidAmount: 0,
+    remainingAmount: 700,
+    cashPaidAmount: 0,
+    cardPaidAmount: 0,
+    paymentMethod: 'CREDIT' as const,
+  };
+  const jeCredit = createSalesInvoiceJournal(fullCreditInv, 'ten-1', 'JE-CREDIT-1');
+  assert.equal(validateJournalBalance(jeCredit.lines).isValid, true);
+  assert.equal(jeCredit.lines.find((l) => l.accountCode === '1101'), undefined);
+  assert.equal(jeCredit.lines.find((l) => l.accountCode === '1201')?.debit, 700);
+
+  // 4. Shift Analytics Report must attribute unpaid portion of partial CASH/SPLIT to creditPayments
+  const shiftRep = buildShiftAnalyticsReport({
+    currentShift: createDefaultShiftlessState({ tenantId: 'ten-1', branchId: 'branch-main-01' }),
+    shiftHistory: [],
+    salesInvoices: [partialCashInv, partialSplitInv, fullCreditInv],
+  });
+  assert.equal(shiftRep.summary.grandTotalSales, 2200);
+  assert.equal(shiftRep.summary.totalCreditPayments, 1450); // 600 + 150 + 700
+  assert.equal(shiftRep.rows[0].paidTotal, 750); // 400 + 350 + 0
+  assert.equal(shiftRep.rows[0].cashPayments, 400);
+  assert.equal(shiftRep.rows[0].splitPayments, 350);
+  assert.equal(shiftRep.rows[0].creditPayments, 1450); // 600 + 150 + 700
+
+  // 5. WhatsApp / SMS message breakdown includes item qty, paid now, and remaining debt
+  const msg = composeInvoiceMessageText({
+    invoice: partialCashInv,
+    companyName: 'شركة حاسب',
+    currency: 'ر.ي',
+  });
+  assert.ok(msg.includes('سداد جزئي'));
+  assert.ok(msg.includes('إجمالي الكمية: 2'));
+  assert.ok(msg.includes('المدفوع الآن: 400'));
+  assert.ok(msg.includes('المتبقي (مديونية مسجلة على العميل): 600'));
+});
+
+test('Track 56: Global CommandPalette Search Engine & Automated Daily System Backup Scheduler', async () => {
+  const { searchGlobalEntities } = await import('./globalSearchEngine');
+  const {
+    DAILY_BACKUP_INTERVAL_MS,
+    isDailyBackupDue,
+    computeNextDailyBackupIso,
+    shouldNotifyAdminOfBackup,
+    buildDailyBackupArchivePayload,
+  } = await import('./backupSchedulerEngine');
+
+  // 1. Global Search across ALL document types, customers, inventory items, and chart accounts
+  const mockInput = {
+    query: 'هولاكو',
+    currency: 'ر.ي',
+    products: [
+      {
+        id: 'prod-1',
+        tenantId: 'ten-1',
+        sku: 'SOL-PNL-585W-145',
+        barcode: '62810000145',
+        name: 'Solar Panel 585W Mono',
+        nameAr: 'لوح طاقة شمسية هولاكو 585 واط',
+        categoryId: 'cat-solar',
+        uom: 'PCS',
+        costPrice: 400,
+        salePrice: 550,
+        taxRate: 0,
+        stockQty: 14,
+        minStock: 2,
+        maxStock: 100,
+        reorderPoint: 5,
+        warehouseId: 'wh-1',
+        hasSerials: true,
+        hasBatches: false,
+        isActive: true,
+      },
+    ],
+    customers: [
+      {
+        id: 'cust-1',
+        tenantId: 'ten-1',
+        name: 'Hulaku Contracting',
+        nameAr: 'مؤسسة هولاكو للمقاولات',
+        phone: '777123456',
+        email: 'hulaku@example.com',
+        balance: 2500,
+        creditLimit: 50000,
+        loyaltyPoints: 10,
+      },
+    ],
+    salesInvoices: [
+      {
+        id: 'inv-1',
+        tenantId: 'ten-1',
+        invoiceNumber: 'INV-2026-9001',
+        customerId: 'cust-1',
+        customerName: 'مؤسسة هولاكو للمقاولات',
+        branchId: 'branch-1',
+        date: '2026-07-01',
+        subtotal: 1100,
+        discountAmount: 0,
+        taxAmount: 0,
+        grandTotal: 1100,
+        paidAmount: 500,
+        remainingAmount: 600,
+        paymentMethod: 'CASH' as const,
+        status: 'PARTIAL' as const,
+        items: [],
+      },
+    ],
+    salesPipelineDocs: [
+      {
+        id: 'pipe-1',
+        tenantId: 'ten-1',
+        branchId: 'branch-1',
+        warehouseId: 'wh-1',
+        quoteNumber: 'QT-2026-401',
+        customerId: 'cust-1',
+        customerName: 'مؤسسة هولاكو للمقاولات',
+        date: '2026-06-28',
+        validUntil: '2026-07-15',
+        items: [],
+        subtotal: 3000,
+        discountAmount: 0,
+        taxAmount: 0,
+        grandTotal: 3000,
+        paymentMethod: 'CREDIT' as const,
+        stage: 'QUOTATION' as const,
+        stockReserved: false,
+        stockDeducted: false,
+      },
+    ],
+    salesReturns: [
+      {
+        id: 'ret-1',
+        tenantId: 'ten-1',
+        creditNoteNumber: 'CN-2026-101',
+        originalInvoiceId: 'inv-1',
+        originalInvoiceNumber: 'INV-2026-9001',
+        customerId: 'cust-1',
+        customerName: 'مؤسسة هولاكو للمقاولات',
+        productId: 'prod-1',
+        productName: 'لوح طاقة شمسية هولاكو 585 واط',
+        sku: 'SOL-PNL-585W-145',
+        quantity: 1,
+        unitPrice: 200,
+        unitCost: 150,
+        subtotal: 200,
+        taxAmount: 0,
+        totalRefund: 200,
+        condition: 'HEALTHY_RESTOCK' as const,
+        refundMethod: 'CREDIT_BALANCE' as const,
+        reason: 'استبدال هولاكو',
+        withinWarranty: true,
+        date: '2026-07-02',
+        journalEntryNumber: 'JE-RET-1',
+        approvedBy: 'admin',
+      },
+    ],
+    warrantyTickets: [
+      {
+        id: 'rma-1',
+        tenantId: 'ten-1',
+        ticketNumber: 'RMA-2026-301',
+        serialNumber: 'SN-HULAKU-99',
+        productId: 'prod-1',
+        productName: 'لوح طاقة شمسية هولاكو 585 واط',
+        sku: 'SOL-PNL-585W-145',
+        customerName: 'مؤسسة هولاكو للمقاولات',
+        customerPhone: '777123456',
+        purchaseDate: '2026-06-01',
+        warrantyMonths: 24,
+        warrantyExpiryDate: '2028-06-01',
+        isUnderWarranty: true,
+        faultDescription: 'فحص جهد الخرج',
+        technicianReport: '',
+        sparePartsUsed: '',
+        sparePartsCost: 0,
+        laborFee: 0,
+        totalCustomerCharge: 0,
+        status: 'RECEIVED' as const,
+        receivedAt: '2026-07-03',
+        expectedDeliveryDate: '2026-07-05',
+      },
+    ],
+    purchaseOrders: [
+      {
+        id: 'po-1',
+        tenantId: 'ten-1',
+        poNumber: 'PO-2026-701',
+        supplierId: 'sup-1',
+        supplierName: 'مورد هولاكو للطاقة',
+        orderDate: '2026-06-25',
+        expectedDate: '2026-07-05',
+        items: [],
+        subtotal: 4000,
+        taxAmount: 0,
+        total: 4000,
+        status: 'APPROVED' as const,
+        warehouseId: 'wh-1',
+      },
+    ],
+    goodsReceipts: [
+      {
+        id: 'grn-1',
+        tenantId: 'ten-1',
+        grnNumber: 'GRN-2026-501',
+        purchaseOrderId: 'po-1',
+        poNumber: 'PO-2026-701',
+        supplierId: 'sup-1',
+        supplierName: 'مورد هولاكو للطاقة',
+        warehouseId: 'wh-1',
+        receiptDate: '2026-06-29',
+        lines: [],
+        subtotal: 4000,
+        taxAmount: 0,
+        total: 4000,
+        receivedByName: 'admin',
+        createdAt: '2026-06-29T10:00:00.000Z',
+      },
+    ],
+    journalEntries: [
+      {
+        id: 'je-1',
+        tenantId: 'ten-1',
+        entryNumber: 'JE-2026-801',
+        date: '2026-07-01',
+        referenceType: 'SALES_INVOICE' as const,
+        referenceId: 'INV-2026-9001',
+        description: 'قيد مبيعات هولاكو',
+        totalDebit: 500,
+        totalCredit: 500,
+        isPosted: true,
+        isReversed: false,
+        createdByName: 'admin',
+        createdAt: '2026-07-01T10:00:00.000Z',
+        lines: [
+          {
+            id: 'l1',
+            accountId: 'a1',
+            accountCode: '1101',
+            accountName: 'Cash',
+            accountNameAr: 'الصندوق',
+            debit: 500,
+            credit: 0,
+          },
+        ],
+      },
+    ],
+    chartAccounts: [
+      {
+        id: 'acc-1',
+        tenantId: 'ten-1',
+        code: '1201-HUL',
+        name: 'Hulaku Receivable Account',
+        nameAr: 'حساب ذمم هولاكو',
+        type: 'ASSET' as const,
+        level: 3,
+        balance: 2500,
+        isDebitNormal: true,
+        isActive: true,
+      },
+    ],
+  };
+
+  const allMatches = searchGlobalEntities({ ...mockInput, query: 'هولاكو', category: 'ALL', limitPerGroup: 10 });
+  assert.equal(allMatches.countsByCategory.DOCUMENTS, 7);
+  assert.equal(allMatches.countsByCategory.CUSTOMERS, 1);
+  assert.equal(allMatches.countsByCategory.INVENTORY, 1);
+  assert.equal(allMatches.countsByCategory.ACCOUNTS, 1);
+  assert.equal(allMatches.countsByCategory.ALL, 10);
+
+  // Category filter should restrict only displayed items while keeping total countsByCategory
+  const docsOnly = searchGlobalEntities({ ...mockInput, query: 'هولاكو', category: 'DOCUMENTS', limitPerGroup: 10 });
+  assert.equal(docsOnly.documents.length, 7);
+  assert.equal(docsOnly.customers.length, 0);
+  assert.equal(docsOnly.inventory.length, 0);
+  assert.equal(docsOnly.accounts.length, 0);
+  assert.equal(docsOnly.totalMatches, 7);
+
+  // Exact SKU prefix score beats substring matches and links directly to inventory
+  const skuMatch = searchGlobalEntities({ ...mockInput, query: 'SOL-PNL-585W-145', category: 'ALL' });
+  assert.equal(skuMatch.inventory.length, 1);
+  assert.equal(skuMatch.inventory[0].score, 100);
+  assert.equal(skuMatch.inventory[0].targetModule, 'inventory');
+
+  // Customer with debt directs to 'aging' subtab
+  assert.equal(allMatches.customers[0].targetModule, 'sales');
+  assert.equal(allMatches.customers[0].targetSubTab, 'aging');
+
+  // Document routing covers Purchasing PO & GRN
+  const poItem = allMatches.documents.find((d) => d.subType === 'PURCHASE_ORDER');
+  const grnItem = allMatches.documents.find((d) => d.subType === 'GOODS_RECEIPT');
+  assert.equal(poItem?.targetModule, 'purchasing');
+  assert.equal(poItem?.targetSubTab, 'orders');
+  assert.equal(grnItem?.targetModule, 'purchasing');
+  assert.equal(grnItem?.targetSubTab, 'grn_returns');
+
+  // 2. Automated Daily System Backup Scheduler Engine
+  assert.equal(DAILY_BACKUP_INTERVAL_MS, 24 * 60 * 60 * 1000);
+  assert.equal(isDailyBackupDue(null), true);
+  assert.equal(isDailyBackupDue('invalid-date'), true);
+
+  const now = Date.parse('2026-07-10T12:00:00.000Z');
+  assert.equal(isDailyBackupDue('2026-07-09T11:59:59.000Z', now), true); // > 24h ago
+  assert.equal(isDailyBackupDue('2026-07-10T01:00:00.000Z', now), false); // 11h ago
+
+  const nextIso = computeNextDailyBackupIso('2026-07-10T01:00:00.000Z');
+  assert.equal(nextIso, '2026-07-11T01:00:00.000Z');
+
+  assert.equal(shouldNotifyAdminOfBackup('SUPER_ADMIN'), true);
+  assert.equal(shouldNotifyAdminOfBackup('ADMIN'), true);
+  assert.equal(shouldNotifyAdminOfBackup('MASTER_ADMIN'), true);
+  assert.equal(shouldNotifyAdminOfBackup('CASHIER', true), true);
+  assert.equal(shouldNotifyAdminOfBackup('CASHIER', false), false);
+  assert.equal(shouldNotifyAdminOfBackup('SALES_REP', false), false);
+
+  const archive = buildDailyBackupArchivePayload({
+    tenantCode: 'HASEB-DEMO',
+    products: mockInput.products,
+    customers: mockInput.customers,
+    salesInvoices: mockInput.salesInvoices,
+    trigger: 'AUTO_DAILY',
+    createdAtIso: '2026-07-10T08:00:00.000Z',
+  });
+  assert.equal(archive.filename, 'haseb-backup-HASEB-DEMO-2026-07-10-daily-auto.json');
+  assert.equal(archive.productsCount, 1);
+  assert.equal(archive.invoicesCount, 1);
+  assert.equal(archive.customersCount, 1);
+  assert.ok(archive.sizeBytes > 100);
+  const parsed = JSON.parse(archive.jsonString);
+  assert.equal(parsed.backupFormat, 'HASEB-CLIENT-BACKUP-V1');
+  assert.equal(parsed.trigger, 'AUTO_DAILY');
+});
+
+// =========================================================================
+// Track 57: CSV Batch Processing & Bulk Update Engine (Inventory & Customers)
+// =========================================================================
+import {
+  serializeInventoryToCsv,
+  serializeCustomersToCsv,
+  parseAndValidateBatchCsv,
+  applyInventoryBatchUpdates,
+  applyCustomerBatchUpdates,
+  updateCsvCellValue,
+} from './batchProcessingEngine';
+
+test('Track 57: Batch Processing Engine serializes, validates, diffs, and applies bulk updates for Inventory & Customers', () => {
+  const sampleProducts = [
+    {
+      id: 'p-1',
+      tenantId: 'ten-1',
+      sku: 'SOL-100',
+      name: 'Solar Panel, "Pro" 550W',
+      nameAr: 'لوح شمسي، 550 واط',
+      categoryId: 'cat-solar',
+      uom: 'PCS',
+      costPrice: 400,
+      salePrice: 650,
+      taxRate: 0,
+      stockQty: 20,
+      minStock: 2,
+      maxStock: 100,
+      reorderPoint: 5,
+      warehouseId: 'wh-1',
+      hasSerials: true,
+      hasBatches: false,
+      barcode: '6281000000010',
+      isActive: true,
+    },
+    {
+      id: 'p-2',
+      tenantId: 'ten-1',
+      sku: 'INV-200',
+      name: 'Hybrid Inverter 5kW',
+      nameAr: 'محول هجين 5 كيلو',
+      categoryId: 'cat-inv',
+      uom: 'PCS',
+      costPrice: 1500,
+      salePrice: 2200,
+      taxRate: 0,
+      stockQty: 8,
+      minStock: 1,
+      maxStock: 50,
+      reorderPoint: 3,
+      warehouseId: 'wh-1',
+      hasSerials: false,
+      hasBatches: false,
+      barcode: '6281000000027',
+      isActive: true,
+    },
+  ];
+
+  const sampleCustomers = [
+    {
+      id: 'c-1',
+      tenantId: 'ten-1',
+      code: 'CUS-001',
+      name: 'Al Noor Trading',
+      nameAr: 'شركة النور للتجارة',
+      phone: '0551112233',
+      email: 'noor@example.com',
+      creditLimit: 50000,
+      balance: 1200,
+      loyaltyPoints: 0,
+      taxNumber: '300000000000003',
+    },
+    {
+      id: 'c-2',
+      tenantId: 'ten-1',
+      code: 'CUS-002',
+      name: 'Gulf Energy Co',
+      nameAr: 'طاقة الخليج',
+      phone: '0554445566',
+      email: 'gulf@example.com',
+      creditLimit: 30000,
+      balance: 0,
+      loyaltyPoints: 0,
+      taxNumber: '300000000000004',
+    },
+  ];
+
+  // 1. RFC-4180 CSV serialization preserves commas & quotes
+  const invCsv = serializeInventoryToCsv(sampleProducts);
+  assert.ok(invCsv.includes('"Solar Panel, ""Pro"" 550W"'));
+  assert.ok(invCsv.includes('لوح شمسي، 550 واط'));
+
+  // 2. Inventory CSV parsing: valid update (case-insensitive SKU), unchanged row, negative price INVALID, duplicate SKU INVALID, unknown SKU NOT_FOUND
+  const batchInvCsv = [
+    'sku,nameAr,name,costPrice,salePrice,stockQty,reorderPoint,barcode,isActive',
+    'sol-100,"لوح شمسي، 550 واط","Solar Panel, ""Pro"" 550W",400,720,35,5,6281000000010,true',
+    'INV-200,محول هجين 5 كيلو,Hybrid Inverter 5kW,1500,2200,8,3,6281000000027,true',
+    'INV-200,محول هجين 5 كيلو,Hybrid Inverter 5kW,1500,2300,8,3,6281000000027,true',
+    'UNKNOWN-999,صنف غير موجود,Missing Item,10,20,5,1,0000000000000,true',
+  ].join('\n');
+
+  const invParsed = parseAndValidateBatchCsv({
+    rawCsv: batchInvCsv,
+    entityType: 'INVENTORY',
+    products: sampleProducts,
+    customers: sampleCustomers,
+  });
+
+  assert.equal(invParsed.totalRows, 4);
+  assert.equal(invParsed.validUpdateCount, 1);
+  assert.equal(invParsed.unchangedCount, 1);
+  assert.equal(invParsed.errorCount, 2);
+  assert.equal(invParsed.rows[0].status, 'VALID_UPDATE');
+  assert.equal(invParsed.rows[0].diffs.length, 2); // salePrice + stockQty
+  assert.equal(invParsed.rows[1].status, 'UNCHANGED');
+  assert.equal(invParsed.rows[2].status, 'INVALID'); // duplicate INV-200
+  assert.equal(invParsed.rows[3].status, 'NOT_FOUND');
+
+  // Negative numeric value rejection
+  const negInvParsed = parseAndValidateBatchCsv({
+    rawCsv: 'sku,salePrice\nSOL-100,-50',
+    entityType: 'INVENTORY',
+    products: sampleProducts,
+    customers: sampleCustomers,
+  });
+  assert.equal(negInvParsed.rows[0].status, 'INVALID');
+  assert.equal(negInvParsed.validUpdateCount, 0);
+
+  // Tab-delimited Excel paste support
+  const tsvInvParsed = parseAndValidateBatchCsv({
+    rawCsv: 'sku\tsalePrice\tstockQty\nINV-200\t2450\t12',
+    entityType: 'INVENTORY',
+    products: sampleProducts,
+    customers: sampleCustomers,
+  });
+  assert.equal(tsvInvParsed.validUpdateCount, 1);
+  assert.equal(tsvInvParsed.rows[0].updatedProduct?.salePrice, 2450);
+  assert.equal(tsvInvParsed.rows[0].updatedProduct?.stockQty, 12);
+
+  // Apply inventory updates atomically (skips error/unchanged rows)
+  const appliedInv = applyInventoryBatchUpdates(sampleProducts, invParsed);
+  assert.equal(appliedInv.updatedCount, 1);
+  assert.equal(appliedInv.skippedCount, 3);
+  assert.equal(appliedInv.totalFieldChanges, 2);
+  assert.equal(appliedInv.nextProducts[0].salePrice, 720);
+  assert.equal(appliedInv.nextProducts[0].stockQty, 35);
+  assert.equal(appliedInv.nextProducts[1].salePrice, 2200);
+
+  // 3. Customers serialization & CSV parsing (match by code / phone, invalid email rejection, negative creditLimit)
+  const cusCsv = serializeCustomersToCsv(sampleCustomers);
+  assert.ok(cusCsv.includes('CUS-001'));
+
+  const batchCusCsv = [
+    'id,code,nameAr,name,phone,email,creditLimit,balance',
+    'c-1,CUS-001,شركة النور للتجارة,Al Noor Trading,0559998877,noor@example.com,75000,1200',
+    ',CUS-002,طاقة الخليج,Gulf Energy Co,0554445566,bad-email,30000,0',
+    ',,,No Key Name,0554445566,gulf@example.com,40000,500',
+  ].join('\n');
+
+  const cusParsed = parseAndValidateBatchCsv({
+    rawCsv: batchCusCsv,
+    entityType: 'CUSTOMERS',
+    products: sampleProducts,
+    customers: sampleCustomers,
+  });
+
+  assert.equal(cusParsed.validUpdateCount, 1);
+  assert.equal(cusParsed.errorCount, 2); // bad-email on CUS-002 + duplicate CUS-002 via phone fallback
+  assert.equal(cusParsed.rows[0].status, 'VALID_UPDATE');
+  assert.equal(cusParsed.rows[0].diffs.length, 2); // phone + creditLimit
+
+  const appliedCus = applyCustomerBatchUpdates(sampleCustomers, cusParsed);
+  assert.equal(appliedCus.updatedCount, 1);
+  assert.equal(appliedCus.nextCustomers[0].phone, '0559998877');
+  assert.equal(appliedCus.nextCustomers[0].creditLimit, 75000);
+  assert.equal(appliedCus.nextCustomers[1].balance, 0);
+
+  // 4. Two-way updateCsvCellValue synchronization
+  const editedCsv = updateCsvCellValue({
+    rawCsv: invCsv,
+    entityType: 'INVENTORY',
+    lineNumber: 2,
+    columnKey: 'salePrice',
+    newValue: '799',
+  });
+  const reParsed = parseAndValidateBatchCsv({
+    rawCsv: editedCsv,
+    entityType: 'INVENTORY',
+    products: sampleProducts,
+    customers: sampleCustomers,
+  });
+  assert.equal(reParsed.validUpdateCount, 1);
+  assert.equal(reParsed.rows[0].updatedProduct?.salePrice, 799);
+});
+
+// ============================================================================
+// Track 58: AI Demand Forecasting & Optimal Reorder Engine Tests
+// ============================================================================
+test('Track 58: buildHistoricalDemandAnalysis aggregates valid sales, excludes VOID/DRAFT, respects lookback window, and ranks risk tiers', () => {
+  const products = [
+    {
+      id: 'p-out',
+      tenantId: 'ten-1',
+      sku: 'BAT-001',
+      barcode: '6281000000101',
+      name: 'Lithium Battery 48V',
+      nameAr: 'بطارية ليثيوم 48 فولت',
+      categoryId: 'cat-1',
+      industry: 'electronics' as const,
+      uom: 'PCS',
+      costPrice: 1200,
+      salePrice: 1650,
+      taxRate: 0,
+      stockQty: 0,
+      minStock: 4,
+      maxStock: 40,
+      reorderPoint: 8,
+      warehouseId: 'wh-1',
+      hasSerials: true,
+      hasBatches: false,
+      isActive: true,
+    },
+    {
+      id: 'p-crit',
+      tenantId: 'ten-1',
+      sku: 'SOL-585',
+      barcode: '6281000000102',
+      name: 'Solar Panel 585W',
+      nameAr: 'لوح شمسي 585 واط',
+      categoryId: 'cat-1',
+      industry: 'electronics' as const,
+      uom: 'PCS',
+      costPrice: 350,
+      salePrice: 480,
+      taxRate: 0,
+      stockQty: 6,
+      minStock: 3,
+      maxStock: 60,
+      reorderPoint: 10,
+      warehouseId: 'wh-1',
+      hasSerials: true,
+      hasBatches: false,
+      isActive: true,
+    },
+    {
+      id: 'p-opt',
+      tenantId: 'ten-1',
+      sku: 'CAB-100',
+      barcode: '6281000000103',
+      name: 'Solar Cable 6mm',
+      nameAr: 'كابل طاقة شمسية 6 ملم',
+      categoryId: 'cat-1',
+      industry: 'electronics' as const,
+      uom: 'ROLL',
+      costPrice: 90,
+      salePrice: 140,
+      taxRate: 0,
+      stockQty: 80,
+      minStock: 5,
+      maxStock: 100,
+      reorderPoint: 12,
+      warehouseId: 'wh-1',
+      hasSerials: false,
+      hasBatches: false,
+      isActive: true,
+    },
+  ];
+
+  const invoices: any[] = [
+    {
+      id: 'inv-1',
+      tenantId: 'ten-1',
+      invoiceNumber: 'INV-1001',
+      customerId: 'c-1',
+      customerName: 'Al Noor',
+      date: '2026-11-10T10:00:00.000Z',
+      dueDate: '2026-11-10T10:00:00.000Z',
+      subtotal: 4800,
+      taxAmount: 0,
+      discount: 0,
+      total: 4800,
+      paidAmount: 4800,
+      remainingAmount: 0,
+      status: 'PAID',
+      paymentMethod: 'CASH',
+      warehouseId: 'wh-1',
+      cashierId: 'u-1',
+      items: [
+        {
+          productId: 'p-crit',
+          sku: 'SOL-585',
+          productName: 'لوح شمسي 585 واط',
+          quantity: 1,
+          baseQtyDeducted: 10, // multi-unit carton deduction = 10 base units
+          unitPrice: 480,
+          discount: 0,
+          taxRate: 0,
+          taxAmount: 0,
+          total: 4800,
+        },
+        {
+          productId: 'p-out',
+          sku: 'BAT-001',
+          productName: 'بطارية ليثيوم',
+          quantity: 5,
+          unitPrice: 1650,
+          discount: 0,
+          taxRate: 0,
+          taxAmount: 0,
+          total: 8250,
+        },
+      ],
+    },
+    {
+      id: 'inv-2-old',
+      tenantId: 'ten-1',
+      invoiceNumber: 'INV-0900',
+      customerId: 'c-1',
+      customerName: 'Al Noor',
+      date: '2026-08-01T10:00:00.000Z', // outside 30-day window relative to 2026-11-15
+      dueDate: '2026-08-01T10:00:00.000Z',
+      subtotal: 1400,
+      taxAmount: 0,
+      discount: 0,
+      total: 1400,
+      paidAmount: 1400,
+      remainingAmount: 0,
+      status: 'PAID',
+      paymentMethod: 'CASH',
+      warehouseId: 'wh-1',
+      cashierId: 'u-1',
+      items: [
+        {
+          productId: 'p-opt',
+          sku: 'CAB-100',
+          productName: 'كابل طاقة شمسية',
+          quantity: 10,
+          unitPrice: 140,
+          discount: 0,
+          taxRate: 0,
+          taxAmount: 0,
+          total: 1400,
+        },
+      ],
+    },
+    {
+      id: 'inv-3-void',
+      tenantId: 'ten-1',
+      invoiceNumber: 'INV-VOID',
+      customerId: 'c-1',
+      customerName: 'Al Noor',
+      date: '2026-11-14T10:00:00.000Z',
+      dueDate: '2026-11-14T10:00:00.000Z',
+      subtotal: 9999,
+      taxAmount: 0,
+      discount: 0,
+      total: 9999,
+      paidAmount: 0,
+      remainingAmount: 0,
+      status: 'VOID',
+      paymentMethod: 'CASH',
+      warehouseId: 'wh-1',
+      cashierId: 'u-1',
+      items: [
+        {
+          productId: 'p-opt',
+          sku: 'CAB-100',
+          productName: 'كابل طاقة شمسية',
+          quantity: 99,
+          unitPrice: 140,
+          discount: 0,
+          taxRate: 0,
+          taxAmount: 0,
+          total: 9999,
+        },
+      ],
+    },
+  ];
+
+  const { items, metrics } = buildHistoricalDemandAnalysis({
+    products,
+    salesInvoices: invoices,
+    lookbackDays: 30,
+    leadTimeDays: 6,
+    safetyBufferDays: 4,
+    referenceDateIso: '2026-11-15T12:00:00.000Z',
+  });
+
+  // Ranking order: OUT_OF_STOCK -> CRITICAL -> OPTIMAL
+  assert.equal(items[0].sku, 'BAT-001');
+  assert.equal(items[0].riskTier, 'OUT_OF_STOCK');
+  assert.equal(items[0].windowUnitsSold, 5);
+
+  assert.equal(items[1].sku, 'SOL-585');
+  assert.equal(items[1].windowUnitsSold, 10); // baseQtyDeducted honored
+  assert.equal(items[1].isLowStock, true);
+  assert.ok(items[1].avgDailyDemand > 0.3);
+  assert.ok(items[1].statisticalReorderPoint >= 4);
+
+  assert.equal(items[2].sku, 'CAB-100');
+  assert.equal(items[2].riskTier, 'OPTIMAL');
+  assert.equal(items[2].windowUnitsSold, 0); // old invoice outside 30-day window & VOID excluded
+  assert.equal(items[2].totalUnitsSold, 10); // old non-void counted in lifetime total, VOID excluded
+
+  assert.equal(metrics.totalProducts, 3);
+  assert.equal(metrics.outOfStockCount, 1);
+  assert.equal(metrics.lowStockCount, 2);
+  assert.equal(metrics.totalWindowUnitsSold, 15);
+  assert.equal(metrics.itemsWithSalesHistory, 3);
+
+  // Applying optimal reorder points updates target SKUs & bounds safely without altering stockQty
+  const applied = applySuggestedReorderPoints(products, [
+    { productId: 'p-out', sku: 'BAT-001', suggestedReorderPoint: 15 },
+    { productId: 'p-crit', sku: 'SOL-585', suggestedReorderPoint: 10 }, // unchanged (already 10)
+    { productId: 'p-missing', sku: 'NO-MATCH', suggestedReorderPoint: 20 },
+  ]);
+
+  assert.equal(applied.updatedCount, 1);
+  assert.equal(applied.nextProducts[0].reorderPoint, 15);
+  assert.equal(applied.nextProducts[0].stockQty, 0); // untouched
+  assert.ok(applied.nextProducts[0].maxStock >= 45);
+  assert.equal(applied.nextProducts[1].reorderPoint, 10);
+});
+
+// ============================================================================
+// Track 59: D3 Performance Dashboard Analytics Engine Tests
+// ============================================================================
+test('Track 59: buildPerformanceDashboardMetrics calculates sales trends, inventory turnover, and daily profit margins accurately', () => {
+  const products = [
+    {
+      id: 'p-fast',
+      tenantId: 'ten-1',
+      sku: 'SOL-550',
+      barcode: '6281000000201',
+      name: 'Solar Panel 550W',
+      nameAr: 'لوح شمسي 550 واط',
+      categoryId: 'cat-1',
+      industry: 'electronics' as const,
+      uom: 'PCS',
+      costPrice: 300,
+      salePrice: 500,
+      taxRate: 0,
+      stockQty: 10,
+      minStock: 4,
+      maxStock: 50,
+      reorderPoint: 8,
+      warehouseId: 'wh-1',
+      hasSerials: true,
+      hasBatches: false,
+      isActive: true,
+    },
+    {
+      id: 'p-slow',
+      tenantId: 'ten-1',
+      sku: 'INV-8K',
+      barcode: '6281000000202',
+      name: 'Hybrid Inverter 8kW',
+      nameAr: 'محول هجين 8 كيلوواط',
+      categoryId: 'cat-1',
+      industry: 'electronics' as const,
+      uom: 'PCS',
+      costPrice: 1000,
+      salePrice: 1500,
+      taxRate: 0,
+      stockQty: 20,
+      minStock: 2,
+      maxStock: 30,
+      reorderPoint: 5,
+      warehouseId: 'wh-1',
+      hasSerials: true,
+      hasBatches: false,
+      isActive: true,
+    },
+  ];
+
+  const invoices: any[] = [
+    {
+      id: 'inv-d1',
+      tenantId: 'ten-1',
+      branchId: 'br-1',
+      invoiceNumber: 'INV-201',
+      customerId: 'c-1',
+      customerName: 'Cash',
+      date: '2026-11-10',
+      dueDate: '2026-11-10',
+      subtotal: 2000,
+      taxAmount: 0,
+      discountAmount: 0,
+      grandTotal: 2000,
+      paidAmount: 2000,
+      remainingAmount: 0,
+      status: 'PAID',
+      paymentMethod: 'CASH',
+      warehouseId: 'wh-1',
+      cashierId: 'u-1',
+      items: [
+        {
+          productId: 'p-fast',
+          sku: 'SOL-550',
+          productName: 'لوح شمسي 550 واط',
+          quantity: 4,
+          baseQtyDeducted: 4,
+          unitPrice: 500,
+          discount: 0,
+          taxRate: 0,
+          taxAmount: 0,
+          total: 2000,
+        },
+      ],
+    },
+    {
+      id: 'inv-d2',
+      tenantId: 'ten-1',
+      branchId: 'br-1',
+      invoiceNumber: 'INV-202',
+      customerId: 'c-1',
+      customerName: 'Credit',
+      date: '2026-11-12',
+      dueDate: '2026-11-20',
+      subtotal: 4000,
+      taxAmount: 0,
+      discountAmount: 0,
+      grandTotal: 4000,
+      paidAmount: 1500,
+      remainingAmount: 2500,
+      status: 'PARTIAL',
+      paymentMethod: 'CREDIT',
+      warehouseId: 'wh-1',
+      cashierId: 'u-1',
+      items: [
+        {
+          productId: 'p-fast',
+          sku: 'SOL-550',
+          productName: 'لوح شمسي 550 واط',
+          quantity: 1,
+          baseQtyDeducted: 5, // 5 base units @ cost 300 = 1500 COGS
+          unitPrice: 2500,
+          discount: 0,
+          taxRate: 0,
+          taxAmount: 0,
+          total: 2500,
+        },
+        {
+          productId: 'p-slow',
+          sku: 'INV-8K',
+          productName: 'محول هجين',
+          quantity: 1,
+          baseQtyDeducted: 1, // 1 unit @ cost 1000 = 1000 COGS
+          unitPrice: 1500,
+          discount: 0,
+          taxRate: 0,
+          taxAmount: 0,
+          total: 1500,
+        },
+      ],
+    },
+    {
+      id: 'inv-void',
+      tenantId: 'ten-1',
+      branchId: 'br-1',
+      invoiceNumber: 'INV-VOID',
+      customerId: 'c-1',
+      customerName: 'Voided',
+      date: '2026-11-12',
+      dueDate: '2026-11-12',
+      subtotal: 9000,
+      taxAmount: 0,
+      discountAmount: 0,
+      grandTotal: 9000,
+      paidAmount: 0,
+      remainingAmount: 0,
+      status: 'VOID',
+      paymentMethod: 'CASH',
+      warehouseId: 'wh-1',
+      cashierId: 'u-1',
+      items: [
+        {
+          productId: 'p-slow',
+          sku: 'INV-8K',
+          productName: 'محول هجين',
+          quantity: 6,
+          unitPrice: 1500,
+          discount: 0,
+          taxRate: 0,
+          taxAmount: 0,
+          total: 9000,
+        },
+      ],
+    },
+    {
+      id: 'inv-other-branch',
+      tenantId: 'ten-1',
+      branchId: 'br-2',
+      invoiceNumber: 'INV-BR2',
+      customerId: 'c-1',
+      customerName: 'Branch 2',
+      date: '2026-11-12',
+      dueDate: '2026-11-12',
+      subtotal: 1000,
+      taxAmount: 0,
+      discountAmount: 0,
+      grandTotal: 1000,
+      paidAmount: 1000,
+      remainingAmount: 0,
+      status: 'PAID',
+      paymentMethod: 'CASH',
+      warehouseId: 'wh-2',
+      cashierId: 'u-1',
+      items: [],
+    },
+  ];
+
+  const perf = buildPerformanceDashboardMetrics({
+    salesInvoices: invoices,
+    products,
+    startDate: '2026-11-01',
+    endDate: '2026-11-30',
+    branchId: 'br-1',
+    periodDays: 30,
+  });
+
+  // Chronological daily series (2 active dates, VOID & other-branch excluded)
+  assert.equal(perf.salesTrendSeries.length, 2);
+  assert.equal(perf.salesTrendSeries[0].date, '2026-11-10');
+  assert.equal(perf.salesTrendSeries[0].grossSales, 2000);
+  assert.equal(perf.salesTrendSeries[0].cogs, 1200); // 4 * 300
+  assert.equal(perf.salesTrendSeries[0].grossProfit, 800);
+  assert.equal(perf.salesTrendSeries[0].profitMarginPct, 40);
+
+  assert.equal(perf.salesTrendSeries[1].date, '2026-11-12');
+  assert.equal(perf.salesTrendSeries[1].grossSales, 4000);
+  assert.equal(perf.salesTrendSeries[1].cogs, 2500); // (5 * 300) + (1 * 1000)
+  assert.equal(perf.salesTrendSeries[1].grossProfit, 1500);
+  assert.equal(perf.salesTrendSeries[1].profitMarginPct, 37.5);
+
+  // Inventory turnover ranking: SOL-550 moved 9 units (2700 COGS vs avg val 3000 + 1350 = 4350 -> 0.62x)
+  assert.equal(perf.inventoryTurnoverItems[0].sku, 'SOL-550');
+  assert.equal(perf.inventoryTurnoverItems[0].unitsSold, 9);
+  assert.equal(perf.inventoryTurnoverItems[0].turnoverRatio, 0.62);
+  assert.ok(perf.inventoryTurnoverItems[0].daysToSell !== null);
+
+  assert.equal(perf.inventoryTurnoverItems[1].sku, 'INV-8K');
+  assert.equal(perf.inventoryTurnoverItems[1].unitsSold, 1);
+
+  assert.equal(perf.summary.totalSales, 6000);
+  assert.equal(perf.summary.totalGrossProfit, 2300);
+  assert.equal(perf.summary.avgDailySales, 3000);
+  assert.equal(perf.summary.peakDaySales, 4000);
+  assert.equal(perf.summary.peakMarginPct, 40);
+  assert.equal(perf.summary.totalUnitsMoved, 10);
+});
+
+test('detectPerformanceAnomalies identifies statistical Z-score shifts in profit margin and inventory turnover', async () => {
+  const {
+    buildPerformanceDashboardMetrics,
+    detectPerformanceAnomalies,
+  } = await import('./performanceDashboardEngine');
+
+  const perf = buildPerformanceDashboardMetrics({
+    salesInvoices: [
+      {
+        id: 'inv-1',
+        tenantId: 'ten-1',
+        branchId: 'br-1',
+        invoiceNumber: 'INV-1',
+        customerId: 'c-1',
+        customerName: 'A',
+        date: '2026-11-10',
+        subtotal: 2000,
+        taxAmount: 0,
+        discountAmount: 0,
+        grandTotal: 2000,
+        paidAmount: 2000,
+        status: 'PAID',
+        paymentMethod: 'CASH',
+        items: [
+          {
+            productId: 'p-1',
+            sku: 'SOL-550',
+            productName: 'Solar 550W',
+            quantity: 4,
+            unitPrice: 500,
+            discount: 0,
+            taxRate: 0,
+            taxAmount: 0,
+            total: 2000,
+          },
+        ],
+      },
+      {
+        id: 'inv-2',
+        tenantId: 'ten-1',
+        branchId: 'br-1',
+        invoiceNumber: 'INV-2',
+        customerId: 'c-1',
+        customerName: 'B',
+        date: '2026-11-12',
+        subtotal: 5000,
+        taxAmount: 0,
+        discountAmount: 0,
+        grandTotal: 5000,
+        paidAmount: 5000,
+        status: 'PAID',
+        paymentMethod: 'CASH',
+        items: [
+          {
+            productId: 'p-1',
+            sku: 'SOL-550',
+            productName: 'Solar 550W',
+            quantity: 5,
+            unitPrice: 1000,
+            discount: 0,
+            taxRate: 0,
+            taxAmount: 0,
+            total: 5000,
+          },
+        ],
+      },
+    ] as any,
+    products: [
+      {
+        id: 'p-1',
+        sku: 'SOL-550',
+        name: 'Solar 550W',
+        nameAr: 'لوح شمسي 550 واط',
+        costPrice: 300,
+        salePrice: 500,
+        stockQty: 10,
+      },
+    ] as any,
+    startDate: '2026-11-01',
+    endDate: '2026-11-30',
+    branchId: 'br-1',
+    periodDays: 30,
+  });
+
+  const anomalyReport = detectPerformanceAnomalies(perf);
+  assert.ok(anomalyReport.totalAnomalies >= 1);
+  assert.ok(Array.isArray(anomalyReport.anomalies));
+  assert.ok(anomalyReport.anomalies.some((a) => a.domain === 'PROFIT_MARGIN' || a.domain === 'INVENTORY_TURNOVER'));
+});
+
+test('Dynamic RBAC Filtering: evaluateUserModuleAccess, resolveNavbarMenuVisibility, and shouldDisplaySidebarMenuItem enforce role & permission rules', async () => {
+  const {
+    evaluateUserModuleAccess,
+    resolveNavbarMenuVisibility,
+  } = await import('./securityEngine');
+  const { shouldDisplaySidebarMenuItem } = await import('../components/layout/Sidebar');
+
+  // 1. CASHIER role default access
+  const cashierAccount = {
+    id: 'u-cashier-1',
+    role: 'CASHIER' as const,
+    isActive: true,
+    permissions: {
+      canCreate: true,
+      canEdit: false,
+      canDelete: false,
+      canExport: false,
+      canApprove: false,
+      canManageUsers: false,
+      canManageLicense: false,
+    },
+  };
+
+  assert.equal(evaluateUserModuleAccess(cashierAccount, 'pos', null), true);
+  assert.equal(evaluateUserModuleAccess(cashierAccount, 'accounting', null), false);
+  assert.equal(evaluateUserModuleAccess(cashierAccount, 'security', null), false);
+  assert.equal(evaluateUserModuleAccess(cashierAccount, 'masterAdmin', null), false);
+
+  const cashierNavbar = resolveNavbarMenuVisibility(cashierAccount, null);
+  assert.equal(cashierNavbar.canOpenShiftModal, true);
+  assert.equal(cashierNavbar.canSwitchCurrency, false);
+  assert.equal(cashierNavbar.canAccessSecurityCenter, false);
+  assert.equal(cashierNavbar.canAccessMasterAdmin, false);
+  assert.ok(cashierNavbar.visibleQuickCreateModuleIds.includes('pos'));
+  assert.ok(!cashierNavbar.visibleQuickCreateModuleIds.includes('accounting'));
+
+  // Sidebar RBAC enforcement for Cashier
+  const accountingItem = { id: 'accounting', label: 'Accounting' };
+  const posItem = { id: 'pos', label: 'POS' };
+  assert.equal(
+    shouldDisplaySidebarMenuItem(accountingItem, false, () => true, {
+      enforceAccountRbac: true,
+      currentAccount: cashierAccount,
+      masterConfig: null,
+    }),
+    false
+  );
+  assert.equal(
+    shouldDisplaySidebarMenuItem(posItem, false, () => true, {
+      enforceAccountRbac: true,
+      currentAccount: cashierAccount,
+      masterConfig: null,
+    }),
+    true
+  );
+
+  // 2. SUPER_ADMIN has unrestricted access unless masterConfig disables a module
+  const superAdminAccount = {
+    id: 'u-admin-1',
+    role: 'SUPER_ADMIN' as const,
+    isActive: true,
+    isHiddenMasterAdmin: true,
+  };
+  assert.equal(evaluateUserModuleAccess(superAdminAccount, 'accounting', null), true);
+  assert.equal(evaluateUserModuleAccess(superAdminAccount, 'masterAdmin', null), true);
+  assert.equal(
+    evaluateUserModuleAccess(superAdminAccount, 'inventory', {
+      visibleModules: { inventory: false },
+    }),
+    false
+  );
+});
+
+test('Accounting PDF Service & Document Versioning: generateAccountingPdfDocument, createDocumentVersionSnapshot, compareDocumentVersions, and restoreDocumentVersionPayload', async () => {
+  const {
+    ACCOUNTING_PDF_TEMPLATES,
+    generateAccountingPdfDocument,
+    createDocumentVersionSnapshot,
+    compareDocumentVersions,
+    restoreDocumentVersionPayload,
+  } = await import('./accountingPdfService');
+
+  assert.equal(ACCOUNTING_PDF_TEMPLATES.length, 5);
+
+  const pdfDoc = generateAccountingPdfDocument({
+    documentType: 'SALES_INVOICE',
+    companyInfo: {
+      id: 'comp-1',
+      tenantId: 'ten-1',
+      name: 'Al-Noor Enterprise',
+      nameAr: 'شركة النور للمشاريع المتقدمة',
+      taxNumber: '310123456700003',
+      crNumber: '1010998877',
+      currency: 'SAR',
+      address: 'Riyadh, KSA',
+      phone: '+966500000000',
+      email: 'finance@alnoor.sa',
+    },
+    currency: 'SAR',
+    branding: {
+      templateId: 'ZATCA_TAX_COMPLIANT',
+      primaryColor: '#064e3b',
+      accentColor: '#059669',
+      showLogo: true,
+      headerNote: 'Certified Tax Header',
+      bodyTermsNote: 'Net 30 Days',
+      bankDetailsNote: 'IBAN: SA00000000000001',
+      footerNote: 'Thank you for your business',
+      includeSignatureBlock: true,
+      includeQrCode: true,
+      paperSize: 'A4',
+      language: 'ar',
+    },
+    versionNumber: 1,
+  });
+
+  assert.equal(pdfDoc.templateId, 'ZATCA_TAX_COMPLIANT');
+  assert.ok(pdfDoc.htmlContent.includes('شركة النور للمشاريع المتقدمة'));
+  assert.ok(pdfDoc.htmlContent.includes('310123456700003'));
+  assert.ok(pdfDoc.htmlContent.includes('IBAN: SA00000000000001'));
+  assert.ok(pdfDoc.htmlContent.includes('<svg'));
+
+  // Create v1 and v2 snapshots, compare, and restore v1
+  const v1 = createDocumentVersionSnapshot({
+    documentId: 'INV-2026-500',
+    existingVersions: [],
+    payload: {
+      documentType: 'SALES_INVOICE',
+      referenceId: 'inv-500',
+      referenceNumber: 'INV-2026-500',
+      customerOrTitle: 'شركة المدار الذهبي',
+      date: '2026-11-10',
+      status: 'ISSUED',
+      subtotal: 10000,
+      discountAmount: 0,
+      taxAmount: 1500,
+      grandTotal: 11500,
+      notes: 'Original terms',
+      brandingTemplateId: 'CORPORATE_STANDARD',
+      lineItemsSummary: [
+        { code: 'SOL-585', label: 'Solar Panel 585W', qtyOrDebit: 10, priceOrCredit: 1000, total: 10000 },
+      ],
+    },
+    createdBy: 'CFO',
+    changeReason: 'Initial issue',
+  });
+
+  assert.equal(v1.versionNumber, 1);
+
+  const v2 = createDocumentVersionSnapshot({
+    documentId: 'INV-2026-500',
+    existingVersions: [v1],
+    payload: {
+      ...v1.payload,
+      subtotal: 12000,
+      taxAmount: 1800,
+      grandTotal: 13800,
+      notes: 'Revised quantity +2 units',
+      lineItemsSummary: [
+        { code: 'SOL-585', label: 'Solar Panel 585W', qtyOrDebit: 12, priceOrCredit: 1000, total: 12000 },
+      ],
+    },
+    createdBy: 'Senior Auditor',
+    changeReason: 'Added 2 solar panels',
+  });
+
+  assert.equal(v2.versionNumber, 2);
+
+  const diff = compareDocumentVersions(v1, v2);
+  assert.equal(diff.hasDifferences, true);
+  assert.equal(diff.totalAmountDelta, 2300);
+  assert.equal(diff.lineDiffs[0].status, 'MODIFIED');
+  assert.equal(diff.lineDiffs[0].delta, 2000);
+
+  const restored = restoreDocumentVersionPayload({
+    versionToRestore: v1,
+    existingVersions: [v1, v2],
+    restoredBy: 'Controller',
+  });
+  assert.equal(restored.restoredPayload.grandTotal, 11500);
+  assert.equal(restored.auditVersionSnapshot.versionNumber, 3);
+  assert.ok(restored.auditVersionSnapshot.changeReason.includes('Restored from v1'));
+});
+
+test('Warehouse Advanced Engine: Reorder Alerts, Batch Scan, AR Overlay, Smart Bin Tags, D3 Heatmap, Capacity Planner, Audit, Proximity, Expiry, Asset QR, Rebalance, Maintenance, and Voice Commands', async () => {
+  const {
+    computeInventoryReorderAlertSummary,
+    appendScanToBatchBuffer,
+    buildArWarehouseOverlayData,
+    buildSmartBinTagForProduct,
+    buildBinEfficiencyHeatmapMatrix,
+    calculateBinTheoreticalCapacity,
+    crossReferenceMultiBinScan,
+    evaluateProximityShelfAlerts,
+    evaluateBatchExpiryDashboard,
+    performAssetCheckInOut,
+    generateBranchStockRebalanceSuggestions,
+    evaluateFleetAndMachineryMaintenance,
+    parseErpVoiceCommand,
+  } = await import('./warehouseAdvancedEngine');
+
+  const sampleProducts: any[] = [
+    {
+      id: 'p-1',
+      sku: 'SOL-585W',
+      barcode: '628100001',
+      name: 'Solar Panel 585W',
+      nameAr: 'لوح طاقة شمسية 585 واط',
+      stockQty: 3,
+      reorderPoint: 15,
+      minStock: 10,
+      maxStock: 120,
+      costPrice: 350,
+      salePrice: 480,
+      binLocation: 'Z1-A01-S1',
+      expiryDate: '2026-11-20',
+      batchNumber: 'LOT-2026-11',
+    },
+    {
+      id: 'p-2',
+      sku: 'INV-8KW',
+      barcode: '628100002',
+      name: 'Hybrid Inverter 8kW',
+      nameAr: 'إنفرتر هجين 8 كيلوواط',
+      stockQty: 40,
+      reorderPoint: 8,
+      minStock: 5,
+      maxStock: 80,
+      costPrice: 3200,
+      salePrice: 4500,
+      binLocation: 'Z2-A02-S2',
+    },
+  ];
+
+  // 1. Reorder alert summary
+  const alertSummary = computeInventoryReorderAlertSummary(sampleProducts);
+  assert.equal(alertSummary.totalAlertsCount, 1);
+  assert.equal(alertSummary.items[0].sku, 'SOL-585W');
+  assert.equal(alertSummary.items[0].deficitQty, 12);
+
+  // 2. Batch Scan Buffer sequential scans
+  const scan1 = appendScanToBatchBuffer([], '628100001', sampleProducts, [], 2);
+  assert.equal(scan1.status, 'ADDED');
+  assert.equal(scan1.updatedBuffer.length, 1);
+  assert.equal(scan1.updatedBuffer[0].scannedIntakeQty, 2);
+
+  const scan2 = appendScanToBatchBuffer(scan1.updatedBuffer, 'SOL-585W', sampleProducts, [], 3);
+  assert.equal(scan2.status, 'INCREMENTED');
+  assert.equal(scan2.updatedBuffer[0].scannedIntakeQty, 5);
+  assert.equal(scan2.updatedBuffer[0].scanHits, 2);
+
+  // 3. AR Warehouse Overlay
+  const arNodes = buildArWarehouseOverlayData(sampleProducts, 'Z1');
+  assert.equal(arNodes.length, 1);
+  assert.equal(arNodes[0].binCode, 'Z1-A01-S1');
+  assert.equal(arNodes[0].stockStatus, 'LOW_STOCK');
+  assert.equal(arNodes[0].svgPathWaypoints.length, 3);
+
+  // 4. Smart Bin Tag deep link
+  const smartTag = buildSmartBinTagForProduct(sampleProducts[0], { copiesCount: 4 });
+  assert.ok(smartTag.digitalCardDeepLink.includes('#inventory?item=p-1'));
+  assert.equal(smartTag.copiesCount, 4);
+
+  // 5. D3 Bin Efficiency Heatmap Matrix
+  const heatmap = buildBinEfficiencyHeatmapMatrix(sampleProducts, [
+    {
+      id: 'inv-1',
+      status: 'PAID',
+      items: [{ productId: 'p-2', quantity: 12 }],
+    } as any,
+  ]);
+  assert.equal(heatmap.cells.length, 2);
+  assert.ok(heatmap.zones.includes('Z1'));
+  assert.ok(heatmap.aisles.includes('A01'));
+
+  // 6. Bin Capacity Planner
+  const capSim = calculateBinTheoreticalCapacity(
+    {
+      binCode: 'Z1-A01-S1',
+      shelfWidthCm: 200,
+      shelfDepthCm: 100,
+      shelfHeightCm: 120,
+      maxLoadWeightKg: 500,
+      safetyClearancePct: 5,
+    },
+    {
+      productId: 'p-1',
+      sku: 'SOL-585W',
+      nameAr: 'لوح شمسي',
+      nameEn: 'Solar Panel',
+      unitWidthCm: 40,
+      unitLengthCm: 45,
+      unitHeightCm: 30,
+      unitWeightKg: 10,
+      currentStockQty: 15,
+    }
+  );
+  assert.ok(capSim.theoreticalMaxCapacity > 15);
+  assert.equal(capSim.remainingUnitsCapacity, capSim.theoreticalMaxCapacity - 15);
+
+  // 7. Inventory Audit Assistant cross-reference
+  const auditRes = crossReferenceMultiBinScan(
+    [
+      { binCode: 'Z1-A01-S1', productId: 'p-1', physicalCountedQty: 2 }, // -1 shortage
+      { binCode: 'Z2-A02-S2', productId: 'p-2', physicalCountedQty: 40 }, // matched
+    ],
+    sampleProducts
+  );
+  assert.equal(auditRes.matchedCount, 1);
+  assert.equal(auditRes.discrepancyCount, 1);
+  assert.equal(auditRes.rows[0].status, 'SHORTAGE');
+  assert.equal(auditRes.rows[0].varianceQty, -1);
+
+  // 8. Proximity Shelf Alerts
+  const proxAlerts = evaluateProximityShelfAlerts('Z1-A01-S1', sampleProducts, [
+    {
+      id: 'so-1',
+      stage: 'SALES_ORDER',
+      salesOrderNumber: 'SO-2026-101',
+      items: [{ productId: 'p-1', quantity: 5 }],
+    } as any,
+  ]);
+  assert.equal(proxAlerts.length, 1);
+  assert.equal(proxAlerts[0].triggerType, 'BOTH_CRITICAL_AND_PICK');
+  assert.equal(proxAlerts[0].pendingPickQty, 5);
+
+  // 9. Batch Expiry Tracker
+  const expiryItems = evaluateBatchExpiryDashboard(sampleProducts, [], '2026-11-16');
+  assert.equal(expiryItems.length, 1);
+  assert.equal(expiryItems[0].status, 'CRITICAL_7_DAYS');
+  assert.equal(expiryItems[0].recommendedClearanceDiscountPct, 50);
+
+  // 10. QR Asset Check-In / Check-Out
+  const checkedOut = performAssetCheckInOut(
+    {
+      assetId: 'ast-1',
+      assetTagCode: 'QR-AST-001',
+      nameAr: 'رافعة شوكية كهربائية',
+      nameEn: 'Electric Forklift',
+      category: 'Warehouse Equipment',
+      serialNumber: 'SN-FL-900',
+      locationBin: 'Z1-DOCK',
+      purchaseValue: 85000,
+      status: 'AVAILABLE',
+      currentCustodian: 'Vault',
+      nextMaintenanceDate: '2026-12-15',
+      qrPayloadUrl: '#inventory?asset=ast-1',
+      history: [],
+    },
+    'CHECK_OUT',
+    'Eng. Khalid',
+    'Logistics',
+    'Shift dispatch'
+  );
+  assert.equal(checkedOut.status, 'CHECKED_OUT');
+  assert.equal(checkedOut.currentCustodian, 'Eng. Khalid');
+  assert.equal(checkedOut.history.length, 1);
+
+  // 11. Branch Stock Rebalance Suggestions
+  const rebal = generateBranchStockRebalanceSuggestions(sampleProducts, [], [
+    { branchId: 'b1', branchNameAr: 'فرع الرياض' } as any,
+    { branchId: 'b2', branchNameAr: 'فرع جدة' } as any,
+  ]);
+  assert.ok(rebal.length >= 1);
+  assert.equal(rebal[0].sku, 'INV-8KW');
+  assert.ok(rebal[0].recommendedTransferQty >= 2);
+
+  // 12. Predictive Maintenance
+  const pmAlerts = evaluateFleetAndMachineryMaintenance(
+    [
+      {
+        id: 'fl-1',
+        plateNumber: 'KSA-9012',
+        model: 'Isuzu Refrigerated Truck',
+        mileageKm: 19650,
+        status: 'ACTIVE',
+      } as any,
+    ],
+    []
+  );
+  assert.equal(pmAlerts.length, 1);
+  assert.equal(pmAlerts[0].urgency, 'MAINTENANCE_DUE_NOW');
+  assert.ok(pmAlerts[0].icsCalendarPayload.includes('BEGIN:VCALENDAR'));
+
+  // 13. Voice Command Parser
+  const cmdInvoice = parseErpVoiceCommand('create invoice');
+  assert.equal(cmdInvoice.recognized, true);
+  assert.equal(cmdInvoice.intent, 'CREATE_INVOICE');
+  assert.equal(cmdInvoice.targetTab, 'sales');
+
+  const cmdScan = parseErpVoiceCommand('ابدأ المسح');
+  assert.equal(cmdScan.recognized, true);
+  assert.equal(cmdScan.intent, 'START_SCAN');
+  assert.equal(cmdScan.targetTab, 'barcodeEngine');
+
+  const cmdNav = parseErpVoiceCommand('افتح المخزون');
+  assert.equal(cmdNav.recognized, true);
+  assert.equal(cmdNav.intent, 'NAVIGATE_MODULE');
+  assert.equal(cmdNav.targetTab, 'inventory');
+});
+
+test('HR Geolocation Attendance Tracker & Visual Conditional Workflow Builder Engine: Haversine geofence distance, clock-in/out logs, supervisor KPIs, drag-and-drop reordering, and conditional execution trace', async () => {
+  const {
+    DEFAULT_GEOFENCE_HUBS,
+    calculateHaversineDistanceMeters,
+    recordGeolocationAttendanceEvent,
+    summarizeSupervisorDailyAttendance,
+    INITIAL_CUSTOM_WORKFLOW_BLUEPRINTS,
+    reorderWorkflowStepsDragDrop,
+    simulateWorkflowExecutionTrace,
+  } = await import('./hrAttendanceAndWorkflowEngine');
+
+  // 1. Haversine distance calculation
+  const riyadhHub = DEFAULT_GEOFENCE_HUBS[0];
+  const zeroDist = calculateHaversineDistanceMeters(
+    riyadhHub.latitude,
+    riyadhHub.longitude,
+    riyadhHub.latitude,
+    riyadhHub.longitude
+  );
+  assert.equal(zeroDist, 0);
+
+  const nearbyDist = calculateHaversineDistanceMeters(
+    riyadhHub.latitude,
+    riyadhHub.longitude,
+    riyadhHub.latitude + 0.0005,
+    riyadhHub.longitude + 0.0005
+  );
+  assert.ok(nearbyDist > 0 && nearbyDist < riyadhHub.allowedRadiusMeters);
+
+  // 2. Geolocation Clock-In and Clock-Out
+  const clockInResult = recordGeolocationAttendanceEvent({
+    existingRecords: [],
+    employee: {
+      id: 'emp-101',
+      employeeCode: 'EMP-101',
+      fullName: 'Eng. Khalid Al-Harbi',
+      fullNameAr: 'م. خالد الحربي',
+      department: 'Solar Engineering',
+    },
+    action: 'CLOCK_IN',
+    latitude: riyadhHub.latitude + 0.0002,
+    longitude: riyadhHub.longitude + 0.0002,
+    accuracyMeters: 8,
+    hub: riyadhHub,
+    timeHhMm: '08:00',
+    dateIso: '2026-11-17',
+  });
+  assert.equal(clockInResult.updatedRecords.length, 1);
+  assert.equal(clockInResult.activeRecord.geofenceStatus, 'WITHIN_GEOFENCE');
+  assert.equal(clockInResult.activeRecord.status, 'CLOCKED_IN');
+
+  const clockOutResult = recordGeolocationAttendanceEvent({
+    existingRecords: clockInResult.updatedRecords,
+    employee: {
+      id: 'emp-101',
+      employeeCode: 'EMP-101',
+      fullName: 'Eng. Khalid Al-Harbi',
+      fullNameAr: 'م. خالد الحربي',
+      department: 'Solar Engineering',
+    },
+    action: 'CLOCK_OUT',
+    latitude: riyadhHub.latitude + 0.0002,
+    longitude: riyadhHub.longitude + 0.0002,
+    accuracyMeters: 9,
+    hub: riyadhHub,
+    timeHhMm: '16:30',
+    dateIso: '2026-11-17',
+  });
+  assert.equal(clockOutResult.activeRecord.status, 'CLOCKED_OUT');
+  assert.equal(clockOutResult.activeRecord.workedHours, 8.5);
+
+  // 3. Supervisor Daily Attendance Summary
+  const summary = summarizeSupervisorDailyAttendance(clockOutResult.updatedRecords, 4);
+  assert.equal(summary.presentCount, 1);
+  assert.equal(summary.absentCount, 3);
+  assert.equal(summary.withinGeofenceCount, 1);
+  assert.equal(summary.attendanceRatePct, 25);
+  assert.equal(summary.avgWorkedHours, 8.5);
+
+  // 4. Drag-and-Drop Reordering of Workflow Steps
+  const bp = INITIAL_CUSTOM_WORKFLOW_BLUEPRINTS[0];
+  const reordered = reorderWorkflowStepsDragDrop(bp.steps, 0, 2);
+  assert.equal(reordered.length, bp.steps.length);
+  assert.equal(reordered[2].id, bp.steps[0].id);
+  assert.deepEqual(
+    reordered.map((s) => s.stepOrder),
+    [1, 2, 3, 4]
+  );
+
+  // 5. Conditional Workflow Execution Trace
+  const highValueTrace = simulateWorkflowExecutionTrace(bp, {
+    amount: 140000,
+    discountPct: 5,
+    urgency: 'HIGH',
+    department: 'OPERATIONS',
+  });
+  assert.equal(highValueTrace.traceSteps.length, 4);
+  assert.equal(highValueTrace.finalDecisionStatus, 'REQUIRES_APPROVAL_CHAIN');
+  assert.equal(highValueTrace.activeApproversChain.length, 3);
+  assert.ok(highValueTrace.totalExpectedSlaHours > 0);
+
+  const lowValueTrace = simulateWorkflowExecutionTrace(bp, {
+    amount: 5000,
+    discountPct: 0,
+    urgency: 'NORMAL',
+    department: 'FINANCE',
+  });
+  assert.equal(lowValueTrace.traceSteps[1].conditionMatched, false);
+  assert.equal(lowValueTrace.traceSteps[1].executionOutcome, 'SKIPPED_BY_CONDITION');
+});
+
+test('POS & Sales Cart Stock Cap Constraint: prevents exceeding available inventory stock (e.g. stock = 5), caps partial additions to remaining stock, and emits localized warning messages', async () => {
+  const { evaluatePosCartStockConstraint } = await import('./inventoryEngine');
+
+  // 1. Adding within stock (stock = 5, current = 4, requested = 5) -> OK
+  const okCheck = evaluatePosCartStockConstraint({
+    productNameAr: 'إنفرتر هجين Deye 8kW',
+    availableBaseStock: 5,
+    currentCartQtyInUnit: 4,
+    requestedTotalQtyInUnit: 5,
+    conversionFactor: 1,
+    unitNameAr: 'قطعة',
+  });
+  assert.equal(okCheck.wasCapped, false);
+  assert.equal(okCheck.status, 'OK');
+  assert.equal(okCheck.allowedQtyInUnit, 5);
+  assert.equal(okCheck.addedDeltaInUnit, 1);
+
+  // 2. Attempting to add 6th unit when stock = 5 and cart already has 5 -> ALREADY_AT_MAX_STOCK, capped at 5
+  const alreadyMaxCheck = evaluatePosCartStockConstraint({
+    productNameAr: 'إنفرتر هجين Deye 8kW',
+    availableBaseStock: 5,
+    currentCartQtyInUnit: 5,
+    requestedTotalQtyInUnit: 6,
+    conversionFactor: 1,
+    unitNameAr: 'قطعة',
+  });
+  assert.equal(alreadyMaxCheck.wasCapped, true);
+  assert.equal(alreadyMaxCheck.status, 'ALREADY_AT_MAX_STOCK');
+  assert.equal(alreadyMaxCheck.allowedQtyInUnit, 5);
+  assert.equal(alreadyMaxCheck.addedDeltaInUnit, 0);
+  assert.ok(alreadyMaxCheck.messageAr.includes('5'));
+
+  // 3. Attempting to add +5 when cart has 2 and stock = 5 (requested = 7) -> CAPPED_AT_MAX_STOCK, capped at 5 (delta = 3)
+  const cappedBatchCheck = evaluatePosCartStockConstraint({
+    productNameAr: 'إنفرتر هجين Deye 8kW',
+    availableBaseStock: 5,
+    currentCartQtyInUnit: 2,
+    requestedTotalQtyInUnit: 7,
+    conversionFactor: 1,
+    unitNameAr: 'قطعة',
+  });
+  assert.equal(cappedBatchCheck.wasCapped, true);
+  assert.equal(cappedBatchCheck.status, 'CAPPED_AT_MAX_STOCK');
+  assert.equal(cappedBatchCheck.allowedQtyInUnit, 5);
+  assert.equal(cappedBatchCheck.addedDeltaInUnit, 3);
+  assert.ok(cappedBatchCheck.messageAr.includes('5'));
+
+  // 4. Out of stock (stock = 0) -> OUT_OF_STOCK, allowedQtyInUnit = 0
+  const zeroStockCheck = evaluatePosCartStockConstraint({
+    productNameAr: 'بطارية ليثيوم 48V',
+    availableBaseStock: 0,
+    currentCartQtyInUnit: 0,
+    requestedTotalQtyInUnit: 1,
+    conversionFactor: 1,
+    unitNameAr: 'قطعة',
+  });
+  assert.equal(zeroStockCheck.wasCapped, true);
+  assert.equal(zeroStockCheck.status, 'OUT_OF_STOCK');
+  assert.equal(zeroStockCheck.allowedQtyInUnit, 0);
+
+  // 5. Multi-unit pack (conversionFactor = 6) when base stock = 5 -> OUT_OF_STOCK (insufficient for pack)
+  const packTooLargeCheck = evaluatePosCartStockConstraint({
+    productNameAr: 'لوح طاقة شمسية 585W',
+    availableBaseStock: 5,
+    currentCartQtyInUnit: 0,
+    requestedTotalQtyInUnit: 1,
+    conversionFactor: 6,
+    unitNameAr: 'طرد',
+  });
+  assert.equal(packTooLargeCheck.wasCapped, true);
+  assert.equal(packTooLargeCheck.status, 'OUT_OF_STOCK');
+  assert.equal(packTooLargeCheck.allowedQtyInUnit, 0);
+});
+
+test('POS Search Dropdown Safety Threshold Warning & Strict Stock Validation Service: flags items nearing/below reorderPoint with amber warning icon and disables add-to-cart with high-visibility shortage toast when requested qty exceeds available stock', async () => {
+  const {
+    evaluatePosItemSafetyThresholdWarning,
+    validateStrictPosStockBeforeAdd,
+  } = await import('./posStrictStockValidationService');
+
+  const sampleProd = {
+    id: 'prod-inv-5k',
+    sku: 'INV-5K',
+    name: 'Hybrid Inverter 5kW',
+    nameAr: 'محول هجين 5 كيلو واط',
+    stockQty: 8,
+    reorderPoint: 6,
+  };
+
+  // 1. Item with stockQty=8 and reorderPoint=6 is nearing its safety threshold (nearThresholdCeiling = 9)
+  const nearSafety = evaluatePosItemSafetyThresholdWarning(sampleProd, 0);
+  assert.equal(nearSafety.showAmberWarningIcon, true);
+  assert.equal(nearSafety.warningLevel, 'NEARING_SAFETY_THRESHOLD');
+  assert.equal(nearSafety.remainingAvailableStock, 8);
+
+  // 2. When 3 units are in cart, remainingAvailableStock = 5 <= reorderPoint(6) -> BELOW_SAFETY_THRESHOLD
+  const belowSafety = evaluatePosItemSafetyThresholdWarning(sampleProd, 3);
+  assert.equal(belowSafety.showAmberWarningIcon, true);
+  assert.equal(belowSafety.warningLevel, 'BELOW_SAFETY_THRESHOLD');
+  assert.equal(belowSafety.remainingAvailableStock, 5);
+
+  // 3. Strict Stock Validation when requestedAddQty (6) > remainingAvailableStock (5) -> blocked, isAddActionDisabled=true, shortageQty=1
+  const blockedValidation = validateStrictPosStockBeforeAdd({
+    product: sampleProd,
+    inCartBaseQty: 3,
+    requestedAddQty: 6,
+    conversionFactor: 1,
+    unitNameAr: 'حبة',
+  });
+  assert.equal(blockedValidation.allowed, false);
+  assert.equal(blockedValidation.isAddActionDisabled, true);
+  assert.equal(blockedValidation.shortageQty, 1);
+  assert.equal(blockedValidation.severity, 'critical');
+  assert.ok(blockedValidation.toastMessageAr.includes('5'));
+
+  // 4. Strict Stock Validation when requestedAddQty (2) <= remainingAvailableStock (5) -> allowed=true
+  const allowedValidation = validateStrictPosStockBeforeAdd({
+    product: sampleProd,
+    inCartBaseQty: 3,
+    requestedAddQty: 2,
+    conversionFactor: 1,
+    unitNameAr: 'حبة',
+  });
+  assert.equal(allowedValidation.allowed, true);
+  assert.equal(allowedValidation.shortageQty, 0);
+});
+
+test('POS AI Demand Forecasting, Bulk Stock Adjustment & Theme-Aware Invoice Palette: predicts depletion with Likely to Run Out badge + alternative items, applies bulk physical count adjustments, and resolves theme-adaptive invoice palettes without black headers', async () => {
+  const {
+    evaluatePosItemDemandForecast,
+    applyPosBulkStockAdjustments,
+    resolveThemeAwareInvoicePalette,
+  } = await import('./posStrictStockValidationService');
+
+  const catalog: any[] = [
+    {
+      id: 'p-low',
+      sku: 'INV-5K',
+      name: 'Hybrid Inverter 5kW',
+      nameAr: 'محول هجين 5 كيلو واط',
+      categoryId: 'cat-inverters',
+      subCategory: 'HYBRID_INVERTERS',
+      stockQty: 5,
+      reorderPoint: 5,
+      salePrice: 2800,
+      uom: 'حبة',
+    },
+    {
+      id: 'p-healthy-alt',
+      sku: 'INV-8K',
+      name: 'Hybrid Inverter 8kW Pro',
+      nameAr: 'محول هجين 8 كيلو واط برو',
+      categoryId: 'cat-inverters',
+      subCategory: 'HYBRID_INVERTERS',
+      stockQty: 25,
+      reorderPoint: 4,
+      salePrice: 3400,
+      uom: 'حبة',
+    },
+  ];
+
+  // 1. AI Demand Forecast flags p-low as Likely to Run Out and suggests p-healthy-alt
+  const forecast = evaluatePosItemDemandForecast({
+    product: catalog[0],
+    allProducts: catalog,
+    inCartBaseQty: 1,
+  });
+  assert.equal(forecast.isLikelyToRunOut, true);
+  assert.ok(forecast.badgeLabelAr.includes('على وشك النفاد'));
+  assert.ok(forecast.badgeLabelEn.includes('Likely to Run Out'));
+  assert.equal(forecast.suggestedAlternatives.length, 1);
+  assert.equal(forecast.suggestedAlternatives[0].sku, 'INV-8K');
+
+  // 2. POS Bulk Stock Adjustment modifies multiple items simultaneously and calculates variances
+  const bulkResult = applyPosBulkStockAdjustments({
+    products: catalog,
+    adjustments: [
+      { productId: 'p-low', newPhysicalQty: 14 }, // +9 surplus
+      { productId: 'p-healthy-alt', newPhysicalQty: 22 }, // -3 shortage
+    ],
+    reasonAr: 'جرد فعلي سريع من الكاشير',
+  });
+  assert.equal(bulkResult.updatedCount, 2);
+  assert.equal(bulkResult.totalPositiveVariance, 9);
+  assert.equal(bulkResult.totalNegativeVariance, 3);
+  assert.equal(bulkResult.netVariance, 6);
+  assert.equal(bulkResult.updatedProducts[0].stockQty, 14);
+  assert.equal(bulkResult.updatedProducts[1].stockQty, 22);
+
+  // 3. Theme-Aware Invoice Palette avoids #0f172a black table headers and adapts to workspace themes
+  const slatePalette = resolveThemeAwareInvoicePalette({
+    uiTheme: 'corporate_slate',
+    rawPrimaryHex: '#0f172a',
+    rawSecondaryHex: '#2563eb',
+    templateId: 'a4_onyx_yemen',
+  });
+  assert.notEqual(slatePalette.tableHeaderBg, '#0f172a');
+  assert.equal(slatePalette.tableHeaderBg, '#dbeafe');
+
+  const sandPalette = resolveThemeAwareInvoicePalette({
+    uiTheme: 'haseb_sand',
+    rawPrimaryHex: '#0f172a',
+    templateId: 'a4_onyx_yemen',
+  });
+  assert.equal(sandPalette.tableHeaderBg, '#fef3c7');
+  assert.equal(sandPalette.primaryAccent, '#92400e');
+});
+
+test('Executive Grid A4 Invoice Template & Customer Digital Signature Metadata: attaches base64 signature to sales invoice and supports grid template type', async () => {
+  const sampleInvoiceWithSignature = {
+    id: 'inv-sig-1',
+    tenantId: 'tenant-1',
+    invoiceNumber: 'INV-2026-9901',
+    customerId: 'cust-1',
+    customerName: 'شركة النخبة للطاقة',
+    branchId: 'br-1',
+    date: '2026-11-17',
+    items: [],
+    subtotal: 1000,
+    discountAmount: 0,
+    taxAmount: 150,
+    grandTotal: 1150,
+    paidAmount: 1150,
+    paymentMethod: 'CASH' as const,
+    status: 'PAID' as const,
+    customerSignatureBase64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  };
+
+  assert.equal(sampleInvoiceWithSignature.customerSignatureBase64?.startsWith('data:image/png;base64,'), true);
+});
+
+test('Communications Sidebar Visibility: communications module remains enabled in DEFAULT_MASTER_SYSTEM_CONFIG and visible in Sidebar even when Sector Mode is active', async () => {
+  const {
+    DEFAULT_MASTER_SYSTEM_CONFIG,
+    applySectorModePreset,
+    isModuleVisibleUnderMasterConfig,
+  } = await import('./systemConfigEngine');
+  const { shouldDisplaySidebarMenuItem } = await import('../components/layout/Sidebar');
+
+  assert.equal(DEFAULT_MASTER_SYSTEM_CONFIG.visibleModules.communications, true);
+  assert.equal(isModuleVisibleUnderMasterConfig('communications', DEFAULT_MASTER_SYSTEM_CONFIG), true);
+
+  const sectorOn = applySectorModePreset(DEFAULT_MASTER_SYSTEM_CONFIG, true);
+  assert.equal(sectorOn.visibleModules.communications, true);
+  assert.equal(isModuleVisibleUnderMasterConfig('communications', sectorOn), true);
+
+  const visible = shouldDisplaySidebarMenuItem(
+    { id: 'communications', label: 'خدمات التواصل' },
+    true,
+    (id) => isModuleVisibleUnderMasterConfig(id, sectorOn),
+    { enforceAccountRbac: true, masterConfig: sectorOn }
+  );
+  assert.equal(visible, true);
+});
+
+test('Invoice Template Layout Engine: supports built-in A4/Thermal library, drag-and-drop zone reordering, colSpan/visibility edits, and CRUD persistence', async () => {
+  const {
+    BUILTIN_CUSTOM_INVOICE_LAYOUT_LIBRARY,
+    DEFAULT_INVOICE_ZONES,
+    reorderCustomInvoiceZones,
+    moveInvoiceZoneByDirection,
+    toggleInvoiceZoneVisibility,
+    updateInvoiceZoneSpan,
+    duplicateCustomInvoiceTemplate,
+    createBlankCustomInvoiceTemplate,
+    upsertCustomInvoiceLayout,
+    deleteCustomInvoiceLayout,
+  } = await import('./invoiceTemplateLayoutEngine');
+
+  // Library must include both A4 and Thermal (80mm / 58mm) presets
+  assert.ok(BUILTIN_CUSTOM_INVOICE_LAYOUT_LIBRARY.some((t) => t.format === 'a4'));
+  assert.ok(BUILTIN_CUSTOM_INVOICE_LAYOUT_LIBRARY.some((t) => t.format === 'thermal_80mm'));
+  assert.ok(BUILTIN_CUSTOM_INVOICE_LAYOUT_LIBRARY.some((t) => t.format === 'thermal_58mm'));
+
+  // Drag-and-drop reorder moves zone cleanly and normalizes sequential order indices
+  const reordered = reorderCustomInvoiceZones(DEFAULT_INVOICE_ZONES, 0, 2);
+  assert.equal(reordered[2].id, 'HEADER_BRAND');
+  assert.deepEqual(
+    reordered.map((z) => z.order),
+    reordered.map((_, idx) => idx)
+  );
+
+  // Move by direction
+  const movedUp = moveInvoiceZoneByDirection(DEFAULT_INVOICE_ZONES, 'LINE_ITEMS_TABLE', 'UP');
+  assert.equal(movedUp[1].id, 'LINE_ITEMS_TABLE');
+
+  // Toggle visibility & update 12-col span
+  const toggled = toggleInvoiceZoneVisibility(DEFAULT_INVOICE_ZONES, 'WARRANTY_NOTES');
+  assert.equal(toggled.find((z) => z.id === 'WARRANTY_NOTES')?.visible, false);
+
+  const spanned = updateInvoiceZoneSpan(DEFAULT_INVOICE_ZONES, 'FINANCIAL_SUMMARY', 6);
+  assert.equal(spanned.find((z) => z.id === 'FINANCIAL_SUMMARY')?.colSpan, 6);
+
+  // Duplicate, create blank, upsert, and delete custom templates (while protecting builtins)
+  const blankThermal = createBlankCustomInvoiceTemplate('thermal_80mm');
+  assert.equal(blankThermal.format, 'thermal_80mm');
+  assert.equal(blankThermal.isBuiltin, false);
+
+  const dup = duplicateCustomInvoiceTemplate(BUILTIN_CUSTOM_INVOICE_LAYOUT_LIBRARY[0], 'قالب شركتي المخصص');
+  assert.equal(dup.nameAr, 'قالب شركتي المخصص');
+  assert.equal(dup.isBuiltin, false);
+
+  const savedList = upsertCustomInvoiceLayout([], dup);
+  assert.equal(savedList.length, 1);
+
+  const updatedList = upsertCustomInvoiceLayout(savedList, { ...dup, accentHex: '#047857' });
+  assert.equal(updatedList.length, 1);
+  assert.equal(updatedList[0].accentHex, '#047857');
+
+  const afterDelete = deleteCustomInvoiceLayout(updatedList, dup.id);
+  assert.equal(afterDelete.length, 0);
+});
+
+test('Theme Contrast & AI Palette Engine: computes WCAG 2.1 contrast ratios and generates Light/Dark/Warm harmonic palette variants', async () => {
+  const {
+    computeContrastRatio,
+    evaluateWcagContrast,
+    suggestAccessibleTextHex,
+    generateCohesivePaletteVariants,
+  } = await import('./themeContrastEngine');
+
+  assert.equal(computeContrastRatio('#000000', '#ffffff'), 21);
+  const aaEval = evaluateWcagContrast('#0f172a', '#ffffff');
+  assert.equal(aaEval.passesAA, true);
+  assert.equal(aaEval.rating, 'AAA');
+
+  const lowEval = evaluateWcagContrast('#94a3b8', '#ffffff');
+  assert.equal(lowEval.passesAA, false);
+
+  assert.equal(suggestAccessibleTextHex('#0f172a'), '#ffffff');
+  assert.equal(suggestAccessibleTextHex('#ffffff'), '#0f172a');
+
+  const darkVariants = generateCohesivePaletteVariants('#1e3a8a', 'شركة الطاقة', 'dark');
+  assert.equal(darkVariants.length, 3);
+  assert.equal(darkVariants[0].polarity, 'dark');
+
+  const warmVariants = generateCohesivePaletteVariants('#9a3412', 'شركة الطاقة', 'warm');
+  assert.equal(warmVariants.length, 3);
+  assert.equal(warmVariants[0].polarity, 'warm');
+});

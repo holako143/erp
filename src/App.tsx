@@ -3,7 +3,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { Profiler, Suspense, lazy, useCallback, useEffect, useMemo } from 'react';
+import React, {
+  Profiler,
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { ERPProvider, useERP } from './context/ERPContext';
 import { Navbar } from './components/layout/Navbar';
 import { Sidebar } from './components/layout/Sidebar';
@@ -32,49 +41,68 @@ import { useAlertSound } from './hooks/useAlertSound';
 import { POSView } from './views/POSView';
 import { performanceTelemetryStore } from './core/performanceMonitorEngine';
 
+// Shared chunk loaders (used by both React.lazy and idle background preloading)
+const loadDashboardView = () =>
+  import('./views/DashboardView').then((m) => ({ default: m.DashboardView }));
+const loadBarcodeEngineView = () =>
+  import('./views/BarcodeEngineView').then((m) => ({ default: m.BarcodeEngineView }));
+const loadInventoryView = () => import('./views/InventoryView');
+const loadPurchasingView = () =>
+  import('./views/PurchasingView').then((m) => ({ default: m.PurchasingView }));
+const loadSalesView = () =>
+  import('./views/SalesView').then((m) => ({ default: m.SalesView }));
+const loadAccountingView = () =>
+  import('./views/AccountingView').then((m) => ({ default: m.AccountingView }));
+const loadBusinessModulesView = () =>
+  import('./views/BusinessModulesView').then((m) => ({ default: m.BusinessModulesView }));
+const loadReportsAnalyticsAndAIView = () =>
+  import('./views/ReportsAnalyticsAndAIView').then((m) => ({
+    default: m.ReportsAnalyticsAndAIView,
+  }));
+const loadSaaSAdminView = () =>
+  import('./views/SaaSAdminView').then((m) => ({ default: m.SaaSAdminView }));
+const loadSettingsView = () =>
+  import('./views/SettingsView').then((m) => ({ default: m.SettingsView }));
+const loadSecurityCenterView = () =>
+  import('./views/SecurityCenterView').then((m) => ({ default: m.SecurityCenterView }));
+const loadMasterAdminControlView = () =>
+  import('./views/MasterAdminControlView').then((m) => ({ default: m.MasterAdminControlView }));
+const loadStandaloneActivationPortal = () =>
+  import('./views/StandaloneActivationPortal').then((m) => ({
+    default: m.StandaloneActivationPortal,
+  }));
+const loadCommunicationsView = () =>
+  import('./views/CommunicationsView').then((m) => ({ default: m.CommunicationsView }));
+
 // Lazy-loaded Views (Code-Split Chunks)
-const DashboardView = lazy(() =>
-  import('./views/DashboardView').then((m) => ({ default: m.DashboardView }))
-);
-const BarcodeEngineView = lazy(() =>
-  import('./views/BarcodeEngineView').then((m) => ({ default: m.BarcodeEngineView }))
-);
-const InventoryView = lazy(() =>
-  import('./views/InventoryView')
-);
-const PurchasingView = lazy(() =>
-  import('./views/PurchasingView').then((m) => ({ default: m.PurchasingView }))
-);
-const SalesView = lazy(() =>
-  import('./views/SalesView').then((m) => ({ default: m.SalesView }))
-);
-const AccountingView = lazy(() =>
-  import('./views/AccountingView').then((m) => ({ default: m.AccountingView }))
-);
-const BusinessModulesView = lazy(() =>
-  import('./views/BusinessModulesView').then((m) => ({ default: m.BusinessModulesView }))
-);
-const ReportsAnalyticsAndAIView = lazy(() =>
-  import('./views/ReportsAnalyticsAndAIView').then((m) => ({ default: m.ReportsAnalyticsAndAIView }))
-);
-const SaaSAdminView = lazy(() =>
-  import('./views/SaaSAdminView').then((m) => ({ default: m.SaaSAdminView }))
-);
-const SettingsView = lazy(() =>
-  import('./views/SettingsView').then((m) => ({ default: m.SettingsView }))
-);
-const SecurityCenterView = lazy(() =>
-  import('./views/SecurityCenterView').then((m) => ({ default: m.SecurityCenterView }))
-);
-const MasterAdminControlView = lazy(() =>
-  import('./views/MasterAdminControlView').then((m) => ({ default: m.MasterAdminControlView }))
-);
-const StandaloneActivationPortal = lazy(() =>
-  import('./views/StandaloneActivationPortal').then((m) => ({ default: m.StandaloneActivationPortal }))
-);
-const CommunicationsView = lazy(() =>
-  import('./views/CommunicationsView').then((m) => ({ default: m.CommunicationsView }))
-);
+const DashboardView = lazy(loadDashboardView);
+const BarcodeEngineView = lazy(loadBarcodeEngineView);
+const InventoryView = lazy(loadInventoryView);
+const PurchasingView = lazy(loadPurchasingView);
+const SalesView = lazy(loadSalesView);
+const AccountingView = lazy(loadAccountingView);
+const BusinessModulesView = lazy(loadBusinessModulesView);
+const ReportsAnalyticsAndAIView = lazy(loadReportsAnalyticsAndAIView);
+const SaaSAdminView = lazy(loadSaaSAdminView);
+const SettingsView = lazy(loadSettingsView);
+const SecurityCenterView = lazy(loadSecurityCenterView);
+const MasterAdminControlView = lazy(loadMasterAdminControlView);
+const StandaloneActivationPortal = lazy(loadStandaloneActivationPortal);
+const CommunicationsView = lazy(loadCommunicationsView);
+
+const PERSISTENT_CACHED_TABS = new Set([
+  'pos',
+  'dashboard',
+  'barcodeEngine',
+  'inventory',
+  'purchasing',
+  'sales',
+  'accounting',
+  'reportsAndAI',
+  'businessModules',
+  'communications',
+  'settings',
+]);
 
 // Lazy-loaded Global Modals
 const CommandPalette = lazy(() =>
@@ -142,6 +170,7 @@ const MainLayout: React.FC = () => {
   const {
     activeTab,
     setActiveTab,
+    setRequestedSettingsTab,
     isAuthenticated,
     isTerminalLocked,
     lockTerminal,
@@ -207,13 +236,93 @@ const MainLayout: React.FC = () => {
     [whatsappAccounts]
   );
 
+  const resolvedEffectiveTab = useMemo(() => {
+    if (activeTab === 'masterAdmin') return 'masterAdmin';
+    if (
+      activeTab === 'settings' ||
+      activeTab === 'security' ||
+      activeTab === 'communications' ||
+      activeTab === 'sales' ||
+      activeTab === 'reportsAndAI' ||
+      activeTab === 'businessModules' ||
+      activeTab === 'barcodeEngine' ||
+      activeTab === 'purchasing' ||
+      activeTab === 'dashboard'
+    ) {
+      return activeTab;
+    }
+    if (activeTab === 'aiInsights') {
+      return hasModuleAccess('aiInsights') ? 'reportsAndAI' : 'pos';
+    }
+    if (!hasModuleAccess(activeTab)) return 'pos';
+    return activeTab;
+  }, [activeTab, hasModuleAccess]);
+
+  const effectiveTabRef = useRef<string>(resolvedEffectiveTab);
+  effectiveTabRef.current = resolvedEffectiveTab;
+
+  // Keep-Alive Visited Tabs Cache: visited primary tabs remain mounted (display: none when inactive)
+  // so revisiting POS / Inventory / Sales / Accounting / Communications / Settings is < 2ms instant!
+  const [visitedTabs, setVisitedTabs] = useState<string[]>(['pos']);
+
+  useEffect(() => {
+    if (!isAuthenticated || isTerminalLocked) {
+      setVisitedTabs(['pos']);
+      return;
+    }
+    if (PERSISTENT_CACHED_TABS.has(resolvedEffectiveTab)) {
+      setVisitedTabs((prev) =>
+        prev.includes(resolvedEffectiveTab) ? prev : [...prev, resolvedEffectiveTab]
+      );
+    }
+  }, [isAuthenticated, isTerminalLocked, resolvedEffectiveTab]);
+
+  // Idle background view chunk preloading right after authentication so first-time tab clicks have zero network delay
+  useEffect(() => {
+    if (!isAuthenticated || isTerminalLocked) return;
+    let cancelled = false;
+    const loaders = [
+      loadInventoryView,
+      loadSalesView,
+      loadAccountingView,
+      loadCommunicationsView,
+      loadDashboardView,
+      loadPurchasingView,
+      loadSettingsView,
+      loadReportsAnalyticsAndAIView,
+      loadBarcodeEngineView,
+      loadBusinessModulesView,
+    ];
+    const preloadSeq = async () => {
+      for (const loadFn of loaders) {
+        if (cancelled) break;
+        await loadFn().catch(() => null);
+        await new Promise((r) => setTimeout(r, 80));
+      }
+    };
+    const timer = window.setTimeout(() => {
+      if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+        (window as any).requestIdleCallback(() => void preloadSeq(), { timeout: 1500 });
+      } else {
+        void preloadSeq();
+      }
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isAuthenticated, isTerminalLocked]);
+
   const handleViewRenderProfile = useCallback(
     (
       id: string,
       phase: 'mount' | 'update' | 'nested-update',
       actualDuration: number
     ) => {
-      performanceTelemetryStore.recordSample(id, actualDuration, phase);
+      if (id === effectiveTabRef.current || phase === 'mount') {
+        performanceTelemetryStore.recordSample(id, actualDuration, phase);
+      }
     },
     []
   );
@@ -444,34 +553,10 @@ const MainLayout: React.FC = () => {
     };
   }, [isAuthenticated, isTerminalLocked, idleTimeoutMinutes, lockTerminal]);
 
-  const renderActiveView = useCallback(() => {
-    if (activeTab === 'masterAdmin' && hasModuleAccess('masterAdmin')) {
-      return <MasterAdminControlView />;
-    }
-
-    // Always allow Settings, Security, Communications, and Sales when opened from topbar/footer or POS/Inventory action buttons
-    if (activeTab === 'settings') {
-      return <SettingsView />;
-    }
-    if (activeTab === 'security') {
-      return <SecurityCenterView />;
-    }
-    if (activeTab === 'communications') {
-      return <CommunicationsView />;
-    }
-    if (activeTab === 'sales') {
-      return <SalesView />;
-    }
-    if (activeTab === 'reportsAndAI') {
-      return <ReportsAnalyticsAndAIView />;
-    }
-
-    // Enforce RBAC & Master Admin module visibility
-    if (!hasModuleAccess(activeTab)) {
-      return <POSView />;
-    }
-
-    switch (activeTab) {
+  const renderTabElement = useCallback((tabId: string) => {
+    switch (tabId) {
+      case 'masterAdmin':
+        return <MasterAdminControlView />;
       case 'dashboard':
         return <DashboardView />;
       case 'barcodeEngine':
@@ -487,11 +572,10 @@ const MainLayout: React.FC = () => {
       case 'accounting':
         return <AccountingView />;
       case 'reportsAndAI':
+      case 'aiInsights':
         return <ReportsAnalyticsAndAIView />;
       case 'businessModules':
         return <BusinessModulesView />;
-      case 'aiInsights':
-        return <ReportsAnalyticsAndAIView />;
       case 'saasPlatform':
         return <SaaSAdminView />;
       case 'security':
@@ -503,7 +587,7 @@ const MainLayout: React.FC = () => {
       default:
         return <POSView />;
     }
-  }, [activeTab, hasModuleAccess]);
+  }, []);
 
   const handleOpenFooterCustomerPicker = useCallback(() => {
     setActiveTab('pos');
@@ -548,7 +632,10 @@ const MainLayout: React.FC = () => {
           } else if (mapAction === 'PURCHASING') setActiveTab('purchasing');
           else if (mapAction === 'COMMUNICATIONS') setActiveTab('communications');
           else if (mapAction === 'SETTINGS') setActiveTab('settings');
-          else if (mapAction === 'DEBTS' || mapAction === 'BACKUP') setActiveTab('accounting');
+          else if (mapAction === 'BACKUP') {
+            setRequestedSettingsTab('backup');
+            setActiveTab('settings');
+          } else if (mapAction === 'DEBTS') setActiveTab('accounting');
           else if (mapAction === 'MAINTENANCE') setActiveTab('businessModules');
         }}
       />
@@ -616,20 +703,50 @@ const MainLayout: React.FC = () => {
           {/* Main Workspace with Sidebar & Dynamic View */}
           <div className="flex-1 min-h-0 flex w-full overflow-hidden">
             {isAuthenticated && <Sidebar />}
-            <main
-              className={`flex-1 min-w-0 min-h-0 w-full max-w-full ${
-                activeTab === 'pos'
-                  ? 'overflow-hidden flex flex-col pb-0'
-                  : uiDensity === 'compact'
-                  ? 'overflow-y-auto overflow-x-hidden p-2.5 sm:p-4 pb-20 lg:pb-4'
-                  : 'overflow-y-auto overflow-x-hidden p-3 sm:p-5 pb-20 lg:pb-5'
-              }`}
-            >
-              <Profiler id={activeTab} onRender={handleViewRenderProfile}>
-                <Suspense fallback={<ViewLoadingFallback language={language} uiTheme={uiTheme} />}>
-                  {renderActiveView()}
-                </Suspense>
-              </Profiler>
+            <main className="flex-1 min-w-0 min-h-0 w-full max-w-full overflow-hidden flex flex-col">
+              {visitedTabs.map((tabId) => {
+                const isActive = resolvedEffectiveTab === tabId;
+                return (
+                  <div
+                    key={tabId}
+                    data-testid={`tab-panel-${tabId}`}
+                    aria-hidden={!isActive}
+                    className={
+                      isActive
+                        ? tabId === 'pos'
+                          ? 'h-full w-full flex flex-col overflow-hidden'
+                          : uiDensity === 'compact'
+                          ? 'h-full w-full overflow-y-auto overflow-x-hidden p-2.5 sm:p-4 pb-20 lg:pb-4'
+                          : 'h-full w-full overflow-y-auto overflow-x-hidden p-3 sm:p-5 pb-20 lg:pb-5'
+                        : 'hidden'
+                    }
+                  >
+                    <Profiler id={tabId} onRender={handleViewRenderProfile}>
+                      <Suspense fallback={<ViewLoadingFallback language={language} uiTheme={uiTheme} />}>
+                        {renderTabElement(tabId)}
+                      </Suspense>
+                    </Profiler>
+                  </div>
+                );
+              })}
+
+              {!PERSISTENT_CACHED_TABS.has(resolvedEffectiveTab) && (
+                <div
+                  key={`transient-${resolvedEffectiveTab}`}
+                  data-testid={`tab-panel-${resolvedEffectiveTab}`}
+                  className={
+                    uiDensity === 'compact'
+                      ? 'h-full w-full overflow-y-auto overflow-x-hidden p-2.5 sm:p-4 pb-20 lg:pb-4'
+                      : 'h-full w-full overflow-y-auto overflow-x-hidden p-3 sm:p-5 pb-20 lg:pb-5'
+                  }
+                >
+                  <Profiler id={resolvedEffectiveTab} onRender={handleViewRenderProfile}>
+                    <Suspense fallback={<ViewLoadingFallback language={language} uiTheme={uiTheme} />}>
+                      {renderTabElement(resolvedEffectiveTab)}
+                    </Suspense>
+                  </Profiler>
+                </div>
+              )}
             </main>
           </div>
 

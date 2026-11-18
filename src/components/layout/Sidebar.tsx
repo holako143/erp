@@ -48,6 +48,9 @@ import {
   MobileQuickActionDescriptor,
 } from '../../core/mobileTouchEngine';
 import { Zap } from 'lucide-react';
+import { evaluateUserModuleAccess } from '../../core/securityEngine';
+import { computeInventoryReorderAlertSummary } from '../../core/warehouseAdvancedEngine';
+import { UserAccount } from '../../types/erp';
 
 export interface SidebarMenuItem {
   id: string;
@@ -87,11 +90,27 @@ export const SECTOR_MODE_ALLOWED_ITEMS = [
 export function shouldDisplaySidebarMenuItem(
   item: { id: string; label?: string },
   sectorModeEnabled: boolean | undefined,
-  hasAccess: (moduleId: string) => boolean
+  hasAccess: (moduleId: string) => boolean,
+  rbacOptions?: {
+    enforceAccountRbac?: boolean;
+    account?: UserAccount | any | null;
+    currentAccount?: UserAccount | any | null;
+    masterConfig?: any;
+  }
 ): boolean {
   // Security & Permissions is stealth-hidden from navigation menus and triggered via 7 rapid clicks on the Haseb icon
   if (item.id === 'security' || item.id === 'Security') {
     return false;
+  }
+
+  if (rbacOptions?.enforceAccountRbac) {
+    if (!hasAccess(item.id)) {
+      return false;
+    }
+    const targetAccount = rbacOptions.account ?? rbacOptions.currentAccount;
+    if (targetAccount && !evaluateUserModuleAccess(targetAccount, item.id, rbacOptions.masterConfig)) {
+      return false;
+    }
   }
 
   if (sectorModeEnabled) {
@@ -120,6 +139,7 @@ export function Sidebar() {
     setIsSidebarCollapsed,
     hasModuleAccess,
     getVisibleModules,
+    currentAccount,
     uiTheme,
     masterSystemConfig,
     whatsappAccounts,
@@ -185,7 +205,8 @@ export function Sidebar() {
 
   const isSectorModeActive = Boolean(masterSystemConfig.sectorModeEnabled);
 
-  const lowStockCount = products.filter((p) => p.stockQty <= p.reorderPoint).length;
+  const reorderAlertSummary = computeInventoryReorderAlertSummary(products);
+  const lowStockCount = reorderAlertSummary.totalAlertsCount;
   const pendingPOCount = purchaseOrders.filter((po) => po.status === 'PENDING_APPROVAL').length;
   const connectedWhatsAppCount = whatsappAccounts.filter(
     (acc) => acc.session.status === 'CONNECTED'
@@ -330,18 +351,34 @@ export function Sidebar() {
     },
   ];
 
-  const allowedModuleIds = Array.from(new Set([...getVisibleModules(), 'communications']));
+  const allowedModuleIds = Array.from(
+    new Set([
+      ...getVisibleModules(),
+      ...(hasModuleAccess('communications') ? ['communications'] : []),
+    ])
+  );
 
   const visibleMenuItems: SidebarMenuItem[] = masterSystemConfig.sectorModeEnabled
     ? allowedModuleIds
         .map((modId) => rawMenuItems.find((item) => item.id === modId))
         .filter((item): item is SidebarMenuItem =>
-          Boolean(item && shouldDisplaySidebarMenuItem(item, true, hasModuleAccess))
+          Boolean(
+            item &&
+              shouldDisplaySidebarMenuItem(item, true, hasModuleAccess, {
+                enforceAccountRbac: true,
+                account: currentAccount,
+                masterConfig: masterSystemConfig,
+              })
+          )
         )
     : rawMenuItems.filter(
         (item) =>
           allowedModuleIds.includes(item.id) &&
-          shouldDisplaySidebarMenuItem(item, false, hasModuleAccess)
+          shouldDisplaySidebarMenuItem(item, false, hasModuleAccess, {
+            enforceAccountRbac: true,
+            account: currentAccount,
+            masterConfig: masterSystemConfig,
+          })
       );
 
   const CollapseIcon =
@@ -451,11 +488,25 @@ export function Sidebar() {
 
                 {!isSidebarCollapsed && item.count !== null && (
                   <span
+                    data-testid={
+                      item.id === 'inventory'
+                        ? 'sidebar-inventory-alert-badge'
+                        : `sidebar-badge-${item.id}`
+                    }
+                    title={
+                      item.id === 'inventory'
+                        ? language === 'ar'
+                          ? `تنبيه حد الطلب للمخزون: ${item.count} أصناف دون حد الأمان`
+                          : `Inventory Reorder Safety Alert: ${item.count} items below threshold`
+                        : undefined
+                    }
                     className={`ms-auto px-1.5 py-0.5 rounded-md font-mono text-[10px] font-bold tabular-nums ${
                       isActive
                         ? 'bg-white/20 text-white'
                         : isCommItem
                         ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80'
+                        : item.id === 'inventory'
+                        ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 animate-pulse'
                         : 'bg-amber-500/15 text-amber-600 border border-amber-500/30'
                     }`}
                   >
@@ -465,8 +516,17 @@ export function Sidebar() {
 
                 {isSidebarCollapsed && item.count !== null && (
                   <span
+                    data-testid={
+                      item.id === 'inventory'
+                        ? 'sidebar-inventory-alert-badge'
+                        : `sidebar-collapsed-badge-${item.id}`
+                    }
                     className={`absolute -top-0.5 -end-0.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-slate-900 ${
-                      isCommItem ? 'bg-emerald-500' : 'bg-amber-500'
+                      isCommItem
+                        ? 'bg-emerald-500'
+                        : item.id === 'inventory'
+                        ? 'bg-rose-500 animate-pulse'
+                        : 'bg-amber-500'
                     }`}
                   />
                 )}
@@ -606,7 +666,14 @@ export function Sidebar() {
           { id: 'sales', label: language === 'ar' ? 'المبيعات' : 'Sales', icon: Receipt },
           { id: 'accounting', label: language === 'ar' ? 'المحاسبة' : 'Accounting', icon: Landmark },
           { id: 'communications', label: language === 'ar' ? 'واتساب' : 'WhatsApp', icon: MessageSquare },
-        ].map((item) => {
+        ]
+          .filter((item) =>
+            shouldDisplaySidebarMenuItem(item, masterSystemConfig.sectorModeEnabled, hasModuleAccess, {
+              enforceAccountRbac: true,
+              account: currentAccount,
+            })
+          )
+          .map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
           return (

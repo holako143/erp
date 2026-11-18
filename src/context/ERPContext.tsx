@@ -146,6 +146,8 @@ import {
   parseSmartProductLabelOCR,
   evaluateSerialWarrantyStatus,
   parseStructuredVendorInvoiceText,
+  evaluatePosCartStockConstraint,
+  PosCartStockCheckResult,
 } from '../core/inventoryEngine';
 import {
   computePartialGrnResult,
@@ -186,6 +188,7 @@ import {
   hashUserPassword,
   verifyUserPassword,
   evaluateLoginAttemptLockout,
+  evaluateUserModuleAccess,
 } from '../core/securityEngine';
 import {
   validateAndCalculateCouponDiscount,
@@ -253,6 +256,13 @@ import {
   clampWindowScale,
   computeViewportAwareScaleCssVars,
 } from '../core/uiScaleEngine';
+import {
+  DAILY_BACKUP_INTERVAL_MS,
+  DailyBackupMetadata,
+  isDailyBackupDue,
+  shouldNotifyAdminOfBackup,
+  buildDailyBackupArchivePayload,
+} from '../core/backupSchedulerEngine';
 import {
   DEFAULT_TAB_SCALE,
   clampTabScale,
@@ -466,6 +476,24 @@ interface ERPContextType {
   t: (key: keyof typeof TRANSLATIONS.en) => string;
   activeTab: string;
   setActiveTab: (tab: string) => void;
+  requestedSettingsTab:
+    | 'central_hub'
+    | 'templates'
+    | 'company'
+    | 'sound_alerts'
+    | 'backup'
+    | 'system_setup'
+    | null;
+  setRequestedSettingsTab: (
+    tab:
+      | 'central_hub'
+      | 'templates'
+      | 'company'
+      | 'sound_alerts'
+      | 'backup'
+      | 'system_setup'
+      | null
+  ) => void;
   isSidebarCollapsed: boolean;
   setIsSidebarCollapsed: (collapsed: boolean) => void;
   activeIndustry: IndustryType;
@@ -613,6 +641,10 @@ interface ERPContextType {
     rawCsvText: string,
     postOpeningBalanceJournal?: boolean
   ) => { importedCount: number; totalOpeningValuation: number; errors: string[] };
+  batchUpdateProducts: (
+    nextProducts: Product[],
+    summary: { updatedCount: number; skippedCount: number; totalFieldChanges: number }
+  ) => void;
   barcodes: BarcodeItem[];
   generateBarcodeForProduct: (productId: string, format?: any, isPiece?: boolean) => BarcodeItem;
   traceabilityEvents: TraceabilityEvent[];
@@ -657,11 +689,16 @@ interface ERPContextType {
   // Sales, Returns, Warranty & POS
   customers: Customer[];
   addCustomer: (c: Omit<Customer, 'id' | 'tenantId'>) => void;
+  batchUpdateCustomers: (
+    nextCustomers: Customer[],
+    summary: { updatedCount: number; skippedCount: number; totalFieldChanges: number }
+  ) => void;
   recordCustomerPaymentReceipt: (params: {
     customerId: string;
     amount: number;
     paymentMethod: 'CASH' | 'BANK_TRANSFER' | 'POS_CARD';
     referenceNumber?: string;
+    invoiceId?: string;
   }) => { success: boolean; entryNumber?: string; newBalance?: number };
   salesInvoices: SalesInvoice[];
   addSalesInvoice: (inv: Omit<SalesInvoice, 'id' | 'invoiceNumber' | 'tenantId'>) => SalesInvoice;
@@ -709,15 +746,20 @@ interface ERPContextType {
   currentShift: POSShift;
   shiftHistory: POSShift[];
   posCart: InvoiceItem[];
-  addToPOSCart: (product: Product, quantity?: number, customNotes?: string, unitName?: string) => void;
+  addToPOSCart: (
+    product: Product,
+    quantity?: number,
+    customNotes?: string,
+    unitName?: string
+  ) => PosCartStockCheckResult;
   addSolarSystemKitToPOSCart: (sizing: SolarSystemSizingOutput) => { addedItemsCount: number; totalAmount: number };
   removeFromPOSCart: (productId: string) => void;
-  updatePOSCartQty: (productId: string, qty: number) => void;
-  updatePOSCartItemUnit: (productId: string, unitName: string) => void;
+  updatePOSCartQty: (productId: string, qty: number) => PosCartStockCheckResult | undefined;
+  updatePOSCartItemUnit: (productId: string, unitName: string) => PosCartStockCheckResult | undefined;
   updatePOSCartItemMeta: (productId: string, patch: Partial<InvoiceItem>) => void;
   clearPOSCart: () => void;
   checkoutPOS: (
-    paymentMethod: 'CASH' | 'CARD' | 'SPLIT',
+    paymentMethod: 'CASH' | 'CARD' | 'SPLIT' | 'CREDIT',
     customerId?: string,
     extraMeta?: {
       orderType?: 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY' | 'STANDARD';
@@ -730,6 +772,9 @@ interface ERPContextType {
       customerName?: string;
       customerPhone?: string;
       splitCashAmount?: number;
+      splitCardAmount?: number;
+      paidAmount?: number;
+      tenderedAmount?: number;
       cardReference?: string;
     }
   ) => SalesInvoice;
@@ -998,6 +1043,19 @@ interface ERPContextType {
   ) => void;
   soundAlertPrefs: SoundAlertPreferences;
   updateSoundAlertPrefs: (patch: Partial<SoundAlertPreferences>) => void;
+
+  // Automated Daily System Backup & Admin Notification
+  autoDailyBackupEnabled: boolean;
+  setAutoDailyBackupEnabled: (enabled: boolean) => void;
+  lastAutoDailyBackupAt: string | null;
+  latestDailyBackupInfo: DailyBackupMetadata | null;
+  isRunningDailyBackup: boolean;
+  runDailyBackupNow: (trigger?: 'AUTO' | 'MANUAL') => Promise<DailyBackupMetadata | null>;
+  downloadLatestDailyBackup: () => {
+    success: boolean;
+    filename: string;
+    sizeBytes: number;
+  };
 }
 
 const ERPContext = createContext<ERPContextType | undefined>(undefined);
@@ -1024,6 +1082,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     DEFAULT_MASTER_SYSTEM_CONFIG.globalDefaultCurrency
   );
   const [activeTab, setActiveTab] = useState<string>('pos');
+  const [requestedSettingsTab, setRequestedSettingsTab] = useState<
+    'central_hub' | 'templates' | 'company' | 'sound_alerts' | 'backup' | 'system_setup' | null
+  >(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [activeIndustryState, setActiveIndustryState] = useState<IndustryType>('electronics');
   const activeIndustry: IndustryType = resolveEffectiveIndustryMode(
@@ -1492,6 +1553,29 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return null;
     }
   });
+  const [autoDailyBackupEnabled, setAutoDailyBackupEnabledState] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const saved = localStorage.getItem('haseb_auto_daily_backup_enabled');
+      return saved === null ? true : saved === 'true';
+    } catch {
+      return true;
+    }
+  });
+  const [lastAutoDailyBackupAt, setLastAutoDailyBackupAt] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      return localStorage.getItem('haseb_last_auto_daily_backup_at');
+    } catch {
+      return null;
+    }
+  });
+  const [latestDailyBackupInfo, setLatestDailyBackupInfo] = useState<DailyBackupMetadata | null>(
+    null
+  );
+  const [isRunningDailyBackup, setIsRunningDailyBackup] = useState(false);
+  const dailyBackupInFlightRef = useRef(false);
+  const notifiedBackupIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     try {
@@ -2248,10 +2332,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!isModuleVisibleUnderMasterConfig(moduleId, masterSystemConfig, false)) {
       return false;
     }
-    if (currentAccount.role === 'SUPER_ADMIN' || currentAccount.username === 'admin') {
-      return true;
-    }
-    return currentAccount.allowedModules.includes(moduleId);
+    return evaluateUserModuleAccess(currentAccount, moduleId, masterSystemConfig);
   };
 
   const hasPermission = (perm: keyof UserPermissions): boolean => {
@@ -2308,7 +2389,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const getVisibleModules = (): string[] => {
     if (masterSystemConfig.sectorModeEnabled) {
-      return getVisibleModulesList(true);
+      return getVisibleModulesList(true).filter((modId) => hasModuleAccess(modId));
     }
     const candidateModules = [
       ...ALL_ERP_MODULES,
@@ -3412,7 +3493,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             'yemenCurrencyMigratedV7' in d && !d.yemenCurrencyMigratedV7
               ? 'YER'
               : d.masterSystemConfig.globalDefaultCurrency || prev.globalDefaultCurrency || 'YER',
-          visibleModules: { ...prev.visibleModules, ...(d.masterSystemConfig.visibleModules || {}) },
+          visibleModules: {
+            ...prev.visibleModules,
+            ...(d.masterSystemConfig.visibleModules || {}),
+            communications: d.masterSystemConfig.communicationsExplicitlyHidden === true ? false : true,
+          },
           uiElementsVisibility: {
             ...prev.uiElementsVisibility,
             ...(d.masterSystemConfig.uiElementsVisibility || {}),
@@ -3547,7 +3632,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   useEffect(() => {
-    sendLivePresenceFrame();
+    const timer = window.setTimeout(() => {
+      sendLivePresenceFrame();
+    }, 250);
+    return () => window.clearTimeout(timer);
   }, [activeTab, currentAccount?.nameAr, currentAccount?.username, sendLivePresenceFrame]);
 
   const localRevisionRef = useRef<number>(1);
@@ -3988,6 +4076,34 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   return merged;
                 });
               }
+              return;
+            }
+
+            if (msg?.type === 'erp:daily_backup_completed' && msg.backup) {
+              const bkp = msg.backup;
+              const createdIso = bkp.createdAt || new Date().toISOString();
+              const fname = bkp.filename || `haseb-backup-${createdIso.slice(0, 10)}.json`;
+              setLastAutoDailyBackupAt(createdIso);
+              try {
+                localStorage.setItem('haseb_last_auto_daily_backup_at', createdIso);
+              } catch {
+                // ignore
+              }
+              recordBackupCompleted(createdIso);
+              setLatestDailyBackupInfo((prev) => ({
+                filename: fname,
+                createdAt: createdIso,
+                sizeBytes: prev?.sizeBytes || 0,
+                trigger: 'AUTO_DAILY',
+                checksumSha256: bkp.checksumSha256,
+                productsCount: prev?.productsCount ?? products.length,
+                invoicesCount: prev?.invoicesCount ?? salesInvoices.length,
+                customersCount: prev?.customersCount ?? customers.length,
+                source: 'SERVER',
+              }));
+              window.dispatchEvent(
+                new CustomEvent('haseb-daily-backup-completed', { detail: bkp })
+              );
               return;
             }
 
@@ -4589,6 +4705,28 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         entityType: 'Product',
         entityId: p.id,
         details: `Updated product ${p.nameAr || p.name} (SKU: ${p.sku}) — Price: ${p.salePrice}, Stock: ${p.stockQty}`,
+        timestamp: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
+  };
+
+  const batchUpdateProducts = (
+    nextProducts: Product[],
+    summary: { updatedCount: number; skippedCount: number; totalFieldChanges: number }
+  ) => {
+    setProducts(nextProducts);
+    setAuditLogs((prev) => [
+      {
+        id: `aud-batch-prod-${Date.now()}`,
+        tenantId: currentTenant.id,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        action: 'BATCH_UPDATE_PRODUCTS',
+        module: 'INVENTORY',
+        entityType: 'ProductBatch',
+        entityId: `batch-${Date.now()}`,
+        details: `Bulk updated ${summary.updatedCount} inventory items (${summary.totalFieldChanges} field changes, ${summary.skippedCount} skipped) via CSV Batch Processor.`,
         timestamp: new Date().toISOString(),
       },
       ...prev,
@@ -5305,6 +5443,28 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCustomers((prev) => [newCustomer, ...prev]);
   };
 
+  const batchUpdateCustomers = (
+    nextCustomers: Customer[],
+    summary: { updatedCount: number; skippedCount: number; totalFieldChanges: number }
+  ) => {
+    setCustomers(nextCustomers);
+    setAuditLogs((prev) => [
+      {
+        id: `aud-batch-cust-${Date.now()}`,
+        tenantId: currentTenant.id,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        action: 'BATCH_UPDATE_CUSTOMERS',
+        module: 'SALES',
+        entityType: 'CustomerBatch',
+        entityId: `batch-cust-${Date.now()}`,
+        details: `Bulk updated ${summary.updatedCount} customer records (${summary.totalFieldChanges} field changes, ${summary.skippedCount} skipped) via CSV Batch Processor.`,
+        timestamp: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
+  };
+
   const createSalesReturnCreditNote = (params: {
     originalInvoiceId: string;
     productId: string;
@@ -5602,12 +5762,29 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     amount: number;
     paymentMethod: 'CASH' | 'BANK_TRANSFER' | 'POS_CARD';
     referenceNumber?: string;
+    invoiceId?: string;
   }) => {
-    const targetCustomer = customers.find((c) => c.id === params.customerId);
+    const targetInvoice = params.invoiceId
+      ? salesInvoices.find((inv) => inv.id === params.invoiceId)
+      : undefined;
+    const matchedCustomer = customers.find((c) => c.id === params.customerId);
     const cleanAmount = Math.round(Math.abs(Number(params.amount) || 0) * 100) / 100;
-    if (!targetCustomer || cleanAmount <= 0) {
+    if ((!matchedCustomer && !targetInvoice) || cleanAmount <= 0) {
       return { success: false };
     }
+
+    const partyId =
+      matchedCustomer?.id || targetInvoice?.customerId || params.customerId || 'cust-pos-walkin';
+    const partyNameAr =
+      matchedCustomer?.nameAr ||
+      matchedCustomer?.name ||
+      targetInvoice?.customerName ||
+      'عميل نقدي عام';
+    const partyNameEn =
+      matchedCustomer?.name ||
+      matchedCustomer?.nameAr ||
+      targetInvoice?.customerName ||
+      'Walk-in Customer';
 
     const refNo =
       params.referenceNumber?.trim() ||
@@ -5615,8 +5792,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const entryNumber = `JE-RV-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const journal = createCustomerReceiptJournalEntry({
-      customerId: targetCustomer.id,
-      customerName: targetCustomer.nameAr || targetCustomer.name,
+      customerId: partyId,
+      customerName: partyNameAr,
       amount: cleanAmount,
       paymentMethod: params.paymentMethod,
       referenceNumber: refNo,
@@ -5625,10 +5802,99 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       operatorName: currentUser.name,
     });
 
-    const newBalance = Math.max(0, Math.round((targetCustomer.balance - cleanAmount) * 100) / 100);
-    setCustomers((prev) =>
-      prev.map((c) => (c.id === targetCustomer.id ? { ...c, balance: newBalance } : c))
-    );
+    const newBalance = matchedCustomer
+      ? Math.max(0, Math.round((matchedCustomer.balance - cleanAmount) * 100) / 100)
+      : Math.max(
+          0,
+          Math.round(
+            (Math.max(
+              0,
+              (targetInvoice?.grandTotal || 0) -
+                Math.min(
+                  targetInvoice?.grandTotal || 0,
+                  Math.max(0, Number(targetInvoice?.paidAmount) || 0)
+                )
+            ) -
+              cleanAmount) *
+              100
+          ) / 100
+        );
+
+    if (matchedCustomer) {
+      setCustomers((prev) =>
+        prev.map((c) => (c.id === matchedCustomer.id ? { ...c, balance: newBalance } : c))
+      );
+    }
+
+    // Apply collected payment directly to target invoiceId (or FIFO across customer's unpaid invoices)
+    setSalesInvoices((prev) => {
+      let remainingToAllocate = cleanAmount;
+
+      if (params.invoiceId) {
+        return prev.map((inv) => {
+          if (inv.id !== params.invoiceId || remainingToAllocate <= 0) return inv;
+          const currPaid = Math.min(inv.grandTotal, Math.max(0, Number(inv.paidAmount) || 0));
+          const currDebt = Math.max(0, Math.round((inv.grandTotal - currPaid) * 100) / 100);
+          const applied = Math.min(currDebt, remainingToAllocate);
+          remainingToAllocate = Math.round((remainingToAllocate - applied) * 100) / 100;
+          const updatedPaid = Math.round((currPaid + applied) * 100) / 100;
+          const updatedRem = Math.max(0, Math.round((inv.grandTotal - updatedPaid) * 100) / 100);
+          return {
+            ...inv,
+            paidAmount: updatedPaid,
+            remainingAmount: updatedRem,
+            cashPaidAmount:
+              params.paymentMethod === 'CASH'
+                ? Math.round(((inv.cashPaidAmount || 0) + applied) * 100) / 100
+                : inv.cashPaidAmount,
+            cardPaidAmount:
+              params.paymentMethod !== 'CASH'
+                ? Math.round(((inv.cardPaidAmount || 0) + applied) * 100) / 100
+                : inv.cardPaidAmount,
+            status: updatedRem <= 0.01 ? 'PAID' : 'PARTIAL',
+          };
+        });
+      }
+
+      // FIFO settlement by oldest date for customer's unpaid/partial invoices
+      const unpaidIdsOrdered = prev
+        .filter(
+          (inv) =>
+            inv.customerId === partyId &&
+            inv.status !== 'VOID' &&
+            inv.grandTotal - (Number(inv.paidAmount) || 0) > 0.01
+        )
+        .sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+        .map((inv) => inv.id);
+
+      const allocMap = new Map<string, number>();
+      for (const invId of unpaidIdsOrdered) {
+        if (remainingToAllocate <= 0.005) break;
+        const found = prev.find((i) => i.id === invId);
+        if (!found) continue;
+        const owed = Math.max(0, found.grandTotal - (Number(found.paidAmount) || 0));
+        const take = Math.min(owed, remainingToAllocate);
+        if (take > 0) {
+          allocMap.set(invId, take);
+          remainingToAllocate = Math.round((remainingToAllocate - take) * 100) / 100;
+        }
+      }
+
+      if (allocMap.size === 0) return prev;
+      return prev.map((inv) => {
+        const applied = allocMap.get(inv.id);
+        if (!applied) return inv;
+        const updatedPaid = Math.round(((Number(inv.paidAmount) || 0) + applied) * 100) / 100;
+        const updatedRem = Math.max(0, Math.round((inv.grandTotal - updatedPaid) * 100) / 100);
+        return {
+          ...inv,
+          paidAmount: updatedPaid,
+          remainingAmount: updatedRem,
+          status: updatedRem <= 0.01 ? 'PAID' : 'PARTIAL',
+        };
+      });
+    });
+
     setJournalEntries((prev) => [journal, ...prev]);
     setAuditLogs((prev) => [
       {
@@ -5640,7 +5906,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         module: 'ACCOUNTING',
         entityType: 'ReceiptVoucher',
         entityId: refNo,
-        details: `Posted Customer Receipt Voucher [${refNo}] for ${targetCustomer.nameAr} (${cleanAmount} ${currency}) via ${params.paymentMethod}. Journal: ${entryNumber}`,
+        details: `Posted Customer Receipt Voucher [${refNo}] for ${partyNameAr} (${cleanAmount} ${currency}) via ${params.paymentMethod}. Journal: ${entryNumber}`,
         timestamp: new Date().toISOString(),
       },
       ...prev,
@@ -5651,8 +5917,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       severity: 'success',
       titleAr: `سند قبض جديد (${refNo})`,
       titleEn: `Customer Payment Receipt (${refNo})`,
-      messageAr: `تم تحصيل ${Math.round(cleanAmount).toLocaleString('en-US')} ${currency} من العميل (${targetCustomer.nameAr || targetCustomer.name}) والرصيد المتبقي ${Math.round(newBalance).toLocaleString('en-US')} ${currency}.`,
-      messageEn: `Received ${cleanAmount} ${currency} from ${targetCustomer.name}.`,
+      messageAr: `تم تحصيل ${Math.round(cleanAmount).toLocaleString('en-US')} ${currency} من العميل (${partyNameAr}) والرصيد المتبقي ${Math.round(newBalance).toLocaleString('en-US')} ${currency}.`,
+      messageEn: `Received ${cleanAmount} ${currency} from ${partyNameEn}.`,
       actionType: 'DEBTS',
       actionLabelAr: 'كشف حساب العميل ↗',
       actionLabelEn: 'View Debt Ledger ↗',
@@ -5667,12 +5933,30 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const addSalesInvoice = (invData: Omit<SalesInvoice, 'id' | 'invoiceNumber' | 'tenantId'>): SalesInvoice => {
     const invNumber = `INV-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const cleanGrand = Math.max(0, Math.round((invData.grandTotal || 0) * 100) / 100);
+    const defaultPaid = invData.paymentMethod === 'CREDIT' ? 0 : cleanGrand;
+    const rawPaid = invData.paidAmount !== undefined ? Number(invData.paidAmount) : defaultPaid;
+    const cleanPaid = Math.min(cleanGrand, Math.max(0, Math.round(rawPaid * 100) / 100));
+    const remainingDebt = Math.max(0, Math.round((cleanGrand - cleanPaid) * 100) / 100);
+    const resolvedStatus: SalesInvoice['status'] =
+      remainingDebt <= 0.01
+        ? 'PAID'
+        : invData.status === 'OVERDUE'
+        ? 'OVERDUE'
+        : 'PARTIAL';
+
     const newInv: SalesInvoice = {
       ...invData,
       id: `inv-${Date.now()}`,
       tenantId: currentTenant.id,
       invoiceNumber: invNumber,
-      qrData: `ZATCA-QR-INVOICE-${invNumber}-TOTAL-${invData.grandTotal}-VAT-${invData.taxAmount}`,
+      grandTotal: cleanGrand,
+      paidAmount: cleanPaid,
+      remainingAmount: remainingDebt,
+      cashPaidAmount: invData.cashPaidAmount ?? (invData.paymentMethod === 'CARD' ? 0 : cleanPaid),
+      cardPaidAmount: invData.cardPaidAmount ?? (invData.paymentMethod === 'CARD' ? cleanPaid : 0),
+      status: resolvedStatus,
+      qrData: `ZATCA-QR-INVOICE-${invNumber}-TOTAL-${cleanGrand}-VAT-${invData.taxAmount}`,
     };
 
     // Deduct stock & log serialized item sale traceability
@@ -5696,19 +5980,17 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           location: currentBranch.nameAr || currentBranch.name,
           operator: currentUser.name,
           referenceDoc: invNumber,
-          notes: `مبيعات فاتورة ضريبية (${invNumber}) للعميل: ${invData.customerName}`,
+          notes: `مبيعات فاتورة (${invNumber}) للعميل: ${invData.customerName}`,
         });
       }
     });
 
     // Update customer receivable balance when sold on credit or partial payment
-    const unpaidDelta = Math.max(0, Math.round(((invData.grandTotal || 0) - (invData.paidAmount || 0)) * 100) / 100);
-    if (invData.paymentMethod === 'CREDIT' || unpaidDelta > 0) {
-      const addBal = unpaidDelta > 0 ? unpaidDelta : invData.grandTotal;
+    if (remainingDebt > 0) {
       setCustomers((prev) =>
         prev.map((c) =>
           c.id === invData.customerId
-            ? { ...c, balance: Math.round((c.balance + addBal) * 100) / 100 }
+            ? { ...c, balance: Math.round((c.balance + remainingDebt) * 100) / 100 }
             : c
         )
       );
@@ -5942,29 +6224,81 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { success: false };
   };
 
-  // POS Cart (Zero-Tax / Tax-Exempt Haseb Mode + Multi-Unit UOM Conversions)
+  // POS Cart (Zero-Tax / Tax-Exempt Haseb Mode + Multi-Unit UOM Conversions + Strict Stock Cap)
   const addToPOSCart = (
     product: Product,
     quantity = 1,
     customNotes?: string,
     unitName?: string
-  ) => {
-    const resolvedUnit = resolveProductUnitOption(product, unitName);
+  ): PosCartStockCheckResult => {
+    const liveProduct = products.find((p) => p.id === product.id) || product;
+    const resolvedUnit = resolveProductUnitOption(liveProduct, unitName);
+    const existingItem = posCart.find((item) => item.productId === liveProduct.id);
+    const activeFactor = existingItem
+      ? unitName
+        ? resolvedUnit.conversionFactor
+        : existingItem.conversionFactor || 1
+      : resolvedUnit.conversionFactor || 1;
+    const activeUnitName = existingItem
+      ? unitName
+        ? resolvedUnit.unitNameAr
+        : existingItem.unitName || resolvedUnit.unitNameAr
+      : resolvedUnit.unitNameAr;
+    const currentCartQty = existingItem ? existingItem.quantity : 0;
+    const requestedTotalQty = Math.round((currentCartQty + quantity) * 1000) / 1000;
+
+    const stockCheck = evaluatePosCartStockConstraint({
+      productNameAr: liveProduct.nameAr || liveProduct.name,
+      productNameEn: liveProduct.name || liveProduct.nameAr,
+      availableBaseStock: liveProduct.stockQty,
+      requestedTotalQtyInUnit: requestedTotalQty,
+      currentCartQtyInUnit: currentCartQty,
+      conversionFactor: activeFactor,
+      unitNameAr: activeUnitName,
+      isWeightedScale: Boolean(liveProduct.isWeightedScale),
+    });
+
+    if (stockCheck.wasCapped) {
+      dispatchToastAndPushNotification({
+        titleAr: stockCheck.titleAr,
+        titleEn: stockCheck.titleEn,
+        messageAr: stockCheck.messageAr,
+        messageEn: stockCheck.messageEn,
+        severity: 'warning',
+        category: 'LIVE_EVENTS',
+      });
+    }
+
+    if (stockCheck.allowedQtyInUnit <= 0) {
+      return stockCheck;
+    }
+
     setPosCart((prev) => {
-      const existing = prev.find((item) => item.productId === product.id);
+      const existing = prev.find((item) => item.productId === liveProduct.id);
       if (existing) {
+        const prevCheck = evaluatePosCartStockConstraint({
+          productNameAr: liveProduct.nameAr || liveProduct.name,
+          productNameEn: liveProduct.name || liveProduct.nameAr,
+          availableBaseStock: liveProduct.stockQty,
+          requestedTotalQtyInUnit: Math.round((existing.quantity + quantity) * 1000) / 1000,
+          currentCartQtyInUnit: existing.quantity,
+          conversionFactor: unitName ? resolvedUnit.conversionFactor : existing.conversionFactor || 1,
+          unitNameAr: unitName ? resolvedUnit.unitNameAr : existing.unitName || resolvedUnit.unitNameAr,
+          isWeightedScale: Boolean(liveProduct.isWeightedScale),
+        });
+        const newQty = prevCheck.allowedQtyInUnit;
+        if (newQty <= 0) return prev;
         return prev.map((item) => {
-          if (item.productId === product.id) {
-            const activeFactor = unitName ? resolvedUnit.conversionFactor : item.conversionFactor || 1;
-            const activeUnitName = unitName ? resolvedUnit.unitNameAr : item.unitName || resolvedUnit.unitNameAr;
+          if (item.productId === liveProduct.id) {
+            const factor = unitName ? resolvedUnit.conversionFactor : item.conversionFactor || 1;
+            const uName = unitName ? resolvedUnit.unitNameAr : item.unitName || resolvedUnit.unitNameAr;
             const activeUnitPrice = unitName ? resolvedUnit.salePrice : item.unitPrice;
-            const newQty = Math.round((item.quantity + quantity) * 1000) / 1000;
             const sub = Math.max(0, newQty * activeUnitPrice - item.discount);
             return {
               ...item,
-              unitName: activeUnitName,
-              conversionFactor: activeFactor,
-              baseQtyDeducted: computeBaseStockDelta(newQty, activeFactor),
+              unitName: uName,
+              conversionFactor: factor,
+              baseQtyDeducted: computeBaseStockDelta(newQty, factor),
               unitPrice: activeUnitPrice,
               quantity: newQty,
               taxRate: 0,
@@ -5977,35 +6311,38 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
       }
 
-      const sub = quantity * resolvedUnit.salePrice;
-      const autoSerial = product.hasSerials
+      const cappedQty = stockCheck.allowedQtyInUnit;
+      const sub = cappedQty * resolvedUnit.salePrice;
+      const autoSerial = liveProduct.hasSerials
         ? generateUniqueSerialNumber('IMEI', currentTenant.code)
         : undefined;
 
       return [
         ...prev,
         {
-          productId: product.id,
-          productName: language === 'ar' ? product.nameAr : product.name,
-          sku: product.sku,
-          barcode: resolvedUnit.barcode || product.barcode,
+          productId: liveProduct.id,
+          productName: language === 'ar' ? liveProduct.nameAr : liveProduct.name,
+          sku: liveProduct.sku,
+          barcode: resolvedUnit.barcode || liveProduct.barcode,
           unitName: resolvedUnit.unitNameAr,
           conversionFactor: resolvedUnit.conversionFactor,
-          baseQtyDeducted: computeBaseStockDelta(quantity, resolvedUnit.conversionFactor),
-          quantity,
+          baseQtyDeducted: computeBaseStockDelta(cappedQty, resolvedUnit.conversionFactor),
+          quantity: cappedQty,
           unitPrice: resolvedUnit.salePrice,
           discount: 0,
           taxRate: 0,
           taxAmount: 0,
           total: sub,
           serialNumber: autoSerial,
-          warrantyMonths: product.warrantyMonths,
-          batchNumber: product.batchNumber,
-          expiryDate: product.expiryDate,
+          warrantyMonths: liveProduct.warrantyMonths,
+          batchNumber: liveProduct.batchNumber,
+          expiryDate: liveProduct.expiryDate,
           kitchenNotes: customNotes,
         },
       ];
     });
+
+    return stockCheck;
   };
 
   const addSolarSystemKitToPOSCart = (
@@ -6032,36 +6369,36 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let totalAmount = 0;
 
     if (panelProd) {
-      addToPOSCart(
+      const res = addToPOSCart(
         panelProd,
         sizing.recommendedPanelCount,
         `مصفوفة ألواح شمسية (${sizing.requiredSolarArrayKwp} kWp)`
       );
-      addedCount += sizing.recommendedPanelCount;
-      totalAmount += panelProd.salePrice * sizing.recommendedPanelCount;
+      addedCount += res.addedDeltaInUnit;
+      totalAmount += panelProd.salePrice * res.addedDeltaInUnit;
     }
     if (inverterProd) {
-      addToPOSCart(
+      const res = addToPOSCart(
         inverterProd,
         1,
         `إنفرتر هجين معتمد (${sizing.recommendedInverterKw} kW)`
       );
-      addedCount += 1;
-      totalAmount += inverterProd.salePrice;
+      addedCount += res.addedDeltaInUnit;
+      totalAmount += inverterProd.salePrice * res.addedDeltaInUnit;
     }
     if (batteryProd) {
-      addToPOSCart(
+      const res = addToPOSCart(
         batteryProd,
         sizing.recommendedBatteryUnits,
         `بنك بطاريات تخزين (${sizing.requiredBatteryStorageKwh} kWh)`
       );
-      addedCount += sizing.recommendedBatteryUnits;
-      totalAmount += batteryProd.salePrice * sizing.recommendedBatteryUnits;
+      addedCount += res.addedDeltaInUnit;
+      totalAmount += batteryProd.salePrice * res.addedDeltaInUnit;
     }
     if (protectionKit) {
-      addToPOSCart(protectionKit, 1, 'لوحة حماية DC قواطع ومانع صواعق وكوابل');
-      addedCount += 1;
-      totalAmount += protectionKit.salePrice;
+      const res = addToPOSCart(protectionKit, 1, 'لوحة حماية DC قواطع ومانع صواعق وكوابل');
+      addedCount += res.addedDeltaInUnit;
+      totalAmount += protectionKit.salePrice * res.addedDeltaInUnit;
     }
 
     return {
@@ -6074,21 +6411,53 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setPosCart((prev) => prev.filter((item) => item.productId !== productId));
   };
 
-  const updatePOSCartQty = (productId: string, qty: number) => {
+  const updatePOSCartQty = (productId: string, qty: number): PosCartStockCheckResult | undefined => {
     if (qty <= 0) {
       removeFromPOSCart(productId);
-      return;
+      return undefined;
     }
+    const targetProduct = products.find((p) => p.id === productId);
+    const existingItem = posCart.find((it) => it.productId === productId);
+    const factor = existingItem?.conversionFactor || 1;
+    const unitNameAr = existingItem?.unitName || targetProduct?.uom || 'وحدة';
+
+    const stockCheck = evaluatePosCartStockConstraint({
+      productNameAr: targetProduct?.nameAr || existingItem?.productName || 'الصنف',
+      productNameEn: targetProduct?.name || existingItem?.productName || 'Product',
+      availableBaseStock: targetProduct ? targetProduct.stockQty : qty * factor,
+      requestedTotalQtyInUnit: qty,
+      currentCartQtyInUnit: existingItem?.quantity || 0,
+      conversionFactor: factor,
+      unitNameAr,
+      isWeightedScale: Boolean(targetProduct?.isWeightedScale),
+    });
+
+    if (stockCheck.wasCapped) {
+      dispatchToastAndPushNotification({
+        titleAr: stockCheck.titleAr,
+        titleEn: stockCheck.titleEn,
+        messageAr: stockCheck.messageAr,
+        messageEn: stockCheck.messageEn,
+        severity: 'warning',
+        category: 'LIVE_EVENTS',
+      });
+    }
+
+    if (stockCheck.allowedQtyInUnit <= 0) {
+      removeFromPOSCart(productId);
+      return stockCheck;
+    }
+
     setPosCart((prev) =>
       prev.map((item) => {
         if (item.productId === productId) {
-          const roundedQty = Math.round(qty * 1000) / 1000;
-          const factor = item.conversionFactor || 1;
+          const roundedQty = stockCheck.allowedQtyInUnit;
+          const itemFactor = item.conversionFactor || 1;
           const sub = Math.max(0, roundedQty * item.unitPrice - item.discount);
           return {
             ...item,
             quantity: roundedQty,
-            baseQtyDeducted: computeBaseStockDelta(roundedQty, factor),
+            baseQtyDeducted: computeBaseStockDelta(roundedQty, itemFactor),
             taxRate: 0,
             taxAmount: 0,
             total: sub,
@@ -6097,21 +6466,53 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return item;
       })
     );
+    return stockCheck;
   };
 
-  const updatePOSCartItemUnit = (productId: string, unitName: string) => {
+  const updatePOSCartItemUnit = (productId: string, unitName: string): PosCartStockCheckResult | undefined => {
     const targetProduct = products.find((p) => p.id === productId);
-    if (!targetProduct) return;
+    if (!targetProduct) return undefined;
     const resolvedUnit = resolveProductUnitOption(targetProduct, unitName);
+    const existingItem = posCart.find((it) => it.productId === productId);
+    const currentQty = existingItem?.quantity || 1;
+
+    const stockCheck = evaluatePosCartStockConstraint({
+      productNameAr: targetProduct.nameAr || targetProduct.name,
+      productNameEn: targetProduct.name || targetProduct.nameAr,
+      availableBaseStock: targetProduct.stockQty,
+      requestedTotalQtyInUnit: currentQty,
+      currentCartQtyInUnit: currentQty,
+      conversionFactor: resolvedUnit.conversionFactor,
+      unitNameAr: resolvedUnit.unitNameAr,
+      isWeightedScale: Boolean(targetProduct.isWeightedScale),
+    });
+
+    if (stockCheck.wasCapped) {
+      dispatchToastAndPushNotification({
+        titleAr: stockCheck.titleAr,
+        titleEn: stockCheck.titleEn,
+        messageAr: stockCheck.messageAr,
+        messageEn: stockCheck.messageEn,
+        severity: 'warning',
+        category: 'LIVE_EVENTS',
+      });
+    }
+
+    if (stockCheck.allowedQtyInUnit <= 0) {
+      return stockCheck;
+    }
+
     setPosCart((prev) =>
       prev.map((item) => {
         if (item.productId !== productId) return item;
-        const sub = Math.max(0, item.quantity * resolvedUnit.salePrice - item.discount);
+        const effectiveQty = stockCheck.allowedQtyInUnit;
+        const sub = Math.max(0, effectiveQty * resolvedUnit.salePrice - item.discount);
         return {
           ...item,
+          quantity: effectiveQty,
           unitName: resolvedUnit.unitNameAr,
           conversionFactor: resolvedUnit.conversionFactor,
-          baseQtyDeducted: computeBaseStockDelta(item.quantity, resolvedUnit.conversionFactor),
+          baseQtyDeducted: computeBaseStockDelta(effectiveQty, resolvedUnit.conversionFactor),
           unitPrice: resolvedUnit.salePrice,
           barcode: resolvedUnit.barcode || item.barcode,
           taxRate: 0,
@@ -6120,6 +6521,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
       })
     );
+    return stockCheck;
   };
 
   const updatePOSCartItemMeta = (productId: string, patch: Partial<InvoiceItem>) => {
@@ -6189,7 +6591,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Complete POS Checkout
   const checkoutPOS = (
-    paymentMethod: 'CASH' | 'CARD' | 'SPLIT',
+    paymentMethod: 'CASH' | 'CARD' | 'SPLIT' | 'CREDIT',
     customerId = 'cust-pos-walkin',
     extraMeta?: {
       orderType?: 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY' | 'STANDARD';
@@ -6202,10 +6604,14 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       customerName?: string;
       customerPhone?: string;
       splitCashAmount?: number;
+      splitCardAmount?: number;
+      paidAmount?: number;
+      tenderedAmount?: number;
       cardReference?: string;
     }
   ): SalesInvoice => {
     if (posCart.length === 0) throw new Error('Cart is empty');
+    const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
     const subtotal = posCart.reduce((acc, curr) => acc + curr.quantity * curr.unitPrice, 0);
     const lineDiscounts = posCart.reduce((acc, curr) => acc + curr.discount, 0);
@@ -6238,10 +6644,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
 
-    const discountAmount = Math.round((lineDiscounts + finalDiscountFromCart) * 100) / 100;
+    const discountAmount = round2(lineDiscounts + finalDiscountFromCart);
     const netTaxable = Math.max(0, subtotal - discountAmount);
     const taxAmount = 0;
-    const grandTotal = Math.round(netTaxable * 100) / 100;
+    const grandTotal = round2(netTaxable);
     const invNumber = `INV-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const targetCustomer =
@@ -6260,6 +6666,41 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         : 'Walk-in Cash Customer');
     const resolvedCustomerPhone =
       extraMeta?.customerPhone?.trim() || targetCustomer?.phone || '';
+
+    // Compute exact collected cash, collected card, and remaining debt (مديونية)
+    let cashCollected = 0;
+    let cardCollected = 0;
+    if (paymentMethod === 'CASH') {
+      const rawCash =
+        extraMeta?.paidAmount !== undefined
+          ? Number(extraMeta.paidAmount)
+          : extraMeta?.tenderedAmount !== undefined
+          ? Number(extraMeta.tenderedAmount)
+          : grandTotal;
+      cashCollected = Math.min(grandTotal, Math.max(0, round2(rawCash)));
+    } else if (paymentMethod === 'CARD') {
+      const rawCard = extraMeta?.paidAmount !== undefined ? Number(extraMeta.paidAmount) : grandTotal;
+      cardCollected = Math.min(grandTotal, Math.max(0, round2(rawCard)));
+    } else if (paymentMethod === 'SPLIT') {
+      cashCollected = Math.min(grandTotal, Math.max(0, round2(Number(extraMeta?.splitCashAmount) || 0)));
+      const maxRemainingForCard = Math.max(0, round2(grandTotal - cashCollected));
+      cardCollected =
+        extraMeta?.splitCardAmount !== undefined
+          ? Math.min(maxRemainingForCard, Math.max(0, round2(Number(extraMeta.splitCardAmount) || 0)))
+          : maxRemainingForCard;
+    } else {
+      // CREDIT (آجل / دفع جزئي بمقدم)
+      const downPayment = extraMeta?.paidAmount !== undefined ? Number(extraMeta.paidAmount) : 0;
+      cashCollected = Math.min(grandTotal, Math.max(0, round2(downPayment)));
+    }
+
+    const actualPaid = Math.min(grandTotal, Math.max(0, round2(cashCollected + cardCollected)));
+    const remainingDebt = Math.max(0, round2(grandTotal - actualPaid));
+    const resolvedStatus: SalesInvoice['status'] = remainingDebt <= 0.01 ? 'PAID' : 'PARTIAL';
+    const tenderedAmount =
+      extraMeta?.tenderedAmount !== undefined
+        ? round2(Math.max(0, Number(extraMeta.tenderedAmount) || 0))
+        : actualPaid;
 
     // Ensure every electronics/warranty item has a serial number & warranty months recorded
     const finalizedItems = posCart.map((item) => {
@@ -6303,13 +6744,19 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       discountValue: extraMeta?.manualDiscountValue,
       taxAmount,
       grandTotal,
-      paidAmount: grandTotal,
+      paidAmount: actualPaid,
+      remainingAmount: remainingDebt,
+      cashPaidAmount: cashCollected,
+      cardPaidAmount: cardCollected,
+      tenderedAmount,
       paymentMethod,
-      status: 'PAID',
-      qrData: `GLOBAL-TAX-QR-${invNumber}-TOTAL-${grandTotal}-TAX-${taxAmount}`,
+      status: resolvedStatus,
+      qrData: `GLOBAL-TAX-QR-${invNumber}-TOTAL-${grandTotal}-PAID-${actualPaid}-DEBT-${remainingDebt}`,
       notes:
         extraMeta?.notes ||
-        (appliedDiscountLabel
+        (remainingDebt > 0
+          ? `بيع عبر POS — مدفوع ${actualPaid.toLocaleString()} ${currency} ومتبقي مديونية ${remainingDebt.toLocaleString()} ${currency}`
+          : appliedDiscountLabel
           ? `Completed via POS Register (${appliedDiscountLabel})`
           : 'Completed via POS Register'),
       industryMode: activeIndustry,
@@ -6318,6 +6765,17 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       shiftId: currentShift.status === 'OPEN' ? currentShift.id : 'shift-none',
       shiftMode: currentShift.status === 'OPEN' ? 'EXPLICIT_SHIFT' : 'FLEXIBLE_SHIFTLESS',
     };
+
+    // Increment Customer Balance if any remaining debt exists (including Walk-in Customer)
+    if (remainingDebt > 0) {
+      setCustomers((prev) =>
+        prev.map((c) =>
+          c.id === resolvedCustomerId
+            ? { ...c, balance: round2((c.balance || 0) + remainingDebt) }
+            : c
+        )
+      );
+    }
 
     setProducts((prev) =>
       prev.map((prod) => {
@@ -6367,19 +6825,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setJournalEntries((prev) => [journalEntry, ...prev]);
     }
 
-    const cashPortion =
-      paymentMethod === 'CASH'
-        ? grandTotal
-        : paymentMethod === 'SPLIT'
-        ? Math.min(grandTotal, Math.max(0, Number(extraMeta?.splitCashAmount) || 0))
-        : 0;
-    const cardPortion = Math.max(0, Math.round((grandTotal - cashPortion) * 100) / 100);
-
     setCurrentShift((prev) =>
       applySaleToShift(prev, {
         grandTotal,
-        cashPortion,
-        cardPortion,
+        cashPortion: cashCollected,
+        cardPortion: cardCollected,
       })
     );
 
@@ -6395,7 +6845,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         module: 'POS',
         entityType: 'SalesInvoice',
         entityId: invoice.id,
-        details: `POS transaction ${invNumber} for ${grandTotal.toFixed(2)} ${currency} (${paymentMethod}) in [${activeIndustry}] mode.`,
+        details: `POS transaction ${invNumber} for ${grandTotal.toFixed(2)} ${currency} (${paymentMethod}, Paid: ${actualPaid.toFixed(2)}, Debt: ${remainingDebt.toFixed(2)}) in [${activeIndustry}] mode.`,
         timestamp: new Date().toISOString(),
       },
       ...prev,
@@ -6403,14 +6853,26 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     pushLiveNotification({
       category: 'LIVE_EVENTS',
-      severity: 'success',
-      titleAr: `فاتورة مبيعات جديدة (${invNumber})`,
-      titleEn: `New POS Sale (${invNumber})`,
-      messageAr: `تم إصدار الفاتورة للعميل (${resolvedCustomerName}) بمبلغ ${Math.round(grandTotal).toLocaleString('en-US')} ${currency} — ترحيل القيد المحاسبي تلقائياً.`,
-      messageEn: `Issued POS invoice ${invNumber} for ${Math.round(grandTotal)} ${currency}.`,
-      actionType: 'SALES',
-      actionLabelAr: 'عرض الفاتورة بالمبيعات ↗',
-      actionLabelEn: 'View in Sales ↗',
+      severity: remainingDebt > 0 ? 'warning' : 'success',
+      titleAr:
+        remainingDebt > 0
+          ? `فاتورة بمديونية متبقية (${invNumber})`
+          : `فاتورة مبيعات جديدة (${invNumber})`,
+      titleEn:
+        remainingDebt > 0
+          ? `POS Partial/Credit Sale (${invNumber})`
+          : `New POS Sale (${invNumber})`,
+      messageAr:
+        remainingDebt > 0
+          ? `تم إصدار الفاتورة للعميل (${resolvedCustomerName}) بمبلغ ${Math.round(grandTotal).toLocaleString('en-US')} ${currency} — المدفوع ${Math.round(actualPaid).toLocaleString('en-US')} ${currency} والمتبقي مديونية ${Math.round(remainingDebt).toLocaleString('en-US')} ${currency}.`
+          : `تم إصدار الفاتورة للعميل (${resolvedCustomerName}) بمبلغ ${Math.round(grandTotal).toLocaleString('en-US')} ${currency} — ترحيل القيد المحاسبي تلقائياً.`,
+      messageEn:
+        remainingDebt > 0
+          ? `Issued POS invoice ${invNumber} for ${Math.round(grandTotal)} ${currency} (Paid ${Math.round(actualPaid)}, Debt ${Math.round(remainingDebt)}).`
+          : `Issued POS invoice ${invNumber} for ${Math.round(grandTotal)} ${currency}.`,
+      actionType: remainingDebt > 0 ? 'DEBTS' : 'SALES',
+      actionLabelAr: remainingDebt > 0 ? 'عرض المديونيات والفواتير ↗' : 'عرض الفاتورة بالمبيعات ↗',
+      actionLabelEn: remainingDebt > 0 ? 'View Debt Ledger ↗' : 'View in Sales ↗',
     });
 
     clearPOSCart();
@@ -7826,6 +8288,275 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const setAutoDailyBackupEnabled = useCallback((enabled: boolean) => {
+    setAutoDailyBackupEnabledState(enabled);
+    try {
+      localStorage.setItem('haseb_auto_daily_backup_enabled', String(enabled));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const notifyAdminOfDailyBackup = useCallback(
+    (meta: DailyBackupMetadata) => {
+      if (!shouldNotifyAdminOfBackup(currentUser?.role, currentUser?.permissions?.canManageLicense)) {
+        return;
+      }
+      const dedupeKey = `${meta.filename}|${meta.createdAt.slice(0, 16)}`;
+      if (notifiedBackupIdsRef.current.has(dedupeKey)) return;
+      notifiedBackupIdsRef.current.add(dedupeKey);
+
+      pushLiveNotification({
+        id: `daily-bkp-${Date.now()}`,
+        category: 'LIVE_EVENTS',
+        severity: 'success',
+        titleAr: 'اكتمل النسخ الاحتياطي اليومي للنظام',
+        titleEn: 'Daily System Backup Complete',
+        messageAr: `تم إنشاء وحفظ النسخة الاحتياطية اليومية (${meta.filename}) بنجاح — الأصناف: ${meta.productsCount} • الفواتير: ${meta.invoicesCount}. يمكنك تنزيلها من الإعدادات.`,
+        messageEn: `Daily system backup (${meta.filename}) completed (${meta.productsCount} items, ${meta.invoicesCount} invoices). Download Backup is available in Settings.`,
+        actionType: 'BACKUP',
+        actionLabelAr: 'تنزيل النسخة الاحتياطية ↗',
+        actionLabelEn: 'Download Backup ↗',
+      });
+    },
+    [currentUser?.role, currentUser?.permissions?.canManageLicense, pushLiveNotification]
+  );
+
+  const runDailyBackupNow = useCallback(
+    async (trigger: 'AUTO' | 'MANUAL' = 'MANUAL'): Promise<DailyBackupMetadata | null> => {
+      if (dailyBackupInFlightRef.current) return null;
+      dailyBackupInFlightRef.current = true;
+      setIsRunningDailyBackup(true);
+      try {
+        const localArchive = buildDailyBackupArchivePayload({
+          tenantCode: currentTenant.code,
+          tenant: currentTenant,
+          company,
+          activeIndustry,
+          invoiceTemplateSettings,
+          branches,
+          warehouses,
+          products,
+          customers,
+          suppliers,
+          salesInvoices,
+          salesReturns,
+          warrantyTickets,
+          salesPipelineDocs,
+          purchaseOrders,
+          goodsReceipts,
+          journalEntries,
+          chartAccounts,
+          trigger: trigger === 'AUTO' ? 'AUTO_DAILY' : 'MANUAL',
+        });
+
+        let finalMeta: DailyBackupMetadata = {
+          filename: localArchive.filename,
+          createdAt: localArchive.createdAt,
+          sizeBytes: localArchive.sizeBytes,
+          trigger: trigger === 'AUTO' ? 'AUTO_DAILY' : 'MANUAL',
+          productsCount: localArchive.productsCount,
+          invoicesCount: localArchive.invoicesCount,
+          customersCount: localArchive.customersCount,
+          source: 'LOCAL',
+          jsonString: localArchive.jsonString,
+        };
+
+        try {
+          const res = await fetch('/api/v1/backups/run-now', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ trigger }),
+          });
+          if (res.ok) {
+            const json = await res.json();
+            if (json?.success && json?.created) {
+              finalMeta = {
+                ...finalMeta,
+                filename: json.created.filename || finalMeta.filename,
+                createdAt: json.created.createdAt || finalMeta.createdAt,
+                checksumSha256: json.created.checksumSha256,
+                source: 'SERVER',
+              };
+            }
+          }
+        } catch {
+          // Offline or client-only fallback already prepared cleanly
+        }
+
+        setLastAutoDailyBackupAt(finalMeta.createdAt);
+        try {
+          localStorage.setItem('haseb_last_auto_daily_backup_at', finalMeta.createdAt);
+        } catch {
+          // ignore
+        }
+        recordBackupCompleted(finalMeta.createdAt);
+        setLatestDailyBackupInfo(finalMeta);
+
+        setAuditLogs((prev) => [
+          {
+            id: `aud-daily-bkp-${Date.now()}`,
+            tenantId: currentTenant.id,
+            userId: currentUser.id,
+            userName: currentUser.name,
+            action:
+              trigger === 'AUTO' ? 'AUTOMATED_DAILY_SYSTEM_BACKUP' : 'MANUAL_SYSTEM_BACKUP',
+            module: 'SETTINGS',
+            entityType: 'SystemBackup',
+            entityId: finalMeta.checksumSha256 || finalMeta.filename,
+            details: `Completed ${trigger === 'AUTO' ? 'automated daily' : 'manual'} system backup (${finalMeta.filename}).`,
+            timestamp: finalMeta.createdAt,
+          },
+          ...prev,
+        ]);
+
+        notifyAdminOfDailyBackup(finalMeta);
+        return finalMeta;
+      } finally {
+        dailyBackupInFlightRef.current = false;
+        setIsRunningDailyBackup(false);
+      }
+    },
+    [
+      currentTenant,
+      company,
+      activeIndustry,
+      invoiceTemplateSettings,
+      branches,
+      warehouses,
+      products,
+      customers,
+      suppliers,
+      salesInvoices,
+      salesReturns,
+      warrantyTickets,
+      salesPipelineDocs,
+      purchaseOrders,
+      goodsReceipts,
+      journalEntries,
+      chartAccounts,
+      currentUser.id,
+      currentUser.name,
+      recordBackupCompleted,
+      notifyAdminOfDailyBackup,
+    ]
+  );
+
+  const downloadLatestDailyBackup = useCallback(() => {
+    const archive = buildDailyBackupArchivePayload({
+      tenantCode: currentTenant.code,
+      tenant: currentTenant,
+      company,
+      activeIndustry,
+      invoiceTemplateSettings,
+      branches,
+      warehouses,
+      products,
+      customers,
+      suppliers,
+      salesInvoices,
+      salesReturns,
+      warrantyTickets,
+      salesPipelineDocs,
+      purchaseOrders,
+      goodsReceipts,
+      journalEntries,
+      chartAccounts,
+      trigger: 'MANUAL',
+    });
+
+    const filename = latestDailyBackupInfo?.filename || archive.filename;
+    const jsonContent = latestDailyBackupInfo?.jsonString || archive.jsonString;
+    const sizeBytes = latestDailyBackupInfo?.sizeBytes || archive.sizeBytes;
+
+    try {
+      const blob = new Blob([jsonContent], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch {
+      // Fallback for non-DOM environments
+    }
+
+    recordBackupCompleted();
+    return {
+      success: true,
+      filename,
+      sizeBytes,
+    };
+  }, [
+    currentTenant,
+    company,
+    activeIndustry,
+    invoiceTemplateSettings,
+    branches,
+    warehouses,
+    products,
+    customers,
+    suppliers,
+    salesInvoices,
+    salesReturns,
+    warrantyTickets,
+    salesPipelineDocs,
+    purchaseOrders,
+    goodsReceipts,
+    journalEntries,
+    chartAccounts,
+    latestDailyBackupInfo,
+    recordBackupCompleted,
+  ]);
+
+  // Trigger automated daily system backup when due after login & every 60s check
+  useEffect(() => {
+    if (!isAuthenticated || !autoDailyBackupEnabled) return;
+
+    let startupTimer: ReturnType<typeof setTimeout> | null = null;
+    if (isDailyBackupDue(lastAutoDailyBackupAt, Date.now(), DAILY_BACKUP_INTERVAL_MS)) {
+      startupTimer = setTimeout(() => {
+        if (isHydratedRef.current && isDailyBackupDue(lastAutoDailyBackupAt)) {
+          runDailyBackupNow('AUTO');
+        }
+      }, 1500);
+    }
+
+    const periodicTimer = setInterval(() => {
+      if (isHydratedRef.current && isDailyBackupDue(lastAutoDailyBackupAt)) {
+        runDailyBackupNow('AUTO');
+      }
+    }, 60_000);
+
+    return () => {
+      if (startupTimer) clearTimeout(startupTimer);
+      clearInterval(periodicTimer);
+    };
+  }, [isAuthenticated, autoDailyBackupEnabled, lastAutoDailyBackupAt, runDailyBackupNow]);
+
+  // Listen to server SSE/WS broadcast when scheduled server backup completes
+  useEffect(() => {
+    const onServerDailyBackup = (ev: Event) => {
+      const bkp = (ev as CustomEvent)?.detail;
+      if (!bkp) return;
+      notifyAdminOfDailyBackup({
+        filename: bkp.filename || `haseb-backup-${new Date().toISOString().slice(0, 10)}.json`,
+        createdAt: bkp.createdAt || new Date().toISOString(),
+        sizeBytes: 0,
+        trigger: 'AUTO_DAILY',
+        checksumSha256: bkp.checksumSha256,
+        productsCount: products.length,
+        invoicesCount: salesInvoices.length,
+        customersCount: customers.length,
+        source: 'SERVER',
+      });
+    };
+    window.addEventListener('haseb-daily-backup-completed', onServerDailyBackup);
+    return () => window.removeEventListener('haseb-daily-backup-completed', onServerDailyBackup);
+  }, [notifyAdminOfDailyBackup, products.length, salesInvoices.length, customers.length]);
+
   // WhatsApp Multi-Account in-app operations
   const switchWhatsAppAccount = (accountId: string) => {
     const target = whatsappAccounts.find((a) => a.id === accountId);
@@ -8912,6 +9643,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         t,
         activeTab,
         setActiveTab,
+        requestedSettingsTab,
+        setRequestedSettingsTab,
         isSidebarCollapsed,
         setIsSidebarCollapsed,
         activeIndustry,
@@ -9043,6 +9776,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateProduct,
         deleteProduct,
         importBulkProductsCSV,
+        batchUpdateProducts,
         barcodes,
         generateBarcodeForProduct,
         traceabilityEvents,
@@ -9064,6 +9798,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         customers,
         addCustomer,
+        batchUpdateCustomers,
         recordCustomerPaymentReceipt,
         salesInvoices,
         addSalesInvoice,
@@ -9237,6 +9972,13 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         dispatchToastAndPushNotification,
         soundAlertPrefs,
         updateSoundAlertPrefs,
+        autoDailyBackupEnabled,
+        setAutoDailyBackupEnabled,
+        lastAutoDailyBackupAt,
+        latestDailyBackupInfo,
+        isRunningDailyBackup,
+        runDailyBackupNow,
+        downloadLatestDailyBackup,
       }}
     >
       {children}

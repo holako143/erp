@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useERP } from '../context/ERPContext';
 import {
   ShoppingCart,
@@ -43,6 +43,18 @@ export const PurchasingView: React.FC = () => {
   } = useERP();
 
   const [activeTab, setActiveTab] = useState<'orders' | 'grn_returns' | 'suppliers' | 'landedCost'>('orders');
+
+  useEffect(() => {
+    const onCmdNavigate = (ev: Event) => {
+      const item = (ev as CustomEvent)?.detail;
+      if (!item || item.targetModule !== 'purchasing') return;
+      if (item.targetSubTab && ['orders', 'grn_returns', 'suppliers', 'landedCost'].includes(item.targetSubTab)) {
+        setActiveTab(item.targetSubTab as any);
+      }
+    };
+    window.addEventListener('haseb-command-navigate', onCmdNavigate);
+    return () => window.removeEventListener('haseb-command-navigate', onCmdNavigate);
+  }, []);
   const [isNewPOModalOpen, setIsNewPOModalOpen] = useState(false);
   const [purchasingBanner, setPurchasingBanner] = useState<string | null>(null);
 

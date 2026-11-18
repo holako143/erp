@@ -1,9 +1,10 @@
 import React from 'react';
-import { Plus, Camera, Zap } from 'lucide-react';
+import { Plus, Camera, Zap, AlertTriangle } from 'lucide-react';
 import { Product } from '../../types/erp';
 import { getProductVisualIllustrationUri } from '../../core/inventoryEngine';
 import { formatCleanNumber } from '../../core/systemConfigEngine';
 import { useDoubleTapGesture } from '../common/MobileQuickActionsSheet';
+import { evaluatePosItemSafetyThresholdWarning } from '../../core/posStrictStockValidationService';
 
 export interface POSProductCardProps {
   product: Product;
@@ -46,6 +47,8 @@ export const POSProductCard: React.FC<POSProductCardProps> = React.memo(
 
     const visualImgSrc = displayMode === 'WITH_IMAGES' ? getProductVisualIllustrationUri(p) : '';
     const isInCart = inCartQuantity > 0;
+    const safetyMeta = evaluatePosItemSafetyThresholdWarning(p, inCartQuantity);
+    const isAddDisabled = safetyMeta.remainingAvailableStock <= 0;
 
     return (
       <div
@@ -215,25 +218,56 @@ export const POSProductCard: React.FC<POSProductCardProps> = React.memo(
             </div>
 
             <div className="flex items-center gap-1.5 shrink-0">
-              <span className="text-[9px] sm:text-[10px] text-slate-500">
+              {safetyMeta.showAmberWarningIcon && (
+                <span
+                  data-testid={`pos-card-safety-warning-${p.sku}`}
+                  title={safetyMeta.tooltipAr}
+                  className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-100 text-amber-700 border border-amber-300 shrink-0"
+                >
+                  <AlertTriangle className="w-3 h-3 text-amber-600" />
+                </span>
+              )}
+              <span
+                data-testid={`pos-card-stock-${p.sku}`}
+                className="text-[9px] sm:text-[10px] text-slate-500 flex items-center gap-1"
+              >
                 <span className="hidden xs:inline">المتوفر: </span>
                 <strong
                   className={`font-mono ${
-                    p.stockQty <= p.reorderPoint ? 'text-rose-600' : 'text-slate-700'
+                    p.stockQty <= 0 || inCartQuantity >= p.stockQty
+                      ? 'text-rose-600'
+                      : safetyMeta.showAmberWarningIcon
+                      ? 'text-amber-600'
+                      : 'text-slate-700'
                   }`}
                   dir="ltr"
                 >
                   {p.stockQty}
                 </strong>
+                {inCartQuantity >= p.stockQty && (
+                  <span
+                    data-testid={`pos-card-stock-max-badge-${p.sku}`}
+                    className="px-1 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[8px] font-bold"
+                  >
+                    {p.stockQty <= 0 ? 'نفد' : 'الحد الأقصى'}
+                  </span>
+                )}
               </span>
               <button
                 type="button"
+                data-testid={`pos-card-add-btn-${p.sku}`}
+                disabled={isAddDisabled}
+                aria-disabled={isAddDisabled}
                 onClick={(e) => {
                   e.stopPropagation();
                   onAddToCart(p);
                 }}
                 aria-label={`إضافة ${displayName} للسلة`}
-                className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl bg-slate-100 group-hover:bg-blue-600 text-slate-700 group-hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0 touch-manipulation"
+                className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl flex items-center justify-center transition-colors shrink-0 touch-manipulation ${
+                  isAddDisabled
+                    ? 'bg-rose-50 text-rose-400 border border-rose-200 cursor-not-allowed opacity-60'
+                    : 'bg-slate-100 group-hover:bg-blue-600 text-slate-700 group-hover:text-white cursor-pointer'
+                }`}
               >
                 <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               </button>

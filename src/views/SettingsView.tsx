@@ -61,6 +61,9 @@ import {
 import { useAlertSound } from '../hooks/useAlertSound';
 import { PWAInstallButton } from '../components/layout/PWAInstallBanner';
 import type { SystemReadinessReport } from '../core/installerEngine';
+import { computeNextDailyBackupIso } from '../core/backupSchedulerEngine';
+import { AiThemeAndPreviewStudio } from '../components/settings/AiThemeAndPreviewStudio';
+import { InvoiceTemplateManager } from '../components/invoices/InvoiceTemplateManager';
 
 export const SettingsView: React.FC = () => {
   const {
@@ -103,6 +106,15 @@ export const SettingsView: React.FC = () => {
     flushPendingSyncQueue,
     reloadStateFromServer,
     isServerSyncing,
+    autoDailyBackupEnabled,
+    setAutoDailyBackupEnabled,
+    lastAutoDailyBackupAt,
+    latestDailyBackupInfo,
+    isRunningDailyBackup,
+    runDailyBackupNow,
+    downloadLatestDailyBackup,
+    requestedSettingsTab,
+    setRequestedSettingsTab,
   } = useERP();
 
   const { playAlertSound, activeSoundProfile } = useAlertSound({
@@ -113,7 +125,7 @@ export const SettingsView: React.FC = () => {
   // Top-level tabs: central hub, templates, company profile, sound alerts, backup, system_setup
   const [activeSettingsTab, setActiveSettingsTab] = useState<
     'central_hub' | 'templates' | 'company' | 'sound_alerts' | 'backup' | 'system_setup'
-  >('central_hub');
+  >(() => requestedSettingsTab || 'central_hub');
 
   // Sub-segmented view inside the Central Branches & Warehouses Hub
   const [centralViewMode, setCentralViewMode] = useState<'hierarchy' | 'branches' | 'warehouses'>(
@@ -180,11 +192,24 @@ export const SettingsView: React.FC = () => {
   const [customFooter, setCustomFooter] = useState(invoiceTemplateSettings.footerNoteAr);
 
   React.useEffect(() => {
-    const handler = () => {
+    if (requestedSettingsTab) {
+      setActiveSettingsTab(requestedSettingsTab);
+    }
+  }, [requestedSettingsTab]);
+
+  React.useEffect(() => {
+    const openStudio = () => {
       setActiveSettingsTab('templates');
     };
-    window.addEventListener('haseb-open-invoice-studio', handler);
-    return () => window.removeEventListener('haseb-open-invoice-studio', handler);
+    const openBackup = () => {
+      setActiveSettingsTab('backup');
+    };
+    window.addEventListener('haseb-open-invoice-studio', openStudio);
+    window.addEventListener('haseb-open-backup-tab', openBackup);
+    return () => {
+      window.removeEventListener('haseb-open-invoice-studio', openStudio);
+      window.removeEventListener('haseb-open-backup-tab', openBackup);
+    };
   }, []);
 
   // Disaster recovery & server scheduled auto-backup state
@@ -465,50 +490,50 @@ export const SettingsView: React.FC = () => {
   }[] = [
     {
       id: 'thermal_80mm_onyx_pos',
-      titleAr: 'قالب الكاشير التجاري المعتمد — النموذج اليمني 80mm',
-      descAr: 'تصميم رسمي بشعار وهوية منشأتك الخاصة لمعارض الطاقة الشمسية والتجارة مع تفقيط وباركود وQR.',
-      categoryBadge: 'النموذج اليمني (الأشهر)',
+      titleAr: 'إيصال المبيعات التنفيذي المعتمد 80mm (Executive POS Pro)',
+      descAr: 'تصميم محاسبي تنفيذي متناغم مع ثيم النظام بشعار منشأتك مع التفقيط ووحدة التحقق (QR + باركود).',
+      categoryBadge: 'الإصدار التنفيذي (الأشهر)',
       paperWidth: '80mm',
     },
     {
       id: 'thermal_80mm_standard',
-      titleAr: 'قالب كاشير قياسي 80mm',
-      descAr: 'تصميم تقليدي متين لمعارض التجزئة والتجارة مع باركود ورمز QR ضريبي مباشر.',
+      titleAr: 'الإيصال الضريبي القياسي الموحد 80mm (Standard Tax Receipt)',
+      descAr: 'تصميم رسمي واضح لمعارض التجزئة والتجارة مع باركود ورمز QR ضريبي مباشر.',
       categoryBadge: 'تجزئة وتجارة عامة',
       paperWidth: '80mm',
     },
     {
       id: 'thermal_80mm_warranty',
-      titleAr: 'قالب إلكترونيات وطاقة شمسية وضمان 80mm',
-      descAr: 'يتضمن تفقيط الأرقام التسلسلية (S/N / IMEI) وفترة الضمان بالأشهر وشروط صيانة الوكيل.',
+      titleAr: 'إيصال الضمان والأرقام التسلسلية 80mm (Serial & Warranty)',
+      descAr: 'يتضمن إظهار الأرقام التسلسلية (S/N / IMEI) وفترة الضمان بالأشهر وشروط صيانة الوكيل.',
       categoryBadge: 'إلكترونيات وطاقة شمسية',
       paperWidth: '80mm',
     },
     {
       id: 'thermal_80mm_modern',
-      titleAr: 'قالب عصري رقمي 80mm (Modern Digital)',
-      descAr: 'تصميم بلمسات تدرج كحلي حديث، بطاقات أصناف مفصولة، ووضوح فائق لكاشير المعارض الحديثة.',
+      titleAr: 'إيصال الهوية البصرية الرقمي 80mm (Modern Brand Identity)',
+      descAr: 'تصميم عصري يتفاعل مع ألوان الثيم العام، بطاقات أصناف مفصولة، ووضوح فائق للمعارض الحديثة.',
       categoryBadge: 'معارض راقية وماركات',
       paperWidth: '80mm',
     },
     {
       id: 'thermal_80mm_minimal',
-      titleAr: 'قالب مينيمل نقي 80mm (Minimalist Clean)',
+      titleAr: 'الإيصال السويسري الموفّر للحبر 80mm (Swiss Eco Minimal)',
       descAr: 'تنسيق طباعي مقتصد بالحبر، فواصل هادئة غير صاخبة، سرعة طباعة قصوى وتوفير للورق.',
-      categoryBadge: 'بوتيك وتوفير ورق',
+      categoryBadge: 'توفير ورق وحبر',
       paperWidth: '80mm',
     },
     {
       id: 'thermal_80mm_restaurant',
-      titleAr: 'قالب مطاعم وكافيهات 80mm (Restaurant & Bar)',
-      descAr: 'إبراز رقم الطاولة وحالة الطلب (محلي / سفري) مع مساحة مخصصة لملاحظات المطبخ.',
+      titleAr: 'إيصال الضيافة والمطاعم 80mm (Hospitality & Dining)',
+      descAr: 'إبراز رقم الطاولة وحالة الطلب (محلي / سفري) مع مساحة مخصصة لملاحظات التحضير.',
       categoryBadge: 'مطاعم وكافيهات',
       paperWidth: '80mm',
     },
     {
       id: 'thermal_58mm_compact',
-      titleAr: 'قالب كاشير مضغوط 58mm (Ultra Compact)',
-      descAr: 'مخصص لطابعات البلوتوث والمحمولة وطابعات إكسسوارات الجوال 58mm.',
+      titleAr: 'الإيصال المدمج للطابعات المحمولة 58mm (Compact Mobile)',
+      descAr: 'مخصص لطابعات البلوتوث المحمولة ونقاط التوزيع الميدانية بمقاس 58mm.',
       categoryBadge: 'طابعات 58mm محمولة',
       paperWidth: '58mm',
     },
@@ -522,51 +547,57 @@ export const SettingsView: React.FC = () => {
   }[] = [
     {
       id: 'a4_onyx_yemen',
-      titleAr: 'الفاتورة التجارية والضريبية المعتمدة — النموذج اليمني الرسمي A4',
-      descAr: 'التصميم الرسمي الأشهر في اليمن بترويسة مزدوجة تحوي شعار وهوية منشأتك، تفقيط المبلغ، والحسابات البنكية.',
-      badgeAr: 'النموذج اليمني (الأشهر)',
+      titleAr: 'القالب التنفيذي الرسمي المعتمد A4 (Executive Commercial Pro)',
+      descAr: 'التصميم التنفيذي الرسمي المتناغم مع الثيم العام، بترويسة مزدوجة، تفقيط المبلغ، ووحدة تحقق متكاملة (الباركود أسفل الـ QR).',
+      badgeAr: 'القالب التنفيذي المعتمد',
     },
     {
       id: 'a4_global_sap_odoo',
-      titleAr: 'الفاتورة التجارية العالمية الموحدة (International B2B A4)',
-      descAr: 'قالب دولي ثنائي اللغة (عربي/إنجليزي) بشعار منشأتك الخاص مع باركود Code-128 وQR.',
-      badgeAr: 'نموذج دولي موحد',
+      titleAr: 'القالب الضريبي المؤسسي للشركات A4 (Enterprise Tax B2B)',
+      descAr: 'مستند ضريبي دولي ثنائي اللغة (عربي/إنجليزي) للشركات والتوريدات الكبرى مع وحدة تحقق QR وباركود Code-128.',
+      badgeAr: 'نموذج دولي للشركات',
     },
     {
       id: 'a4_corporate_classic',
-      titleAr: 'فاتورة الشركات والمؤسسات الرسمية (Corporate Classic A4)',
-      descAr: 'تصميم مصرفي وقانوني للشركات B2B وتوريدات الجملة مع جداول محاسبية وختم معتمد.',
+      titleAr: 'القالب التجاري الكلاسيكي الرصين A4 (Classic Corporate)',
+      descAr: 'تصميم مصرفي ومحاسبي رصين للشركات وتوريدات الجملة مع جداول متكيفة مع الثيم وختم رسمي معتمد.',
       badgeAr: 'توريد وشركات B2B',
     },
     {
       id: 'a4_warranty_electronics',
-      titleAr: 'فاتورة + شهادة ضمان معتمدة للأجهزة والطاقة الشمسية (Warranty A4)',
-      descAr: 'تدمج الفاتورة الضريبية مع وثيقة ضمان رسمية وجدول السيريال وشروط استبدال الوكيل للألواح والإنفرترات.',
+      titleAr: 'وثيقة المبيعات وشهادة الضمان المعتمدة A4 (Warranty & S/N Certificate)',
+      descAr: 'تدمج الفاتورة الضريبية مع شهادة ضمان رسمية وجدول الأرقام التسلسلية (S/N) وشروط صيانة الوكيل.',
       badgeAr: 'طاقة شمسية وإلكترونيات',
     },
     {
       id: 'a4_modern_blue',
-      titleAr: 'فاتورة ضريبية عصرية ملونة (Modern Blue A4)',
-      descAr: 'ترويسة تقنية احترافية بتدرجات الأزرق والكحلي مع هوية بصرية أنيقة للمؤسسات المعاصرة.',
-      badgeAr: 'عصرية ملونة',
+      titleAr: 'قالب الهوية البصرية المتدرج A4 (Royal Brand Gradient)',
+      descAr: 'ترويسة احترافية متدرجة تتفاعل مع ألوان الثيم العام وهوية المنشأة بأسلوب عصري أنيق.',
+      badgeAr: 'هوية بصرية متدرجة',
     },
     {
       id: 'a4_contracting_specs',
-      titleAr: 'فاتورة مستخلصات مقاولات وتوريدات هندسية (Contracting Specs A4)',
+      titleAr: 'فاتورة المستخلصات والتوريدات الهندسية A4 (Engineering & Contracting)',
       descAr: 'مخصصة لمستخلصات المشاريع الهندسية، مواصفات المواد، والمطابقة لمعايير الجودة والسلامة.',
       badgeAr: 'مقاولات ومشاريع',
     },
     {
       id: 'a4_medical_pharmacy',
-      titleAr: 'فاتورة توريد طبي وصيدلاني وتشغيلات (FEFO Medical A4)',
-      descAr: 'تتضمن تتبع أرقام التشغيلات (Batch/Lot) وتواريخ الصلاحية للامتثال لهيئة الغذاء والدواء.',
-      badgeAr: 'طبي وصيدلاني',
+      titleAr: 'فاتورة التوريد الطبي والدوائي A4 (Medical & Batch FEFO)',
+      descAr: 'تتضمن تتبع أرقام التشغيلات (Batch/Lot) وتواريخ الصلاحية للامتثال لمعايير المستودعات الطبية والغذائية.',
+      badgeAr: 'طبي وصيدلاني FEFO',
     },
     {
       id: 'a4_minimalist_clean',
-      titleAr: 'فاتورة مينيمل فائقة النقاء (Minimalist Clean A4)',
-      descAr: 'تصميم سويسري خالٍ من الحشو البصري، خطوط نقية وأناقة تحريرية تناسب الاستشارات والمصممين.',
-      badgeAr: 'مينيمل سويسري',
+      titleAr: 'القالب النقي السويسري الموفّر للحبر A4 (Swiss Clean Print)',
+      descAr: 'تصميم سويسري فائق النقاء بدون تظليل ثقيل، مثالي للطابعات المكتبية الليزرية وتوفير الحبر.',
+      badgeAr: 'سويسري موفّر للحبر',
+    },
+    {
+      id: 'a4_executive_grid_pro',
+      titleAr: 'القالب الشبكي التنفيذي المتقدم A4 (Executive Grid Pro & Signature)',
+      descAr: 'تصميم شبكي عصري (Grid-based) يتكيف تلقائياً مع ألوان الثيم العام، ينظم تفاصيل الشركة والباركود والتوقيع الرقمي.',
+      badgeAr: 'شبكي تنفيذي متقدم',
     },
   ];
 
@@ -613,6 +644,9 @@ export const SettingsView: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      {/* AI Color Theme Generator (Gemini API) & Real-Time Workspace Preview Card */}
+      <AiThemeAndPreviewStudio />
+
       {/* ====================================================================
           TOP CENTRAL CONTROL BAR & KPI METRICS
       ==================================================================== */}
@@ -797,7 +831,10 @@ export const SettingsView: React.FC = () => {
               key={tab.id}
               type="button"
               data-testid={`settings-tab-${tab.id}`}
-              onClick={() => setActiveSettingsTab(tab.id as any)}
+              onClick={() => {
+                setActiveSettingsTab(tab.id as any);
+                if (requestedSettingsTab) setRequestedSettingsTab(null);
+              }}
               className={`flex items-center gap-2 px-4 py-2 rounded-full border text-xs transition cursor-pointer ${
                 isActive
                   ? 'haseb-nav-active text-white font-semibold shadow-2xs'
@@ -1395,7 +1432,10 @@ export const SettingsView: React.FC = () => {
           TAB 2: INTERACTIVE INVOICE & WARRANTY STUDIO (7 Thermal + 8 A4 + 21 Controls)
       ==================================================================== */}
       {activeSettingsTab === 'templates' && (
-        <div className="space-y-4">
+        <div className="space-y-5">
+          {/* Drag-and-Drop Grid Invoice Template Manager (A4 & Thermal Library + Customizer) */}
+          <InvoiceTemplateManager sampleInvoice={sampleInvoice} />
+
           {/* Mobile Sub-Pane Switcher (Editor vs Live Preview) */}
           <div className="xl:hidden bg-white dark:bg-slate-900 p-2 rounded-2xl border border-slate-200 dark:border-slate-800 grid grid-cols-2 gap-1.5 sticky top-2 z-20 shadow-sm">
             <button
@@ -2484,6 +2524,148 @@ export const SettingsView: React.FC = () => {
             </div>
           )}
 
+          {/* Automated Daily System Backup & Direct Download Backup Option */}
+          <div
+            data-testid="settings-daily-backup-card"
+            className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 space-y-3"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                  <h4 className="text-xs font-extrabold text-slate-900 dark:text-slate-100">
+                    {language === 'ar'
+                      ? 'النسخ الاحتياطي اليومي التلقائي وتنزيل النسخة (Automated Daily Backup)'
+                      : 'Automated Daily System Backup & Download'}
+                  </h4>
+                  <span
+                    data-testid="settings-daily-backup-status"
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      autoDailyBackupEnabled
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300'
+                        : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    {autoDailyBackupEnabled
+                      ? language === 'ar'
+                        ? 'مفعّل يومياً'
+                        : 'Daily Active'
+                      : language === 'ar'
+                      ? 'متوقف'
+                      : 'Paused'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  {language === 'ar'
+                    ? 'يقوم النظام بأخذ نسخة احتياطية كاملة يومياً بشكل تلقائي وإشعار المدير عبر رسالة منبثقة فور الاكتمال.'
+                    : 'Automatically creates a full system backup every 24 hours and notifies the administrator via toast upon completion.'}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                data-testid="settings-daily-backup-toggle"
+                onClick={() => setAutoDailyBackupEnabled(!autoDailyBackupEnabled)}
+                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition cursor-pointer ${
+                  autoDailyBackupEnabled
+                    ? 'bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700'
+                    : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
+                }`}
+              >
+                {autoDailyBackupEnabled
+                  ? language === 'ar'
+                    ? 'الجدول اليومي: مفعّل ✓'
+                    : 'Auto Daily: ON'
+                  : language === 'ar'
+                  ? 'الجدول اليومي: متوقف'
+                  : 'Auto Daily: OFF'}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200/80 dark:border-slate-700">
+              <div>
+                <span className="text-slate-400">
+                  {language === 'ar' ? 'آخر نسخة يومية:' : 'Last Daily Backup:'}
+                </span>{' '}
+                <span className="font-mono font-bold text-slate-800 dark:text-slate-200" dir="ltr">
+                  {lastAutoDailyBackupAt
+                    ? new Date(lastAutoDailyBackupAt).toLocaleString('en-GB')
+                    : language === 'ar'
+                    ? 'قيد الانتظار'
+                    : 'Pending'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400">
+                  {language === 'ar' ? 'النسخة المجدولة القادمة:' : 'Next Scheduled Backup:'}
+                </span>{' '}
+                <span className="font-mono font-bold text-slate-800 dark:text-slate-200" dir="ltr">
+                  {autoDailyBackupEnabled
+                    ? new Date(computeNextDailyBackupIso(lastAutoDailyBackupAt)).toLocaleString('en-GB')
+                    : '—'}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                data-testid="settings-download-backup-btn"
+                aria-label="Download Backup"
+                onClick={() => {
+                  const res = downloadLatestDailyBackup();
+                  if (res.success) {
+                    setRestoreFeedback(
+                      language === 'ar'
+                        ? `✓ تم تنزيل النسخة الاحتياطية (${res.filename}) بنجاح (${(res.sizeBytes / 1024).toFixed(1)} KB).`
+                        : `✓ Downloaded backup (${res.filename}) successfully (${(res.sizeBytes / 1024).toFixed(1)} KB).`
+                    );
+                  }
+                }}
+                className="w-full py-2.5 px-4 haseb-btn-primary text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-xs"
+              >
+                <Download className="w-4 h-4 shrink-0" />
+                <span>
+                  {language === 'ar' ? 'تنزيل النسخة الاحتياطية (Download Backup)' : 'Download Backup'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                data-testid="settings-run-daily-backup-btn"
+                disabled={isRunningDailyBackup}
+                onClick={async () => {
+                  const created = await runDailyBackupNow('MANUAL');
+                  await loadServerBackupsStatus();
+                  if (created) {
+                    setRestoreFeedback(
+                      language === 'ar'
+                        ? `✓ اكتمل النسخ الاحتياطي (${created.filename}) وتم إرسال إشعار للمدير.`
+                        : `✓ Backup completed (${created.filename}) and administrator notified.`
+                    );
+                  }
+                }}
+                className="w-full py-2.5 px-4 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 ${isRunningDailyBackup ? 'animate-spin' : ''}`} />
+                <span>
+                  {language === 'ar'
+                    ? 'تشغيل النسخ اليومي الآن وإشعار المدير'
+                    : 'Run Daily Backup Now'}
+                </span>
+              </button>
+            </div>
+
+            {latestDailyBackupInfo && (
+              <div className="text-[10.5px] font-mono text-slate-500 dark:text-slate-400 flex flex-wrap items-center justify-between gap-2 pt-1">
+                <span dir="ltr">{latestDailyBackupInfo.filename}</span>
+                <span>
+                  {latestDailyBackupInfo.productsCount} صنف • {latestDailyBackupInfo.invoicesCount} فاتورة • {latestDailyBackupInfo.customersCount} عميل
+                </span>
+              </div>
+            )}
+          </div>
+
           <div className="p-4 rounded-xl haseb-card-gradient text-white border border-slate-700/40 space-y-3 shadow-xs">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -2891,7 +3073,22 @@ export const SettingsView: React.FC = () => {
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
+              <a
+                href="/api/v1/installer/windows-setup.exe"
+                download="Haseb_ERP_Setup_Offline.exe"
+                data-testid="settings-download-windows-exe-btn"
+                className="py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer whitespace-nowrap shadow-xs"
+              >
+                <Download className="w-4 h-4 text-emerald-100 shrink-0" />
+                <span className="truncate">
+                  مثبت Windows مباشر (.exe)
+                  {systemReadiness?.exeInstallerSizeMb
+                    ? ` (${systemReadiness.exeInstallerSizeMb} MB)`
+                    : ''}
+                </span>
+              </a>
+
               <a
                 href="/api/v1/installer/portable-bundle.zip"
                 download="Haseb_ERP_Portable_Offline_Bundle.zip"
@@ -2926,7 +3123,11 @@ export const SettingsView: React.FC = () => {
             </div>
 
             <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
-              توجد نسخ المثبت أيضاً في مجلد النظام الرئيسي باسم{' '}
+              ملف{' '}
+              <code className="font-mono font-bold text-emerald-700 dark:text-emerald-400" dir="ltr">
+                Haseb_ERP_Setup_Offline.exe
+              </code>{' '}
+              يعمل فوراً على أي جهاز Windows 64-bit بدون تثبيت Node.js أو تحميل ملفات؛ كما توجد نسخ السكربتات باسم{' '}
               <code className="font-mono font-bold text-slate-900 dark:text-slate-100" dir="ltr">
                 installer_windows.bat
               </code>{' '}
@@ -2934,7 +3135,7 @@ export const SettingsView: React.FC = () => {
               <code className="font-mono font-bold text-slate-900 dark:text-slate-100" dir="ltr">
                 installer_linux_mac.sh
               </code>
-              . عند تشغيل المثبت على Windows يطلب صلاحيات المسؤول تلقائياً ويفتح منافذ جدار الحماية (3000، 3443، 5037) ويشغّل جسر USB بدون تحميل أي ملفات إضافية.
+              . عند التشغيل يفتح جدار الحماية للمنافذ (3000، 3443، 5037) وينشئ اختصار سطح المكتب ويشغّل جسر USB تلقائياً.
             </div>
           </div>
 
@@ -2985,10 +3186,10 @@ export const SettingsView: React.FC = () => {
                 className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 tabular-nums text-xs"
               >
                 <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-1">
-                  <div className="text-[11px] text-slate-500">حزمة التشغيل الصفرية (Offline Bundle)</div>
-                  <div className="font-bold text-slate-900 dark:text-slate-100 font-mono">
-                    dist: {systemReadiness.distReady ? 'جاهز ✓' : 'غير مبني'} · bundle:{' '}
-                    {systemReadiness.bundleReady ? 'جاهز ✓' : 'غير مبني'}
+                  <div className="text-[11px] text-slate-500">حزمة التشغيل الصفرية وملف التسطيب</div>
+                  <div className="font-bold text-slate-900 dark:text-slate-100 font-mono text-[11px]">
+                    EXE: {systemReadiness.exeInstallerReady ? `جاهز ✓ (${systemReadiness.exeInstallerSizeMb ?? ''}MB)` : 'غير مبني'} · dist:{' '}
+                    {systemReadiness.distReady ? '✓' : '×'} · bundle: {systemReadiness.bundleReady ? '✓' : '×'}
                   </div>
                 </div>
 
