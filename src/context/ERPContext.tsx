@@ -4143,6 +4143,22 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
             if (typeof msg?.dbRevision !== 'number') return;
 
+            if (msg.type === 'erp:domain_events' && Array.isArray(msg.events)) {
+              window.dispatchEvent(
+                new CustomEvent('haseb-domain-events', {
+                  detail: {
+                    dbRevision: msg.dbRevision,
+                    commandId: msg.commandId,
+                    events: msg.events,
+                  },
+                })
+              );
+              if (msg.dbRevision > localRevisionRef.current) {
+                catchUpFromServer(msg.dbRevision, msg.originClientId);
+              }
+              return;
+            }
+
             if (msg.type === 'erp:hello') {
               if (Array.isArray(msg.devices)) {
                 setConnectedLanDevices(

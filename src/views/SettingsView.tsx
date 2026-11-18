@@ -250,14 +250,44 @@ export const SettingsView: React.FC = () => {
   const [serverBackupsList, setServerBackupsList] = useState<ServerBackupMetadata[]>([]);
   const [isBackupBusy, setIsBackupBusy] = useState(false);
   const [confirmRestoreFilename, setConfirmRestoreFilename] = useState<string | null>(null);
+  const [auditChainStatus, setAuditChainStatus] = useState<{
+    valid: boolean;
+    totalEntries: number;
+    brokenAtSequence?: number;
+    reason?: string;
+    recentEntries: Array<{
+      seq: number;
+      timestampIso: string;
+      actor: string;
+      category: string;
+      action: string;
+      entryHash: string;
+    }>;
+  } | null>(null);
 
   const loadServerBackupsStatus = React.useCallback(async () => {
     try {
-      const res = await fetch('/api/v1/backups/status');
-      if (!res.ok) return;
-      const json = await res.json();
-      if (json?.config) setServerBackupConfig(json.config);
-      if (Array.isArray(json?.backups)) setServerBackupsList(json.backups);
+      const [bkpRes, audRes] = await Promise.all([
+        fetch('/api/v1/backups/status'),
+        fetch('/api/v1/security/audit-chain'),
+      ]);
+      if (bkpRes.ok) {
+        const json = await bkpRes.json();
+        if (json?.config) setServerBackupConfig(json.config);
+        if (Array.isArray(json?.backups)) setServerBackupsList(json.backups);
+      }
+      if (audRes.ok) {
+        const audJson = await audRes.json();
+        if (audJson?.integrity) {
+          setAuditChainStatus({
+            valid: Boolean(audJson.integrity.valid ?? audJson.integrity.intact),
+            totalEntries: Number(audJson.integrity.totalEntries) || 0,
+            brokenAtSequence: audJson.integrity.brokenAtSequence,
+            reason: audJson.integrity.reason,
+            recentEntries: Array.isArray(audJson.entries) ? audJson.entries.slice(-5).reverse() : [],
+          });
+        }
+      }
     } catch {
       // ignore offline
     }
@@ -453,8 +483,37 @@ export const SettingsView: React.FC = () => {
     setTimeout(() => setSavedSuccess(false), 3000);
   };
 
-  // Backup Export Handlers
-  const handleExportEncryptedSnapshot = () => {
+  // Backup Export Handlers (Server AES-256-GCM V2 with local fallback)
+  const handleExportEncryptedSnapshot = async () => {
+    try {
+      const res = await fetch('/api/v1/backups/create-encrypted', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ passphrase: snapshotPassphrase }),
+      });
+      const json = await res.json().catch(() => null);
+      if (res.ok && json?.success && json.envelope) {
+        const blob = new Blob([JSON.stringify(json.envelope, null, 2)], {
+          type: 'application/json',
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = json.filename || `haseb-backup-encrypted-${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        await loadServerBackupsStatus();
+        showBanner(
+          `تم إنشاء وتنزيل النسخة المشفرة بمعيار AES-256-GCM (${json.filename}) بنجاح! البصمة: ${String(
+            json.envelope.plaintextSha256 || ''
+          ).slice(0, 16)}...`,
+          'success'
+        );
+        return;
+      }
+    } catch {
+      // Fallback to local snapshot when offline
+    }
     const { jsonString, filename, snapshot } = exportEncryptedDatabaseSnapshot(snapshotPassphrase);
     const blob = new Blob([jsonString], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -2703,17 +2762,18 @@ export const SettingsView: React.FC = () => {
                 </span>
               </div>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-200 border border-emerald-400/30">
-                RLM-STREAM-256 + HMAC
+                AES-256-GCM + SCRYPT + SHA-256
               </span>
             </div>
 
             <div className="space-y-1.5">
               <label className="block text-[11px] text-slate-200 font-semibold flex items-center gap-1.5">
                 <KeyRound className="w-3.5 h-3.5 text-amber-300" />
-                <span>مفتاح التشفير وفك التشفير الخاص بالمنشأة:</span>
+                <span>مفتاح التشفير وفك التشفير الخاص بالمنشأة (AES-256-GCM Passphrase):</span>
               </label>
               <input
                 type="text"
+                data-testid="encrypted-backup-passphrase-input"
                 value={snapshotPassphrase}
                 onChange={(e) => setSnapshotPassphrase(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg bg-slate-950/60 border border-slate-600/60 text-xs font-mono text-emerald-200 outline-hidden"
@@ -2723,11 +2783,12 @@ export const SettingsView: React.FC = () => {
 
             <button
               type="button"
+              data-testid="btn-export-encrypted-backup"
               onClick={handleExportEncryptedSnapshot}
               className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-xs"
             >
               <Lock className="w-4 h-4" />
-              <span>تنزيل لقطة قاعدة البيانات المشفرة (.enc.json)</span>
+              <span>تنزيل نسخة احتياطية مشفرة بمعيار AES-256-GCM (.json)</span>
             </button>
           </div>
 
@@ -2755,7 +2816,7 @@ export const SettingsView: React.FC = () => {
 
             <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-2">
               <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                استيراد واستعادة لقطة مشفرة أو نسخة احتياطية
+                استيراد واستعادة لقطة مشفرة (AES-256-GCM) أو نسخة احتياطية (مع أخذ نسخة أمان تلقائية قبل الاستعادة)
               </div>
               <input
                 type="file"
@@ -2768,15 +2829,22 @@ export const SettingsView: React.FC = () => {
                     const text = String(reader.result || '');
                     try {
                       const parsed = JSON.parse(text);
-                      if (parsed?.backupFormat === 'HASEB-SERVER-BACKUP-V1') {
+                      if (
+                        parsed?.backupFormat === 'HASEB-ENCRYPTED-BACKUP-V2' ||
+                        parsed?.backupFormat === 'HASEB-SERVER-BACKUP-V1'
+                      ) {
                         const r = await fetch('/api/v1/backups/restore', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ payload: parsed }),
+                          body: JSON.stringify({
+                            payload: parsed,
+                            passphrase: snapshotPassphrase,
+                          }),
                         });
                         const j = await r.json();
                         if (j?.success) {
                           await reloadStateFromServer();
+                          await loadServerBackupsStatus();
                         }
                         setRestoreFeedback(j?.messageAr || 'تمت الاستعادة بنجاح');
                         return;
@@ -2790,6 +2858,51 @@ export const SettingsView: React.FC = () => {
                 className="w-full text-xs text-slate-600 dark:text-slate-300 file:me-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-indigo-600 file:text-white hover:file:bg-indigo-700 cursor-pointer"
               />
             </div>
+
+            {/* Tamper-Evident SHA-256 Audit Chain Integrity Panel */}
+            {auditChainStatus && (
+              <div
+                data-testid="audit-chain-verification-panel"
+                className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700 space-y-2"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                      سجل التدقيق المتسلسل غير القابل للتعديل (Tamper-Evident SHA-256 Audit Chain)
+                    </span>
+                  </div>
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
+                      auditChainStatus.valid
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                        : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                    }`}
+                  >
+                    {auditChainStatus.valid
+                      ? `CHAIN INTACT ✓ (${auditChainStatus.totalEntries} كتلة موقعة)`
+                      : `TAMPER DETECTED AT #${auditChainStatus.brokenAtSequence}`}
+                  </span>
+                </div>
+                {auditChainStatus.recentEntries.length > 0 && (
+                  <div className="space-y-1 pt-1">
+                    {auditChainStatus.recentEntries.slice(0, 3).map((entry) => (
+                      <div
+                        key={entry.seq}
+                        className="flex items-center justify-between text-[10.5px] font-mono bg-white dark:bg-slate-800/80 px-2.5 py-1 rounded border border-slate-200/70 dark:border-slate-700/70"
+                      >
+                        <span className="font-bold text-slate-700 dark:text-slate-200">
+                          #{entry.seq} [{entry.category}] {entry.action}
+                        </span>
+                        <span className="text-slate-400" dir="ltr">
+                          SHA256: {entry.entryHash.slice(0, 14)}...
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Scheduled Server Auto-Backup & One-Click Restore */}
             <div
