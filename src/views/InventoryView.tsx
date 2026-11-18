@@ -44,6 +44,7 @@ import {
   AlertTriangle,
   Brain,
   Image as ImageIcon,
+  QrCode,
 } from 'lucide-react';
 import type { ScannedBatchItem } from '../components/common/CameraBarcodeScannerModal';
 import { WorkspaceTabResizerBar } from '../components/common/WorkspaceTabResizerBar';
@@ -87,6 +88,11 @@ const InventoryDemandForecastPanel = lazy(
 );
 const InventoryAdvancedSuitePanel = lazy(
   () => import('../components/inventory/InventoryAdvancedSuitePanel')
+);
+const InventoryQRLabelModal = lazy(() =>
+  import('../components/inventory/InventoryQRLabelModal').then((m) => ({
+    default: m.InventoryQRLabelModal,
+  }))
 );
 
 const InventoryModalLoadingFallback: React.FC = () =>
@@ -136,6 +142,8 @@ export const InventoryView: React.FC = React.memo(() => {
     'ITEMS' | 'STOCK_TAKING' | 'BRANCH_TRANSFERS' | 'AI_FORECAST' | 'ADVANCED_SUITE'
   >('ITEMS');
   const [transferFeedback, setTransferFeedback] = useState<string | null>(null);
+  const [isQrModalOpen, setIsQrModalOpen] = useState<boolean>(false);
+  const [qrModalTargetProductId, setQrModalTargetProductId] = useState<string | null>(null);
 
   // Interactive Recharts Mini-Dashboard State
   const [isMiniDashboardOpen, setIsMiniDashboardOpen] = useState<boolean>(true);
@@ -795,6 +803,11 @@ export const InventoryView: React.FC = React.memo(() => {
     [formatCurrency]
   );
 
+  const handleOpenQrGenerator = useCallback((p?: Product) => {
+    setQrModalTargetProductId(p?.id || null);
+    setIsQrModalOpen(true);
+  }, []);
+
   const handleSelectInvQuickAction = useCallback(
     (action: MobileQuickActionDescriptor, target: MobileQuickActionTarget) => {
       const matchedProduct = products.find(
@@ -806,6 +819,8 @@ export const InventoryView: React.FC = React.memo(() => {
         handleSellInPos(matchedProduct);
       } else if (action.id === 'inv-prod-edit') {
         handleOpenEditModal(matchedProduct);
+      } else if (action.id === 'inv-prod-qr-label') {
+        handleOpenQrGenerator(matchedProduct);
       } else if (action.id === 'inv-prod-stock-inc') {
         handleQuickStockStep(matchedProduct, 1);
       } else if (action.id === 'inv-prod-stock-take') {
@@ -820,6 +835,7 @@ export const InventoryView: React.FC = React.memo(() => {
       products,
       handleSellInPos,
       handleOpenEditModal,
+      handleOpenQrGenerator,
       handleQuickStockStep,
       handleGoToStockTake,
       handleProbeCrossBranch,
@@ -1248,6 +1264,16 @@ export const InventoryView: React.FC = React.memo(() => {
 
             <button
               type="button"
+              data-testid="open-batch-qr-labels-btn"
+              onClick={() => handleOpenQrGenerator()}
+              className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/90 text-xs font-semibold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <QrCode className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+              <span>طباعة ملصقات QR</span>
+            </button>
+
+            <button
+              type="button"
               data-testid="btn-toggle-inventory-mini-dashboard"
               onClick={() => setIsMiniDashboardOpen((prev) => !prev)}
               className={`text-xs font-semibold px-3.5 py-2 rounded-xl border transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${
@@ -1579,6 +1605,7 @@ export const InventoryView: React.FC = React.memo(() => {
                         onProbeCrossBranch={handleProbeCrossBranch}
                         onDeleteProduct={handleDeleteProduct}
                         onOpenQuickActions={handleOpenInventoryQuickActions}
+                        onOpenQrGenerator={handleOpenQrGenerator}
                       />
                     ))
                   )}
@@ -3174,6 +3201,23 @@ export const InventoryView: React.FC = React.memo(() => {
         onSelectAction={handleSelectInvQuickAction}
         language={language}
       />
+
+      {/* Inventory QR Code & Physical Label Printing Modal (Lazy-loaded) */}
+      {isQrModalOpen && (
+        <Suspense fallback={<InventoryModalLoadingFallback />}>
+          <InventoryQRLabelModal
+            isOpen={isQrModalOpen}
+            products={electronicsProducts}
+            initialSelectedProductId={qrModalTargetProductId}
+            currency={currency}
+            companyName={currentTenant.legalName}
+            onClose={() => {
+              setIsQrModalOpen(false);
+              setQrModalTargetProductId(null);
+            }}
+          />
+        </Suspense>
+      )}
     </div>
   );
 });

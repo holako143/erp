@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useERP } from '../../context/ERPContext';
+import { useModalLayer, renderModalPortal } from '../../core/modalLayerEngine';
 import {
   KeyRound,
   Copy,
@@ -31,6 +32,7 @@ export const HardwareLockModal: React.FC = () => {
   const [serialInput, setSerialInput] = useState('');
   const [activationError, setActivationError] = useState<string | null>(null);
   const [copiedReq, setCopiedReq] = useState(false);
+  const lockLayer = useModalLayer(protectionState.isLocked, 300);
 
   if (!protectionState.isLocked) {
     return null;
@@ -97,12 +99,14 @@ export const HardwareLockModal: React.FC = () => {
     isSimulatedClockTampered ||
     simulatedTamperedComponent !== 'NONE';
 
-  return (
+  return renderModalPortal(
     <div
       dir={language === 'ar' ? 'rtl' : 'ltr'}
       data-testid="hardware-lock-modal"
       data-mandatory-lock="true"
-      className="fixed inset-0 z-[300] bg-slate-900/50 backdrop-blur-[2px] text-slate-900 overflow-y-auto flex items-center justify-center p-4 sm:p-6 select-none"
+      data-modal-top={lockLayer.isTopLayer ? 'true' : 'false'}
+      style={{ zIndex: lockLayer.zIndex }}
+      className="fixed inset-0 bg-slate-900/50 backdrop-blur-[2px] text-slate-900 overflow-y-auto flex items-center justify-center p-4 sm:p-6 select-none"
     >
       <div className="w-full max-w-2xl bg-white border border-slate-200/90 rounded-3xl shadow-2xl overflow-hidden">
         {/* Top Executive Header */}

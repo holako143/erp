@@ -39,12 +39,17 @@ import {
   Check,
   Trash2,
   Activity,
+  RotateCcw,
 } from 'lucide-react';
 import { WorkspaceTabResizerBar } from '../components/common/WorkspaceTabResizerBar';
 import { SalesInvoice, Customer } from '../types/erp';
 import { buildPerformanceDashboardMetrics } from '../core/performanceDashboardEngine';
 import { PerformanceDashboardWidget } from '../components/reports/PerformanceDashboardWidget';
 import { useModalLayer, renderModalPortal } from '../core/modalLayerEngine';
+import {
+  computeStrictSalesAndReturnsReportSummary,
+  isInvoiceVoidOrReturned,
+} from '../core/salesReturnEngine';
 
 export interface AIMessageItem {
   id: string;
@@ -59,6 +64,7 @@ export interface AIMessageItem {
 export const ReportsAnalyticsAndAIView: React.FC = () => {
   const {
     salesInvoices,
+    salesReturns,
     products,
     customers,
     suppliers,
@@ -94,7 +100,7 @@ export const ReportsAnalyticsAndAIView: React.FC = () => {
 
   // Drill-Down Interactive Detail Modal State
   const [detailModal, setDetailModal] = useState<
-    'profit' | 'sales' | 'debts' | 'liquidity' | 'cogs' | 'expenses' | 'margins_ai' | 'forecast_ai' | 'payment_channel' | null
+    'profit' | 'sales' | 'debts' | 'liquidity' | 'cogs' | 'expenses' | 'margins_ai' | 'forecast_ai' | 'payment_channel' | 'returns' | null
   >(null);
   const [selectedPaymentChannel, setSelectedPaymentChannel] = useState<'CASH' | 'CARD' | 'SPLIT' | 'CREDIT'>('CASH');
   const [modalSearch, setModalSearch] = useState('');
@@ -186,40 +192,40 @@ export const ReportsAnalyticsAndAIView: React.FC = () => {
     return map;
   }, [products]);
 
-  // 1. Core Financial Calculations (Real-Time Live Numbers)
+  // 1. Strict Real-Time Financial & Returns Summary (Strictly excludes VOID/returned invoices from active sales/COGS/profits)
+  const strictSalesReport = useMemo(
+    () =>
+      computeStrictSalesAndReturnsReportSummary({
+        invoices: filteredInvoices,
+        salesReturns,
+        products,
+        productCostMap,
+        startDate: dateRangeBounds.start,
+        endDate: dateRangeBounds.end,
+      }),
+    [filteredInvoices, salesReturns, products, productCostMap, dateRangeBounds]
+  );
+
   const financialMetrics = useMemo(() => {
-    let grossSales = 0;
-    let totalCollectedPaid = 0;
-    let totalRemainingDebt = 0;
-    let totalUnitsSold = 0;
-    let debtInvoicesCount = 0;
-    let netSalesTaxExcluded = 0;
-    let totalTaxCollected = 0;
-    let totalDiscountsGiven = 0;
-    let totalCOGS = 0;
-
-    filteredInvoices.forEach((inv) => {
-      if (inv.status === 'VOID') return;
-      const paid = Math.min(inv.grandTotal, Math.max(0, Number(inv.paidAmount ?? inv.grandTotal) || 0));
-      const rem = Math.max(0, Math.round((inv.grandTotal - paid) * 100) / 100);
-      grossSales += inv.grandTotal;
-      totalCollectedPaid += paid;
-      totalRemainingDebt += rem;
-      if (rem > 0.01) debtInvoicesCount += 1;
-
-      netSalesTaxExcluded += inv.subtotal;
-      totalTaxCollected += inv.taxAmount;
-      totalDiscountsGiven += inv.discountAmount || 0;
-
-      inv.items.forEach((item) => {
-        totalUnitsSold += Number(item.quantity) || 0;
-        const unitCost = productCostMap.get(item.productId) || item.unitPrice * 0.7;
-        totalCOGS += unitCost * item.quantity;
-      });
-    });
-
-    const grossProfit = Math.max(0, netSalesTaxExcluded - totalCOGS);
-    const grossMarginPct = netSalesTaxExcluded > 0 ? (grossProfit / netSalesTaxExcluded) * 100 : 0;
+    const {
+      grossSales,
+      totalCollectedPaid,
+      totalRemainingDebt,
+      totalUnitsSold,
+      debtInvoicesCount,
+      netSalesTaxExcluded,
+      totalTaxCollected,
+      totalDiscountsGiven,
+      totalCOGS,
+      grossProfit,
+      grossMarginPct,
+      activeInvoicesCount,
+      averageBasketSize,
+      voidedInvoicesCount,
+      totalVoidedOriginalAmount,
+      totalRefundedAmount,
+      totalReturnsCount,
+    } = strictSalesReport;
 
     // Operating expenses from journal entries within date range
     let operatingExpenses = 0;
@@ -262,9 +268,9 @@ export const ReportsAnalyticsAndAIView: React.FC = () => {
 
     return {
       grossSales,
-      totalCollectedPaid: Math.round(totalCollectedPaid * 100) / 100,
-      totalRemainingDebt: Math.round(totalRemainingDebt * 100) / 100,
-      totalUnitsSold: Math.round(totalUnitsSold * 100) / 100,
+      totalCollectedPaid,
+      totalRemainingDebt,
+      totalUnitsSold,
       debtInvoicesCount,
       netSalesTaxExcluded,
       totalTaxCollected,
@@ -276,10 +282,14 @@ export const ReportsAnalyticsAndAIView: React.FC = () => {
       expenseBreakdown,
       netProfit,
       netMarginPct,
-      invoicesCount: filteredInvoices.length,
-      averageBasketSize: filteredInvoices.length > 0 ? grossSales / filteredInvoices.length : 0,
+      invoicesCount: activeInvoicesCount,
+      averageBasketSize,
+      voidedInvoicesCount,
+      totalVoidedOriginalAmount,
+      totalRefundedAmount,
+      totalReturnsCount,
     };
-  }, [filteredInvoices, productCostMap, journalEntries, dateRangeBounds]);
+  }, [strictSalesReport, journalEntries, dateRangeBounds]);
 
   // Real-time D3.js Performance Dashboard Metrics (Deferred for instant UI responsiveness)
   const deferredPerfInvoices = useDeferredValue(filteredInvoices);
@@ -331,7 +341,7 @@ export const ReportsAnalyticsAndAIView: React.FC = () => {
     const evaluateCustomerDebt = (cust: Customer) => {
       seenCustomerIds.add(cust.id);
       const custInvoices = salesInvoices.filter((inv) => {
-        if (inv.status === 'VOID') return false;
+        if (isInvoiceVoidOrReturned(inv)) return false;
         const paid = Math.min(inv.grandTotal, Math.max(0, Number(inv.paidAmount ?? inv.grandTotal) || 0));
         const rem = inv.grandTotal - paid;
         return inv.customerId === cust.id && (rem > 0.01 || inv.status === 'PARTIAL' || inv.status === 'OVERDUE');
@@ -387,7 +397,7 @@ export const ReportsAnalyticsAndAIView: React.FC = () => {
     // Fallback: include any orphan unpaid invoices whose customerId is missing from customers list (e.g., walk-in fallback)
     const orphanDebtMap = new Map<string, SalesInvoice[]>();
     salesInvoices.forEach((inv) => {
-      if (inv.status === 'VOID') return;
+      if (isInvoiceVoidOrReturned(inv)) return;
       if (seenCustomerIds.has(inv.customerId)) return;
       const paid = Math.min(inv.grandTotal, Math.max(0, Number(inv.paidAmount ?? inv.grandTotal) || 0));
       if (inv.grandTotal - paid > 0.01) {
@@ -431,110 +441,23 @@ export const ReportsAnalyticsAndAIView: React.FC = () => {
     };
   }, [customers, salesInvoices, suppliers]);
 
-  // 3. Product Performance Analysis (Revenue, Cost, Net Margin per SKU)
-  const productPerformance = useMemo(() => {
-    const itemMap = new Map<
-      string,
-      {
-        id: string;
-        name: string;
-        nameAr: string;
-        sku: string;
-        category: string;
-        qtySold: number;
-        revenue: number;
-        cost: number;
-        profit: number;
-        marginPct: number;
-      }
-    >();
+  // 3. Product Performance Analysis (Strictly Active Invoices Only)
+  const productPerformance = strictSalesReport.productPerformance;
 
-    filteredInvoices.forEach((inv) => {
-      inv.items.forEach((item) => {
-        const prod = products.find((p) => p.id === item.productId);
-        const unitCost = productCostMap.get(item.productId) || item.unitPrice * 0.7;
-        const existing = itemMap.get(item.productId);
+  // 4. Sales Payment Method Distribution (Strictly Active Invoices Only)
+  const paymentMethodStats = strictSalesReport.paymentMethodStats;
 
-        const lineRev = item.total;
-        const lineCost = unitCost * item.quantity;
-        const lineProfit = lineRev - lineCost;
-
-        if (existing) {
-          existing.qtySold += item.quantity;
-          existing.revenue += lineRev;
-          existing.cost += lineCost;
-          existing.profit += lineProfit;
-          existing.marginPct = existing.revenue > 0 ? (existing.profit / existing.revenue) * 100 : 0;
-        } else {
-          itemMap.set(item.productId, {
-            id: item.productId,
-            name: prod?.name || item.productName,
-            nameAr: prod?.nameAr || item.productName,
-            sku: prod?.sku || item.sku,
-            category: prod?.categoryId || 'عام',
-            qtySold: item.quantity,
-            revenue: lineRev,
-            cost: lineCost,
-            profit: lineProfit,
-            marginPct: lineRev > 0 ? (lineProfit / lineRev) * 100 : 0,
-          });
-        }
-      });
-    });
-
-    return Array.from(itemMap.values()).sort((a, b) => b.profit - a.profit);
-  }, [filteredInvoices, products, productCostMap]);
-
-  // 4. Sales Payment Method Distribution (Collected Paid vs Unpaid Customer Debt)
-  const paymentMethodStats = useMemo(() => {
-    let cash = 0;
-    let card = 0;
-    let split = 0;
-    let credit = 0;
-
-    filteredInvoices.forEach((inv) => {
-      if (inv.status === 'VOID') return;
-      const grand = inv.grandTotal || 0;
-      const paid = Math.min(grand, Math.max(0, Number(inv.paidAmount ?? grand) || 0));
-      const unpaid = Math.max(0, Math.round((grand - paid) * 100) / 100);
-
-      credit += unpaid;
-
-      if (inv.paymentMethod === 'CASH') cash += paid;
-      else if (inv.paymentMethod === 'CARD') card += paid;
-      else if (inv.paymentMethod === 'SPLIT') split += paid;
-      else if (inv.paymentMethod === 'CREDIT') cash += paid;
-      else cash += paid;
-    });
-
-    cash = Math.round(cash * 100) / 100;
-    card = Math.round(card * 100) / 100;
-    split = Math.round(split * 100) / 100;
-    credit = Math.round(credit * 100) / 100;
-
-    const total = cash + card + split + credit || 1;
-    return {
-      cash,
-      card,
-      split,
-      credit,
-      cashPct: Math.round((cash / total) * 100),
-      cardPct: Math.round((card / total) * 100),
-      splitPct: Math.round((split / total) * 100),
-      creditPct: Math.round((credit / total) * 100),
-    };
-  }, [filteredInvoices]);
-
-  // Filtered Invoices for the Payment Channel modal
+  // Filtered Invoices for the Payment Channel modal (Excludes VOID/returned)
   const paymentChannelInvoices = useMemo(() => {
+    const activeOnly = strictSalesReport.activeInvoices;
     if (selectedPaymentChannel === 'CREDIT') {
-      return filteredInvoices.filter((i) => {
+      return activeOnly.filter((i) => {
         const paid = Math.min(i.grandTotal, Math.max(0, Number(i.paidAmount ?? i.grandTotal) || 0));
         return i.paymentMethod === 'CREDIT' || i.grandTotal - paid > 0.01;
       });
     }
-    return filteredInvoices.filter((i) => i.paymentMethod === selectedPaymentChannel);
-  }, [filteredInvoices, selectedPaymentChannel]);
+    return activeOnly.filter((i) => i.paymentMethod === selectedPaymentChannel);
+  }, [strictSalesReport.activeInvoices, selectedPaymentChannel]);
 
   // Helper: Copy message to clipboard
   const handleCopyMessage = (id: string, text: string) => {
@@ -625,11 +548,11 @@ export const ReportsAnalyticsAndAIView: React.FC = () => {
 
       if (matchedCustomer) {
         const custDebt = debtMetrics.indebtedCustomersList.find((c) => c.customer.id === matchedCustomer.id);
-        const custInvoices = salesInvoices.filter((i) => i.customerId === matchedCustomer.id);
+        const custInvoices = salesInvoices.filter((i) => i.customerId === matchedCustomer.id && !isInvoiceVoidOrReturned(i));
         const totalPurchases = custInvoices.reduce((sum, i) => sum + i.grandTotal, 0);
 
         reply = `👤 **تقرير الحساب المالي للعميل (${matchedCustomer.nameAr || matchedCustomer.name}):**
-- إجمالي قيمة المشتريات التراكمية: **${totalPurchases.toLocaleString()} ${currency}** عبر **${custInvoices.length}** فواتير.
+- إجمالي قيمة المشتريات الصافية: **${totalPurchases.toLocaleString()} ${currency}** عبر **${custInvoices.length}** فواتير نشطة.
 - الرصيد المدين المستحق حالياً: **${(custDebt?.debtAmount || matchedCustomer.balance || 0).toLocaleString()} ${currency}**
 - أقدم فاتورة غير مسددة: **${custDebt?.oldestInvoiceDate || 'لا توجد فواتير معلقة'}** (تأخير: **${custDebt?.daysOverdue || 0} يوم**)
 - رقم الجوال المعتمد: \`${matchedCustomer.phone || 'غير مسجل'}\`
@@ -1544,14 +1467,14 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
           {/* ========================================================================= */}
           {activeSubTab === 'sales' && (
             <div className="space-y-4">
-              {/* Top Sales & Debt Breakdown KPIs */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {/* Top Sales, Debt & Returns Breakdown KPIs */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                 <div className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                  <span className="text-[11px] font-bold text-slate-500 block">إجمالي المبيعات (بكم باع)</span>
+                  <span className="text-[11px] font-bold text-slate-500 block">إجمالي المبيعات النشطة (بكم باع)</span>
                   <span className="text-base font-black font-mono text-slate-900 dark:text-white block mt-1" dir="ltr">
                     {financialMetrics.grossSales.toLocaleString()} {currency}
                   </span>
-                  <span className="text-[10px] text-slate-400">{financialMetrics.invoicesCount} فاتورة</span>
+                  <span className="text-[10px] text-slate-400">{financialMetrics.invoicesCount} فاتورة نشطة</span>
                 </div>
                 <div className="p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800">
                   <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 block">إجمالي المحصل المدفوع</span>
@@ -1574,6 +1497,24 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
                   </span>
                   <span className="text-[10px] text-slate-400">{productPerformance.length} أصناف مختلفة</span>
                 </div>
+                <button
+                  type="button"
+                  data-testid="kpi-card-returns"
+                  onClick={() => setDetailModal('returns')}
+                  className="p-3 rounded-xl bg-rose-50/90 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-start hover:border-rose-500 transition cursor-pointer"
+                >
+                  <span className="text-[11px] font-bold text-rose-800 dark:text-rose-300 flex items-center justify-between">
+                    <span>المرتجعات والفواتير الملغاة</span>
+                    <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+                  </span>
+                  <span className="text-base font-black font-mono text-rose-700 dark:text-rose-300 block mt-1" dir="ltr">
+                    {financialMetrics.totalRefundedAmount.toLocaleString()} {currency}
+                  </span>
+                  <span className="text-[10px] text-rose-700/90 font-semibold flex items-center justify-between">
+                    <span>{financialMetrics.totalReturnsCount} عملية استرجاع</span>
+                    <span className="underline">كشف ↗</span>
+                  </span>
+                </button>
               </div>
 
               {/* Payment Method Distribution (Click to view filtered invoices) */}
@@ -1746,17 +1687,20 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                       {filteredInvoices.slice(0, 15).map((inv) => {
-                        const paid = Math.min(
-                          inv.grandTotal,
-                          Math.max(0, Number(inv.paidAmount ?? inv.grandTotal) || 0)
-                        );
-                        const rem = Math.max(0, Math.round((inv.grandTotal - paid) * 100) / 100);
+                        const isVoided = isInvoiceVoidOrReturned(inv);
+                        const paid = isVoided
+                          ? 0
+                          : Math.min(
+                              inv.grandTotal,
+                              Math.max(0, Number(inv.paidAmount ?? inv.grandTotal) || 0)
+                            );
+                        const rem = isVoided ? 0 : Math.max(0, Math.round((inv.grandTotal - paid) * 100) / 100);
                         const qtyTotal = (inv.items || []).reduce((s, it) => s + (Number(it.quantity) || 0), 0);
                         const itemNames = (inv.items || []).map((it) => `${it.productName} (×${it.quantity})`).join('، ');
                         return (
-                          <tr key={inv.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
+                          <tr key={inv.id} className={`hover:bg-slate-50/70 dark:hover:bg-slate-800/40 ${isVoided ? 'bg-rose-50/40 opacity-85' : ''}`}>
                             <td className="py-2.5 px-3 font-mono font-bold text-slate-900 dark:text-slate-100">
-                              <div>{inv.invoiceNumber}</div>
+                              <div className={isVoided ? 'line-through text-rose-700' : ''}>{inv.invoiceNumber}</div>
                               <div className="text-[10px] text-slate-400 font-normal">{inv.date}</div>
                             </td>
                             <td className="py-2.5 px-3 font-semibold text-slate-800 dark:text-slate-200">
@@ -1769,13 +1713,23 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
                               </div>
                             </td>
                             <td className="py-2.5 px-3 text-end font-mono font-bold text-slate-900 dark:text-white">
-                              {inv.grandTotal.toLocaleString()} {currency}
+                              <span className={isVoided ? 'line-through text-slate-400' : ''}>
+                                {inv.grandTotal.toLocaleString()} {currency}
+                              </span>
                             </td>
-                            <td className="py-2.5 px-3 text-end font-mono font-bold text-emerald-700 dark:text-emerald-400">
-                              {paid.toLocaleString()} {currency}
+                            <td className="py-2.5 px-3 text-end font-mono font-bold">
+                              {isVoided ? (
+                                <span className="text-rose-700">
+                                  مرتجع {(Number(inv.refundedAmount) || 0).toLocaleString()} {currency}
+                                </span>
+                              ) : (
+                                <span className="text-emerald-700 dark:text-emerald-400">
+                                  {paid.toLocaleString()} {currency}
+                                </span>
+                              )}
                             </td>
                             <td className="py-2.5 px-3 text-end font-mono font-black">
-                              {rem > 0.01 ? (
+                              {!isVoided && rem > 0.01 ? (
                                 <span className="px-2 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200">
                                   {rem.toLocaleString()} {currency}
                                 </span>
@@ -1784,17 +1738,23 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
                               )}
                             </td>
                             <td className="py-2.5 px-3 text-center">
-                              <span
-                                className={`px-2 py-0.5 rounded font-bold text-[10px] border ${
-                                  rem <= 0.01
-                                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                    : paid > 0
-                                    ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                    : 'bg-rose-50 text-rose-800 border-rose-200'
-                                }`}
-                              >
-                                {rem <= 0.01 ? 'مسددة' : paid > 0 ? 'جزئي / مديونية' : 'آجل'}
-                              </span>
+                              {isVoided ? (
+                                <span className="px-2 py-0.5 rounded font-bold text-[10px] border bg-rose-100 text-rose-800 border-rose-300">
+                                  ملغاة — مسترجعة
+                                </span>
+                              ) : (
+                                <span
+                                  className={`px-2 py-0.5 rounded font-bold text-[10px] border ${
+                                    rem <= 0.01
+                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                      : paid > 0
+                                      ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                      : 'bg-rose-50 text-rose-800 border-rose-200'
+                                  }`}
+                                >
+                                  {rem <= 0.01 ? 'مسددة' : paid > 0 ? 'جزئي / مديونية' : 'آجل'}
+                                </span>
+                              )}
                             </td>
                           </tr>
                         );
@@ -2112,6 +2072,7 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
                   {detailModal === 'margins_ai' && <Sparkles className="w-5 h-5" />}
                   {detailModal === 'forecast_ai' && <TrendingUp className="w-5 h-5" />}
                   {detailModal === 'payment_channel' && <Wallet className="w-5 h-5" />}
+                  {detailModal === 'returns' && <RotateCcw className="w-5 h-5 text-rose-600" />}
                 </div>
                 <div>
                   <h2 className="font-bold text-sm text-slate-900 dark:text-white">
@@ -2124,6 +2085,7 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
                     {detailModal === 'margins_ai' && 'تقرير الذكاء الاصطناعي لتشخيص هوامش الربحية'}
                     {detailModal === 'forecast_ai' && 'تقرير الذكاء الاصطناعي للتنبؤ وحركة المبيعات'}
                     {detailModal === 'payment_channel' && `كشف فواتير السداد عبر: ${selectedPaymentChannel === 'CASH' ? 'نقداً (كاش)' : selectedPaymentChannel === 'CARD' ? 'بطاقة وشبكة' : selectedPaymentChannel === 'SPLIT' ? 'دفع مجزأ' : 'آجل'}`}
+                    {detailModal === 'returns' && 'سجل عمليات الإلغاء والاسترجاع والمبالغ المرتجعة'}
                   </h2>
                   <span className="text-[11px] text-slate-500 font-mono">
                     الفترة: {dateRangeBounds.start} إلى {dateRangeBounds.end} • {selectedBranchId === 'all' ? 'كافة الفروع' : 'فرع محدد'}
@@ -2220,7 +2182,7 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <span className="font-bold text-slate-700 dark:text-slate-300">
-                      سجل المبيعات التفصيلي ({filteredInvoices.length} فاتورة • مبيعات: {financialMetrics.grossSales.toLocaleString()} • مدفوع: {financialMetrics.totalCollectedPaid.toLocaleString()} • مديونية: {financialMetrics.totalRemainingDebt.toLocaleString()} {currency}):
+                      سجل المبيعات التفصيلي ({financialMetrics.invoicesCount} فاتورة نشطة{financialMetrics.voidedInvoicesCount > 0 ? ` • ${financialMetrics.voidedInvoicesCount} ملغاة` : ''} • مبيعات نشطة: {financialMetrics.grossSales.toLocaleString()} • مدفوع: {financialMetrics.totalCollectedPaid.toLocaleString()} • مديونية: {financialMetrics.totalRemainingDebt.toLocaleString()} {currency}):
                     </span>
                     <button
                       type="button"
@@ -2247,16 +2209,19 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                         {filteredInvoices.map((inv) => {
-                          const paid = Math.min(
-                            inv.grandTotal,
-                            Math.max(0, Number(inv.paidAmount ?? inv.grandTotal) || 0)
-                          );
-                          const rem = Math.max(0, Math.round((inv.grandTotal - paid) * 100) / 100);
+                          const isVoided = isInvoiceVoidOrReturned(inv);
+                          const paid = isVoided
+                            ? 0
+                            : Math.min(
+                                inv.grandTotal,
+                                Math.max(0, Number(inv.paidAmount ?? inv.grandTotal) || 0)
+                              );
+                          const rem = isVoided ? 0 : Math.max(0, Math.round((inv.grandTotal - paid) * 100) / 100);
                           const qtyTotal = (inv.items || []).reduce((s, it) => s + (Number(it.quantity) || 0), 0);
                           return (
-                            <tr key={inv.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                            <tr key={inv.id} className={`hover:bg-slate-50/60 dark:hover:bg-slate-800/40 ${isVoided ? 'bg-rose-50/40 opacity-85' : ''}`}>
                               <td className="py-2.5 px-3 font-mono font-bold text-slate-900 dark:text-white">
-                                <div>{inv.invoiceNumber}</div>
+                                <div className={isVoided ? 'line-through text-rose-700' : ''}>{inv.invoiceNumber}</div>
                                 <div className="text-[10px] text-slate-400 font-normal">{inv.date}</div>
                               </td>
                               <td className="py-2.5 px-3 font-bold text-slate-800 dark:text-slate-200">
@@ -2266,13 +2231,23 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
                                 {inv.items.length} صنف ({qtyTotal} وحدة)
                               </td>
                               <td className="py-2.5 px-3 text-end font-mono font-bold text-slate-900 dark:text-white">
-                                {inv.grandTotal.toLocaleString()} {currency}
+                                <span className={isVoided ? 'line-through text-slate-400' : ''}>
+                                  {inv.grandTotal.toLocaleString()} {currency}
+                                </span>
                               </td>
-                              <td className="py-2.5 px-3 text-end font-mono font-bold text-emerald-700 dark:text-emerald-400">
-                                {paid.toLocaleString()} {currency}
+                              <td className="py-2.5 px-3 text-end font-mono font-bold">
+                                {isVoided ? (
+                                  <span className="text-rose-700">
+                                    مرتجع {(Number(inv.refundedAmount) || 0).toLocaleString()} {currency}
+                                  </span>
+                                ) : (
+                                  <span className="text-emerald-700 dark:text-emerald-400">
+                                    {paid.toLocaleString()} {currency}
+                                  </span>
+                                )}
                               </td>
                               <td className="py-2.5 px-3 text-end font-mono font-black">
-                                {rem > 0.01 ? (
+                                {!isVoided && rem > 0.01 ? (
                                   <span className="px-2 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200">
                                     {rem.toLocaleString()} {currency}
                                   </span>
@@ -2281,17 +2256,23 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
                                 )}
                               </td>
                               <td className="py-2.5 px-3 text-center">
-                                <span
-                                  className={`px-2 py-0.5 rounded font-bold text-[10px] border ${
-                                    rem <= 0.01
-                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                      : paid > 0
-                                      ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                      : 'bg-rose-50 text-rose-800 border-rose-200'
-                                  }`}
-                                >
-                                  {rem <= 0.01 ? 'مسددة' : paid > 0 ? 'جزئي / مديونية' : 'آجل'}
-                                </span>
+                                {isVoided ? (
+                                  <span className="px-2 py-0.5 rounded font-bold text-[10px] border bg-rose-100 text-rose-800 border-rose-300">
+                                    ملغاة — مسترجعة
+                                  </span>
+                                ) : (
+                                  <span
+                                    className={`px-2 py-0.5 rounded font-bold text-[10px] border ${
+                                      rem <= 0.01
+                                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                        : paid > 0
+                                        ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                        : 'bg-rose-50 text-rose-800 border-rose-200'
+                                    }`}
+                                  >
+                                    {rem <= 0.01 ? 'مسددة' : paid > 0 ? 'جزئي / مديونية' : 'آجل'}
+                                  </span>
+                                )}
                               </td>
                             </tr>
                           );
@@ -2641,6 +2622,88 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
                             </tr>
                           );
                         })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* 10. RETURNS & CANCELLED INVOICES AUDIT MODAL */}
+              {detailModal === 'returns' && (
+                <div data-testid="reports-returns-modal-body" className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                      <span className="text-slate-500 font-bold block">عدد عمليات الإلغاء والاسترجاع</span>
+                      <span className="font-mono text-base font-black text-slate-900 dark:text-white block mt-1">
+                        {strictSalesReport.totalReturnsCount} عملية ({strictSalesReport.voidedInvoicesCount} فاتورة ملغاة)
+                      </span>
+                    </div>
+                    <div className="p-3 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800">
+                      <span className="text-rose-700 font-bold block">إجمالي المبالغ المسترجعة للعملاء</span>
+                      <span className="font-mono text-base font-black text-rose-700 block mt-1" dir="ltr">
+                        {strictSalesReport.totalRefundedAmount.toLocaleString()} {currency}
+                      </span>
+                    </div>
+                    <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+                      <span className="text-amber-800 font-bold block">قيمة الفواتير المستبعدة من المبيعات</span>
+                      <span className="font-mono text-base font-black text-amber-800 block mt-1" dir="ltr">
+                        {strictSalesReport.totalVoidedOriginalAmount.toLocaleString()} {currency}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto">
+                    <table className="w-full text-start">
+                      <thead className="bg-slate-50 dark:bg-slate-800 font-bold text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
+                        <tr>
+                          <th className="py-2.5 px-3">المرجع / الإشعار</th>
+                          <th className="py-2.5 px-3">الفاتورة الأصلية</th>
+                          <th className="py-2.5 px-3">العميل</th>
+                          <th className="py-2.5 px-3">التاريخ</th>
+                          <th className="py-2.5 px-3 text-end">المبلغ الأصلي</th>
+                          <th className="py-2.5 px-3 text-end">المبلغ المسترجع</th>
+                          <th className="py-2.5 px-3 text-center">التسوية والقيد</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {strictSalesReport.returnOperations.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="py-8 text-center text-slate-400">
+                              لا توجد عمليات إلغاء أو استرجاع مسجلة في هذه الفترة
+                            </td>
+                          </tr>
+                        ) : (
+                          strictSalesReport.returnOperations.map((op) => (
+                            <tr key={op.id} className="hover:bg-rose-50/40 dark:hover:bg-slate-800/40">
+                              <td className="py-2.5 px-3 font-mono font-bold text-rose-700">
+                                <div>{op.referenceNumber}</div>
+                                <div className="text-[10px] font-sans text-slate-500 font-normal">
+                                  {op.kind === 'FULL_INVOICE_VOID' ? 'إلغاء فاتورة كاملة' : 'إشعار دائن جزئي'}
+                                </div>
+                              </td>
+                              <td className="py-2.5 px-3 font-mono font-bold text-slate-800 dark:text-slate-200">
+                                {op.originalInvoiceNumber}
+                              </td>
+                              <td className="py-2.5 px-3 font-semibold text-slate-800 dark:text-slate-200">
+                                <div>{op.customerName}</div>
+                                <div className="text-[10px] text-slate-500 font-normal">{op.reason}</div>
+                              </td>
+                              <td className="py-2.5 px-3 font-mono text-slate-500">{op.date}</td>
+                              <td className="py-2.5 px-3 text-end font-mono text-slate-600">
+                                {op.originalTotal.toLocaleString()} {currency}
+                              </td>
+                              <td className="py-2.5 px-3 text-end font-mono font-black text-rose-700">
+                                {op.refundedAmount.toLocaleString()} {currency}
+                              </td>
+                              <td className="py-2.5 px-3 text-center">
+                                <span className="inline-block px-2 py-0.5 rounded bg-slate-100 border border-slate-200 font-mono text-[10px] text-slate-800">
+                                  {op.refundMethod === 'CASH' ? 'رد نقدي' : op.refundMethod === 'CREDIT_BALANCE' ? 'تخفيض رصيد' : 'استبدال'}
+                                  {op.journalEntryNumber ? ` • ${op.journalEntryNumber}` : ''}
+                                </span>
+                              </td>
+                            </tr>
+                          ))
+                        )}
                       </tbody>
                     </table>
                   </div>

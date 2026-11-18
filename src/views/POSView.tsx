@@ -43,6 +43,9 @@ import {
   AlertTriangle,
   SlidersHorizontal,
   PenTool,
+  Shield,
+  ShieldOff,
+  RotateCcw,
 } from 'lucide-react';
 import type { ScannedBatchItem } from '../components/common/CameraBarcodeScannerModal';
 import { WorkspaceTabResizerBar } from '../components/common/WorkspaceTabResizerBar';
@@ -59,6 +62,11 @@ import {
   parseWeightedScaleBarcode,
   generateUniqueSerialNumber,
 } from '../core/barcodeEngine';
+import {
+  doesInvoiceHaveAnyWarranty,
+  isCartItemWarrantyActive,
+  isInvoiceVoidOrReturned,
+} from '../core/salesReturnEngine';
 import type { SolarSystemSizingOutput } from '../core/inventoryEngine';
 import { formatCleanNumber } from '../core/systemConfigEngine';
 import { composeInvoiceMessageText } from '../core/messagingEngine';
@@ -133,6 +141,8 @@ export const POSView: React.FC = React.memo(() => {
     updatePOSCartQty,
     updatePOSCartItemUnit,
     updatePOSCartItemMeta,
+    toggleAllPOSCartWarranty,
+    voidAndReturnSalesInvoice,
     clearPOSCart,
     checkoutPOS,
     holdBills,
@@ -701,7 +711,10 @@ export const POSView: React.FC = React.memo(() => {
   );
 
   const handleUpdateCartMeta = useCallback(
-    (productId: string, meta: { serialNumber?: string; warrantyMonths?: number }) => {
+    (
+      productId: string,
+      meta: { serialNumber?: string; warrantyEnabled?: boolean; warrantyMonths?: number }
+    ) => {
       updatePOSCartItemMeta(productId, meta);
     },
     [updatePOSCartItemMeta]
@@ -980,12 +993,17 @@ export const POSView: React.FC = React.memo(() => {
       'عميل نقدي - ضمان مباشر';
     const resolvedPhone = warrantyCustomerPhone.trim() || targetCust?.phone || '+967 771 445 880';
 
-    const draftItems = posCart.map((it) => ({
-      ...it,
-      serialNumber:
-        it.serialNumber?.trim() || generateUniqueSerialNumber('IMEI', currentTenant.code),
-      warrantyMonths: it.warrantyMonths || 24,
-    }));
+    const draftItems = posCart.map((it) => {
+      const warrantyActive = isCartItemWarrantyActive(it);
+      return {
+        ...it,
+        serialNumber:
+          it.serialNumber?.trim() ||
+          (warrantyActive ? generateUniqueSerialNumber('IMEI', currentTenant.code) : undefined),
+        warrantyEnabled: warrantyActive,
+        warrantyMonths: warrantyActive ? Number(it.warrantyMonths) || 24 : 0,
+      };
+    });
 
     const draftInvoice: SalesInvoice = {
       id: `draft-war-${Date.now()}`,
@@ -1839,6 +1857,39 @@ export const POSView: React.FC = React.memo(() => {
                 <Pin className="w-3 h-3" />
                 <span>{isCartPinnedOpen ? 'مثبتة دائماً' : 'تثبيت دائم'}</span>
               </button>
+
+              {posCart.length > 0 && (() => {
+                const anyCartWarranty = posCart.some((ci) => isCartItemWarrantyActive(ci));
+                return (
+                  <button
+                    type="button"
+                    data-testid="pos-cart-toggle-all-warranty-btn"
+                    onClick={() => toggleAllPOSCartWarranty(!anyCartWarranty)}
+                    title={
+                      anyCartWarranty
+                        ? 'إلغاء الضمان لجميع أصناف السلة بحيث لا يظهر في الفاتورة'
+                        : 'تفعيل الضمان لجميع أصناف السلة'
+                    }
+                    className={`px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 border transition cursor-pointer ${
+                      anyCartWarranty
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                        : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                    }`}
+                  >
+                    {anyCartWarranty ? (
+                      <>
+                        <Shield className="w-3 h-3 shrink-0" />
+                        <span>إلغاء ضمان السلة</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShieldOff className="w-3 h-3 shrink-0" />
+                        <span>تفعيل ضمان السلة</span>
+                      </>
+                    )}
+                  </button>
+                );
+              })()}
 
               {posCart.length > 0 ? (
                 <button
@@ -2882,7 +2933,11 @@ export const POSView: React.FC = React.memo(() => {
                   className="px-3.5 py-2.5 haseb-btn-primary font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
                 >
                   <ShieldCheck className="w-4 h-4 shrink-0" />
-                  <span>إصدار مع شهادة ضمان A4</span>
+                  <span>
+                    {posCart.some((ci) => isCartItemWarrantyActive(ci))
+                      ? 'إصدار مع شهادة ضمان A4'
+                      : 'إصدار فاتورة A4 معتمدة'}
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -2943,7 +2998,9 @@ export const POSView: React.FC = React.memo(() => {
                 </div>
                 <div>
                   <span className="font-bold text-sm text-slate-900">
-                    معاينة وطباعة الفاتورة وشهادة الضمان ({completedInvoice.invoiceNumber})
+                    {doesInvoiceHaveAnyWarranty(completedInvoice)
+                      ? `معاينة وطباعة الفاتورة وشهادة الضمان (${completedInvoice.invoiceNumber})`
+                      : `معاينة وطباعة الفاتورة (${completedInvoice.invoiceNumber})`}
                   </span>
                   <p className="text-[11px] text-slate-500">
                     تظهر الفاتورة بشعار وهوية منشأتك الخاصة — اختر القالب المناسب للطباعة
@@ -3048,6 +3105,28 @@ export const POSView: React.FC = React.memo(() => {
                 إغلاق والبدء بعملية بيع جديدة
               </button>
               <div className="flex flex-wrap items-center gap-2">
+                {!completedInvoice.id.startsWith('draft-') && !isInvoiceVoidOrReturned(completedInvoice) && (
+                  <button
+                    type="button"
+                    data-testid="pos-receipt-void-return-btn"
+                    onClick={() => {
+                      const res = voidAndReturnSalesInvoice({
+                        invoiceId: completedInvoice.id,
+                        condition: 'HEALTHY_RESTOCK',
+                        refundMethod: completedInvoice.paymentMethod === 'CREDIT' ? 'CREDIT_BALANCE' : 'CASH',
+                        reason: 'إلغاء الفاتورة واسترجاع المبلغ من شاشة الإيصال',
+                      });
+                      if (res.success && res.updatedInvoice) {
+                        setCompletedInvoice(res.updatedInvoice);
+                        showBanner('success', res.messageAr || 'تم إلغاء الفاتورة وعمل ختم الاسترجاع بنجاح.');
+                      }
+                    }}
+                    className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold rounded-md text-xs flex items-center gap-1.5 transition cursor-pointer"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    <span>إلغاء واسترجاع الفاتورة</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   data-testid="pos-open-signature-pad-btn"
@@ -3124,7 +3203,7 @@ export const POSView: React.FC = React.memo(() => {
                   className="px-5 py-2 haseb-btn-primary font-bold rounded-md text-xs flex items-center gap-2 transition cursor-pointer"
                 >
                   <Printer className="w-4 h-4" />
-                  <span>طباعة الفاتورة وشهادة الضمان</span>
+                  <span>طباعة الفاتورة</span>
                 </button>
               </div>
             </div>

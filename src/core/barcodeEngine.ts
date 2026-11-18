@@ -385,3 +385,104 @@ export function encodeZatcaPhase2TLVBase64(params: {
   }
 }
 
+export interface InventoryItemQrPayloadInput {
+  productId?: string;
+  sku: string;
+  barcode: string;
+  nameAr?: string;
+  salePrice?: number;
+  binLocation?: string;
+}
+
+export interface ParsedInventoryItemQrPayload {
+  isValid: boolean;
+  barcode: string;
+  sku: string;
+  productId?: string;
+  nameAr?: string;
+  salePrice?: number;
+  binLocation?: string;
+  raw: string;
+}
+
+/**
+ * Builds a structured QR payload for physical inventory labels encoding both Barcode ID and SKU.
+ */
+export function buildInventoryItemQrPayload(input: InventoryItemQrPayloadInput): string {
+  const cleanBarcode = String(input.barcode || '').trim();
+  const cleanSku = String(input.sku || '').trim();
+  const parts: string[] = ['HASEB-INV'];
+  parts.push(`BAR:${cleanBarcode}`);
+  parts.push(`SKU:${cleanSku}`);
+  if (input.productId) {
+    parts.push(`ID:${String(input.productId).trim()}`);
+  }
+  if (input.binLocation) {
+    parts.push(`BIN:${String(input.binLocation).replace(/\|/g, '-').trim()}`);
+  }
+  if (input.salePrice !== undefined && Number.isFinite(Number(input.salePrice))) {
+    parts.push(`PRC:${Number(input.salePrice)}`);
+  }
+  if (input.nameAr) {
+    parts.push(`NM:${String(input.nameAr).replace(/\|/g, ' ').trim().slice(0, 48)}`);
+  }
+  return parts.join('|');
+}
+
+/**
+ * Parses a physical inventory QR payload back into Barcode ID, SKU, and metadata.
+ */
+export function parseInventoryItemQrPayload(raw: string): ParsedInventoryItemQrPayload {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed.startsWith('HASEB-INV|')) {
+    return {
+      isValid: false,
+      barcode: '',
+      sku: '',
+      raw: trimmed,
+    };
+  }
+  const map: Record<string, string> = {};
+  for (const segment of trimmed.split('|').slice(1)) {
+    const idx = segment.indexOf(':');
+    if (idx > 0) {
+      map[segment.slice(0, idx)] = segment.slice(idx + 1);
+    }
+  }
+  const barcode = map.BAR || '';
+  const sku = map.SKU || '';
+  const parsedPrice = map.PRC !== undefined ? Number(map.PRC) : undefined;
+  return {
+    isValid: Boolean(barcode || sku),
+    barcode,
+    sku,
+    productId: map.ID || undefined,
+    binLocation: map.BIN || undefined,
+    salePrice: parsedPrice !== undefined && Number.isFinite(parsedPrice) ? parsedPrice : undefined,
+    nameAr: map.NM || undefined,
+    raw: trimmed,
+  };
+}
+
+/**
+ * Renders a crisp standalone SVG string for an inventory QR code payload.
+ */
+export function renderInventoryQrSVG(
+  payload: string,
+  sizePx = 112,
+  darkColor = '#0f172a'
+): string {
+  const matrix = generateQRMatrix(payload, 25);
+  const dim = matrix.length;
+  const cells: string[] = [];
+  for (let r = 0; r < dim; r++) {
+    for (let c = 0; c < dim; c++) {
+      if (matrix[r][c]) {
+        cells.push(`<rect x="${c}" y="${r}" width="1" height="1" fill="${darkColor}" />`);
+      }
+    }
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${sizePx}" height="${sizePx}" viewBox="0 0 ${dim} ${dim}" shape-rendering="crispEdges"><rect width="${dim}" height="${dim}" fill="#ffffff" />${cells.join('')}</svg>`;
+}
+
+

@@ -99,7 +99,7 @@ export function buildPerformanceDashboardMetrics(
   const productSalesMap = new Map<string, ProductAccum>();
 
   for (const inv of input.salesInvoices || []) {
-    if (!inv || inv.status === 'VOID' || inv.status === 'DRAFT') continue;
+    if (!inv || inv.status === 'VOID' || inv.status === 'DRAFT' || inv.isReturned) continue;
     const dateKey = normalizeDateKey(inv.date);
     if (!dateKey || dateKey < startDate || dateKey > endDate) continue;
     if (branchId && inv.branchId && inv.branchId !== branchId) continue;

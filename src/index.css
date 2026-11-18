@@ -689,6 +689,24 @@
     padding: 0 !important;
     font-size: 11px !important;
   }
+  body[data-printing-qr-labels="true"] * {
+    visibility: hidden !important;
+  }
+  body[data-printing-qr-labels="true"] [data-testid="qr-label-print-sheet"],
+  body[data-printing-qr-labels="true"] [data-testid="qr-label-print-sheet"] * {
+    visibility: visible !important;
+  }
+  body[data-printing-qr-labels="true"] [data-testid="qr-label-print-sheet"] {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    padding: 8mm !important;
+    margin: 0 !important;
+    z-index: 99999 !important;
+  }
 }
 
 /* ============================================================================

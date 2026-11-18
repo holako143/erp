@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   KeyRound,
   ShieldCheck,
@@ -16,6 +16,7 @@ import {
   LicenseDurationPreset,
   verifyDeveloperActivationPin,
 } from '../core/securityEngine';
+import { useModalLayer, renderModalPortal } from '../core/modalLayerEngine';
 
 export const StandaloneActivationPortal: React.FC = () => {
   const {
@@ -42,14 +43,27 @@ export const StandaloneActivationPortal: React.FC = () => {
   const [copiedSerial, setCopiedSerial] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
   const [directApplyFeedback, setDirectApplyFeedback] = useState<string | null>(null);
+  const portalLayer = useModalLayer(true, 400);
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     setPinInput('');
     setIsUnlocked(false);
     setPinError(null);
     setGeneratedSerial('');
     setIsStandaloneKeygenOpen(false);
-  };
+  }, [setIsStandaloneKeygenOpen]);
+
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && portalLayer.isTopLayer) {
+        e.preventDefault();
+        e.stopPropagation();
+        handleClose();
+      }
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [portalLayer.isTopLayer, handleClose]);
 
   const handleUnlockPortal = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -112,13 +126,15 @@ export const StandaloneActivationPortal: React.FC = () => {
     }
   };
 
-  return (
+  return renderModalPortal(
     <div
       dir={isAr ? 'rtl' : 'ltr'}
+      data-modal-top={portalLayer.isTopLayer ? 'true' : 'false'}
+      style={{ zIndex: portalLayer.zIndex }}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) handleClose();
       }}
-      className="fixed inset-0 z-[400] flex items-center justify-center p-3 sm:p-4 bg-slate-900/45 backdrop-blur-[2px] overflow-y-auto"
+      className="fixed inset-0 flex items-center justify-center p-3 sm:p-4 bg-slate-900/45 backdrop-blur-[2px] overflow-y-auto"
     >
       <div className="relative w-full max-w-4xl bg-white border border-slate-200/90 rounded-3xl shadow-2xl overflow-hidden text-slate-900 flex flex-col my-auto max-h-[95vh]">
         {/* Top Developer Header */}

@@ -1,8 +1,9 @@
 import React from 'react';
-import { CheckCircle2, Zap } from 'lucide-react';
+import { CheckCircle2, Shield, ShieldOff, Zap } from 'lucide-react';
 import { InvoiceItem, Product } from '../../types/erp';
 import { formatCleanNumber } from '../../core/systemConfigEngine';
 import { getAllProductUnitChoices } from '../../core/multiUnitAndProcurementEngine';
+import { isCartItemWarrantyActive } from '../../core/salesReturnEngine';
 import { useDoubleTapGesture } from '../common/MobileQuickActionsSheet';
 
 export interface POSCartItemRowProps {
@@ -14,11 +15,13 @@ export interface POSCartItemRowProps {
   onUpdateUnit?: (productId: string, unitName: string) => void;
   onUpdateMeta: (
     productId: string,
-    meta: { serialNumber?: string; warrantyMonths?: number }
+    meta: { serialNumber?: string; warrantyEnabled?: boolean; warrantyMonths?: number }
   ) => void;
   onFocusField: (fieldId: string) => void;
   onOpenQuickActions?: (item: InvoiceItem) => void;
 }
+
+const WARRANTY_DURATION_OPTIONS = [1, 3, 6, 12, 18, 24, 36, 48, 60, 120, 144];
 
 export const POSCartItemRow: React.FC<POSCartItemRowProps> = React.memo(
   ({
@@ -38,6 +41,14 @@ export const POSCartItemRow: React.FC<POSCartItemRowProps> = React.memo(
     const unitChoices = product && product.units && product.units.length > 0
       ? getAllProductUnitChoices(product)
       : [];
+
+    const warrantyActive = isCartItemWarrantyActive(item);
+    const activeWarrantyMonths = warrantyActive ? Number(item.warrantyMonths) || 12 : 0;
+    const durationChoices = WARRANTY_DURATION_OPTIONS.includes(activeWarrantyMonths)
+      ? WARRANTY_DURATION_OPTIONS
+      : activeWarrantyMonths > 0
+      ? [...WARRANTY_DURATION_OPTIONS, activeWarrantyMonths].sort((a, b) => a - b)
+      : WARRANTY_DURATION_OPTIONS;
 
     return (
       <div
@@ -170,19 +181,91 @@ export const POSCartItemRow: React.FC<POSCartItemRowProps> = React.memo(
             )}
           </div>
           <div className="text-left">
-            <span className="text-xs sm:text-sm font-bold text-slate-900 font-mono" dir="ltr">
+            <span className="text-xs sm:text-sm font-bold text-slate-900 font-mono tabular-nums" dir="ltr">
               {formatCleanNumber(item.total)}{' '}
               <span className="text-[9.5px] sm:text-[10px] font-normal text-slate-500">{currency}</span>
             </span>
           </div>
         </div>
 
-        {/* Serial & Warranty Bar */}
-        <div className="bg-white rounded-lg sm:rounded-xl p-1.5 sm:p-2 border border-slate-200/60 flex items-center justify-between gap-1.5">
-          <div className="flex items-center gap-1.5 min-w-0 flex-1">
-            <span className="text-[9px] sm:text-[10px] font-medium text-emerald-700 bg-emerald-50 px-1.5 sm:px-2 py-0.5 rounded-md shrink-0">
-              ضمان {item.warrantyMonths ?? 144}ش
-            </span>
+        {/* Serial & Interactive Warranty Control Bar */}
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="bg-white rounded-lg sm:rounded-xl p-1.5 sm:p-2 border border-slate-200/70 space-y-1.5"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                type="button"
+                data-testid={`pos-cart-warranty-toggle-${item.productId}`}
+                aria-pressed={warrantyActive}
+                onClick={() =>
+                  onUpdateMeta(item.productId, {
+                    warrantyEnabled: !warrantyActive,
+                    warrantyMonths: !warrantyActive
+                      ? product?.warrantyMonths && product.warrantyMonths > 0
+                        ? product.warrantyMonths
+                        : 12
+                      : 0,
+                  })
+                }
+                className={`px-2 py-1 rounded-md text-[10px] font-bold border inline-flex items-center gap-1 transition cursor-pointer ${
+                  warrantyActive
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                    : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                }`}
+                title={warrantyActive ? 'انقر لإلغاء الضمان عن هذا الصنف' : 'انقر لتفعيل الضمان لهذا الصنف'}
+              >
+                {warrantyActive ? (
+                  <>
+                    <Shield className="w-3 h-3 text-emerald-600 shrink-0" />
+                    <span>الضمان مفعل</span>
+                  </>
+                ) : (
+                  <>
+                    <ShieldOff className="w-3 h-3 text-rose-600 shrink-0" />
+                    <span>بدون ضمان (ملغى)</span>
+                  </>
+                )}
+              </button>
+
+              <select
+                data-testid={warrantyFieldId}
+                data-pos-field-id={warrantyFieldId}
+                value={warrantyActive ? activeWarrantyMonths : 0}
+                onFocus={() => onFocusField(warrantyFieldId)}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  onUpdateMeta(item.productId, {
+                    warrantyEnabled: val > 0,
+                    warrantyMonths: val,
+                  });
+                }}
+                aria-label={`مدة الضمان للصنف ${item.productName}`}
+                className={`px-2 py-1 rounded-md border text-[10px] font-bold outline-hidden cursor-pointer ${
+                  warrantyActive
+                    ? 'bg-slate-50 border-slate-200 text-slate-800 focus:border-blue-500'
+                    : 'bg-slate-50 border-slate-200 text-slate-400'
+                }`}
+              >
+                <option value={0}>بدون ضمان (0 شهر)</option>
+                {durationChoices.map((m) => (
+                  <option key={m} value={m}>
+                    ضمان {m} شهر
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {warrantyActive ? (
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+            ) : (
+              <span className="text-[9.5px] font-semibold text-rose-600">لن يظهر في الفاتورة</span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1.5 pt-1 border-t border-slate-100">
+            <span className="text-[9.5px] font-mono text-slate-400 shrink-0">S/N:</span>
             <input
               type="text"
               data-testid={serialFieldId}
@@ -195,32 +278,11 @@ export const POSCartItemRow: React.FC<POSCartItemRowProps> = React.memo(
               onChange={(e) =>
                 onUpdateMeta(item.productId, { serialNumber: e.target.value })
               }
-              placeholder="S/N أو IMEI..."
+              placeholder="الرقم التسلسلي S/N أو IMEI (اختياري)..."
               dir="ltr"
-              className="text-[10px] sm:text-[11px] font-mono text-slate-600 bg-transparent border-none outline-hidden w-full text-left min-w-0"
+              className="text-[10px] sm:text-[11px] font-mono text-slate-700 bg-transparent border-none outline-hidden w-full text-left min-w-0"
             />
-            <select
-              data-testid={warrantyFieldId}
-              data-pos-field-id={warrantyFieldId}
-              value={item.warrantyMonths ?? 144}
-              onFocus={() => onFocusField(warrantyFieldId)}
-              onChange={(e) =>
-                onUpdateMeta(item.productId, {
-                  warrantyMonths: Number(e.target.value),
-                })
-              }
-              aria-label="مدة الضمان بالشهور"
-              className="sr-only"
-            >
-              <option value={12}>ضمان 12 شهر</option>
-              <option value={24}>ضمان 24 شهر</option>
-              <option value={36}>ضمان 36 شهر</option>
-              <option value={60}>ضمان 60 شهر</option>
-              <option value={120}>ضمان 120 شهر</option>
-              <option value={144}>ضمان 144 شهر</option>
-            </select>
           </div>
-          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
         </div>
       </div>
     );

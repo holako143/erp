@@ -160,6 +160,10 @@ import {
   PurchaseReturnInputLine,
 } from '../core/multiUnitAndProcurementEngine';
 import {
+  computeFullInvoiceVoidAndReturn,
+  isCartItemWarrantyActive,
+} from '../core/salesReturnEngine';
+import {
   computeOfflineStorageMetrics,
   idbLoadOfflineSnapshot,
   idbLoadPendingSyncQueue,
@@ -712,6 +716,17 @@ interface ERPContextType {
     refundMethod: ReturnRefundMethod;
     reason: string;
   }) => { success: boolean; creditNote?: SalesReturnDoc; messageAr?: string };
+  voidAndReturnSalesInvoice: (params: {
+    invoiceId: string;
+    condition?: ReturnedItemCondition;
+    refundMethod?: ReturnRefundMethod;
+    reason?: string;
+  }) => {
+    success: boolean;
+    updatedInvoice?: SalesInvoice;
+    creditNotes?: SalesReturnDoc[];
+    messageAr?: string;
+  };
   warrantyTickets: WarrantyMaintenanceTicket[];
   createWarrantyMaintenanceTicket: (params: {
     serialNumber: string;
@@ -757,6 +772,7 @@ interface ERPContextType {
   updatePOSCartQty: (productId: string, qty: number) => PosCartStockCheckResult | undefined;
   updatePOSCartItemUnit: (productId: string, unitName: string) => PosCartStockCheckResult | undefined;
   updatePOSCartItemMeta: (productId: string, patch: Partial<InvoiceItem>) => void;
+  toggleAllPOSCartWarranty: (enabled: boolean, months?: number) => void;
   clearPOSCart: () => void;
   checkoutPOS: (
     paymentMethod: 'CASH' | 'CARD' | 'SPLIT' | 'CREDIT',
@@ -5601,13 +5617,178 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       approvedBy: currentUser.name,
     };
 
-    setSalesReturns((prev) => [creditNote, ...prev]);
+    const nextSalesReturns = [creditNote, ...salesReturns];
+    setSalesReturns(nextSalesReturns);
     setJournalEntries((prev) => [retJournal, ...prev]);
+
+    // Check if cumulative returned units cover the entire original invoice -> mark original invoice VOID/returned
+    const totalOrigQty = (origInv.items || []).reduce((s, it) => s + (Number(it.quantity) || 0), 0);
+    const totalReturnedForInv = nextSalesReturns
+      .filter((r) => r.originalInvoiceId === origInv.id)
+      .reduce((s, r) => s + (Number(r.quantity) || 0), 0);
+    if (totalOrigQty > 0 && totalReturnedForInv >= totalOrigQty && origInv.status !== 'VOID') {
+      const refundedAmt = Math.min(
+        origInv.grandTotal,
+        Math.max(0, Number(origInv.paidAmount ?? origInv.grandTotal) || 0)
+      );
+      setSalesInvoices((prev) =>
+        prev.map((inv) =>
+          inv.id === origInv.id
+            ? {
+                ...inv,
+                status: 'VOID',
+                isReturned: true,
+                returnedAt: creditNote.date,
+                refundedAmount: refundedAmt,
+                refundMethod: params.refundMethod,
+                returnReason: params.reason,
+                returnCreditNoteNumber: creditNoteNumber,
+                returnJournalEntryNumber: entryNumber,
+                paidAmount: 0,
+                remainingAmount: 0,
+              }
+            : inv
+        )
+      );
+    }
 
     return {
       success: true,
       creditNote,
       messageAr: `تم إصدار إشعار الدائن (${creditNoteNumber}) بمبلغ ${totalRefund.toLocaleString()} ${currency} وترحيل القيد العكسي (${entryNumber}) بنجاح.`,
+    };
+  };
+
+  const voidAndReturnSalesInvoice = (params: {
+    invoiceId: string;
+    condition?: ReturnedItemCondition;
+    refundMethod?: ReturnRefundMethod;
+    reason?: string;
+  }): {
+    success: boolean;
+    updatedInvoice?: SalesInvoice;
+    creditNotes?: SalesReturnDoc[];
+    messageAr?: string;
+  } => {
+    const targetInv = salesInvoices.find((i) => i.id === params.invoiceId);
+    if (!targetInv) {
+      return { success: false, messageAr: 'لم يتم العثور على الفاتورة المطلوبة.' };
+    }
+
+    const defaultRefundMethod: ReturnRefundMethod =
+      params.refundMethod || (targetInv.paymentMethod === 'CREDIT' ? 'CREDIT_BALANCE' : 'CASH');
+
+    const res = computeFullInvoiceVoidAndReturn({
+      invoice: targetInv,
+      products,
+      condition: params.condition || 'HEALTHY_RESTOCK',
+      refundMethod: defaultRefundMethod,
+      reason: params.reason || 'إلغاء الفاتورة واسترجاع المبلغ بالكامل',
+      tenantId: currentTenant.id,
+      operatorName: currentUser.name,
+    });
+
+    if (!res.success || !res.updatedInvoice) {
+      return { success: false, messageAr: res.messageAr };
+    }
+
+    setSalesInvoices((prev) =>
+      prev.map((inv) => (inv.id === targetInv.id ? res.updatedInvoice! : inv))
+    );
+
+    if (res.restockDeltas.length > 0) {
+      setProducts((prev) =>
+        prev.map((prod) => {
+          const delta = res.restockDeltas
+            .filter((d) => d.productId === prod.id)
+            .reduce((s, d) => s + d.baseQtyRestocked, 0);
+          if (delta <= 0) return prod;
+          return {
+            ...prod,
+            stockQty: Math.round((prod.stockQty + delta) * 1000) / 1000,
+          };
+        })
+      );
+    }
+
+    if (res.debtReleasedAmount > 0 && targetInv.customerId) {
+      setCustomers((prev) =>
+        prev.map((c) =>
+          c.id === targetInv.customerId
+            ? {
+                ...c,
+                balance: Math.max(
+                  0,
+                  Math.round((c.balance - res.debtReleasedAmount) * 100) / 100
+                ),
+              }
+            : c
+        )
+      );
+    }
+
+    if (res.creditNotes.length > 0) {
+      setSalesReturns((prev) => [...res.creditNotes, ...prev]);
+    }
+
+    if (res.journalEntry) {
+      setJournalEntries((prev) => [res.journalEntry!, ...prev]);
+    }
+
+    if (
+      targetInv.shiftId &&
+      targetInv.shiftId === currentShift.id &&
+      (res.cashRefundDelta > 0 || res.cardRefundDelta > 0)
+    ) {
+      setCurrentShift((prev) => ({
+        ...prev,
+        cashSales: Math.max(0, Math.round((prev.cashSales - res.cashRefundDelta) * 100) / 100),
+        cardSales: Math.max(0, Math.round((prev.cardSales - res.cardRefundDelta) * 100) / 100),
+        totalSales: Math.max(
+          0,
+          Math.round((prev.totalSales - (targetInv.grandTotal || 0)) * 100) / 100
+        ),
+        expectedCash: Math.max(
+          0,
+          Math.round((prev.expectedCash - res.cashRefundDelta) * 100) / 100
+        ),
+        transactionCount: Math.max(0, (prev.transactionCount || 1) - 1),
+      }));
+    }
+
+    setAuditLogs((prev) => [
+      {
+        id: `aud-void-${Date.now()}`,
+        tenantId: currentTenant.id,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        action: 'SALES_INVOICE_VOID_RETURN',
+        module: 'SALES',
+        entityType: 'SalesInvoice',
+        entityId: targetInv.id,
+        details: `Voided & returned invoice ${targetInv.invoiceNumber} (Refunded: ${res.refundedAmount}, Debt Released: ${res.debtReleasedAmount}, CN: ${res.updatedInvoice?.returnCreditNoteNumber}).`,
+        timestamp: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
+
+    pushLiveNotification({
+      category: 'LIVE_EVENTS',
+      severity: 'warning',
+      titleAr: `تم إلغاء واسترجاع الفاتورة (${targetInv.invoiceNumber})`,
+      titleEn: `Invoice Voided & Returned (${targetInv.invoiceNumber})`,
+      messageAr: res.messageAr,
+      messageEn: `Voided invoice ${targetInv.invoiceNumber} and issued credit note ${res.updatedInvoice.returnCreditNoteNumber}.`,
+      actionType: 'SALES',
+      actionLabelAr: 'عرض الفاتورة المسترجعة ↗',
+      actionLabelEn: 'View Returned Invoice ↗',
+    });
+
+    return {
+      success: true,
+      updatedInvoice: res.updatedInvoice,
+      creditNotes: res.creditNotes,
+      messageAr: res.messageAr,
     };
   };
 
@@ -6318,6 +6499,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ? generateUniqueSerialNumber('IMEI', currentTenant.code)
         : undefined;
 
+      const hasDefaultWarranty = (liveProduct.warrantyMonths || 0) > 0;
+
       return [
         ...prev,
         {
@@ -6335,7 +6518,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           taxAmount: 0,
           total: sub,
           serialNumber: autoSerial,
-          warrantyMonths: liveProduct.warrantyMonths,
+          warrantyEnabled: hasDefaultWarranty,
+          warrantyMonths: hasDefaultWarranty ? liveProduct.warrantyMonths : 0,
           batchNumber: liveProduct.batchNumber,
           expiryDate: liveProduct.expiryDate,
           kitchenNotes: customNotes,
@@ -6530,8 +6714,42 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       prev.map((item) => {
         if (item.productId !== productId) return item;
         const merged = { ...item, ...patch };
+        if (patch.warrantyEnabled === false) {
+          merged.warrantyMonths = 0;
+        } else if (
+          patch.warrantyEnabled === true &&
+          (!merged.warrantyMonths || merged.warrantyMonths <= 0)
+        ) {
+          const matchedProd = products.find((p) => p.id === item.productId);
+          merged.warrantyMonths =
+            matchedProd?.warrantyMonths && matchedProd.warrantyMonths > 0
+              ? matchedProd.warrantyMonths
+              : 12;
+        } else if (patch.warrantyMonths !== undefined && patch.warrantyEnabled === undefined) {
+          merged.warrantyEnabled = Number(patch.warrantyMonths) > 0;
+        }
         const sub = Math.max(0, merged.quantity * merged.unitPrice - merged.discount);
         return { ...merged, taxRate: 0, taxAmount: 0, total: sub };
+      })
+    );
+  };
+
+  const toggleAllPOSCartWarranty = (enabled: boolean, months?: number) => {
+    setPosCart((prev) =>
+      prev.map((item) => {
+        if (!enabled) {
+          return { ...item, warrantyEnabled: false, warrantyMonths: 0 };
+        }
+        const matchedProd = products.find((p) => p.id === item.productId);
+        const resolvedMonths =
+          months && months > 0
+            ? months
+            : item.warrantyMonths && item.warrantyMonths > 0
+            ? item.warrantyMonths
+            : matchedProd?.warrantyMonths && matchedProd.warrantyMonths > 0
+            ? matchedProd.warrantyMonths
+            : 12;
+        return { ...item, warrantyEnabled: true, warrantyMonths: resolvedMonths };
       })
     );
   };
@@ -6703,29 +6921,33 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ? round2(Math.max(0, Number(extraMeta.tenderedAmount) || 0))
         : actualPaid;
 
-    // Ensure every electronics/warranty item has a serial number & warranty months recorded
+    // Respect explicit warranty toggle/duration per cart item — cancelled warranties must NOT appear on invoice
     const finalizedItems = posCart.map((item) => {
       const matchedProd = products.find((p) => p.id === item.productId);
-      const needsWarrantyMeta =
-        activeIndustry === 'electronics' ||
-        matchedProd?.hasSerials ||
-        Boolean(item.serialNumber) ||
-        Boolean(item.warrantyMonths);
+      const warrantyActive = isCartItemWarrantyActive(item);
+      const needsSerialMeta =
+        warrantyActive &&
+        (activeIndustry === 'electronics' ||
+          matchedProd?.hasSerials ||
+          Boolean(item.serialNumber));
+      const resolvedWarrantyMonths = warrantyActive
+        ? Number(item.warrantyMonths) > 0
+          ? Number(item.warrantyMonths)
+          : matchedProd?.warrantyMonths || 24
+        : 0;
       return {
         ...item,
         serialNumber:
           item.serialNumber?.trim() ||
-          (needsWarrantyMeta
+          (needsSerialMeta
             ? generateUniqueSerialNumber('IMEI', currentTenant.code)
             : undefined),
-        warrantyMonths:
-          item.warrantyMonths !== undefined
-            ? item.warrantyMonths
-            : needsWarrantyMeta
-            ? matchedProd?.warrantyMonths || 24
-            : undefined,
+        warrantyEnabled: warrantyActive,
+        warrantyMonths: resolvedWarrantyMonths,
       };
     });
+    const allWarrantyCancelled =
+      finalizedItems.length > 0 && finalizedItems.every((it) => !isCartItemWarrantyActive(it));
 
     const invoice: SalesInvoice = {
       id: `inv-${Date.now()}`,
@@ -6752,6 +6974,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       tenderedAmount,
       paymentMethod,
       status: resolvedStatus,
+      warrantyCancelled: allWarrantyCancelled,
       qrData: `GLOBAL-TAX-QR-${invNumber}-TOTAL-${grandTotal}-PAID-${actualPaid}-DEBT-${remainingDebt}`,
       notes:
         extraMeta?.notes ||
@@ -9805,6 +10028,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addSalesInvoice,
         salesReturns,
         createSalesReturnCreditNote,
+        voidAndReturnSalesInvoice,
         warrantyTickets,
         createWarrantyMaintenanceTicket,
         advanceWarrantyTicketStatus,
@@ -9820,6 +10044,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updatePOSCartQty,
         updatePOSCartItemUnit,
         updatePOSCartItemMeta,
+        toggleAllPOSCartWarranty,
         clearPOSCart,
         checkoutPOS,
         holdBills,

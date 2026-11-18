@@ -284,6 +284,14 @@ export function buildMobileQuickActionsForTarget(
           tone: 'indigo',
         },
         {
+          id: 'inv-prod-qr-label',
+          labelAr: 'توليد وطباعة ملصق QR (SKU + Barcode)',
+          labelEn: 'Generate & Print QR Label',
+          subtitleAr: 'توليد رمز QR مشفر بالباركود ورمز الصنف لطباعة الملصقات المخزنية',
+          badgeText: 'QR',
+          tone: 'emerald',
+        },
+        {
           id: 'inv-prod-stock-inc',
           labelAr: 'زيادة الرصيد المخزني السريع (+1)',
           labelEn: 'Quick Increment Stock (+1)',

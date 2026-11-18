@@ -547,6 +547,7 @@ export interface InvoiceItem {
   taxAmount: number;
   total: number;
   serialNumber?: string;
+  warrantyEnabled?: boolean;
   warrantyMonths?: number;
   batchNumber?: string;
   expiryDate?: string;
@@ -574,6 +575,14 @@ export interface SalesInvoice {
   tenderedAmount?: number;
   paymentMethod: 'CASH' | 'CARD' | 'SPLIT' | 'CREDIT';
   status: 'DRAFT' | 'PAID' | 'PARTIAL' | 'OVERDUE' | 'VOID';
+  isReturned?: boolean;
+  returnedAt?: string;
+  refundedAmount?: number;
+  refundMethod?: ReturnRefundMethod;
+  returnReason?: string;
+  returnCreditNoteNumber?: string;
+  returnJournalEntryNumber?: string;
+  warrantyCancelled?: boolean;
   qrData?: string;
   notes?: string;
   industryMode?: IndustryType;

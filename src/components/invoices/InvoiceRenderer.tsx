@@ -11,6 +11,11 @@ import {
   encodeZatcaPhase2TLVBase64,
 } from '../../core/barcodeEngine';
 import { formatCleanNumber } from '../../core/systemConfigEngine';
+import {
+  doesInvoiceHaveAnyWarranty,
+  isCartItemWarrantyActive,
+  isInvoiceVoidOrReturned,
+} from '../../core/salesReturnEngine';
 import { resolveThemeAwareInvoicePalette } from '../../core/posStrictStockValidationService';
 import {
   CustomInvoiceLayoutTemplate,
@@ -465,9 +470,25 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
       ? 'Split Tender'
       : 'Credit Account';
 
+  const isReturnedOrVoid = isInvoiceVoidOrReturned(invoice);
+  const anyItemHasWarranty = doesInvoiceHaveAnyWarranty(invoice);
+  const allWarrantiesDisabled =
+    invoice.warrantyCancelled === true ||
+    ((invoice.items || []).length > 0 &&
+      (invoice.items || []).every((i) => i.warrantyEnabled === false || Number(i.warrantyMonths || 0) === 0));
+  const sanitizedCustomHeaderAr = useMemo(() => {
+    const raw = settings.headerTitleAr?.trim() || '';
+    if (!raw) return '';
+    if (!allWarrantiesDisabled) return raw;
+    if (/ضمان/.test(raw)) {
+      return 'فاتورة مبيعات ضريبية معتمدة';
+    }
+    return raw;
+  }, [settings.headerTitleAr, allWarrantiesDisabled]);
+
   const hasSerialOrWarranty =
     showSerialAndWarranty &&
-    invoice.items.some((i) => Boolean(i.serialNumber) || Boolean(i.warrantyMonths));
+    invoice.items.some((i) => Boolean(i.serialNumber) || isCartItemWarrantyActive(i));
   const hasBatchOrExpiry = invoice.items.some(
     (i) => Boolean(i.batchNumber) || Boolean(i.expiryDate)
   );
@@ -499,14 +520,18 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
     0,
     Math.round((tenderedVal - (invoice.grandTotal || 0)) * 100) / 100
   );
-  const invoiceStatusAr =
-    invoice.status === 'VOID'
-      ? 'ملغاة'
-      : remainingDebtVal <= 0.01
-      ? 'مسددة بالكامل'
-      : paidVal > 0
-      ? 'سداد جزئي'
-      : 'آجل — ذمم عملاء';
+  const invoiceStatusAr = isReturnedOrVoid
+    ? 'ملغاة — تم الاسترجاع'
+    : remainingDebtVal <= 0.01
+    ? 'مسددة بالكامل'
+    : paidVal > 0
+    ? 'سداد جزئي'
+    : 'آجل — ذمم عملاء';
+
+  const refundedDisplayVal =
+    invoice.refundedAmount !== undefined
+      ? Number(invoice.refundedAmount)
+      : Number(invoice.grandTotal) || 0;
 
   const tafqeetText = useMemo(
     () => numberToArabicWords(invoice.grandTotal, currency),
@@ -613,14 +638,33 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
                 style={{ borderColor: primaryHex, color: primaryHex }}
                 className="mt-1.5 inline-block px-2 py-0.5 rounded border font-black text-[10px] bg-slate-50"
               >
-                {settings.headerTitleAr?.trim()
-                  ? settings.headerTitleAr
-                  : isWarrantyReceipt
+                {sanitizedCustomHeaderAr
+                  ? sanitizedCustomHeaderAr
+                  : isWarrantyReceipt && !allWarrantiesDisabled
                   ? 'فاتورة مبيعات وشهادة ضمان'
                   : isRestaurant
                   ? 'إيصال طلبات وضيافة'
                   : 'فاتورة مبيعات ضريبية مبسطة'}
               </div>
+              {isReturnedOrVoid && (
+                <div
+                  data-testid="invoice-returned-stamp"
+                  className="mt-2 p-2 rounded-md border-2 border-dashed border-rose-600 bg-rose-50 text-rose-800 text-center space-y-0.5"
+                >
+                  <div className="text-xs font-black tracking-tight">
+                    ★ ملغاة — تم الاسترجاع (RETURNED / VOID) ★
+                  </div>
+                  <div className="text-[10px] font-bold">
+                    {refundedDisplayVal > 0
+                      ? `تم إرجاع المبلغ: ${formatCleanNumber(refundedDisplayVal)} ${currency}`
+                      : `تم إلغاء الفاتورة وإسقاط المديونية: ${formatCleanNumber(invoice.grandTotal)} ${currency}`}
+                  </div>
+                  <div className="text-[9px] font-mono text-rose-700" dir="ltr">
+                    {invoice.returnCreditNoteNumber ? `${invoice.returnCreditNoteNumber} • ` : ''}
+                    {invoice.returnedAt || invoice.date}
+                  </div>
+                </div>
+              )}
             </div>
           );
 
@@ -691,12 +735,15 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
                           {item.sku}
                         </div>
                       )}
-                      {showSerialAndWarranty && (item.serialNumber || item.warrantyMonths) && (
-                        <div className="text-[8.5px] font-mono text-slate-600 mt-0.5" dir="ltr">
-                          {item.serialNumber ? `SN: ${item.serialNumber}` : ''}{' '}
-                          {item.warrantyMonths ? `• ضمان ${item.warrantyMonths} ش` : ''}
-                        </div>
-                      )}
+                      {showSerialAndWarranty &&
+                        (item.serialNumber || isCartItemWarrantyActive(item)) && (
+                          <div className="text-[8.5px] font-mono text-slate-600 mt-0.5" dir="ltr">
+                            {item.serialNumber ? `SN: ${item.serialNumber}` : ''}{' '}
+                            {isCartItemWarrantyActive(item)
+                              ? `• ضمان ${item.warrantyMonths} ش`
+                              : ''}
+                          </div>
+                        )}
                     </td>
                     <td className="py-1.5 px-1 text-center font-mono font-bold tabular-nums" dir="ltr">
                       {formatCleanNumber(item.quantity)}
@@ -834,12 +881,13 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
           );
 
         case 'WARRANTY_NOTES':
+          if (allWarrantiesDisabled && !settings.footerNoteAr) return null;
           return (
             <div
               key={zoneId}
               className="mt-2 pt-1.5 border-t border-slate-200 text-center text-[9px] text-slate-500 space-y-0.5"
             >
-              {settings.footerNoteAr && (
+              {!allWarrantiesDisabled && settings.footerNoteAr && (
                 <p className="font-bold text-slate-700">{settings.footerNoteAr}</p>
               )}
               <p className="font-semibold text-slate-600">
@@ -946,9 +994,9 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
   const showGridBorders =
     resolvedCustomLayout !== null ? resolvedCustomLayout.showGridBorders : isYemenOfficial || isExecutiveGridPro;
 
-  const invoiceTitleAr = settings.headerTitleAr?.trim()
-    ? settings.headerTitleAr
-    : isWarrantyA4
+  const invoiceTitleAr = sanitizedCustomHeaderAr
+    ? sanitizedCustomHeaderAr
+    : isWarrantyA4 && !allWarrantiesDisabled
     ? 'فاتورة مبيعات وشهادة ضمان رسمية'
     : isContracting
     ? 'فاتورة مستخلصات وتوريدات هندسية'
@@ -960,15 +1008,16 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
     ? 'فاتورة مبيعات تجارية وضريبية'
     : 'فاتورة مبيعات رسمية';
 
-  const invoiceTitleEn = isWarrantyA4
-    ? 'SALES INVOICE & WARRANTY CERTIFICATE'
-    : isContracting
-    ? 'ENGINEERING SUPPLY INVOICE'
-    : isMedical
-    ? 'PHARMACEUTICAL INVOICE'
-    : isGlobalB2B
-    ? 'COMMERCIAL TAX INVOICE'
-    : 'TAX & COMMERCIAL INVOICE';
+  const invoiceTitleEn =
+    isWarrantyA4 && !allWarrantiesDisabled
+      ? 'SALES INVOICE & WARRANTY CERTIFICATE'
+      : isContracting
+      ? 'ENGINEERING SUPPLY INVOICE'
+      : isMedical
+      ? 'PHARMACEUTICAL INVOICE'
+      : isGlobalB2B
+      ? 'COMMERCIAL TAX INVOICE'
+      : 'TAX & COMMERCIAL INVOICE';
 
   // Reusable Authentic Commercial A4 Zone Blocks (Used by both Standard Presets and Drag-and-Drop Custom Layouts)
   const renderZoneHeaderBrand = () => {
@@ -1051,7 +1100,11 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
               <span className="px-2 py-1 font-bold text-slate-600 border-l border-slate-200">
                 الحالة
               </span>
-              <span className="px-2 py-1 font-bold text-left text-emerald-700">
+              <span
+                className={`px-2 py-1 font-bold text-left ${
+                  isReturnedOrVoid ? 'text-rose-700 font-black' : 'text-emerald-700'
+                }`}
+              >
                 {invoiceStatusAr}
               </span>
             </div>
@@ -1159,7 +1212,9 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
                 <span className="text-[9px] text-slate-400 block font-sans">الحالة</span>
                 <span
                   className={`font-sans font-black text-[10px] whitespace-nowrap ${
-                    remainingDebtVal > 0.01 ? 'text-rose-700' : 'text-emerald-700'
+                    isReturnedOrVoid || remainingDebtVal > 0.01
+                      ? 'text-rose-700'
+                      : 'text-emerald-700'
                   }`}
                 >
                   {invoiceStatusAr}
@@ -1273,8 +1328,10 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
               <th className={`py-2 px-2.5 text-start ${cellBorderClass}`}>
                 بيان الصنف والمواصفات (Description)
               </th>
-              {(hasSerialOrWarranty || (showSerialAndWarranty && isWarrantyA4)) && (
-                <th className={`py-2 px-2 text-center ${cellBorderClass}`}>السيريال / الضمان</th>
+              {(hasSerialOrWarranty || (showSerialAndWarranty && isWarrantyA4 && !allWarrantiesDisabled)) && (
+                <th className={`py-2 px-2 text-center ${cellBorderClass}`}>
+                  {allWarrantiesDisabled ? 'الرقم التسلسلي S/N' : 'السيريال / الضمان'}
+                </th>
               )}
               {(hasBatchOrExpiry || isMedical) && (
                 <th className={`py-2 px-2 text-center ${cellBorderClass}`}>التشغيلة / الصلاحية</th>
@@ -1322,12 +1379,12 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
                     </div>
                   )}
                 </td>
-                {(hasSerialOrWarranty || (showSerialAndWarranty && isWarrantyA4)) && (
+                {(hasSerialOrWarranty || (showSerialAndWarranty && isWarrantyA4 && !allWarrantiesDisabled)) && (
                   <td className={`py-1.5 px-2 text-center ${cellBorderClass}`}>
                     <div className="font-mono text-[10px] font-bold text-slate-800" dir="ltr">
                       {item.serialNumber || '—'}
                     </div>
-                    {item.warrantyMonths ? (
+                    {isCartItemWarrantyActive(item) ? (
                       <span className="inline-block mt-0.5 px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[9px] font-bold">
                         ضمان {item.warrantyMonths} شهر
                       </span>
@@ -1569,10 +1626,12 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
   };
 
   const renderZoneWarrantyNotes = () => {
+    if (allWarrantiesDisabled || !anyItemHasWarranty) return null;
     if (!settings.showWarrantyTerms && !isWarrantyA4 && !settings.footerNoteAr) return null;
     return (
       <div
         key="WARRANTY_NOTES"
+        data-testid="invoice-warranty-notes-box"
         className="px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-[10px] text-slate-600 space-y-0.5"
       >
         <div className="font-black text-slate-900 flex items-center gap-1.5 text-[10.5px]">
@@ -1678,7 +1737,24 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
             </span>
           </div>
         )}
-        <div style={{ backgroundColor: primaryHex }} className="h-1.5 w-full" />
+        {isReturnedOrVoid && (
+          <div
+            data-testid="invoice-returned-stamp"
+            className="pointer-events-none absolute top-10 left-1/2 -translate-x-1/2 z-30 border-4 border-rose-600 bg-rose-50/95 text-rose-800 px-4 py-2 rounded-lg shadow-sm -rotate-6 text-center"
+          >
+            <div className="text-sm font-black tracking-wide">ملغاة — تم الاسترجاع</div>
+            <div className="text-[11px] font-bold">
+              {refundedDisplayVal > 0
+                ? `تم إرجاع المبلغ: ${formatCleanNumber(refundedDisplayVal)} ${currency}`
+                : `إلغاء فاتورة وإسقاط المديونية: ${formatCleanNumber(invoice.grandTotal)} ${currency}`}
+            </div>
+            <div className="text-[9.5px] font-mono text-rose-700" dir="ltr">
+              {invoice.returnCreditNoteNumber ? `${invoice.returnCreditNoteNumber} • ` : ''}
+              {invoice.returnedAt || invoice.date}
+            </div>
+          </div>
+        )}
+        <div style={{ backgroundColor: isReturnedOrVoid ? '#dc2626' : primaryHex }} className="h-1.5 w-full" />
         <div className={`relative z-10 grid grid-cols-12 gap-3 items-stretch ${a4PaddingClass}`}>
           {orderedZones.map((zone) => {
             const content = renderA4ZoneById(zone.id);
@@ -1721,19 +1797,53 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
         </div>
       )}
 
+      {isReturnedOrVoid && (
+        <div
+          data-testid="invoice-returned-stamp"
+          className="pointer-events-none absolute top-10 left-1/2 -translate-x-1/2 z-30 border-4 border-rose-600 bg-rose-50/95 text-rose-800 px-4 py-2 rounded-lg shadow-sm -rotate-6 text-center"
+        >
+          <div className="text-sm font-black tracking-wide">ملغاة — تم الاسترجاع</div>
+          <div className="text-[11px] font-bold">
+            {refundedDisplayVal > 0
+              ? `تم إرجاع المبلغ: ${formatCleanNumber(refundedDisplayVal)} ${currency}`
+              : `إلغاء فاتورة وإسقاط المديونية: ${formatCleanNumber(invoice.grandTotal)} ${currency}`}
+          </div>
+          <div className="text-[9.5px] font-mono text-rose-700" dir="ltr">
+            {invoice.returnCreditNoteNumber ? `${invoice.returnCreditNoteNumber} • ` : ''}
+            {invoice.returnedAt || invoice.date}
+          </div>
+        </div>
+      )}
+
       {/* Restrained 4px Commercial Top Accent Rule */}
       <div
         style={{
-          background:
-            isModernBlue || isGlobalB2B
-              ? `linear-gradient(90deg, ${primaryHex}, ${secondaryHex})`
-              : primaryHex,
+          background: isReturnedOrVoid
+            ? '#dc2626'
+            : isModernBlue || isGlobalB2B
+            ? `linear-gradient(90deg, ${primaryHex}, ${secondaryHex})`
+            : primaryHex,
         }}
         className="h-1.5 w-full"
       />
 
       <div className={`relative z-10 ${a4GapClass} ${a4PaddingClass}`}>
         {renderZoneHeaderBrand()}
+        {isReturnedOrVoid && (
+          <div
+            data-testid="invoice-returned-banner"
+            className="p-2.5 rounded-lg border-2 border-rose-300 bg-rose-50 text-rose-900 flex flex-wrap items-center justify-between gap-2 text-xs"
+          >
+            <div className="font-black">
+              تم إلغاء هذه الفاتورة واسترجاعها بالكامل — لا تُحتسب ضمن المبيعات الفعّالة
+            </div>
+            <div className="font-bold font-mono" dir="ltr">
+              {refundedDisplayVal > 0
+                ? `تم إرجاع المبلغ: ${formatCleanNumber(refundedDisplayVal)} ${currency}`
+                : `تم إسقاط المديونية: ${formatCleanNumber(invoice.grandTotal)} ${currency}`}
+            </div>
+          </div>
+        )}
         {renderZonePartiesMetadata()}
         {renderZoneLineItemsTable()}
 

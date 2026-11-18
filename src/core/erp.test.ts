@@ -3805,9 +3805,10 @@ test('Track 45 Mobile Double-Tap Gesture Engine, Contextual Quick Actions & Touc
     itemId: 'prod-1',
     titleAr: 'لوح طاقة شمسية 585W',
   });
-  assert.equal(invActions.length, 6);
+  assert.equal(invActions.length, 7);
   assert.ok(invActions.some((a) => a.id === 'inv-prod-sell-pos'));
   assert.ok(invActions.some((a) => a.id === 'inv-prod-edit'));
+  assert.ok(invActions.some((a) => a.id === 'inv-prod-qr-label'));
 
   const chatActions = buildMobileQuickActionsForTarget({
     contextType: 'WHATSAPP_CHAT',
@@ -6785,6 +6786,206 @@ test('Track 105 Global Modal Layer Stack Engine: newly opened modals strictly si
   unsub();
   stack.pop('nested-picker');
   stack.pop('sales-template-manager');
+});
+
+test('Track 106 POS Warranty Control: respects disabled warranty flags, zero months, and invoice warranty suppression', async () => {
+  const { isCartItemWarrantyActive, doesInvoiceHaveAnyWarranty } = await import('./salesReturnEngine');
+
+  assert.equal(isCartItemWarrantyActive({ warrantyEnabled: true, warrantyMonths: 12 }), true);
+  assert.equal(isCartItemWarrantyActive({ warrantyEnabled: false, warrantyMonths: 24 }), false);
+  assert.equal(isCartItemWarrantyActive({ warrantyEnabled: true, warrantyMonths: 0 }), false);
+  assert.equal(isCartItemWarrantyActive({ warrantyMonths: 6 }), true);
+
+  assert.equal(
+    doesInvoiceHaveAnyWarranty({
+      warrantyCancelled: false,
+      items: [
+        { warrantyEnabled: false, warrantyMonths: 24 } as any,
+        { warrantyEnabled: true, warrantyMonths: 0 } as any,
+      ],
+    }),
+    false
+  );
+
+  assert.equal(
+    doesInvoiceHaveAnyWarranty({
+      warrantyCancelled: true,
+      items: [{ warrantyEnabled: true, warrantyMonths: 24 } as any],
+    }),
+    false
+  );
+
+  assert.equal(
+    doesInvoiceHaveAnyWarranty({
+      warrantyCancelled: false,
+      items: [
+        { warrantyEnabled: false, warrantyMonths: 24 } as any,
+        { warrantyEnabled: true, warrantyMonths: 18 } as any,
+      ],
+    }),
+    true
+  );
+});
+
+test('Track 107 Invoice Void/Return & Strict Reporting: voids invoice, restocks inventory, posts balanced reversal, and excludes voided sales from KPIs', async () => {
+  const {
+    computeFullInvoiceVoidAndReturn,
+    computeStrictSalesAndReturnsReportSummary,
+    isInvoiceVoidOrReturned,
+  } = await import('./salesReturnEngine');
+
+  const sampleProducts: any[] = [
+    { id: 'p-1', name: 'Solar Panel', nameAr: 'لوح شمسي', sku: 'SOL-585', costPrice: 400, stockQty: 10 },
+    { id: 'p-2', name: 'Lithium Battery', nameAr: 'بطارية ليثيوم', sku: 'BAT-48V', costPrice: 900, stockQty: 5 },
+  ];
+
+  const invActive: any = {
+    id: 'inv-active',
+    tenantId: 't-1',
+    invoiceNumber: 'INV-1001',
+    customerId: 'c-1',
+    customerName: 'عميل نشط',
+    branchId: 'b-1',
+    date: '2026-05-01',
+    subtotal: 1200,
+    taxAmount: 0,
+    grandTotal: 1200,
+    paidAmount: 1200,
+    remainingAmount: 0,
+    paymentMethod: 'CASH',
+    status: 'PAID',
+    items: [
+      { productId: 'p-1', productName: 'لوح شمسي', sku: 'SOL-585', quantity: 2, unitPrice: 600, total: 1200 },
+    ],
+  };
+
+  const invToVoid: any = {
+    id: 'inv-void',
+    tenantId: 't-1',
+    invoiceNumber: 'INV-1002',
+    customerId: 'c-2',
+    customerName: 'عميل مسترجع',
+    branchId: 'b-1',
+    date: '2026-05-01',
+    subtotal: 1200,
+    taxAmount: 0,
+    grandTotal: 1200,
+    paidAmount: 800,
+    remainingAmount: 400,
+    cashPaidAmount: 800,
+    cardPaidAmount: 0,
+    paymentMethod: 'PARTIAL',
+    status: 'PARTIAL',
+    items: [
+      { productId: 'p-2', productName: 'بطارية ليثيوم', sku: 'BAT-48V', quantity: 1, unitPrice: 1200, total: 1200 },
+    ],
+  };
+
+  const voidResult = computeFullInvoiceVoidAndReturn({
+    invoice: invToVoid,
+    products: sampleProducts,
+    condition: 'HEALTHY_RESTOCK',
+    refundMethod: 'CASH',
+    reason: 'إلغاء بناءً على طلب العميل',
+    tenantId: 't-1',
+    operatorName: 'مدير النظام',
+    creditNoteNumber: 'CN-2026-7777',
+    entryNumber: 'JE-VOID-2026-7777',
+    returnedAt: '2026-05-02',
+  });
+
+  assert.equal(voidResult.success, true);
+  assert.equal(voidResult.refundedAmount, 800);
+  assert.equal(voidResult.debtReleasedAmount, 400);
+  assert.equal(voidResult.restockDeltas.length, 1);
+  assert.equal(voidResult.restockDeltas[0].baseQtyRestocked, 1);
+  assert.ok(voidResult.updatedInvoice);
+  assert.equal(isInvoiceVoidOrReturned(voidResult.updatedInvoice), true);
+  assert.equal(voidResult.updatedInvoice!.status, 'VOID');
+  assert.equal(voidResult.updatedInvoice!.isReturned, true);
+  assert.equal(voidResult.updatedInvoice!.paidAmount, 0);
+  assert.equal(voidResult.updatedInvoice!.refundedAmount, 800);
+
+  // Double-void protection
+  const duplicateVoid = computeFullInvoiceVoidAndReturn({
+    invoice: voidResult.updatedInvoice!,
+    products: sampleProducts,
+    condition: 'HEALTHY_RESTOCK',
+    refundMethod: 'CASH',
+    reason: 'تكرار',
+    tenantId: 't-1',
+    operatorName: 'مدير النظام',
+  });
+  assert.equal(duplicateVoid.success, false);
+
+  // Journal entry must be strictly balanced
+  const je = voidResult.journalEntry!;
+  assert.ok(je);
+  const debSum = je.lines.reduce((s, l) => s + l.debit, 0);
+  const credSum = je.lines.reduce((s, l) => s + l.credit, 0);
+  assert.equal(Math.round(debSum * 100), Math.round(credSum * 100));
+
+  // Strict report excludes invToVoid from active sales/COGS/products and tracks return operation once (no double counting)
+  const costMap = new Map<string, number>([
+    ['p-1', 400],
+    ['p-2', 900],
+  ]);
+  const report = computeStrictSalesAndReturnsReportSummary({
+    invoices: [invActive, voidResult.updatedInvoice!],
+    salesReturns: voidResult.creditNotes,
+    products: sampleProducts,
+    productCostMap: costMap,
+    startDate: '2026-05-01',
+    endDate: '2026-05-31',
+  });
+
+  assert.equal(report.activeInvoicesCount, 1);
+  assert.equal(report.voidedInvoicesCount, 1);
+  assert.equal(report.grossSales, 1200);
+  assert.equal(report.totalCOGS, 800);
+  assert.equal(report.grossProfit, 400);
+  assert.equal(report.productPerformance.length, 1);
+  assert.equal(report.productPerformance[0].sku, 'SOL-585');
+  assert.equal(report.totalReturnsCount, 1);
+  assert.equal(report.totalRefundedAmount, 800);
+  assert.equal(report.totalVoidedOriginalAmount, 1200);
+  assert.equal(report.returnOperations[0].debtReleasedAmount, 400);
+});
+
+test('Track 108 Inventory Item QR Code Generator: encodes and round-trip parses Barcode ID and SKU into crisp SVG', async () => {
+  const {
+    buildInventoryItemQrPayload,
+    parseInventoryItemQrPayload,
+    renderInventoryQrSVG,
+  } = await import('./barcodeEngine');
+
+  const payload = buildInventoryItemQrPayload({
+    productId: 'prod-deye-8k',
+    sku: 'INV-DEYE-8K',
+    barcode: '6281042008812',
+    nameAr: 'إنفرتر هجين Deye 8kW',
+    salePrice: 4850,
+    binLocation: 'ZB-02-S1',
+  });
+
+  assert.ok(payload.includes('BAR:6281042008812'));
+  assert.ok(payload.includes('SKU:INV-DEYE-8K'));
+
+  const parsed = parseInventoryItemQrPayload(payload);
+  assert.equal(parsed.isValid, true);
+  assert.equal(parsed.barcode, '6281042008812');
+  assert.equal(parsed.sku, 'INV-DEYE-8K');
+  assert.equal(parsed.productId, 'prod-deye-8k');
+  assert.equal(parsed.binLocation, 'ZB-02-S1');
+  assert.equal(parsed.salePrice, 4850);
+
+  const badParsed = parseInventoryItemQrPayload('INVALID-TEXT');
+  assert.equal(badParsed.isValid, false);
+
+  const svg = renderInventoryQrSVG(payload, 120);
+  assert.ok(svg.startsWith('<svg'));
+  assert.ok(svg.includes('viewBox="0 0 25 25"'));
+  assert.ok(svg.includes('<rect'));
 });
 
 

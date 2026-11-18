@@ -23,6 +23,7 @@ import {
   Sliders,
   Edit3,
   X,
+  RotateCcw,
 } from 'lucide-react';
 import {
   SalesInvoice,
@@ -32,6 +33,7 @@ import {
 import { InvoiceRenderer } from '../components/invoices/InvoiceRenderer';
 import { InvoiceTemplateManager } from '../components/invoices/InvoiceTemplateManager';
 import { calculateReceivablesPayablesAging } from '../core/accountingEngine';
+import { isInvoiceVoidOrReturned } from '../core/salesReturnEngine';
 import {
   composeInvoiceMessageText,
   composeDebtReminderMessageText,
@@ -46,6 +48,7 @@ export const SalesView: React.FC = () => {
     salesInvoices,
     salesReturns,
     createSalesReturnCreditNote,
+    voidAndReturnSalesInvoice,
     warrantyTickets,
     createWarrantyMaintenanceTicket,
     advanceWarrantyTicketStatus,
@@ -131,20 +134,29 @@ export const SalesView: React.FC = () => {
   const [settleRef, setSettleRef] = useState<string>('');
   const [invoiceSearchQuery, setInvoiceSearchQuery] = useState<string>('');
   const deferredInvoiceSearch = useDeferredValue(invoiceSearchQuery);
-  const [invoiceStatusFilter, setInvoiceStatusFilter] = useState<'ALL' | 'PAID' | 'DEBT' | 'CREDIT'>('ALL');
+  const [invoiceStatusFilter, setInvoiceStatusFilter] = useState<'ALL' | 'PAID' | 'DEBT' | 'CREDIT' | 'VOID'>('ALL');
   const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState(false);
   const [isInlineTemplateEditOpen, setIsInlineTemplateEditOpen] = useState(false);
+
+  // Full Invoice Void & Return Modal State
+  const [voidTargetInvoice, setVoidTargetInvoice] = useState<SalesInvoice | null>(null);
+  const [voidCondition, setVoidCondition] = useState<'HEALTHY_RESTOCK' | 'DEFECTIVE_QUARANTINE'>('HEALTHY_RESTOCK');
+  const [voidRefundMethod, setVoidRefundMethod] = useState<'CASH' | 'CREDIT_BALANCE'>('CASH');
+  const [voidReason, setVoidReason] = useState<string>('إلغاء فاتورة واسترجاع الأصناف بالكامل للعميل');
 
   const templateManagerLayer = useModalLayer(isTemplateManagerOpen, 60);
   const settleInvoiceLayer = useModalLayer(Boolean(settlingInvoice), 60);
   const newInvoiceLayer = useModalLayer(isNewInvoiceOpen, 60);
   const newCustomerLayer = useModalLayer(isNewCustomerOpen, 60);
   const newQuoteLayer = useModalLayer(isNewQuoteOpen, 60);
+  const voidReturnLayer = useModalLayer(Boolean(voidTargetInvoice), 65);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      if (templateManagerLayer.isTopLayer) {
+      if (voidReturnLayer.isTopLayer) {
+        setVoidTargetInvoice(null);
+      } else if (templateManagerLayer.isTopLayer) {
         setIsTemplateManagerOpen(false);
       } else if (settleInvoiceLayer.isTopLayer) {
         setSettlingInvoice(null);
@@ -159,6 +171,7 @@ export const SalesView: React.FC = () => {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [
+    voidReturnLayer.isTopLayer,
     templateManagerLayer.isTopLayer,
     settleInvoiceLayer.isTopLayer,
     newInvoiceLayer.isTopLayer,
@@ -226,6 +239,35 @@ export const SalesView: React.FC = () => {
     }
   };
 
+  const openVoidReturnModal = (inv: SalesInvoice) => {
+    const paid = Math.min(inv.grandTotal, Math.max(0, Number(inv.paidAmount ?? inv.grandTotal) || 0));
+    setVoidTargetInvoice(inv);
+    setVoidCondition('HEALTHY_RESTOCK');
+    setVoidRefundMethod(paid > 0.01 ? 'CASH' : 'CREDIT_BALANCE');
+    setVoidReason('إلغاء فاتورة واسترجاع الأصناف بالكامل للعميل');
+  };
+
+  const handleConfirmVoidAndReturn = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!voidTargetInvoice) return;
+    const res = voidAndReturnSalesInvoice({
+      invoiceId: voidTargetInvoice.id,
+      reason: voidReason,
+      condition: voidCondition,
+      refundMethod: voidRefundMethod,
+    });
+    if (res.success && res.updatedInvoice) {
+      setSelectedInvoice(res.updatedInvoice);
+      setReceiptFeedback(res.messageAr ?? null);
+      setTimeout(() => setReceiptFeedback(null), 7000);
+      setVoidTargetInvoice(null);
+    } else if (res.messageAr) {
+      setReceiptFeedback(res.messageAr);
+      setTimeout(() => setReceiptFeedback(null), 6000);
+      setVoidTargetInvoice(null);
+    }
+  };
+
   // New Invoice State
   const [selectedCustomerId, setSelectedCustomerId] = useState(customers[0]?.id || '');
   const [selectedProductId, setSelectedProductId] = useState(products[0]?.id || '');
@@ -236,16 +278,24 @@ export const SalesView: React.FC = () => {
   const [discountType, setDiscountType] = useState<'PERCENT' | 'AMOUNT'>('PERCENT');
   const [discountValue, setDiscountValue] = useState<number | ''>('');
 
-  // Invoices Tab Summary KPIs & Filtered List
+  // Invoices Tab Summary KPIs & Filtered List (Strictly excludes voided/returned invoices from active totals)
   const invoicesSummary = useMemo(() => {
     let totalSold = 0;
     let totalCollected = 0;
     let totalRemainingDebt = 0;
     let totalQtySold = 0;
     let indebtedInvoicesCount = 0;
+    let activeCount = 0;
+    let voidedCount = 0;
+    let refundedTotal = 0;
 
     for (const inv of salesInvoices) {
-      if (inv.status === 'VOID') continue;
+      if (isInvoiceVoidOrReturned(inv)) {
+        voidedCount += 1;
+        refundedTotal += Number(inv.refundedAmount ?? inv.paidAmount ?? 0) || 0;
+        continue;
+      }
+      activeCount += 1;
       const paid = Math.min(inv.grandTotal, Math.max(0, Number(inv.paidAmount ?? inv.grandTotal) || 0));
       const rem = Math.max(0, Math.round((inv.grandTotal - paid) * 100) / 100);
       totalSold += inv.grandTotal || 0;
@@ -263,18 +313,23 @@ export const SalesView: React.FC = () => {
       totalRemainingDebt: Math.round(totalRemainingDebt * 100) / 100,
       totalQtySold: Math.round(totalQtySold * 100) / 100,
       indebtedInvoicesCount,
+      activeCount,
+      voidedCount,
+      refundedTotal: Math.round(refundedTotal * 100) / 100,
     };
   }, [salesInvoices]);
 
   const filteredSalesInvoices = useMemo(() => {
     const q = deferredInvoiceSearch.trim().toLowerCase();
     return salesInvoices.filter((inv) => {
+      const isVoided = isInvoiceVoidOrReturned(inv);
       const paid = Math.min(inv.grandTotal, Math.max(0, Number(inv.paidAmount ?? inv.grandTotal) || 0));
       const rem = Math.max(0, Math.round((inv.grandTotal - paid) * 100) / 100);
 
-      if (invoiceStatusFilter === 'PAID' && rem > 0.01) return false;
-      if (invoiceStatusFilter === 'DEBT' && rem <= 0.01) return false;
-      if (invoiceStatusFilter === 'CREDIT' && inv.paymentMethod !== 'CREDIT') return false;
+      if (invoiceStatusFilter === 'VOID' && !isVoided) return false;
+      if (invoiceStatusFilter === 'PAID' && (isVoided || rem > 0.01)) return false;
+      if (invoiceStatusFilter === 'DEBT' && (isVoided || rem <= 0.01)) return false;
+      if (invoiceStatusFilter === 'CREDIT' && (isVoided || inv.paymentMethod !== 'CREDIT')) return false;
 
       if (!q) return true;
       const itemsText = (inv.items || []).map((it) => `${it.productName} ${it.sku}`).join(' ').toLowerCase();
@@ -397,7 +452,8 @@ export const SalesView: React.FC = () => {
           taxAmount: tax,
           total,
           serialNumber: serialNumberInput || undefined,
-          warrantyMonths: product.warrantyMonths || 24,
+          warrantyEnabled: (product.warrantyMonths || 0) > 0,
+          warrantyMonths: product.warrantyMonths || 0,
           batchNumber: product.batchNumber,
           expiryDate: product.expiryDate,
         },
@@ -591,11 +647,14 @@ export const SalesView: React.FC = () => {
           {/* Sales Invoices Financial KPI Strip */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="bg-white p-3.5 rounded-2xl border border-slate-200/70 shadow-2xs">
-              <div className="text-[11px] font-bold text-slate-500">إجمالي المبيعات (بكم باع)</div>
+              <div className="text-[11px] font-bold text-slate-500">إجمالي المبيعات النشطة (بكم باع)</div>
               <div className="text-lg font-black font-mono text-slate-900 mt-1" dir="ltr">
                 {invoicesSummary.totalSold.toLocaleString()} <span className="text-xs font-sans text-slate-500">{currency}</span>
               </div>
-              <div className="text-[10px] text-slate-400 mt-0.5">{salesInvoices.length} فاتورة صادرة</div>
+              <div className="text-[10px] text-slate-400 mt-0.5">
+                {invoicesSummary.activeCount} فاتورة نشطة
+                {invoicesSummary.voidedCount > 0 ? ` • ${invoicesSummary.voidedCount} ملغاة ومسترجعة` : ''}
+              </div>
             </div>
             <div className="bg-white p-3.5 rounded-2xl border border-emerald-200/80 shadow-2xs">
               <div className="text-[11px] font-bold text-emerald-700">إجمالي المحصل المدفوع</div>
@@ -654,16 +713,18 @@ export const SalesView: React.FC = () => {
                       className="w-full ps-8 pe-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] outline-hidden focus:border-slate-800"
                     />
                   </div>
-                  <div className="flex items-center gap-1 text-[10.5px]">
+                  <div className="flex flex-wrap items-center gap-1 text-[10.5px]">
                     {[
                       { id: 'ALL', label: 'الكل' },
                       { id: 'DEBT', label: `مديونية (${invoicesSummary.indebtedInvoicesCount})` },
                       { id: 'PAID', label: 'مسددة' },
                       { id: 'CREDIT', label: 'آجل' },
+                      { id: 'VOID', label: `ملغاة ومسترجعة (${invoicesSummary.voidedCount})` },
                     ].map((f) => (
                       <button
                         key={f.id}
                         type="button"
+                        data-testid={`sales-status-filter-${f.id}`}
                         onClick={() => setInvoiceStatusFilter(f.id as any)}
                         className={`px-2.5 py-1 rounded-lg font-bold border transition cursor-pointer ${
                           invoiceStatusFilter === f.id
@@ -716,14 +777,19 @@ export const SalesView: React.FC = () => {
                     ) : (
                       filteredSalesInvoices.map((inv) => {
                         const isSelected = selectedInvoice?.id === inv.id;
-                        const paidAmt = Math.min(
-                          inv.grandTotal,
-                          Math.max(0, Number(inv.paidAmount ?? inv.grandTotal) || 0)
-                        );
-                        const remDebt = Math.max(
-                          0,
-                          Math.round((inv.grandTotal - paidAmt) * 100) / 100
-                        );
+                        const isVoided = isInvoiceVoidOrReturned(inv);
+                        const paidAmt = isVoided
+                          ? 0
+                          : Math.min(
+                              inv.grandTotal,
+                              Math.max(0, Number(inv.paidAmount ?? inv.grandTotal) || 0)
+                            );
+                        const remDebt = isVoided
+                          ? 0
+                          : Math.max(
+                              0,
+                              Math.round((inv.grandTotal - paidAmt) * 100) / 100
+                            );
                         const qtyCount = (inv.items || []).reduce(
                           (sum, it) => sum + (Number(it.quantity) || 0),
                           0
@@ -735,11 +801,11 @@ export const SalesView: React.FC = () => {
                             data-testid={`sales-invoice-row-${inv.invoiceNumber}`}
                             onClick={() => setSelectedInvoice(inv)}
                             className={`hover:bg-slate-50/80 cursor-pointer transition ${
-                              isSelected ? 'bg-slate-100/80' : ''
+                              isVoided ? 'bg-rose-50/40 opacity-85' : isSelected ? 'bg-slate-100/80' : ''
                             }`}
                           >
                             <td className="py-2 px-1.5 align-top whitespace-nowrap">
-                              <div className="font-bold text-slate-900 font-mono text-[10px]" dir="ltr">
+                              <div className={`font-bold font-mono text-[10px] ${isVoided ? 'line-through text-rose-700' : 'text-slate-900'}`} dir="ltr">
                                 {inv.invoiceNumber}
                               </div>
                               <div className="text-[9px] font-mono text-slate-400" dir="ltr">{inv.date}</div>
@@ -760,16 +826,26 @@ export const SalesView: React.FC = () => {
                                 {inv.items.length > 1 ? ` +${inv.items.length - 1}` : ''}
                               </div>
                             </td>
-                            <td className="py-2 px-1 text-end font-mono font-bold text-slate-900 tabular-nums align-top whitespace-nowrap" dir="ltr">
-                              {inv.grandTotal.toLocaleString()}{' '}
-                              <span className="text-[8.5px] font-normal text-slate-400">{currency}</span>
+                            <td className="py-2 px-1 text-end font-mono font-bold tabular-nums align-top whitespace-nowrap" dir="ltr">
+                              <span className={isVoided ? 'line-through text-slate-400' : 'text-slate-900'}>
+                                {inv.grandTotal.toLocaleString()}{' '}
+                                <span className="text-[8.5px] font-normal text-slate-400">{currency}</span>
+                              </span>
                             </td>
-                            <td className="py-2 px-1 text-end font-mono font-bold text-emerald-700 tabular-nums align-top whitespace-nowrap" dir="ltr">
-                              {paidAmt.toLocaleString()}{' '}
-                              <span className="text-[8.5px] font-normal opacity-75">{currency}</span>
+                            <td className="py-2 px-1 text-end font-mono font-bold tabular-nums align-top whitespace-nowrap" dir="ltr">
+                              {isVoided ? (
+                                <span className="text-[9.5px] text-rose-700 font-bold">
+                                  مرتجع {(inv.refundedAmount || 0).toLocaleString()} {currency}
+                                </span>
+                              ) : (
+                                <span className="text-emerald-700">
+                                  {paidAmt.toLocaleString()}{' '}
+                                  <span className="text-[8.5px] font-normal opacity-75">{currency}</span>
+                                </span>
+                              )}
                             </td>
                             <td className="py-2 px-1 text-end font-mono font-black tabular-nums align-top whitespace-nowrap" dir="ltr">
-                              {remDebt > 0.01 ? (
+                              {!isVoided && remDebt > 0.01 ? (
                                 <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[10px]">
                                   {remDebt.toLocaleString()}{' '}
                                   <span className="text-[8px] font-normal ms-0.5">{currency}</span>
@@ -780,43 +856,66 @@ export const SalesView: React.FC = () => {
                             </td>
                             <td className="py-2 px-1.5 text-center align-top whitespace-nowrap">
                               <div className="flex flex-col items-center gap-1">
-                                <span
-                                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[9.5px] font-semibold whitespace-nowrap ${
-                                    remDebt <= 0.01
-                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200/70'
-                                      : paidAmt > 0
-                                      ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                      : 'bg-rose-50 text-rose-700 border-rose-200'
-                                  }`}
-                                >
-                                  <span
-                                    className={`w-1.5 h-1.5 rounded-full ${
-                                      remDebt <= 0.01
-                                        ? 'bg-emerald-500'
+                                {isVoided ? (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[9.5px] font-bold whitespace-nowrap bg-rose-100 text-rose-800 border-rose-300">
+                                    ملغاة — مسترجعة
+                                  </span>
+                                ) : (
+                                  <>
+                                    <span
+                                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[9.5px] font-semibold whitespace-nowrap ${
+                                        remDebt <= 0.01
+                                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200/70'
+                                          : paidAmt > 0
+                                          ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                          : 'bg-rose-50 text-rose-700 border-rose-200'
+                                      }`}
+                                    >
+                                      <span
+                                        className={`w-1.5 h-1.5 rounded-full ${
+                                          remDebt <= 0.01
+                                            ? 'bg-emerald-500'
+                                            : paidAmt > 0
+                                            ? 'bg-amber-500'
+                                            : 'bg-rose-500'
+                                        }`}
+                                      />
+                                      {remDebt <= 0.01
+                                        ? 'مسددة'
                                         : paidAmt > 0
-                                        ? 'bg-amber-500'
-                                        : 'bg-rose-500'
-                                    }`}
-                                  />
-                                  {remDebt <= 0.01
-                                    ? 'مسددة'
-                                    : paidAmt > 0
-                                    ? 'جزئي'
-                                    : 'آجل'}
-                                </span>
-                                {remDebt > 0.01 && (
-                                  <button
-                                    type="button"
-                                    data-testid={`settle-invoice-btn-${inv.invoiceNumber}`}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      openSettleInvoiceModal(inv);
-                                    }}
-                                    className="px-1.5 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[9.5px] flex items-center gap-0.5 cursor-pointer whitespace-nowrap"
-                                  >
-                                    <DollarSign className="w-2.5 h-2.5" />
-                                    <span>تحصيل</span>
-                                  </button>
+                                        ? 'جزئي'
+                                        : 'آجل'}
+                                    </span>
+                                    <div className="flex items-center gap-1">
+                                      {remDebt > 0.01 && (
+                                        <button
+                                          type="button"
+                                          data-testid={`settle-invoice-btn-${inv.invoiceNumber}`}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            openSettleInvoiceModal(inv);
+                                          }}
+                                          className="px-1.5 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[9.5px] flex items-center gap-0.5 cursor-pointer whitespace-nowrap"
+                                        >
+                                          <DollarSign className="w-2.5 h-2.5" />
+                                          <span>تحصيل</span>
+                                        </button>
+                                      )}
+                                      <button
+                                        type="button"
+                                        data-testid={`void-return-btn-${inv.invoiceNumber}`}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openVoidReturnModal(inv);
+                                        }}
+                                        title="إلغاء الفاتورة واسترجاع المبلغ والأصناف"
+                                        className="px-1.5 py-0.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-[9px] flex items-center gap-0.5 cursor-pointer whitespace-nowrap"
+                                      >
+                                        <RotateCcw className="w-2.5 h-2.5" />
+                                        <span>إلغاء/استرجاع</span>
+                                      </button>
+                                    </div>
+                                  </>
                                 )}
                               </div>
                             </td>
@@ -831,14 +930,19 @@ export const SalesView: React.FC = () => {
 
             {/* Multi-Template Tax Invoice Preview (Resizable Split Pane) */}
             {selectedInvoice && selectedInvoice.id && (() => {
-              const selPaid = Math.min(
-                selectedInvoice.grandTotal,
-                Math.max(0, Number(selectedInvoice.paidAmount ?? selectedInvoice.grandTotal) || 0)
-              );
-              const selRem = Math.max(
-                0,
-                Math.round((selectedInvoice.grandTotal - selPaid) * 100) / 100
-              );
+              const selVoided = isInvoiceVoidOrReturned(selectedInvoice);
+              const selPaid = selVoided
+                ? 0
+                : Math.min(
+                    selectedInvoice.grandTotal,
+                    Math.max(0, Number(selectedInvoice.paidAmount ?? selectedInvoice.grandTotal) || 0)
+                  );
+              const selRem = selVoided
+                ? 0
+                : Math.max(
+                    0,
+                    Math.round((selectedInvoice.grandTotal - selPaid) * 100) / 100
+                  );
               const selQty = (selectedInvoice.items || []).reduce(
                 (s, it) => s + (Number(it.quantity) || 0),
                 0
@@ -848,6 +952,24 @@ export const SalesView: React.FC = () => {
                   data-testid="sales-invoice-preview-pane"
                   className={`${salesSplitLayout.secondaryColClass} bg-white p-4 rounded-2xl border border-slate-200/70 shadow-2xs space-y-4 transition-all duration-200`}
                 >
+                  {selVoided && (
+                    <div
+                      data-testid="sales-preview-returned-alert"
+                      className="p-3 rounded-xl bg-rose-50 border border-rose-300 text-rose-900 text-xs flex flex-wrap items-center justify-between gap-2"
+                    >
+                      <div className="flex items-center gap-2 font-bold">
+                        <RotateCcw className="w-4 h-4 text-rose-600 shrink-0" />
+                        <span>
+                          فاتورة ملغاة ومسترجعة رسمياً — لا تُحتسب ضمن إيرادات المبيعات
+                        </span>
+                      </div>
+                      <div className="font-mono text-[11px] font-black text-rose-800" dir="ltr">
+                        تم إرجاع المبلغ: {(Number(selectedInvoice.refundedAmount) || 0).toLocaleString()} {currency}
+                        {selectedInvoice.returnCreditNoteNumber ? ` • ${selectedInvoice.returnCreditNoteNumber}` : ''}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Selected Invoice Financial Breakdown & Debt Bar */}
                   <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                     <div>
@@ -858,14 +980,16 @@ export const SalesView: React.FC = () => {
                     </div>
                     <div>
                       <div className="text-[10px] text-slate-500">الإجمالي (بكم باع)</div>
-                      <div className="font-mono font-black text-slate-900" dir="ltr">
+                      <div className={`font-mono font-black ${selVoided ? 'line-through text-slate-400' : 'text-slate-900'}`} dir="ltr">
                         {selectedInvoice.grandTotal.toLocaleString()} {currency}
                       </div>
                     </div>
                     <div>
-                      <div className="text-[10px] text-emerald-700">المدفوع المحصل</div>
-                      <div className="font-mono font-black text-emerald-700" dir="ltr">
-                        {selPaid.toLocaleString()} {currency}
+                      <div className="text-[10px] text-emerald-700">
+                        {selVoided ? 'المبلغ المسترجع للعميل' : 'المدفوع المحصل'}
+                      </div>
+                      <div className={`font-mono font-black ${selVoided ? 'text-rose-700' : 'text-emerald-700'}`} dir="ltr">
+                        {(selVoided ? Number(selectedInvoice.refundedAmount) || 0 : selPaid).toLocaleString()} {currency}
                       </div>
                     </div>
                     <div className="flex items-center justify-between gap-2">
@@ -873,14 +997,14 @@ export const SalesView: React.FC = () => {
                         <div className="text-[10px] text-rose-700">المتبقي (مديونية)</div>
                         <div
                           className={`font-mono font-black ${
-                            selRem > 0.01 ? 'text-rose-700' : 'text-slate-500'
+                            !selVoided && selRem > 0.01 ? 'text-rose-700' : 'text-slate-500'
                           }`}
                           dir="ltr"
                         >
                           {selRem.toLocaleString()} {currency}
                         </div>
                       </div>
-                      {selRem > 0.01 && (
+                      {!selVoided && selRem > 0.01 && (
                         <button
                           type="button"
                           onClick={() => openSettleInvoiceModal(selectedInvoice)}
@@ -1013,6 +1137,18 @@ export const SalesView: React.FC = () => {
                         <Smartphone className="w-3.5 h-3.5" />
                         <span>SMS</span>
                       </button>
+
+                      {!selVoided && (
+                        <button
+                          type="button"
+                          data-testid="sales-void-return-invoice-btn"
+                          onClick={() => openVoidReturnModal(selectedInvoice)}
+                          className="bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold px-3 py-1.5 rounded flex items-center gap-1.5 transition cursor-pointer"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          <span>إلغاء واسترجاع الفاتورة</span>
+                        </button>
+                      )}
 
                       <button
                         type="button"
@@ -1849,6 +1985,137 @@ export const SalesView: React.FC = () => {
                   >
                     <CheckCircle2 className="w-4 h-4" />
                     <span>تأكيد السداد وترحيل القيد</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Modal: Full Invoice Cancellation & Return (إلغاء الفاتورة والاسترجاع مع ختم الاسترجاع) */}
+      {voidTargetInvoice && (() => {
+        const paidSoFar = Math.min(
+          voidTargetInvoice.grandTotal,
+          Math.max(0, Number(voidTargetInvoice.paidAmount ?? voidTargetInvoice.grandTotal) || 0)
+        );
+        const debtToRelease = Math.max(
+          0,
+          Math.round((voidTargetInvoice.grandTotal - paidSoFar) * 100) / 100
+        );
+        return renderModalPortal(
+          <div
+            style={{ zIndex: voidReturnLayer.zIndex }}
+            data-modal-top={voidReturnLayer.isTopLayer ? 'true' : undefined}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setVoidTargetInvoice(null);
+            }}
+            className="fixed inset-0 flex items-center justify-center bg-slate-950/65 backdrop-blur-xs p-4"
+          >
+            <div
+              data-testid="sales-void-return-modal"
+              className="bg-white rounded-2xl shadow-2xl border border-rose-200 w-full max-w-md overflow-hidden"
+            >
+              <div className="px-5 py-3.5 border-b border-rose-100 bg-rose-50/70 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <RotateCcw className="w-4 h-4 text-rose-600" />
+                  <h3 className="font-bold text-sm text-rose-950">
+                    إلغاء واسترجاع الفاتورة ({voidTargetInvoice.invoiceNumber})
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setVoidTargetInvoice(null)}
+                  className="text-rose-500 hover:text-rose-800 font-bold cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+              <form onSubmit={handleConfirmVoidAndReturn} className="p-5 space-y-3.5 text-xs">
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">العميل:</span>
+                    <span className="font-bold text-slate-900">{voidTargetInvoice.customerName}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">إجمالي الفاتورة الملغاة:</span>
+                    <span className="font-mono font-bold text-slate-900" dir="ltr">
+                      {voidTargetInvoice.grandTotal.toLocaleString()} {currency}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-rose-700 font-bold">
+                    <span>المبلغ الواجب إرجاعه للعميل:</span>
+                    <span className="font-mono" dir="ltr">
+                      {paidSoFar.toLocaleString()} {currency}
+                    </span>
+                  </div>
+                  {debtToRelease > 0.01 && (
+                    <div className="flex justify-between text-amber-800 font-bold">
+                      <span>المديونية المسقطة عن العميل:</span>
+                      <span className="font-mono" dir="ltr">
+                        {debtToRelease.toLocaleString()} {currency}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-[11px] text-rose-800 font-semibold">
+                  سيتم وسم الفاتورة بختم «ملغاة — تم الاسترجاع»، واستبعادها تماماً من إحصائيات المبيعات والأرباح، وإصدار إشعار دائن وقيد محاسبي عكسي تلقائياً.
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">حالة الأصناف المسترجعة للمخزون</label>
+                  <select
+                    data-testid="void-return-condition-select"
+                    value={voidCondition}
+                    onChange={(e) => setVoidCondition(e.target.value as any)}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 bg-white font-semibold"
+                  >
+                    <option value="HEALTHY_RESTOCK">سليمة — إعادة كاملة للرصيد المتاح بالمستودع</option>
+                    <option value="DEFECTIVE_QUARANTINE">معيبة / تالفة — عزل فني دون زيادة المتاح</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">طريقة إرجاع المبلغ</label>
+                  <select
+                    data-testid="void-return-refund-method-select"
+                    value={voidRefundMethod}
+                    onChange={(e) => setVoidRefundMethod(e.target.value as any)}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 bg-white font-semibold"
+                  >
+                    <option value="CASH">رد المبلغ نقداً / تحويل مباشر للعميل</option>
+                    <option value="CREDIT_BALANCE">تسوية في رصيد/حساب العميل (إشعار دائن)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">سبب الإلغاء والاسترجاع</label>
+                  <input
+                    type="text"
+                    required
+                    data-testid="void-return-reason-input"
+                    value={voidReason}
+                    onChange={(e) => setVoidReason(e.target.value)}
+                    className="w-full p-2.5 rounded-xl border border-slate-300"
+                  />
+                </div>
+
+                <div className="pt-1 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setVoidTargetInvoice(null)}
+                    className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-semibold cursor-pointer"
+                  >
+                    تراجع
+                  </button>
+                  <button
+                    type="submit"
+                    data-testid="confirm-void-return-btn"
+                    className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    <span>تأكيد إلغاء الفاتورة والاسترجاع</span>
                   </button>
                 </div>
               </form>
