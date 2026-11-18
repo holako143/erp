@@ -18,6 +18,17 @@ import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 import { parseStructuredVendorInvoiceText } from './src/core/inventoryEngine';
 import { generateCohesivePaletteVariants } from './src/core/themeContrastEngine';
 import {
+  AiProviderId,
+  AI_PROVIDER_PRESETS,
+  UniversalAiConfigPublic,
+  UniversalAiConfigInput,
+  getAiProviderPreset,
+  normalizeAiBaseUrl,
+  buildChatCompletionsEndpoint,
+  maskApiKey,
+  validateUniversalAiConfigInput,
+} from './src/core/aiProviderEngine';
+import {
   createInitialWhatsAppSession,
   generatePairingQRToken,
   createCleanWhatsAppDefaultAccount,
@@ -115,6 +126,7 @@ const ROOT_DIR = process.env.HASEB_ROOT_DIR || process.cwd();
 const DATA_DIR = process.env.HASEB_DATA_DIR || path.resolve(ROOT_DIR, '.data');
 const DB_FILE = path.join(DATA_DIR, 'erp_store.json');
 const TMP_DB_FILE = path.join(DATA_DIR, 'erp_store.json.tmp');
+const AI_SECRETS_FILE = path.join(DATA_DIR, 'ai_secrets.json');
 const CURRENT_SCHEMA_VERSION = '8.0-haseb-clean-production';
 let activeEmbeddedAssetsMap: Record<string, { mime: string; gzB64: string }> | null = null;
 
@@ -466,20 +478,371 @@ function probeHostMachineHardware() {
   };
 }
 
-// Initialize Gemini AI Client on Server-Side ONLY
-function getGeminiClient(): GoogleGenAI | null {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
+// ---------------------------------------------------------------------------
+// Universal Multi-Provider AI Configuration & Execution Router (Server-Side ONLY)
+// Supports Google Gemini, OpenAI, Anthropic Claude, DeepSeek, Groq, OpenRouter, Ollama & Custom APIs
+// ---------------------------------------------------------------------------
+interface ServerAiSecretsRecord {
+  provider: AiProviderId;
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+  enabled: boolean;
+  temperature: number;
+  systemPrompt: string;
+  updatedAt: string;
+}
+
+function readServerAiConfig(): ServerAiSecretsRecord | null {
+  try {
+    if (!fs.existsSync(AI_SECRETS_FILE)) return null;
+    const raw = fs.readFileSync(AI_SECRETS_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const preset = getAiProviderPreset(parsed.provider);
+    return {
+      provider: preset.id,
+      baseUrl: normalizeAiBaseUrl(preset.id, parsed.baseUrl),
+      model: String(parsed.model || '').trim() || preset.defaultModel,
+      apiKey: String(parsed.apiKey || '').trim(),
+      enabled: parsed.enabled !== false,
+      temperature: Number.isFinite(Number(parsed.temperature))
+        ? Math.min(2, Math.max(0, Number(parsed.temperature)))
+        : 0.4,
+      systemPrompt: String(parsed.systemPrompt || ''),
+      updatedAt: String(parsed.updatedAt || new Date().toISOString()),
+    };
+  } catch {
     return null;
   }
-  return new GoogleGenAI({
-    apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
+}
+
+function writeServerAiConfig(record: ServerAiSecretsRecord): void {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  const tmpPath = `${AI_SECRETS_FILE}.tmp`;
+  fs.writeFileSync(tmpPath, JSON.stringify(record, null, 2), { encoding: 'utf8', mode: 0o600 });
+  fs.renameSync(tmpPath, AI_SECRETS_FILE);
+}
+
+function getEnvGeminiApiKey(): string {
+  const k = String(process.env.GEMINI_API_KEY || '').trim();
+  return k && k !== 'MY_GEMINI_API_KEY' ? k : '';
+}
+
+interface EffectiveAiRuntime {
+  provider: AiProviderId;
+  preset: ReturnType<typeof getAiProviderPreset>;
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+  enabled: boolean;
+  temperature: number;
+  systemPrompt: string;
+  usingEnvFallback: boolean;
+  updatedAt?: string;
+}
+
+function resolveEffectiveAiRuntime(): EffectiveAiRuntime {
+  const saved = readServerAiConfig();
+  const envGeminiKey = getEnvGeminiApiKey();
+
+  if (saved) {
+    const preset = getAiProviderPreset(saved.provider);
+    const effectiveKey =
+      saved.apiKey || (saved.provider === 'gemini' ? envGeminiKey : '');
+    return {
+      provider: preset.id,
+      preset,
+      baseUrl: normalizeAiBaseUrl(preset.id, saved.baseUrl),
+      model: saved.model || preset.defaultModel,
+      apiKey: effectiveKey,
+      enabled: saved.enabled,
+      temperature: saved.temperature,
+      systemPrompt: saved.systemPrompt,
+      usingEnvFallback: !saved.apiKey && saved.provider === 'gemini' && Boolean(envGeminiKey),
+      updatedAt: saved.updatedAt,
+    };
+  }
+
+  const defaultPreset = getAiProviderPreset('gemini');
+  return {
+    provider: 'gemini',
+    preset: defaultPreset,
+    baseUrl: defaultPreset.defaultBaseUrl,
+    model: defaultPreset.defaultModel,
+    apiKey: envGeminiKey,
+    enabled: Boolean(envGeminiKey),
+    temperature: 0.4,
+    systemPrompt: '',
+    usingEnvFallback: Boolean(envGeminiKey),
+  };
+}
+
+function buildPublicAiConfig(runtime: EffectiveAiRuntime): UniversalAiConfigPublic {
+  return {
+    provider: runtime.provider,
+    providerLabelAr: runtime.preset.nameAr,
+    providerLabelEn: runtime.preset.nameEn,
+    baseUrl: runtime.baseUrl,
+    model: runtime.model,
+    enabled: runtime.enabled,
+    temperature: runtime.temperature,
+    systemPrompt: runtime.systemPrompt,
+    hasApiKey: Boolean(runtime.apiKey),
+    maskedKeyPreview: maskApiKey(runtime.apiKey),
+    usingEnvFallback: runtime.usingEnvFallback,
+    updatedAt: runtime.updatedAt,
+  };
+}
+
+function extractJsonFromAiText(rawText: string): any {
+  const cleaned = String(rawText || '').trim();
+  if (!cleaned) return null;
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fenceMatch && fenceMatch[1]) {
+      try {
+        return JSON.parse(fenceMatch[1].trim());
+      } catch {
+        // continue
+      }
+    }
+    const objStart = cleaned.indexOf('{');
+    const objEnd = cleaned.lastIndexOf('}');
+    if (objStart >= 0 && objEnd > objStart) {
+      try {
+        return JSON.parse(cleaned.slice(objStart, objEnd + 1));
+      } catch {
+        // continue
+      }
+    }
+  }
+  return null;
+}
+
+interface UniversalAiExecutionRequest {
+  prompt: string;
+  systemInstruction?: string;
+  jsonMode?: boolean;
+  geminiSchema?: any;
+  imageDataUrl?: string;
+  timeoutMs?: number;
+  overrideRuntime?: EffectiveAiRuntime;
+  maxTokens?: number;
+}
+
+interface UniversalAiExecutionResult {
+  text: string;
+  provider: AiProviderId;
+  providerLabel: string;
+  model: string;
+}
+
+async function executeUniversalAiText(
+  reqOpts: UniversalAiExecutionRequest
+): Promise<UniversalAiExecutionResult> {
+  const runtime = reqOpts.overrideRuntime || resolveEffectiveAiRuntime();
+  if (!runtime.enabled) {
+    throw new Error('AI integration is currently disabled in system settings.');
+  }
+  if (runtime.preset.requiresApiKey && !runtime.apiKey) {
+    throw new Error(`API Key is missing for ${runtime.preset.nameEn}.`);
+  }
+
+  const combinedSystem = [runtime.systemPrompt.trim(), (reqOpts.systemInstruction || '').trim()]
+    .filter(Boolean)
+    .join('\n\n');
+  const timeoutMs = reqOpts.timeoutMs || 15000;
+  const maxTokens = reqOpts.maxTokens || 2048;
+
+  // 1. Google Gemini Native SDK
+  if (runtime.preset.protocol === 'GEMINI_NATIVE') {
+    const ai = new GoogleGenAI({
+      apiKey: runtime.apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
       },
-    },
-  });
+    });
+    const parts: any[] = [];
+    if (reqOpts.imageDataUrl && reqOpts.imageDataUrl.startsWith('data:image/')) {
+      const m = reqOpts.imageDataUrl.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/);
+      if (m && m[2]) {
+        parts.push({ inlineData: { mimeType: m[1], data: m[2] } });
+      }
+    }
+    parts.push({ text: reqOpts.prompt });
+
+    const config: any = {
+      temperature: runtime.temperature,
+    };
+    if (combinedSystem) config.systemInstruction = combinedSystem;
+    if (reqOpts.jsonMode) {
+      config.responseMimeType = 'application/json';
+      if (reqOpts.geminiSchema) config.responseSchema = reqOpts.geminiSchema;
+    }
+    if (runtime.model === 'gemini-4-hydrogen') {
+      config.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
+    }
+
+    const response = await Promise.race([
+      ai.models.generateContent({
+        model: runtime.model || 'gemini-4-hydrogen',
+        contents: parts.length === 1 ? reqOpts.prompt : { parts },
+        config,
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Gemini timeout (${timeoutMs}ms)`)), timeoutMs)
+      ),
+    ]);
+
+    return {
+      text: (response.text || '').trim(),
+      provider: runtime.provider,
+      providerLabel: runtime.preset.nameEn,
+      model: runtime.model || 'gemini-4-hydrogen',
+    };
+  }
+
+  // 2. Anthropic Claude Messages API
+  if (runtime.preset.protocol === 'ANTHROPIC_MESSAGES') {
+    const baseClean = runtime.baseUrl.replace(/\/+$/, '');
+    const endpoint = baseClean.endsWith('/messages') ? baseClean : `${baseClean}/messages`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const bodyPayload: any = {
+        model: runtime.model,
+        max_tokens: maxTokens,
+        temperature: Math.min(1, Math.max(0, runtime.temperature)),
+        messages: [{ role: 'user', content: reqOpts.prompt }],
+      };
+      if (combinedSystem) {
+        bodyPayload.system = reqOpts.jsonMode
+          ? `${combinedSystem}\n\nIMPORTANT: Respond strictly with valid raw JSON only.`
+          : combinedSystem;
+      } else if (reqOpts.jsonMode) {
+        bodyPayload.system = 'Respond strictly with valid raw JSON only.';
+      }
+
+      const resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': runtime.apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify(bodyPayload),
+        signal: controller.signal,
+      });
+
+      const data: any = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        const msg = data?.error?.message || data?.message || `Anthropic HTTP ${resp.status}`;
+        const err: any = new Error(msg);
+        err.status = resp.status;
+        throw err;
+      }
+
+      const textOut = Array.isArray(data?.content)
+        ? data.content
+            .filter((b: any) => b?.type === 'text')
+            .map((b: any) => b.text)
+            .join('\n')
+            .trim()
+        : '';
+
+      return {
+        text: textOut,
+        provider: runtime.provider,
+        providerLabel: runtime.preset.nameEn,
+        model: runtime.model,
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // 3. Universal OpenAI-Compatible Chat Completions (OpenAI, DeepSeek, Groq, OpenRouter, Ollama, Custom)
+  const endpoint = buildChatCompletionsEndpoint(runtime.baseUrl);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const messages: Array<{ role: string; content: any }> = [];
+    const sysText = reqOpts.jsonMode
+      ? `${combinedSystem ? combinedSystem + '\n\n' : ''}Return valid JSON only without markdown fences.`
+      : combinedSystem;
+    if (sysText) {
+      messages.push({ role: 'system', content: sysText });
+    }
+    messages.push({ role: 'user', content: reqOpts.prompt });
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (runtime.apiKey) {
+      headers.Authorization = `Bearer ${runtime.apiKey}`;
+    }
+    if (runtime.provider === 'openrouter') {
+      headers['HTTP-Referer'] = 'https://haseb-erp.local';
+      headers['X-Title'] = 'RLM Enterprise ERP';
+    }
+
+    const payload: any = {
+      model: runtime.model,
+      messages,
+      temperature: runtime.temperature,
+      max_tokens: maxTokens,
+    };
+    if (
+      reqOpts.jsonMode &&
+      (runtime.provider === 'openai' || runtime.provider === 'deepseek' || runtime.provider === 'groq')
+    ) {
+      payload.response_format = { type: 'json_object' };
+    }
+
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    const data: any = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      const msg = data?.error?.message || data?.message || `AI Provider HTTP ${resp.status}`;
+      const err: any = new Error(msg);
+      err.status = resp.status;
+      throw err;
+    }
+
+    const msgContent = data?.choices?.[0]?.message?.content;
+    const textOut =
+      typeof msgContent === 'string'
+        ? msgContent.trim()
+        : Array.isArray(msgContent)
+        ? msgContent.map((c: any) => c?.text || '').join('').trim()
+        : '';
+
+    return {
+      text: textOut,
+      provider: runtime.provider,
+      providerLabel: runtime.preset.nameEn,
+      model: String(data?.model || runtime.model),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function isAnyAiReady(runtime?: EffectiveAiRuntime): boolean {
+  const rt = runtime || resolveEffectiveAiRuntime();
+  if (!rt.enabled) return false;
+  if (rt.preset.requiresApiKey && !rt.apiKey) return false;
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -488,6 +851,7 @@ function getGeminiClient(): GoogleGenAI | null {
 
 // 1. Health & Telemetry Check
 app.get('/api/v1/health', (_req, res) => {
+  const aiRt = resolveEffectiveAiRuntime();
   res.json({
     success: true,
     service: 'RLM Enterprise ERP High-Concurrency Engine',
@@ -495,9 +859,143 @@ app.get('/api/v1/health', (_req, res) => {
     storage: memoryStore ? 'RAM_CACHE_AND_ATOMIC_WAL_ACTIVE' : 'READY_FOR_SEED',
     dbRevision,
     concurrentCapacity: '10,000+ ops/sec (In-Memory Write-Through)',
-    geminiConfigured: Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY'),
+    geminiConfigured: Boolean(getEnvGeminiApiKey()),
+    aiConfigured: isAnyAiReady(aiRt),
+    aiProvider: aiRt.provider,
+    aiModel: aiRt.model,
     timestamp: new Date().toISOString(),
   });
+});
+
+// 1a. Universal Multi-Provider AI Config Routes (Server-Side Secret Persistence)
+app.get('/api/v1/ai/config', (_req, res) => {
+  const runtime = resolveEffectiveAiRuntime();
+  res.json({
+    success: true,
+    config: buildPublicAiConfig(runtime),
+    presets: AI_PROVIDER_PRESETS,
+  });
+});
+
+app.post('/api/v1/ai/config', (req, res) => {
+  const body = (req.body || {}) as Partial<UniversalAiConfigInput>;
+  const existing = readServerAiConfig();
+  const incomingRawKey = String(body.apiKey || '').trim();
+  const hasExistingStoredKey = Boolean(existing?.apiKey || (body.provider === 'gemini' && getEnvGeminiApiKey()));
+
+  const validation = validateUniversalAiConfigInput(body, hasExistingStoredKey);
+  if (!validation.valid) {
+    res.status(400).json({
+      success: false,
+      errorAr: validation.errorAr || 'بيانات إعداد الذكاء الاصطناعي غير صالحة.',
+    });
+    return;
+  }
+
+  let resolvedKey = '';
+  if (body.clearStoredKey) {
+    resolvedKey = '';
+  } else if (incomingRawKey === '__KEEP_EXISTING__') {
+    resolvedKey = existing?.apiKey || '';
+  } else if (incomingRawKey) {
+    resolvedKey = incomingRawKey;
+  } else if (existing && existing.provider === validation.provider) {
+    resolvedKey = existing.apiKey;
+  }
+
+  const nextRecord: ServerAiSecretsRecord = {
+    provider: validation.provider,
+    baseUrl: validation.normalizedBaseUrl,
+    model: validation.normalizedModel,
+    apiKey: resolvedKey,
+    enabled: body.enabled !== false,
+    temperature: Number.isFinite(Number(body.temperature))
+      ? Math.min(2, Math.max(0, Number(body.temperature)))
+      : existing?.temperature ?? 0.4,
+    systemPrompt:
+      typeof body.systemPrompt === 'string'
+        ? body.systemPrompt.slice(0, 2000)
+        : existing?.systemPrompt || '',
+    updatedAt: new Date().toISOString(),
+  };
+
+  writeServerAiConfig(nextRecord);
+  const runtime = resolveEffectiveAiRuntime();
+  res.json({
+    success: true,
+    config: buildPublicAiConfig(runtime),
+    messageAr: `تم حفظ وتفعيل مزود الذكاء الاصطناعي (${runtime.preset.nameAr}) لجميع خدمات النظام والواتساب.`,
+  });
+});
+
+app.post('/api/v1/ai/test', async (req, res) => {
+  const body = (req.body || {}) as Partial<UniversalAiConfigInput>;
+  const existing = readServerAiConfig();
+  const useSavedOnly = !body.provider && !body.model && !body.baseUrl;
+
+  let runtime: EffectiveAiRuntime;
+  if (useSavedOnly) {
+    runtime = resolveEffectiveAiRuntime();
+  } else {
+    const preset = getAiProviderPreset(body.provider);
+    const incomingKey = String(body.apiKey || '').trim();
+    const resolvedKey =
+      incomingKey && incomingKey !== '__KEEP_EXISTING__'
+        ? incomingKey
+        : existing?.provider === preset.id && existing?.apiKey
+        ? existing.apiKey
+        : preset.id === 'gemini'
+        ? getEnvGeminiApiKey()
+        : '';
+
+    runtime = {
+      provider: preset.id,
+      preset,
+      baseUrl: normalizeAiBaseUrl(preset.id, body.baseUrl),
+      model: String(body.model || '').trim() || preset.defaultModel,
+      apiKey: resolvedKey,
+      enabled: true,
+      temperature: Number.isFinite(Number(body.temperature)) ? Number(body.temperature) : 0.2,
+      systemPrompt: typeof body.systemPrompt === 'string' ? body.systemPrompt : '',
+      usingEnvFallback: false,
+    };
+  }
+
+  if (runtime.preset.requiresApiKey && !runtime.apiKey) {
+    res.status(400).json({
+      success: false,
+      errorAr: `يرجى إدخال مفتاح API Key لمزود (${runtime.preset.nameAr}) قبل إجراء الاختبار.`,
+    });
+    return;
+  }
+
+  const startedAt = Date.now();
+  try {
+    const aiRes = await executeUniversalAiText({
+      prompt: 'Reply in Arabic with two short words confirming connection works: تم الاتصال بنجاح',
+      systemInstruction: 'Return a very brief connection confirmation.',
+      timeoutMs: 12000,
+      maxTokens: 64,
+      overrideRuntime: runtime,
+    });
+    const latencyMs = Date.now() - startedAt;
+    res.json({
+      success: true,
+      provider: aiRes.provider,
+      providerLabel: aiRes.providerLabel,
+      model: aiRes.model,
+      latencyMs,
+      sampleReply: aiRes.text || 'تم الاتصال بنجاح',
+    });
+  } catch (err: any) {
+    const latencyMs = Date.now() - startedAt;
+    res.status(502).json({
+      success: false,
+      latencyMs,
+      error: String(err?.message || 'AI connection test failed'),
+      errorAr: `فشل اختبار الاتصال مع ${runtime.preset.nameEn}: ${String(err?.message || 'تحقق من المفتاح أو الرابط')}`,
+    });
+  }
 });
 
 // 1b. Real Host / OS Hardware Probe Endpoint
@@ -2525,29 +3023,28 @@ app.post('/api/v1/whatsapp/ai-bot/reply', async (req, res) => {
   });
 
   let finalReplyText = smartBot.replyText;
+  let aiProviderUsed: string | null = null;
+  let aiModelUsed: string | null = null;
 
-  // 2. If intent is general conversational assistance and Gemini AI is configured on the server, enrich with Gemini 3.8 Flash
-  const ai = getGeminiClient();
-  if (ai && !forcedIntent && smartBot.intent === 'GENERAL_ASSISTANCE' && incomingText) {
+  // 2. Enrich conversational/general replies via ANY configured system AI Provider (Gemini, OpenAI, Claude, DeepSeek, Groq, Ollama, Custom)
+  const aiRuntime = resolveEffectiveAiRuntime();
+  if (isAnyAiReady(aiRuntime) && !forcedIntent && smartBot.intent === 'GENERAL_ASSISTANCE' && incomingText) {
     try {
       const sysInstruction = `أنت الروبوت الذكي الرسمي لمنظومة واتساب المتعدد في نظام RLM ERP (${resolvedErpSnapshot.companyName}).
 لديك تحكم ووعي كامل بالنظام المالي والمخزني والفواتير والديون.
 أجب على رسالة العميل (${contactName}) باللغة العربية بأسلوب احترافي، ذكي، ودقيق ومختصر جداً (لا يتجاوز 6 أسطر) مع الاستشهاد بالأرقام الحقيقية التالية من النظام:
 ${smartBot.replyText}`;
-      const geminiRes = await Promise.race([
-        ai.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: String(incomingText),
-          config: {
-            systemInstruction: sysInstruction,
-          },
-        }),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Gemini Bot timeout')), 2200)
-        ),
-      ]);
-      if (geminiRes.text && geminiRes.text.trim().length > 10) {
-        finalReplyText = `🤖 *الروبوت الذكي — ${resolvedErpSnapshot.companyName}*\n${geminiRes.text.trim()}`;
+      const aiRes = await executeUniversalAiText({
+        prompt: String(incomingText),
+        systemInstruction: sysInstruction,
+        timeoutMs: 4500,
+        maxTokens: 450,
+        overrideRuntime: aiRuntime,
+      });
+      if (aiRes.text && aiRes.text.trim().length > 6) {
+        finalReplyText = `🤖 *الروبوت الذكي — ${resolvedErpSnapshot.companyName}*\n${aiRes.text.trim()}`;
+        aiProviderUsed = aiRes.providerLabel;
+        aiModelUsed = aiRes.model;
       }
     } catch {
       // Keep the deterministic ERP-grounded reply on timeout or API error
@@ -2616,6 +3113,8 @@ ${smartBot.replyText}`;
     attachmentType: smartBot.attachmentType,
     referenceNumber: smartBot.referenceNumber,
     executedActionLabelAr: smartBot.executedActionLabelAr,
+    aiProviderUsed,
+    aiModelUsed,
     message: botMsg,
     aiBotStatus: {
       enabled: whatsappAiBotEnabledStore,
@@ -3117,7 +3616,7 @@ app.post('/api/v1/branches/transfer-request', (req, res) => {
   });
 });
 
-// 5. Server-Side Gemini AI Copilot Query Endpoint
+// 5. Server-Side Universal AI Copilot Query Endpoint
 app.post('/api/v1/ai/copilot', async (req, res) => {
   const queryText = req.body.prompt || req.body.query;
   const language = req.body.language || 'ar';
@@ -3128,8 +3627,8 @@ app.post('/api/v1/ai/copilot', async (req, res) => {
     return;
   }
 
-  const ai = getGeminiClient();
-  if (!ai) {
+  const aiRuntime = resolveEffectiveAiRuntime();
+  if (!isAnyAiReady(aiRuntime)) {
     res.status(200).json({
       success: true,
       source: 'LOCAL_ANALYTICS_ENGINE',
@@ -3152,35 +3651,32 @@ Security Guardrail: You are strictly read-only and analytical; any financial pos
 Live ERP Context:
 ${JSON.stringify(erpContext, null, 2)}`;
 
-    const response = await Promise.race([
-      ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: String(queryText),
-        config: {
-          systemInstruction: systemPrompt,
-        },
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Gemini Copilot timeout (2500ms)')), 2500)
-      ),
-    ]);
+    const aiRes = await executeUniversalAiText({
+      prompt: String(queryText),
+      systemInstruction: systemPrompt,
+      timeoutMs: 6500,
+      maxTokens: 1200,
+      overrideRuntime: aiRuntime,
+    });
 
     res.json({
       success: true,
-      source: 'GEMINI_3_8_FLASH',
-      reply: response.text || '',
+      source: `${aiRes.provider.toUpperCase()}_${aiRes.model}`,
+      providerLabel: aiRes.providerLabel,
+      modelUsed: aiRes.model,
+      reply: aiRes.text || '',
     });
   } catch (err: any) {
     res.status(200).json({
       success: false,
       source: 'FALLBACK_ON_ERROR',
       reply: null,
-      error: err.message || 'Gemini API request failed',
+      error: err.message || 'AI API request failed',
     });
   }
 });
 
-// 6. Server-Side Gemini AI Structured Invoice OCR Parser
+// 6. Server-Side Universal AI Structured Invoice OCR Parser
 app.post('/api/v1/ai/ocr', async (req, res) => {
   const { rawText } = req.body;
   if (!rawText) {
@@ -3199,8 +3695,8 @@ app.post('/api/v1/ai/ocr', async (req, res) => {
     return;
   }
 
-  const ai = getGeminiClient();
-  if (!ai) {
+  const aiRuntime = resolveEffectiveAiRuntime();
+  if (!isAnyAiReady(aiRuntime)) {
     res.status(200).json({
       success: true,
       source: 'LOCAL_REGEX_PARSER',
@@ -3211,47 +3707,45 @@ app.post('/api/v1/ai/ocr', async (req, res) => {
   }
 
   try {
-    const response = await Promise.race([
-      ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: `Extract structured vendor invoice details from the following raw OCR text:\n\n${rawText}`,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
+    const ocrSchema = {
+      type: Type.OBJECT,
+      properties: {
+        vendor: { type: Type.STRING, description: 'Supplier or vendor legal name' },
+        invoiceNumber: { type: Type.STRING, description: 'Invoice number or reference code' },
+        subtotal: { type: Type.NUMBER, description: 'Subtotal before tax' },
+        vat15: { type: Type.NUMBER, description: '15% VAT tax amount' },
+        totalDue: { type: Type.NUMBER, description: 'Grand total amount due' },
+        confidence: { type: Type.NUMBER, description: 'Confidence score between 90 and 100' },
+        items: {
+          type: Type.ARRAY,
+          items: {
             type: Type.OBJECT,
             properties: {
-              vendor: { type: Type.STRING, description: 'Supplier or vendor legal name' },
-              invoiceNumber: { type: Type.STRING, description: 'Invoice number or reference code' },
-              subtotal: { type: Type.NUMBER, description: 'Subtotal before tax' },
-              vat15: { type: Type.NUMBER, description: '15% VAT tax amount' },
-              totalDue: { type: Type.NUMBER, description: 'Grand total amount due' },
-              confidence: { type: Type.NUMBER, description: 'Confidence score between 90 and 100' },
-              items: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    name: { type: Type.STRING },
-                    qty: { type: Type.NUMBER },
-                    unitPrice: { type: Type.NUMBER },
-                    total: { type: Type.NUMBER },
-                  },
-                },
-              },
+              name: { type: Type.STRING },
+              qty: { type: Type.NUMBER },
+              unitPrice: { type: Type.NUMBER },
+              total: { type: Type.NUMBER },
             },
           },
         },
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Gemini OCR timeout (2500ms)')), 2500)
-      ),
-    ]);
+      },
+    };
 
-    const jsonText = (response.text ?? '{}').trim();
-    const parsed = JSON.parse(jsonText);
+    const aiRes = await executeUniversalAiText({
+      prompt: `Extract structured vendor invoice details as JSON { "vendor", "invoiceNumber", "subtotal", "vat15", "totalDue", "confidence", "items": [{ "name", "qty", "unitPrice", "total" }] } from the following raw OCR text:\n\n${rawText}`,
+      jsonMode: true,
+      geminiSchema: ocrSchema,
+      timeoutMs: 6500,
+      maxTokens: 1200,
+      overrideRuntime: aiRuntime,
+    });
+
+    const parsed = extractJsonFromAiText(aiRes.text) || deterministicParsed;
     res.json({
       success: true,
-      source: 'GEMINI_2_5_FLASH',
+      source: `${aiRes.provider.toUpperCase()}_${aiRes.model}`,
+      providerLabel: aiRes.providerLabel,
+      modelUsed: aiRes.model,
       parsed,
       data: parsed,
     });
@@ -3266,7 +3760,7 @@ app.post('/api/v1/ai/ocr', async (req, res) => {
   }
 });
 
-// 7. Server-Side Gemini AI Inventory Demand Forecasting & Optimal Reorder Points
+// 7. Server-Side Universal AI Inventory Demand Forecasting & Optimal Reorder Points
 app.post('/api/v1/ai/inventory-forecast', async (req, res) => {
   const rawItems = req.body?.items;
   if (!Array.isArray(rawItems) || rawItems.length === 0) {
@@ -3279,14 +3773,14 @@ app.post('/api/v1/ai/inventory-forecast', async (req, res) => {
     return;
   }
 
-  const ai = getGeminiClient();
-  if (!ai) {
+  const aiRuntime = resolveEffectiveAiRuntime();
+  if (!isAnyAiReady(aiRuntime)) {
     res.status(503).json({
       success: false,
-      errorCode: 'GEMINI_API_KEY_MISSING',
-      error: 'Gemini API key is not configured on the server. Set GEMINI_API_KEY in Settings > Secrets.',
+      errorCode: 'AI_API_KEY_MISSING',
+      error: 'AI API provider is not configured on the server. Open Global AI Settings to configure an API key.',
       errorAr:
-        'مفتاح Gemini API غير مهيأ على الخادم. يرجى ضبط GEMINI_API_KEY في Settings > Secrets لتشغيل التنبؤ بالذكاء الاصطناعي.',
+        'مفتاح الذكاء الاصطناعي (API) غير مضبوط حالياً. افتح زر "الذكاء الاصطناعي API" من قائمة التحكم السريع لإدخال مفتاح أي شركة أو نموذج.',
     });
     return;
   }
@@ -3317,63 +3811,47 @@ app.post('/api/v1/ai/inventory-forecast', async (req, res) => {
 
   const systemInstruction =
     language === 'ar'
-      ? 'أنت خبير تخطيط سلاسل الإمداد والمخزون في أنظمة ERP. حلل سرعة المبيعات التاريخية، وتذبذب الطلب، ومدة التوريد، وهامش الأمان لتحديد نقطة إعادة الطلب المثلى (suggestedReorderPoint) وكمية الشراء المقترحة (suggestedOrderQty) لكل صنف. التزم تماماً بمعرّفات productId و sku المرسلة، واكتب الملخص التنفيذي والمبررات باللغة العربية الواضحة والمختصرة.'
-      : 'You are an enterprise inventory supply-chain planner. Analyze historical sales velocity, demand volatility, supplier lead time, and safety buffer days to recommend the optimal integer suggestedReorderPoint and suggestedOrderQty for each SKU. Preserve exact productId and sku values and provide concise rationales.';
+      ? 'أنت خبير تخطيط سلاسل الإمداد والمخزون في أنظمة ERP. حلل سرعة المبيعات التاريخية، وتذبذب الطلب، ومدة التوريد، وهامش الأمان لتحديد نقطة إعادة الطلب المثلى (suggestedReorderPoint) وكمية الشراء المقترحة (suggestedOrderQty) لكل صنف. التزم تماماً بمعرّفات productId و sku المرسلة، واكتب الملخص التنفيذي والمبررات باللغة العربية الواضحة والمختصرة. أعد JSON فقط بالبنية: {"executiveSummary": string, "suggestions": [{"productId","sku","forecastDailyDemand","projected30DayDemand","suggestedReorderPoint","suggestedSafetyStock","suggestedOrderQty","urgency","confidencePercent","rationale"}]}.'
+      : 'You are an enterprise inventory supply-chain planner. Analyze historical sales velocity, demand volatility, supplier lead time, and safety buffer days to recommend optimal integer suggestedReorderPoint and suggestedOrderQty for each SKU. Return raw JSON with executiveSummary and suggestions array.';
 
   const promptPayload = JSON.stringify({
     parameters: { lookbackDays, leadTimeDays, safetyBufferDays },
     items: compactItems,
   });
 
-  const invokeGeminiForecast = async () => {
-    return Promise.race([
-      ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents: `Analyze these inventory historical demand metrics and return optimal reorder recommendations:\n${promptPayload}`,
-        config: {
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-          systemInstruction,
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              executiveSummary: {
-                type: Type.STRING,
-                description: 'Concise executive supply-chain assessment across low-stock items.',
-              },
-              suggestions: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    productId: { type: Type.STRING },
-                    sku: { type: Type.STRING },
-                    forecastDailyDemand: { type: Type.NUMBER },
-                    projected30DayDemand: { type: Type.NUMBER },
-                    suggestedReorderPoint: { type: Type.INTEGER },
-                    suggestedSafetyStock: { type: Type.INTEGER },
-                    suggestedOrderQty: { type: Type.INTEGER },
-                    urgency: {
-                      type: Type.STRING,
-                      description: 'Must be one of CRITICAL, HIGH, MODERATE, OPTIMAL',
-                    },
-                    confidencePercent: { type: Type.NUMBER },
-                    rationale: { type: Type.STRING },
-                  },
-                },
-              },
+  const forecastSchema = {
+    type: Type.OBJECT,
+    properties: {
+      executiveSummary: {
+        type: Type.STRING,
+        description: 'Concise executive supply-chain assessment across low-stock items.',
+      },
+      suggestions: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            productId: { type: Type.STRING },
+            sku: { type: Type.STRING },
+            forecastDailyDemand: { type: Type.NUMBER },
+            projected30DayDemand: { type: Type.NUMBER },
+            suggestedReorderPoint: { type: Type.INTEGER },
+            suggestedSafetyStock: { type: Type.INTEGER },
+            suggestedOrderQty: { type: Type.INTEGER },
+            urgency: {
+              type: Type.STRING,
+              description: 'Must be one of CRITICAL, HIGH, MODERATE, OPTIMAL',
             },
+            confidencePercent: { type: Type.NUMBER },
+            rationale: { type: Type.STRING },
           },
         },
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Gemini forecast request timed out (20000ms)')), 20000)
-      ),
-    ]);
+      },
+    },
   };
 
   try {
-    let response;
+    let aiResult: UniversalAiExecutionResult | null = null;
     let lastErr: any = null;
     const retryDelaysMs = [0, 1200, 2600];
     for (let attempt = 0; attempt < retryDelaysMs.length; attempt++) {
@@ -3381,7 +3859,15 @@ app.post('/api/v1/ai/inventory-forecast', async (req, res) => {
         await new Promise((r) => setTimeout(r, retryDelaysMs[attempt]));
       }
       try {
-        response = await invokeGeminiForecast();
+        aiResult = await executeUniversalAiText({
+          prompt: `Analyze these inventory historical demand metrics and return optimal reorder recommendations as JSON:\n${promptPayload}`,
+          systemInstruction,
+          jsonMode: true,
+          geminiSchema: forecastSchema,
+          timeoutMs: 20000,
+          maxTokens: 2500,
+          overrideRuntime: aiRuntime,
+        });
         lastErr = null;
         break;
       } catch (err: any) {
@@ -3397,12 +3883,11 @@ app.post('/api/v1/ai/inventory-forecast', async (req, res) => {
         }
       }
     }
-    if (!response) {
-      throw lastErr || new Error('Gemini AI forecast failed without response');
+    if (!aiResult) {
+      throw lastErr || new Error('AI forecast failed without response');
     }
 
-    const jsonText = (response.text ?? '{}').trim();
-    const parsed = JSON.parse(jsonText);
+    const parsed = extractJsonFromAiText(aiResult.text) || {};
     const allowedUrgency = new Set(['CRITICAL', 'HIGH', 'MODERATE', 'OPTIMAL']);
 
     const suggestions = Array.isArray(parsed?.suggestions)
@@ -3429,36 +3914,39 @@ app.post('/api/v1/ai/inventory-forecast', async (req, res) => {
 
     res.json({
       success: true,
-      modelUsed: 'gemini-4-hydrogen',
+      providerUsed: aiResult.provider,
+      providerLabel: aiResult.providerLabel,
+      modelUsed: aiResult.model,
       generatedAt: new Date().toISOString(),
       executiveSummary: String(parsed?.executiveSummary || ''),
       suggestions,
     });
   } catch (err: any) {
-    const rawMsg = String(err?.message || 'Gemini AI forecast failed');
+    const rawMsg = String(err?.message || 'AI forecast failed');
     const numericStatus = Number(err?.status || err?.statusCode || 0);
     const isAuthIssue =
       numericStatus === 400 ||
+      numericStatus === 401 ||
       numericStatus === 403 ||
-      /API_KEY_INVALID|PERMISSION_DENIED|403/i.test(rawMsg);
+      /API_KEY_INVALID|PERMISSION_DENIED|Unauthorized|401|403/i.test(rawMsg);
     const isQuotaIssue = numericStatus === 429 || /RESOURCE_EXHAUSTED|429/i.test(rawMsg);
     const isUnavailable = numericStatus === 503 || /UNAVAILABLE|503|high demand/i.test(rawMsg);
 
     const httpStatus = isAuthIssue ? 403 : isQuotaIssue ? 429 : isUnavailable ? 503 : 502;
     const errorCode = isAuthIssue
-      ? 'GEMINI_AUTH_ERROR'
+      ? 'AI_AUTH_ERROR'
       : isQuotaIssue
-      ? 'GEMINI_RATE_LIMIT'
+      ? 'AI_RATE_LIMIT'
       : isUnavailable
-      ? 'GEMINI_TEMPORARILY_UNAVAILABLE'
-      : 'GEMINI_UPSTREAM_ERROR';
+      ? 'AI_TEMPORARILY_UNAVAILABLE'
+      : 'AI_UPSTREAM_ERROR';
     const errorAr = isAuthIssue
-      ? 'تعذر المصادقة مع Gemini API (403/400). يرجى التحقق من صلاحية GEMINI_API_KEY في Settings > Secrets.'
+      ? `تعذر المصادقة مع مزود الذكاء الاصطناعي (${aiRuntime.preset.nameEn}). يرجى مراجعة مفتاح API في إعدادات الذكاء الاصطناعي.`
       : isQuotaIssue
-      ? 'تم تجاوز حد طلبات Gemini API (429). يرجى الانتظار قليلاً أو مراجعة خطة الفوترة.'
+      ? `تم تجاوز حد طلبات مزود الذكاء الاصطناعي (${aiRuntime.preset.nameEn}). يرجى الانتظار أو مراجعة الرصيد.`
       : isUnavailable
-      ? 'خادم Gemini AI يشهد ضغطاً مؤقتاً حالياً (503). يرجى إعادة المحاولة بعد لحظات.'
-      : 'تعذر إتمام التنبؤ عبر خادم Gemini AI حالياً. يرجى المحاولة مجدداً.';
+      ? `خادم الذكاء الاصطناعي (${aiRuntime.preset.nameEn}) يشهد ضغطاً مؤقتاً حالياً (503).`
+      : `تعذر إتمام التنبؤ عبر ${aiRuntime.preset.nameEn} حالياً. يرجى المحاولة مجدداً.`;
 
     res.status(httpStatus).json({
       success: false,
@@ -3470,7 +3958,7 @@ app.post('/api/v1/ai/inventory-forecast', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// AI Color Theme Generator Endpoint (Gemini Brand Palette from Company Logo)
+// AI Color Theme Generator Endpoint (Universal Multi-Provider Brand Palette Generator)
 // ---------------------------------------------------------------------------
 app.post('/api/gemini/theme-palette', async (req, res) => {
   const {
@@ -3492,74 +3980,60 @@ app.post('/api/gemini/theme-palette', async (req, res) => {
   ).map((p) => ({ ...p, source: 'GEMINI_AI' as const }));
 
   try {
-    const ai = getGeminiClient();
-    if (!ai) {
+    const aiRuntime = resolveEffectiveAiRuntime();
+    if (!isAnyAiReady(aiRuntime)) {
       res.json({ ...fallbackVariants[0], palettes: fallbackVariants });
       return;
     }
 
-    const parts: any[] = [];
-    if (typeof logoDataUrl === 'string' && logoDataUrl.startsWith('data:image/')) {
-      const match = logoDataUrl.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/);
-      if (match && match[2]) {
-        parts.push({
-          inlineData: {
-            mimeType: match[1],
-            data: match[2],
-          },
-        });
-      }
-    }
-
-    parts.push({
-      text: `Analyze the company brand "${companyName}" (seed color ${dominantSeedHex}, polarity "${safePolarity}", industry/style mood "${moodPrompt || 'commercial enterprise ERP & accounting'}", language ${language}). Generate 3 distinct, WCAG AA high-contrast enterprise UI color palettes suited for accounting ledgers, POS terminals, and commercial invoices. Return JSON matching the schema.`,
-    });
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-4-hydrogen',
-      contents: { parts },
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            palettes: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  paletteNameAr: { type: Type.STRING },
-                  paletteNameEn: { type: Type.STRING },
-                  primaryHex: { type: Type.STRING },
-                  secondaryHex: { type: Type.STRING },
-                  accentHex: { type: Type.STRING },
-                  surfaceHex: { type: Type.STRING },
-                  backgroundHex: { type: Type.STRING },
-                  textHex: { type: Type.STRING },
-                  rationaleAr: { type: Type.STRING },
-                  rationaleEn: { type: Type.STRING },
-                },
-                required: [
-                  'paletteNameAr',
-                  'paletteNameEn',
-                  'primaryHex',
-                  'secondaryHex',
-                  'accentHex',
-                  'surfaceHex',
-                  'backgroundHex',
-                  'textHex',
-                  'rationaleAr',
-                  'rationaleEn',
-                ],
-              },
+    const paletteSchema = {
+      type: Type.OBJECT,
+      properties: {
+        palettes: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              paletteNameAr: { type: Type.STRING },
+              paletteNameEn: { type: Type.STRING },
+              primaryHex: { type: Type.STRING },
+              secondaryHex: { type: Type.STRING },
+              accentHex: { type: Type.STRING },
+              surfaceHex: { type: Type.STRING },
+              backgroundHex: { type: Type.STRING },
+              textHex: { type: Type.STRING },
+              rationaleAr: { type: Type.STRING },
+              rationaleEn: { type: Type.STRING },
             },
+            required: [
+              'paletteNameAr',
+              'paletteNameEn',
+              'primaryHex',
+              'secondaryHex',
+              'accentHex',
+              'surfaceHex',
+              'backgroundHex',
+              'textHex',
+              'rationaleAr',
+              'rationaleEn',
+            ],
           },
-          required: ['palettes'],
         },
       },
+      required: ['palettes'],
+    };
+
+    const aiRes = await executeUniversalAiText({
+      prompt: `Analyze the company brand "${companyName}" (seed color ${dominantSeedHex}, polarity "${safePolarity}", industry/style mood "${moodPrompt || 'commercial enterprise ERP & accounting'}", language ${language}). Generate 3 distinct, WCAG AA high-contrast enterprise UI color palettes suited for accounting ledgers, POS terminals, and commercial invoices. Return JSON { "palettes": [ { "paletteNameAr", "paletteNameEn", "primaryHex", "secondaryHex", "accentHex", "surfaceHex", "backgroundHex", "textHex", "rationaleAr", "rationaleEn" } ] }.`,
+      imageDataUrl: typeof logoDataUrl === 'string' ? logoDataUrl : '',
+      jsonMode: true,
+      geminiSchema: paletteSchema,
+      timeoutMs: 14000,
+      maxTokens: 1600,
+      overrideRuntime: aiRuntime,
     });
 
-    const parsed = JSON.parse(response.text || '{}');
+    const parsed = extractJsonFromAiText(aiRes.text) || {};
     if (Array.isArray(parsed?.palettes) && parsed.palettes.length > 0 && parsed.palettes[0]?.primaryHex) {
       const normalizedPalettes = parsed.palettes.slice(0, 3).map((p: any) => ({
         ...fallbackVariants[0],
@@ -3570,7 +4044,9 @@ app.post('/api/gemini/theme-palette', async (req, res) => {
       res.json({
         ...normalizedPalettes[0],
         palettes: normalizedPalettes,
-        source: 'GEMINI_AI',
+        source: `${aiRes.provider.toUpperCase()}_${aiRes.model}`,
+        providerLabel: aiRes.providerLabel,
+        modelUsed: aiRes.model,
       });
       return;
     }

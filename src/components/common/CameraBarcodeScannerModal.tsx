@@ -47,7 +47,7 @@ interface CameraBarcodeScannerModalProps {
   onScan: (barcode: string, product?: Product, quantity?: number) => void;
   onBatchScanComplete?: (items: ScannedBatchItem[]) => void;
   title?: string;
-  contextMode?: 'POS' | 'INVENTORY' | 'STOCK_TAKE' | 'PURCHASING' | 'GENERAL';
+  contextMode?: 'POS' | 'INVENTORY' | 'STOCK_TAKE' | 'PURCHASING' | 'GENERAL' | 'INVOICE_RETURN';
   initialScanMode?: 'SINGLE' | 'CONTINUOUS';
 }
 
@@ -587,6 +587,8 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
                     ? 'الجرد الفعلي'
                     : contextMode === 'INVENTORY'
                     ? 'إدارة المخزون'
+                    : contextMode === 'INVOICE_RETURN'
+                    ? 'إرجاع فاتورة بالكود / QR'
                     : 'الباركود العام'}
                 </span>
               </h2>
@@ -861,8 +863,8 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
             </button>
           </form>
 
-          {/* Quick Catalog Chips (Only shown if catalog already has products) */}
-          {sampleTestProducts.length > 0 && (
+          {/* Quick Catalog Chips (Only shown if catalog already has products and not in invoice-return scan) */}
+          {contextMode !== 'INVOICE_RETURN' && sampleTestProducts.length > 0 && (
             <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-2">
               <div className="flex items-center justify-between text-xs">
                 <span className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">

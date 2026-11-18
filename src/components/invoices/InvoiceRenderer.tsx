@@ -446,6 +446,7 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({
         timestamp: invoice.date.includes('T') ? invoice.date : `${invoice.date}T12:00:00Z`,
         invoiceTotal: String(invoice.grandTotal),
         vatTotal: String(invoice.taxAmount),
+        invoiceNumber: invoice.invoiceNumber,
       });
     } catch {
       return `SELLER:${companyName}|TAX:${taxNumber}|INV:${invoice.invoiceNumber}|DATE:${invoice.date}|TOTAL:${invoice.grandTotal} ${currency}`;

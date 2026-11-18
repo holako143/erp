@@ -343,7 +343,7 @@ export const AIInsightsView: React.FC = () => {
               <tbody className="divide-y divide-slate-100 font-mono">
                 {products.map((p) => {
                   const totalSoldQty = salesInvoices
-                    .filter((inv) => inv.status !== 'VOID')
+                    .filter((inv) => inv.status !== 'VOID' && inv.isReturned !== true)
                     .reduce((sum, inv) => {
                       const line = inv.items.find((it) => it.productId === p.id);
                       return sum + (line ? line.quantity : 0);

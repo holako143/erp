@@ -582,6 +582,10 @@ export interface SalesInvoice {
   returnReason?: string;
   returnCreditNoteNumber?: string;
   returnJournalEntryNumber?: string;
+  isArchivedReturn?: boolean;
+  archiveCode?: string;
+  archivedAt?: string;
+  returnStampTextAr?: string;
   warrantyCancelled?: boolean;
   qrData?: string;
   notes?: string;
@@ -595,6 +599,29 @@ export interface SalesInvoice {
   shiftId?: string;
   shiftMode?: 'EXPLICIT_SHIFT' | 'FLEXIBLE_SHIFTLESS';
   customerSignatureBase64?: string;
+}
+
+export interface ArchivedReturnedInvoiceRecord {
+  id: string;
+  archiveCode: string;
+  tenantId: string;
+  originalInvoiceId: string;
+  invoiceNumber: string;
+  customerId: string;
+  customerName: string;
+  archivedAt: string;
+  originalGrandTotal: number;
+  refundedAmount: number;
+  debtReleasedAmount: number;
+  condition: ReturnedItemCondition;
+  refundMethod: ReturnRefundMethod;
+  reason: string;
+  stampLabelAr: string;
+  reversalJournalEntryNumber: string;
+  creditNoteNumbers: string[];
+  restockedItemsCount: number;
+  operatorName: string;
+  invoiceSnapshot: SalesInvoice;
 }
 
 export interface POSShift {

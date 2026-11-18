@@ -487,37 +487,79 @@ export const CommunicationsView: React.FC = () => {
         warrantyTickets,
       };
 
-      const localSmartReply = generateSmartErpBotResponse({
-        incomingText,
-        contactName: activeChat.contactName,
-        contactPhone: activeChat.contactPhone,
-        erpSnapshot,
-        forcedIntent,
-      });
+      let finalReplyText: string | null = null;
+      let attachmentType: 'INVOICE' | 'REPORT' | 'WARRANTY' | undefined = undefined;
+      let referenceNumber: string | undefined = undefined;
+      let executedActionLabelAr = 'رد آلي ذكي من النظام';
 
-      await sendWhatsAppChatMessage(
-        activeChat.id,
-        localSmartReply.replyText,
-        localSmartReply.attachmentType === 'NONE' ? undefined : localSmartReply.attachmentType,
-        localSmartReply.referenceNumber
-      );
+      try {
+        const controller = new AbortController();
+        const timer = window.setTimeout(() => controller.abort(), 6000);
+        const resp = await fetch('/api/v1/whatsapp/ai-bot/reply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            accountId: activeWhatsAppAccountId,
+            chatId: activeChat.id,
+            incomingText,
+            contactName: activeChat.contactName,
+            contactPhone: activeChat.contactPhone,
+            forcedIntent,
+            erpSnapshot,
+          }),
+        });
+        window.clearTimeout(timer);
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data?.replyText) {
+            finalReplyText = String(data.replyText);
+            attachmentType =
+              data.attachmentType === 'INVOICE' || data.attachmentType === 'WARRANTY'
+                ? data.attachmentType
+                : data.attachmentType === 'RECEIPT' || data.attachmentType === 'DEBT_REMINDER'
+                ? 'REPORT'
+                : undefined;
+            referenceNumber = data.referenceNumber;
+            executedActionLabelAr =
+              data.aiProviderUsed
+                ? `${data.executedActionLabelAr || 'رد آلي ذكي'} (${data.aiProviderUsed})`
+                : data.executedActionLabelAr || executedActionLabelAr;
+          }
+        }
+      } catch {
+        // Fallback smoothly to deterministic local ERP responder below
+      }
 
-      setAiBotRepliesCount((c) => c + 1);
-      setAiBotLastActionAr(localSmartReply.executedActionLabelAr);
-
-      // Sync with backend AI endpoint for server-side logging & live socket assurance
-      fetch('/api/v1/whatsapp/ai-bot/reply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          accountId: activeWhatsAppAccountId,
-          chatId: activeChat.id,
+      if (!finalReplyText) {
+        const localSmartReply = generateSmartErpBotResponse({
           incomingText,
           contactName: activeChat.contactName,
           contactPhone: activeChat.contactPhone,
+          erpSnapshot,
           forcedIntent,
-        }),
-      }).catch(() => {});
+        });
+        finalReplyText = localSmartReply.replyText;
+        attachmentType =
+          localSmartReply.attachmentType === 'INVOICE' || localSmartReply.attachmentType === 'WARRANTY'
+            ? localSmartReply.attachmentType
+            : localSmartReply.attachmentType === 'RECEIPT' ||
+              localSmartReply.attachmentType === 'DEBT_REMINDER'
+            ? 'REPORT'
+            : undefined;
+        referenceNumber = localSmartReply.referenceNumber;
+        executedActionLabelAr = localSmartReply.executedActionLabelAr;
+      }
+
+      await sendWhatsAppChatMessage(
+        activeChat.id,
+        finalReplyText,
+        attachmentType,
+        referenceNumber
+      );
+
+      setAiBotRepliesCount((c) => c + 1);
+      setAiBotLastActionAr(executedActionLabelAr);
     } finally {
       setIsAiBotResponding(false);
     }

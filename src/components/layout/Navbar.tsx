@@ -24,7 +24,9 @@ import {
   Play,
   Sparkles,
   Mic,
+  Bot,
 } from 'lucide-react';
+import { UniversalAiConfigPublic, getAiProviderPreset } from '../../core/aiProviderEngine';
 import { SystemNotificationCenterModal } from '../common/SystemNotificationCenterModal';
 import { HasebBrandLogo } from '../common/HasebBrandLogo';
 import { getShiftActionControlMeta } from '../../core/posShiftEngine';
@@ -196,6 +198,7 @@ export const Navbar: React.FC = () => {
     windowScalePercent,
     setWindowScalePercent,
     dispatchToastAndPushNotification,
+    universalAiConfig,
   } = useERP();
 
   const navbarVisibility = useMemo(
@@ -314,6 +317,41 @@ export const Navbar: React.FC = () => {
 
   const notificationsContainerRef = useRef<HTMLDivElement | null>(null);
   const profileContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // Universal AI Provider Status Pill Sync
+  const [aiStatusMeta, setAiStatusMeta] = useState<UniversalAiConfigPublic | null>(universalAiConfig);
+
+  useEffect(() => {
+    if (universalAiConfig) {
+      setAiStatusMeta(universalAiConfig);
+    }
+  }, [universalAiConfig]);
+
+  useEffect(() => {
+    let active = true;
+    const loadAiConfig = () => {
+      fetch('/api/v1/ai/config')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (active && d?.config) setAiStatusMeta(d.config);
+        })
+        .catch(() => {});
+    };
+    loadAiConfig();
+    const onUpdated = (ev: Event) => {
+      const detail = (ev as CustomEvent)?.detail;
+      if (detail) {
+        setAiStatusMeta(detail);
+      } else {
+        loadAiConfig();
+      }
+    };
+    window.addEventListener('haseb-ai-config-updated', onUpdated);
+    return () => {
+      active = false;
+      window.removeEventListener('haseb-ai-config-updated', onUpdated);
+    };
+  }, []);
 
   // If any global modal (Command Palette, LAN Portal, Quick Send Modal) opens, automatically close Navbar popovers
   useEffect(() => {
@@ -991,24 +1029,52 @@ export const Navbar: React.FC = () => {
                       )}
                     </div>
 
-                    {/* System Settings Button (with 7-click stealth keygen support) */}
-                    {navbarVisibility.showSystemSettings && (
+                    {/* System Settings & Global Universal AI API Config (Side-by-Side) */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      {navbarVisibility.showSystemSettings && (
+                        <button
+                          type="button"
+                          data-testid="navbar-settings-stealth-trigger"
+                          onClick={handleSettingsRapidClick}
+                          className={`w-full min-w-0 overflow-hidden flex items-center justify-center gap-2 px-3 py-2 rounded-xl border font-bold transition cursor-pointer ${
+                            isDark
+                              ? 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-slate-200'
+                              : 'bg-slate-50 border-slate-200/80 hover:bg-slate-100 text-slate-700'
+                          }`}
+                        >
+                          <SettingsIcon className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span className="truncate">
+                            {language === 'ar' ? 'إعدادات النظام' : 'System Settings'}
+                          </span>
+                        </button>
+                      )}
+
                       <button
                         type="button"
-                        data-testid="navbar-settings-stealth-trigger"
-                        onClick={handleSettingsRapidClick}
-                        className={`w-full min-w-0 overflow-hidden flex items-center justify-center gap-2 px-3 py-2 rounded-xl border font-bold transition cursor-pointer ${
+                        data-testid="navbar-ai-config-btn"
+                        onClick={() => {
+                          setIsProfileMenuOpen(false);
+                          window.dispatchEvent(new CustomEvent('haseb-open-ai-config'));
+                        }}
+                        className={`w-full min-w-0 overflow-hidden flex items-center justify-between gap-1.5 px-2.5 py-2 rounded-xl border font-bold transition cursor-pointer ${
                           isDark
-                            ? 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-slate-200'
-                            : 'bg-slate-50 border-slate-200/80 hover:bg-slate-100 text-slate-700'
+                            ? 'bg-indigo-950/60 border-indigo-800/80 hover:bg-indigo-900/70 text-indigo-200'
+                            : 'bg-indigo-50/90 border-indigo-200 hover:bg-indigo-100/80 text-indigo-800'
                         }`}
                       >
-                        <SettingsIcon className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                        <span className="truncate">
-                          {language === 'ar' ? 'إعدادات النظام' : 'System Settings'}
+                        <span className="flex items-center gap-1.5 min-w-0 truncate">
+                          <Bot className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                          <span className="truncate">
+                            {language === 'ar' ? 'الذكاء الاصطناعي API' : 'AI API Key'}
+                          </span>
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded bg-indigo-600 text-white font-mono text-[9px] shrink-0">
+                          {aiStatusMeta
+                            ? getAiProviderPreset(aiStatusMeta.provider).vendorName
+                            : 'AI'}
                         </span>
                       </button>
-                    )}
+                    </div>
 
                     {/* Desktop & LAN Full-Width Button + First-Run Welcome Wizard Button */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">

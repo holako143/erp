@@ -406,7 +406,7 @@ export function calculateDynamicFinancialStatements(
 
   // Live VAT Return from invoices, credit note reversals, and purchase orders
   const invoiceOutputVat = salesInvoices
-    .filter((inv) => inv.status !== 'VOID')
+    .filter((inv) => inv.status !== 'VOID' && inv.isReturned !== true)
     .reduce((sum, inv) => sum + (Number(inv.taxAmount) || 0), 0);
 
   const poInputVat = purchaseOrders

@@ -125,16 +125,19 @@ export function generateSmartErpBotResponse(params: {
     );
   });
 
-  // Compute live financial aggregates
-  const totalSalesRevenue = erpSnapshot.salesInvoices.reduce(
+  // Compute live financial aggregates (strictly excluding voided/returned invoices)
+  const activeInvoices = (erpSnapshot.salesInvoices || []).filter(
+    (inv) => inv && inv.status !== 'VOID' && inv.isReturned !== true
+  );
+  const totalSalesRevenue = activeInvoices.reduce(
     (sum, inv) => sum + (Number(inv.grandTotal) || 0),
     0
   );
-  const totalCollected = erpSnapshot.salesInvoices.reduce(
+  const totalCollected = activeInvoices.reduce(
     (sum, inv) => sum + (Number(inv.paidAmount) || 0),
     0
   );
-  const totalCogs = erpSnapshot.salesInvoices.reduce((sum, inv) => {
+  const totalCogs = activeInvoices.reduce((sum, inv) => {
     const invCost = (inv.items || []).reduce((iSum, item) => {
       const prod = erpSnapshot.products.find((p) => p.id === item.productId);
       const unitCost = prod ? Number(prod.costPrice) || 0 : Number(item.unitPrice) * 0.72;
@@ -160,11 +163,12 @@ export function generateSmartErpBotResponse(params: {
             (i) => i.invoiceNumber.toLowerCase() === invMatch[0].toLowerCase()
           )
         : null) ||
-      erpSnapshot.salesInvoices.find(
+      activeInvoices.find(
         (i) =>
           (matchedCustomer && i.customerId === matchedCustomer.id) ||
           (contactName && i.customerName.includes(contactName))
       ) ||
+      activeInvoices[0] ||
       erpSnapshot.salesInvoices[0];
 
     if (targetInv) {
@@ -199,7 +203,7 @@ export function generateSmartErpBotResponse(params: {
   }
 
   if (intent === 'FINANCIAL_REPORT' || intent === 'FULL_SYSTEM_STATUS') {
-    const topInvoicesText = erpSnapshot.salesInvoices
+    const topInvoicesText = activeInvoices
       .slice(0, 3)
       .map((i) => `• ${i.invoiceNumber} (${i.customerName}): ${fmtNum(i.grandTotal)} ${sym}`)
       .join('\n');
@@ -212,7 +216,7 @@ export function generateSmartErpBotResponse(params: {
       replyText:
         `🤖 *تقرير الروبوت المالي والتشغيلي اللحظي — ${company}*\n` +
         `تم جلب المؤشرات الحية من قاعدة بيانات النظام مباشرة:\n\n` +
-        `📈 *إجمالي المبيعات والفواتير (${erpSnapshot.salesInvoices.length} فاتورة):* ${fmtNum(totalSalesRevenue)} ${sym}\n` +
+        `📈 *إجمالي المبيعات والفواتير (${activeInvoices.length} فاتورة نشطة):* ${fmtNum(totalSalesRevenue)} ${sym}\n` +
         `💎 *صافي الربح التشغيلي المحقق:* ${fmtNum(grossProfit)} ${sym} (هامش ${
           totalSalesRevenue > 0 ? Math.round((grossProfit / totalSalesRevenue) * 100) : 0
         }%)\n` +
@@ -221,14 +225,14 @@ export function generateSmartErpBotResponse(params: {
         `📦 *حالة المخزون:* ${erpSnapshot.products.length} صنف نشط (${lowStockItems.length} أصناف قرب حد إعادة الطلب)\n` +
         `🔧 *تذاكر الضمان والصيانة (RMA):* ${erpSnapshot.warrantyTickets.length} تذاكر\n` +
         `━━━━━━━━━━━━━━\n` +
-        `🧾 *أحدث الفواتير المسجلة:*\n${topInvoicesText}`,
+        `🧾 *أحدث الفواتير المسجلة:*\n${topInvoicesText || 'لا توجد فواتير نشطة'}`,
     };
   }
 
   if (intent === 'DEBT_STATEMENT') {
     const targetCustomer = matchedCustomer || erpSnapshot.customers[0];
     if (targetCustomer) {
-      const custInvoices = erpSnapshot.salesInvoices.filter(
+      const custInvoices = activeInvoices.filter(
         (i) => i.customerId === targetCustomer.id || i.customerName === targetCustomer.nameAr
       );
       return {
@@ -309,7 +313,7 @@ export function generateSmartErpBotResponse(params: {
       `📌 *ملخص حسابك والنظام اللحظي:*\n` +
       `• الرصيد المسجل: *${fmtNum(matchedCustomer?.balance || 0)} ${sym}*\n` +
       `• إجمالي الأصناف المتوفرة بالمستودع: *${erpSnapshot.products.length} صنف*\n` +
-      `• الفواتير المعتمدة بالنظام: *${erpSnapshot.salesInvoices.length} فاتورة* بإجمالي *${fmtNum(totalSalesRevenue)} ${sym}*\n\n` +
+      `• الفواتير المعتمدة بالنظام: *${activeInvoices.length} فاتورة* بإجمالي *${fmtNum(totalSalesRevenue)} ${sym}*\n\n` +
       `يمكنك طلب: *"أرسل فاتورتي"*، *"كشف حسابي"*، *"تقرير الأرباح والمبيعات"*، أو *"أسعار الألواح والإنفرترات"* وسأقوم بإرسالها لك في الحال!`,
   };
 }

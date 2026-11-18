@@ -1,4 +1,5 @@
 import {
+  ArchivedReturnedInvoiceRecord,
   InvoiceItem,
   JournalEntry,
   Product,
@@ -8,6 +9,7 @@ import {
   SalesReturnDoc,
 } from '../types/erp';
 import { createSalesReturnCreditNoteJournal } from './accountingEngine';
+import { decodeZatcaPhase2TLVBase64 } from './barcodeEngine';
 
 export function isInvoiceVoidOrReturned(inv?: Partial<SalesInvoice> | null): boolean {
   return Boolean(inv && (inv.status === 'VOID' || inv.isReturned === true));
@@ -37,12 +39,15 @@ export interface FullInvoiceVoidReturnInput {
   creditNoteNumber?: string;
   entryNumber?: string;
   returnedAt?: string;
+  autoArchive?: boolean;
+  archiveCode?: string;
 }
 
 export interface FullInvoiceVoidReturnResult {
   success: boolean;
   messageAr: string;
   updatedInvoice?: SalesInvoice;
+  archivedRecord?: ArchivedReturnedInvoiceRecord;
   restockDeltas: Array<{ productId: string; baseQtyRestocked: number }>;
   refundedAmount: number;
   debtReleasedAmount: number;
@@ -189,6 +194,10 @@ export function computeFullInvoiceVoidAndReturn(
     });
   }
 
+  const shouldAutoArchive = input.autoArchive !== false;
+  const archiveCode = input.archiveCode || `ARC-RET-${year}-${rand}`;
+  const cleanReason = reason.trim() || 'إلغاء واسترجاع الفاتورة بالكامل';
+
   const updatedInvoice: SalesInvoice = {
     ...invoice,
     status: 'VOID',
@@ -196,22 +205,54 @@ export function computeFullInvoiceVoidAndReturn(
     returnedAt,
     refundedAmount,
     refundMethod,
-    returnReason: reason.trim() || 'إلغاء واسترجاع الفاتورة بالكامل',
+    returnReason: cleanReason,
     returnCreditNoteNumber: creditNoteNumber,
     returnJournalEntryNumber: entryNumber,
+    isArchivedReturn: shouldAutoArchive,
+    archiveCode: shouldAutoArchive ? archiveCode : undefined,
+    archivedAt: shouldAutoArchive ? returnedAt : undefined,
+    returnStampTextAr: 'مسترجع — ملغاة ومؤرشفة',
     paidAmount: 0,
     remainingAmount: 0,
     cashPaidAmount: 0,
     cardPaidAmount: 0,
   };
 
+  const totalRestockedUnits = restockDeltas.reduce((s, d) => s + d.baseQtyRestocked, 0);
+
+  const archivedRecord: ArchivedReturnedInvoiceRecord | undefined = shouldAutoArchive
+    ? {
+        id: `arch-ret-${Date.now()}-${rand}`,
+        archiveCode,
+        tenantId,
+        originalInvoiceId: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        customerId: invoice.customerId,
+        customerName: invoice.customerName || 'عميل نقدي',
+        archivedAt: returnedAt,
+        originalGrandTotal,
+        refundedAmount,
+        debtReleasedAmount,
+        condition,
+        refundMethod,
+        reason: cleanReason,
+        stampLabelAr: 'مسترجع',
+        reversalJournalEntryNumber: entryNumber,
+        creditNoteNumbers: creditNotes.map((c) => c.creditNoteNumber),
+        restockedItemsCount: totalRestockedUnits,
+        operatorName,
+        invoiceSnapshot: updatedInvoice,
+      }
+    : undefined;
+
   return {
     success: true,
     messageAr:
       refundedAmount > 0
-        ? `تم إلغاء الفاتورة (${invoice.invoiceNumber}) وعمل ختم الاسترجاع، وتم إرجاع مبلغ ${refundedAmount.toLocaleString('en-US')} وإصدار إشعار دائن (${creditNoteNumber}).`
-        : `تم إلغاء الفاتورة (${invoice.invoiceNumber}) وعمل ختم الاسترجاع وإسقاط المديونية (${debtReleasedAmount.toLocaleString('en-US')}) وإصدار إشعار دائن (${creditNoteNumber}).`,
+        ? `تم إلغاء الفاتورة (${invoice.invoiceNumber}) وختمها بـ (مسترجع)${shouldAutoArchive ? ` وحفظها في أرشيف المسترجعات (${archiveCode})` : ''}، وتم إرجاع مبلغ ${refundedAmount.toLocaleString('en-US')} وتحديث المخزون والمحاسبة فوراً.`
+        : `تم إلغاء الفاتورة (${invoice.invoiceNumber}) وختمها بـ (مسترجع)${shouldAutoArchive ? ` وحفظها في أرشيف المسترجعات (${archiveCode})` : ''} وإسقاط المديونية (${debtReleasedAmount.toLocaleString('en-US')}) وتحديث المخزون والمحاسبة فوراً.`,
     updatedInvoice,
+    archivedRecord,
     restockDeltas,
     refundedAmount,
     debtReleasedAmount,
@@ -489,3 +530,138 @@ export function computeStrictSalesAndReturnsReportSummary(params: {
     },
   };
 }
+
+export interface InvoiceScanMatchResult {
+  matched: SalesInvoice | null;
+  matchedBy:
+    | 'INVOICE_NUMBER'
+    | 'INVOICE_ID'
+    | 'QR_DATA'
+    | 'ZATCA_QR_NUMBER'
+    | 'ZATCA_QR_TOTAL_DATE'
+    | 'NONE';
+  normalizedQuery: string;
+}
+
+/**
+ * Resolves a scanned 1D Barcode (e.g. INV-2026-1001, *INV-2026-1001*)
+ * or 2D QR Code payload (ZATCA Base64 TLV, GLOBAL-TAX-QR-..., JSON, INV:...)
+ * back to the corresponding SalesInvoice.
+ */
+export function resolveInvoiceFromScanPayload(
+  rawCode: string,
+  salesInvoices: SalesInvoice[]
+): InvoiceScanMatchResult {
+  const trimmed = String(rawCode || '').trim();
+  const stripped = trimmed.replace(/^\*+|\*+$/g, '').trim();
+  if (!stripped || !Array.isArray(salesInvoices) || salesInvoices.length === 0) {
+    return { matched: null, matchedBy: 'NONE', normalizedQuery: stripped };
+  }
+
+  const lower = stripped.toLowerCase();
+
+  // 1. Direct exact invoiceNumber match (case-insensitive)
+  const byNumber = salesInvoices.find(
+    (inv) => String(inv.invoiceNumber || '').trim().toLowerCase() === lower
+  );
+  if (byNumber) {
+    return { matched: byNumber, matchedBy: 'INVOICE_NUMBER', normalizedQuery: stripped };
+  }
+
+  // 2. Direct exact invoice id match
+  const byId = salesInvoices.find(
+    (inv) => String(inv.id || '').trim().toLowerCase() === lower
+  );
+  if (byId) {
+    return { matched: byId, matchedBy: 'INVOICE_ID', normalizedQuery: stripped };
+  }
+
+  // 3. Stored qrData exact or suffix match (e.g. GLOBAL-TAX-QR-INV-...)
+  const byQrData = salesInvoices.find(
+    (inv) => inv.qrData && String(inv.qrData).trim().toLowerCase() === lower
+  );
+  if (byQrData) {
+    return { matched: byQrData, matchedBy: 'QR_DATA', normalizedQuery: stripped };
+  }
+
+  // 4. Embedded INV-... token inside pipe text, URL query, or JSON
+  const jsonInvMatch = (() => {
+    if (!stripped.startsWith('{')) return null;
+    try {
+      const parsed = JSON.parse(stripped);
+      return parsed?.invoiceNumber || parsed?.inv || parsed?.id || null;
+    } catch {
+      return null;
+    }
+  })();
+  if (jsonInvMatch) {
+    const tokenLower = String(jsonInvMatch).trim().toLowerCase();
+    const byJson = salesInvoices.find(
+      (inv) =>
+        String(inv.invoiceNumber || '').toLowerCase() === tokenLower ||
+        String(inv.id || '').toLowerCase() === tokenLower
+    );
+    if (byJson) {
+      return {
+        matched: byJson,
+        matchedBy: 'INVOICE_NUMBER',
+        normalizedQuery: String(jsonInvMatch).trim(),
+      };
+    }
+  }
+
+  const invTokenMatch = stripped.match(/(?:INV|POS|RET)-[A-Za-z0-9-]+/i);
+  if (invTokenMatch) {
+    const tokenLower = invTokenMatch[0].toLowerCase();
+    const byToken = salesInvoices.find(
+      (inv) => String(inv.invoiceNumber || '').trim().toLowerCase() === tokenLower
+    );
+    if (byToken) {
+      return {
+        matched: byToken,
+        matchedBy: 'INVOICE_NUMBER',
+        normalizedQuery: invTokenMatch[0],
+      };
+    }
+  }
+
+  // 5. Decode ZATCA Base64 TLV QR payload (from printed thermal/A4 invoices)
+  const decodedZatca = decodeZatcaPhase2TLVBase64(stripped);
+  if (decodedZatca) {
+    if (decodedZatca.invoiceNumber) {
+      const zNum = decodedZatca.invoiceNumber.trim().toLowerCase();
+      const byZNum = salesInvoices.find(
+        (inv) => String(inv.invoiceNumber || '').trim().toLowerCase() === zNum
+      );
+      if (byZNum) {
+        return {
+          matched: byZNum,
+          matchedBy: 'ZATCA_QR_NUMBER',
+          normalizedQuery: decodedZatca.invoiceNumber.trim(),
+        };
+      }
+    }
+
+    const totalNum = Number(decodedZatca.invoiceTotal);
+    const datePrefix = String(decodedZatca.timestamp || '').slice(0, 10);
+    if (Number.isFinite(totalNum) && datePrefix) {
+      const byDateTotal = salesInvoices.find((inv) => {
+        const invDate = String(inv.date || '').slice(0, 10);
+        return (
+          invDate === datePrefix &&
+          Math.abs(Number(inv.grandTotal || 0) - totalNum) <= 0.02
+        );
+      });
+      if (byDateTotal) {
+        return {
+          matched: byDateTotal,
+          matchedBy: 'ZATCA_QR_TOTAL_DATE',
+          normalizedQuery: byDateTotal.invoiceNumber,
+        };
+      }
+    }
+  }
+
+  return { matched: null, matchedBy: 'NONE', normalizedQuery: stripped };
+}
+

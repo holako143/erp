@@ -52,6 +52,7 @@ import {
   SalesPipelineDoc,
   CostCenterBudget,
   SalesReturnDoc,
+  ArchivedReturnedInvoiceRecord,
   ReturnedItemCondition,
   ReturnRefundMethod,
   WarrantyMaintenanceTicket,
@@ -75,6 +76,10 @@ import {
   CrossBranchStockItem,
   InterBranchTransferRequest,
 } from '../types/erp';
+import {
+  UniversalAiConfigPublic,
+  UniversalAiConfigInput,
+} from '../core/aiProviderEngine';
 import {
   createInitialWhatsAppSession,
   generatePairingQRToken,
@@ -707,6 +712,9 @@ interface ERPContextType {
   salesInvoices: SalesInvoice[];
   addSalesInvoice: (inv: Omit<SalesInvoice, 'id' | 'invoiceNumber' | 'tenantId'>) => SalesInvoice;
   salesReturns: SalesReturnDoc[];
+  returnedInvoicesArchive: ArchivedReturnedInvoiceRecord[];
+  autoArchiveReturnedInvoices: boolean;
+  setAutoArchiveReturnedInvoices: (enabled: boolean) => void;
   createSalesReturnCreditNote: (params: {
     originalInvoiceId: string;
     productId: string;
@@ -721,9 +729,11 @@ interface ERPContextType {
     condition?: ReturnedItemCondition;
     refundMethod?: ReturnRefundMethod;
     reason?: string;
+    autoArchive?: boolean;
   }) => {
     success: boolean;
     updatedInvoice?: SalesInvoice;
+    archivedRecord?: ArchivedReturnedInvoiceRecord;
     creditNotes?: SalesReturnDoc[];
     messageAr?: string;
   };
@@ -862,11 +872,19 @@ interface ERPContextType {
   workflowApprovals: WorkflowApproval[];
   decideWorkflowApproval: (approvalId: string, status: 'APPROVED' | 'REJECTED') => void;
 
-  // AI Assistant & OCR
+  // AI Assistant, Universal Multi-Provider AI Config & OCR
   aiMessages: AIChatMessage[];
   sendAIMessage: (text: string) => Promise<void>;
   isAILoading: boolean;
   parseInvoiceWithAI: (rawText: string) => Promise<any>;
+  universalAiConfig: UniversalAiConfigPublic | null;
+  refreshUniversalAiConfig: () => Promise<UniversalAiConfigPublic | null>;
+  saveUniversalAiConfig: (input: UniversalAiConfigInput) => Promise<{
+    success: boolean;
+    config?: UniversalAiConfigPublic;
+    messageAr?: string;
+    errorAr?: string;
+  }>;
 
   // Omnichannel WhatsApp & SMS Engine + Industry Chameleon Blueprints
   outboundMessages: OutboundMessageRecord[];
@@ -5659,14 +5677,48 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   };
 
+  // Returned Invoices Auto-Archive Database & Toggle
+  const [autoArchiveReturnedInvoices, setAutoArchiveReturnedInvoicesState] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const v = localStorage.getItem('haseb_auto_archive_returns_v1');
+      return v === null ? true : v === 'true';
+    } catch {
+      return true;
+    }
+  });
+
+  const setAutoArchiveReturnedInvoices = useCallback((enabled: boolean) => {
+    setAutoArchiveReturnedInvoicesState(Boolean(enabled));
+    try {
+      localStorage.setItem('haseb_auto_archive_returns_v1', String(Boolean(enabled)));
+    } catch {
+      // ignore storage quota errors
+    }
+  }, []);
+
+  const [returnedInvoicesArchive, setReturnedInvoicesArchive] = useState<ArchivedReturnedInvoiceRecord[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = localStorage.getItem('haseb_returned_invoices_archive_v1');
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+
   const voidAndReturnSalesInvoice = (params: {
     invoiceId: string;
     condition?: ReturnedItemCondition;
     refundMethod?: ReturnRefundMethod;
     reason?: string;
+    autoArchive?: boolean;
   }): {
     success: boolean;
     updatedInvoice?: SalesInvoice;
+    archivedRecord?: ArchivedReturnedInvoiceRecord;
     creditNotes?: SalesReturnDoc[];
     messageAr?: string;
   } => {
@@ -5677,6 +5729,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const defaultRefundMethod: ReturnRefundMethod =
       params.refundMethod || (targetInv.paymentMethod === 'CREDIT' ? 'CREDIT_BALANCE' : 'CASH');
+    const shouldArchive =
+      params.autoArchive !== undefined ? params.autoArchive : autoArchiveReturnedInvoices;
 
     const res = computeFullInvoiceVoidAndReturn({
       invoice: targetInv,
@@ -5686,6 +5740,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       reason: params.reason || 'إلغاء الفاتورة واسترجاع المبلغ بالكامل',
       tenantId: currentTenant.id,
       operatorName: currentUser.name,
+      autoArchive: shouldArchive,
     });
 
     if (!res.success || !res.updatedInvoice) {
@@ -5695,6 +5750,21 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSalesInvoices((prev) =>
       prev.map((inv) => (inv.id === targetInv.id ? res.updatedInvoice! : inv))
     );
+
+    if (shouldArchive && res.archivedRecord) {
+      setReturnedInvoicesArchive((prev) => {
+        const next = [
+          res.archivedRecord!,
+          ...prev.filter((a) => a.originalInvoiceId !== targetInv.id),
+        ];
+        try {
+          localStorage.setItem('haseb_returned_invoices_archive_v1', JSON.stringify(next));
+        } catch {
+          // ignore storage quota
+        }
+        return next;
+      });
+    }
 
     if (res.restockDeltas.length > 0) {
       setProducts((prev) =>
@@ -5787,6 +5857,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return {
       success: true,
       updatedInvoice: res.updatedInvoice,
+      archivedRecord: res.archivedRecord,
       creditNotes: res.creditNotes,
       messageAr: res.messageAr,
     };
@@ -8022,7 +8093,81 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     ]);
   };
 
-  // AI Assistant Query Handler
+  // Universal Multi-Provider AI Config State & Actions in ERPContext
+  const [universalAiConfig, setUniversalAiConfig] = useState<UniversalAiConfigPublic | null>(null);
+
+  const refreshUniversalAiConfig = useCallback(async (): Promise<UniversalAiConfigPublic | null> => {
+    try {
+      const resp = await fetch('/api/v1/ai/config');
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      if (data?.config) {
+        setUniversalAiConfig(data.config);
+        return data.config as UniversalAiConfigPublic;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const saveUniversalAiConfig = useCallback(
+    async (
+      input: UniversalAiConfigInput
+    ): Promise<{
+      success: boolean;
+      config?: UniversalAiConfigPublic;
+      messageAr?: string;
+      errorAr?: string;
+    }> => {
+      try {
+        const resp = await fetch('/api/v1/ai/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(input),
+        });
+        const data = await resp.json();
+        if (!resp.ok || !data?.success) {
+          return {
+            success: false,
+            errorAr: data?.errorAr || data?.error || 'تعذر حفظ إعدادات الذكاء الاصطناعي.',
+          };
+        }
+        const saved = data.config as UniversalAiConfigPublic;
+        setUniversalAiConfig(saved);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('haseb-ai-config-updated', { detail: saved }));
+        }
+        return {
+          success: true,
+          config: saved,
+          messageAr: data.messageAr,
+        };
+      } catch {
+        return {
+          success: false,
+          errorAr: 'خطأ في الاتصال بالخادم أثناء حفظ إعدادات الذكاء الاصطناعي.',
+        };
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    void refreshUniversalAiConfig();
+    const onUpdated = (ev: Event) => {
+      const detail = (ev as CustomEvent)?.detail;
+      if (detail) {
+        setUniversalAiConfig(detail);
+      } else {
+        void refreshUniversalAiConfig();
+      }
+    };
+    window.addEventListener('haseb-ai-config-updated', onUpdated);
+    return () => window.removeEventListener('haseb-ai-config-updated', onUpdated);
+  }, [refreshUniversalAiConfig]);
+
+  // AI Assistant Query Handler (Uses custom configured AI provider & key via server router)
   const sendAIMessage = async (text: string) => {
     const userMsg: AIChatMessage = {
       id: `usr-msg-${Date.now()}`,
@@ -8036,19 +8181,31 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     try {
       const lowStockItems = products.filter((p) => p.stockQty <= p.reorderPoint);
+      const activeNonVoidInvoices = salesInvoices.filter(
+        (i) => i.status !== 'VOID' && i.isReturned !== true
+      );
       const res = await fetch('/api/v1/ai/copilot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt: text,
           language,
+          preferredProvider: universalAiConfig?.provider,
+          preferredModel: universalAiConfig?.model,
           erpContextSummary: {
             tenant: currentTenant.name,
             branch: currentBranch.name,
             activeIndustry,
             totalProducts: products.length,
-            lowStockProducts: lowStockItems.map((p) => ({ sku: p.sku, name: p.name, nameAr: p.nameAr, stockQty: p.stockQty, reorderPoint: p.reorderPoint })),
-            totalInvoices: salesInvoices.length,
+            lowStockProducts: lowStockItems.map((p) => ({
+              sku: p.sku,
+              name: p.name,
+              nameAr: p.nameAr,
+              stockQty: p.stockQty,
+              reorderPoint: p.reorderPoint,
+            })),
+            totalInvoices: activeNonVoidInvoices.length,
+            archivedReturnedInvoicesCount: returnedInvoicesArchive.length,
             shiftSales: currentShift.totalSales,
             journalEntriesCount: journalEntries.length,
             openWorkflows: workflowApprovals.filter((w) => w.status === 'PENDING').length,
@@ -8079,10 +8236,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let reply = '';
     const lower = text.toLowerCase();
 
+    const activeInvoicesList = salesInvoices.filter((i) => i.status !== 'VOID' && i.isReturned !== true);
+
     if (lower.includes('مبيعات') || lower.includes('sales') || lower.includes('أكثر') || lower.includes('top')) {
       const productSalesMap = new Map<string, { nameAr: string; name: string; sku: string; qty: number; rev: number }>();
-      for (const inv of salesInvoices) {
-        if (inv.status === 'VOID') continue;
+      for (const inv of activeInvoicesList) {
         for (const item of inv.items) {
           const prod = products.find((p) => p.id === item.productId);
           const existing = productSalesMap.get(item.productId) || {
@@ -8100,14 +8258,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const ranked = Array.from(productSalesMap.values()).sort((a, b) => b.rev - a.rev);
       const top = ranked[0];
       const second = ranked[1];
-      const totalInvoicedRevenue = salesInvoices
-        .filter((i) => i.status !== 'VOID')
-        .reduce((s, i) => s + i.grandTotal, 0);
+      const totalInvoicedRevenue = activeInvoicesList.reduce((s, i) => s + i.grandTotal, 0);
 
       if (top) {
         reply = language === 'ar'
-          ? `بناءً على سجل الفواتير الفعلي (${salesInvoices.length} فاتورة)، الصنف الأعلى مبيعاً هو **${top.nameAr}** (SKU: ${top.sku}) بإجمالي إيراد ${top.rev.toLocaleString()} ر.س (${top.qty} وحدة)${second ? `، يليه **${second.nameAr}** بعدد ${second.qty} وحدة` : ''}. إجمالي الفواتير المسجلة بلغ ${totalInvoicedRevenue.toLocaleString()} ر.س، ومبيعات الوردية الحالية ${currentShift.totalSales.toLocaleString()} ر.س.`
-          : `Based on your live sales ledger (${salesInvoices.length} invoices), the top-performing product is **${top.name}** (SKU: ${top.sku}) generating SAR ${top.rev.toLocaleString()} (${top.qty} units)${second ? `, followed by **${second.name}** with ${second.qty} units` : ''}. Total invoiced sales stand at SAR ${totalInvoicedRevenue.toLocaleString()}, and active POS shift sales at SAR ${currentShift.totalSales.toLocaleString()}.`;
+          ? `بناءً على سجل الفواتير الفعلي (${activeInvoicesList.length} فاتورة نشطة)، الصنف الأعلى مبيعاً هو **${top.nameAr}** (SKU: ${top.sku}) بإجمالي إيراد ${top.rev.toLocaleString()} ر.س (${top.qty} وحدة)${second ? `، يليه **${second.nameAr}** بعدد ${second.qty} وحدة` : ''}. إجمالي الفواتير النشطة بلغ ${totalInvoicedRevenue.toLocaleString()} ر.س، ومبيعات الوردية الحالية ${currentShift.totalSales.toLocaleString()} ر.س.`
+          : `Based on your live sales ledger (${activeInvoicesList.length} active invoices), the top-performing product is **${top.name}** (SKU: ${top.sku}) generating SAR ${top.rev.toLocaleString()} (${top.qty} units)${second ? `, followed by **${second.name}** with ${second.qty} units` : ''}. Total active invoiced sales stand at SAR ${totalInvoicedRevenue.toLocaleString()}, and active POS shift sales at SAR ${currentShift.totalSales.toLocaleString()}.`;
       } else {
         reply = language === 'ar'
           ? `لا توجد فواتير مبيعات مرحلة حالياً. مبيعات الوردية الحالية: ${currentShift.totalSales.toLocaleString()} ر.س.`
@@ -8120,15 +8276,15 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         : `Currently ${lowStockItems.length} products have reached their reorder thresholds: ${lowStockItems.map((i) => `**${i.name}** (Current: ${i.stockQty} / Reorder Point: ${i.reorderPoint})`).join(', ') || 'None'}. Recommended Action: Issue RFQ purchase orders immediately.`;
     } else if (lower.includes('محاسب') || lower.includes('accounting') || lower.includes('ميزان') || lower.includes('trial') || lower.includes('ضريبة')) {
       const tb = generateTrialBalance(chartAccounts, journalEntries);
-      const fin = calculateDynamicFinancialStatements(chartAccounts, journalEntries);
+      const fin = calculateDynamicFinancialStatements(chartAccounts, journalEntries, salesInvoices, purchaseOrders);
       reply = language === 'ar'
         ? `جميع القيود اليومية المسجلة (${journalEntries.length} قيد) ${tb.isBalanced ? 'متوازنة تماماً 100%' : 'تحتاج مراجعة توازن'}. إجمالي المدين (${tb.grandDebit.toLocaleString()} ر.س) يعادل إجمالي الدائن (${tb.grandCredit.toLocaleString()} ر.س). ضريبة المخرجات المستحقة فعلياً هي ${fin.outputVat.toLocaleString()} ر.س والمدخلات القابلة للاسترداد هي ${fin.inputVat.toLocaleString()} ر.س، وصافي الضريبة المستحقة للهيئة هو ${fin.netVatPayable.toLocaleString()} ر.س، وصافي الربح التشغيلي ${fin.netIncome.toLocaleString()} ر.س.`
         : `All registered journal entries (${journalEntries.length} entries) are ${tb.isBalanced ? '100% strictly balanced' : 'out of balance'}. Total Debit (SAR ${tb.grandDebit.toLocaleString()}) matches Total Credit (SAR ${tb.grandCredit.toLocaleString()}). Live Output VAT payable stands at SAR ${fin.outputVat.toLocaleString()} against recoverable Input VAT of SAR ${fin.inputVat.toLocaleString()}, resulting in net tax payable of SAR ${fin.netVatPayable.toLocaleString()} and net operating profit of SAR ${fin.netIncome.toLocaleString()}.`;
     } else {
       const tb = generateTrialBalance(chartAccounts, journalEntries);
       reply = language === 'ar'
-        ? `تم تحليل الاستعلام في سياق المستأجر [${currentTenant.name}] والنشاط [${activeIndustry}]. النظام يعمل بكامل طاقته التشغيلية مع ${products.length} صنف مسجل، ${salesInvoices.length} فاتورة، و${journalEntries.length} قيد محاسبي متوازن (إجمالي ميزان المراجعة: ${tb.grandDebit.toLocaleString()} ر.س).`
-        : `Analyzed query within Tenant [${currentTenant.name}] and Industry [${activeIndustry}]. Platform operational with ${products.length} registered products, ${salesInvoices.length} invoices, and ${journalEntries.length} balanced journal entries (Trial Balance: SAR ${tb.grandDebit.toLocaleString()}).`;
+        ? `تم تحليل الاستعلام في سياق المستأجر [${currentTenant.name}] والنشاط [${activeIndustry}]. النظام يعمل بكامل طاقته التشغيلية مع ${products.length} صنف مسجل، ${activeInvoicesList.length} فاتورة نشطة، و${journalEntries.length} قيد محاسبي متوازن (إجمالي ميزان المراجعة: ${tb.grandDebit.toLocaleString()} ر.س).`
+        : `Analyzed query within Tenant [${currentTenant.name}] and Industry [${activeIndustry}]. Platform operational with ${products.length} registered products, ${activeInvoicesList.length} active invoices, and ${journalEntries.length} balanced journal entries (Trial Balance: SAR ${tb.grandDebit.toLocaleString()}).`;
     }
 
     setAiMessages((prev) => [
@@ -10027,6 +10183,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         salesInvoices,
         addSalesInvoice,
         salesReturns,
+        returnedInvoicesArchive,
+        autoArchiveReturnedInvoices,
+        setAutoArchiveReturnedInvoices,
         createSalesReturnCreditNote,
         voidAndReturnSalesInvoice,
         warrantyTickets,
@@ -10105,6 +10264,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         sendAIMessage,
         isAILoading,
         parseInvoiceWithAI,
+        universalAiConfig,
+        refreshUniversalAiConfig,
+        saveUniversalAiConfig,
 
         outboundMessages,
         messagingGatewayConfig,

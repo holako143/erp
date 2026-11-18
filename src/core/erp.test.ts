@@ -6988,4 +6988,261 @@ test('Track 108 Inventory Item QR Code Generator: encodes and round-trip parses 
   assert.ok(svg.includes('<rect'));
 });
 
+test('Track 109 F1 Invoice Return Barcode/QR Scan & Strict Void Exclusion across Accounting, Shifts, WhatsApp AI & Reports', async () => {
+  const {
+    resolveInvoiceFromScanPayload,
+    computeFullInvoiceVoidAndReturn,
+    computeStrictSalesAndReturnsReportSummary,
+  } = await import('./salesReturnEngine');
+  const { encodeZatcaPhase2TLVBase64, decodeZatcaPhase2TLVBase64 } = await import('./barcodeEngine');
+  const { calculateDynamicFinancialStatements } = await import('./accountingEngine');
+  const { buildShiftAnalyticsReport } = await import('./posShiftEngine');
+  const { generateSmartErpBotResponse } = await import('./whatsappAiBotEngine');
+
+  const prod = {
+    id: 'prod-f1-1',
+    tenantId: 't-1',
+    sku: 'INV-5K',
+    barcode: '628100001111',
+    name: 'Inverter 5kW',
+    nameAr: 'إنفرتر هجين 5 كيلوواط',
+    category: 'Inverters',
+    unit: 'PCS',
+    costPrice: 1000,
+    salePrice: 1500,
+    wholesalePrice: 1350,
+    stockQty: 10,
+    minStock: 2,
+    reorderPoint: 3,
+    isActive: true,
+    hasSerial: false,
+    taxRate: 15,
+    warrantyMonths: 24,
+  } as any;
+
+  const inv1 = {
+    id: 'inv-f1-101',
+    tenantId: 't-1',
+    invoiceNumber: 'INV-2026-9901',
+    date: '2026-06-15',
+    customerId: 'cust-1',
+    customerName: 'شركة النور للطاقة',
+    branchId: 'branch-1',
+    warehouseId: 'wh-1',
+    paymentMethod: 'CASH' as const,
+    subtotal: 1500,
+    taxAmount: 225,
+    discountAmount: 0,
+    grandTotal: 1725,
+    paidAmount: 1725,
+    cashPaidAmount: 1725,
+    cardPaidAmount: 0,
+    remainingAmount: 0,
+    status: 'PAID' as const,
+    qrData: 'GLOBAL-TAX-QR-INV-2026-9901',
+    items: [
+      {
+        productId: prod.id,
+        productName: prod.nameAr,
+        sku: prod.sku,
+        quantity: 1,
+        unitPrice: 1500,
+        discount: 0,
+        taxAmount: 225,
+        total: 1725,
+      },
+    ],
+  } as any;
+
+  const invActive = {
+    ...inv1,
+    id: 'inv-f1-102',
+    invoiceNumber: 'INV-2026-9902',
+    subtotal: 3000,
+    taxAmount: 450,
+    grandTotal: 3450,
+    paidAmount: 3450,
+    cashPaidAmount: 3450,
+    qrData: 'GLOBAL-TAX-QR-INV-2026-9902',
+    items: [{ ...inv1.items[0], quantity: 2, taxAmount: 450, total: 3450 }],
+  } as any;
+
+  // 1. Resolve via 1D asterisked barcode, stored qrData, JSON, and ZATCA Base64 TLV
+  assert.equal(resolveInvoiceFromScanPayload('*INV-2026-9901*', [inv1, invActive]).matched?.id, 'inv-f1-101');
+  assert.equal(resolveInvoiceFromScanPayload('GLOBAL-TAX-QR-INV-2026-9902', [inv1, invActive]).matched?.id, 'inv-f1-102');
+  assert.equal(resolveInvoiceFromScanPayload('{"invoiceNumber":"INV-2026-9901"}', [inv1, invActive]).matched?.id, 'inv-f1-101');
+
+  const zatcaQr = encodeZatcaPhase2TLVBase64({
+    sellerName: 'شركة حاسب للتجارة',
+    vatRegistrationNumber: '310000000000003',
+    timestamp: '2026-06-15T10:30:00Z',
+    invoiceTotal: '1725.00',
+    vatTotal: '225.00',
+    invoiceNumber: 'INV-2026-9901',
+  });
+  const decoded = decodeZatcaPhase2TLVBase64(zatcaQr);
+  assert.equal(decoded?.invoiceNumber, 'INV-2026-9901');
+  assert.equal(resolveInvoiceFromScanPayload(zatcaQr, [inv1, invActive]).matched?.id, 'inv-f1-101');
+
+  // ZATCA fallback by date + total even if tag 6 absent
+  const legacyZatcaQr = encodeZatcaPhase2TLVBase64({
+    sellerName: 'شركة حاسب للتجارة',
+    vatRegistrationNumber: '310000000000003',
+    timestamp: '2026-06-15T11:00:00Z',
+    invoiceTotal: '3450.00',
+    vatTotal: '450.00',
+  });
+  assert.equal(resolveInvoiceFromScanPayload(legacyZatcaQr, [inv1, invActive]).matched?.id, 'inv-f1-102');
+
+  // 2. Void & Return inv1 — must keep preserved invoice stamped and exclude it everywhere
+  const voidRes = computeFullInvoiceVoidAndReturn({
+    invoice: inv1,
+    products: [prod],
+    condition: 'HEALTHY_RESTOCK',
+    refundMethod: 'CASH',
+    reason: 'مرتجع عبر F1',
+    tenantId: 't-1',
+    operatorName: 'أمين الصندوق',
+  });
+  assert.equal(voidRes.success, true);
+  assert.equal(voidRes.updatedInvoice?.status, 'VOID');
+  assert.equal(voidRes.updatedInvoice?.isReturned, true);
+  assert.equal(voidRes.updatedInvoice?.isArchivedReturn, true);
+  assert.equal(voidRes.refundedAmount, 1725);
+  assert.ok(voidRes.archivedRecord, 'Expected auto-archived return record');
+  assert.equal(voidRes.archivedRecord?.stampLabelAr, 'مسترجع');
+  assert.ok(voidRes.archivedRecord?.archiveCode.startsWith('ARC-RET-'));
+  assert.equal(voidRes.archivedRecord?.restockedItemsCount, 1);
+
+  const allInvoices = [voidRes.updatedInvoice!, invActive];
+
+  // Strict sales report excludes voided invoice VAT/revenue & counts only active invoice
+  const strictRep = computeStrictSalesAndReturnsReportSummary({
+    invoices: allInvoices,
+    salesReturns: voidRes.creditNotes,
+    products: [prod],
+    productCostMap: new Map([[prod.id, prod.costPrice]]),
+    startDate: '2026-06-01',
+    endDate: '2026-06-30',
+  });
+  assert.equal(strictRep.activeInvoicesCount, 1);
+  assert.equal(strictRep.voidedInvoicesCount, 1);
+  assert.equal(strictRep.grossSales, 3450);
+
+  // Accounting VAT excludes voided invoice output VAT (only 450 from invActive counted, plus 21000 baseline)
+  const finStmt = calculateDynamicFinancialStatements([], [], allInvoices, []);
+  assert.equal(finStmt.outputVat, 21000 + 450);
+
+  // Shift analytics excludes voided invoice
+  const shiftRep = buildShiftAnalyticsReport({
+    currentShift: {
+      id: 'shift-none',
+      tenantId: 't-1',
+      mode: 'FLEXIBLE_NO_SHIFT',
+      status: 'OPEN',
+      cashierName: 'مدير',
+      openedAt: '2026-06-15T08:00:00Z',
+      openingCash: 0,
+      cashSalesTotal: 0,
+      cardSalesTotal: 0,
+      creditSalesTotal: 0,
+      cashRefundsTotal: 0,
+      expectedCashInDrawer: 0,
+      invoicesCount: 0,
+    } as any,
+    shiftHistory: [],
+    salesInvoices: allInvoices,
+  });
+  assert.equal(shiftRep.summary.totalTransactions, 1);
+  assert.equal(shiftRep.summary.grandTotalSales, 3450);
+
+  // WhatsApp Smart Bot report excludes voided invoice from active sales
+  const botRes = generateSmartErpBotResponse({
+    incomingText: 'تقرير المبيعات اليوم',
+    contactName: 'المدير',
+    contactPhone: '967770000001',
+    forcedIntent: 'FINANCIAL_REPORT',
+    erpSnapshot: {
+      companyName: 'حاسب للتجارة',
+      currencySymbol: 'ر.ي',
+      products: [prod],
+      customers: [],
+      salesInvoices: allInvoices,
+      warrantyTickets: [],
+    },
+  });
+  assert.ok(botRes.replyText.includes('3,450'));
+  assert.ok(!botRes.replyText.includes('5,175'));
+});
+
+test('Track 110 Universal Multi-Provider AI Engine: presets, URL normalization, masking & validation', async () => {
+  const {
+    AI_PROVIDER_PRESETS,
+    getAiProviderPreset,
+    normalizeAiBaseUrl,
+    buildChatCompletionsEndpoint,
+    maskApiKey,
+    validateUniversalAiConfigInput,
+  } = await import('./aiProviderEngine');
+
+  assert.ok(AI_PROVIDER_PRESETS.length >= 8);
+  assert.equal(getAiProviderPreset('openai').protocol, 'OPENAI_CHAT_COMPLETIONS');
+  assert.equal(getAiProviderPreset('anthropic').protocol, 'ANTHROPIC_MESSAGES');
+  assert.equal(getAiProviderPreset('gemini').protocol, 'GEMINI_NATIVE');
+  assert.equal(getAiProviderPreset('ollama').requiresApiKey, false);
+
+  assert.equal(
+    normalizeAiBaseUrl('openai', 'https://api.openai.com/v1///'),
+    'https://api.openai.com/v1'
+  );
+  assert.equal(
+    buildChatCompletionsEndpoint('https://api.deepseek.com/v1'),
+    'https://api.deepseek.com/v1/chat/completions'
+  );
+  assert.equal(
+    buildChatCompletionsEndpoint('https://custom.llm.local/proxy/chat/completions'),
+    'https://custom.llm.local/proxy/chat/completions'
+  );
+  assert.equal(maskApiKey('sk-proj-1234567890abcd'), 'sk-p••••••abcd');
+  assert.equal(maskApiKey(''), '');
+
+  const missingKeyOpenAi = validateUniversalAiConfigInput(
+    {
+      provider: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o-mini',
+      apiKey: '',
+      enabled: true,
+    },
+    false
+  );
+  assert.equal(missingKeyOpenAi.valid, false);
+
+  const keptExistingKey = validateUniversalAiConfigInput(
+    {
+      provider: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o',
+      apiKey: '__KEEP_EXISTING__',
+      enabled: true,
+    },
+    true
+  );
+  assert.equal(keptExistingKey.valid, true);
+  assert.equal(keptExistingKey.normalizedModel, 'gpt-4o');
+
+  const keylessLocalOllama = validateUniversalAiConfigInput(
+    {
+      provider: 'ollama',
+      baseUrl: 'http://127.0.0.1:11434/v1',
+      model: 'qwen2.5:7b',
+      apiKey: '',
+      enabled: true,
+    },
+    false
+  );
+  assert.equal(keylessLocalOllama.valid, true);
+});
+
+
 

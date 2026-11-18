@@ -149,7 +149,9 @@ export const buildShiftAnalyticsReport = (params: {
 }): ShiftAnalyticsReport => {
   const { currentShift, shiftHistory, salesInvoices } = params;
 
-  const validInvoices = (salesInvoices || []).filter((inv) => inv.status !== 'VOID');
+  const validInvoices = (salesInvoices || []).filter(
+    (inv) => inv && inv.status !== 'VOID' && inv.isReturned !== true
+  );
 
   // Collect unique explicit shifts (current active/recently closed if not placeholder, plus history)
   const explicitShiftMap = new Map<string, POSShift>();

@@ -77,6 +77,8 @@ export const ReportsAnalyticsAndAIView: React.FC = () => {
     openQuickSendModal,
     setActiveTab,
     uiTheme,
+    universalAiConfig,
+    returnedInvoicesArchive,
   } = useERP();
 
   const isDark = uiTheme === 'obsidian_dark';
@@ -770,7 +772,45 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
           actionLabel,
         },
       ]);
-      setIsProcessingLocalAI(false);
+
+      if (universalAiConfig?.enabled && (universalAiConfig.hasApiKey || universalAiConfig.provider === 'ollama')) {
+        fetch('/api/v1/ai/copilot', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query: q,
+            erpContext: {
+              grossSales: financialMetrics.grossSales,
+              netProfit: financialMetrics.netProfit,
+              totalCOGS: financialMetrics.totalCOGS,
+              netMarginPct: financialMetrics.netMarginPct,
+              activeInvoicesCount: financialMetrics.invoicesCount,
+              archivedReturnsCount: returnedInvoicesArchive.length,
+              totalReceivables: debtMetrics.totalReceivables,
+              currency,
+            },
+          }),
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => {
+            if (data?.answer && typeof data.answer === 'string' && !data.fallback) {
+              setAiHistory((prev) =>
+                prev.map((m) =>
+                  m.id === botMsgId
+                    ? {
+                        ...m,
+                        text: `${m.text}\n\n✨ **تحليل (${universalAiConfig.providerLabelAr} — ${universalAiConfig.model}):**\n${data.answer}`,
+                      }
+                    : m
+                )
+              );
+            }
+          })
+          .catch(() => {})
+          .finally(() => setIsProcessingLocalAI(false));
+      } else {
+        setIsProcessingLocalAI(false);
+      }
     }, 200);
   };
 
@@ -1265,23 +1305,36 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
                       <Bot className="w-5 h-5" />
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm">
                           مساعد الاستفسار المالي والذكاء الاصطناعي اللحظي
                         </h3>
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100/80 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                          <span>تحليل فوري محلي</span>
+                          <span>
+                            {universalAiConfig?.enabled
+                              ? `${universalAiConfig.providerLabelAr} (${universalAiConfig.model})`
+                              : 'تحليل فوري محلي'}
+                          </span>
                         </span>
                       </div>
                       <p className="text-[10px] text-slate-500">
-                        يعمل محلياً في الذاكرة بالكامل دون أي بطء - استفسر عن الأرباح، الأصناف، العملاء، الديون، والصندوق
+                        يعمل محلياً في الذاكرة بالكامل دون أي بطء مع تكامل مباشر مع مزود الذكاء الاصطناعي المخصص في النظام
                       </p>
                     </div>
                   </div>
 
                   {/* Header Action Tools */}
                   <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      data-testid="reports-open-ai-config-btn"
+                      onClick={() => window.dispatchEvent(new CustomEvent('haseb-open-ai-config'))}
+                      className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 rounded-lg hover:bg-indigo-100 transition cursor-pointer"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>إعدادات API الذكاء الاصطناعي</span>
+                    </button>
                     <button
                       type="button"
                       onClick={handleExportAIReport}

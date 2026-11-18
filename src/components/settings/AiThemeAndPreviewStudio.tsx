@@ -216,10 +216,11 @@ export const AiThemeAndPreviewStudio: React.FC = () => {
           setGeneratedPalettes(list);
           setSelectedCandidateIndex(0);
           applyPaletteToStaged(list[0]);
+          const usedProvider = result?.providerLabel || 'الذكاء الاصطناعي';
           notify(
             isAr
-              ? `تم توليد ${list.length} خيارات باليت ذكية عبر Gemini AI بنجاح!`
-              : `Generated ${list.length} cohesive palettes via Gemini AI!`
+              ? `تم توليد ${list.length} خيارات باليت ذكية عبر ${usedProvider} بنجاح!`
+              : `Generated ${list.length} cohesive palettes via ${usedProvider}!`
           );
           setIsGeneratingPalette(false);
           return;
@@ -350,8 +351,8 @@ export const AiThemeAndPreviewStudio: React.FC = () => {
           <div>
             <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100">
               {isAr
-                ? 'مولّد سمات الألوان بالذكاء الاصطناعي (Gemini AI) وبطاقة المعاينة الفورية'
-                : 'AI Color Theme Generator (Gemini API) & Real-Time Workspace Preview'}
+                ? 'مولّد سمات الألوان بالذكاء الاصطناعي الموحد (Multi-Provider AI) وبطاقة المعاينة الفورية'
+                : 'Universal AI Color Theme Generator & Real-Time Workspace Preview'}
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               {isAr
@@ -392,7 +393,7 @@ export const AiThemeAndPreviewStudio: React.FC = () => {
             <div className="flex items-center justify-between flex-wrap gap-2">
               <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                 <Palette className="w-4 h-4 text-blue-600" />
-                {isAr ? '1. تحليل الشعار وتوجيه الذكاء الاصطناعي (Gemini AI)' : '1. Logo & AI Style Prompt'}
+                {isAr ? '1. تحليل الشعار وتوجيه الذكاء الاصطناعي (System AI API)' : '1. Logo & AI Style Prompt'}
               </span>
 
               {/* Polarity Switcher */}

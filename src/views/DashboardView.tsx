@@ -20,6 +20,7 @@ import {
   calculateReceivablesPayablesAging,
   calculateExecutiveFinancialRatios,
 } from '../core/accountingEngine';
+import { isInvoiceVoidOrReturned } from '../core/salesReturnEngine';
 import { IndustryChameleonPanel } from '../components/common/IndustryChameleonPanel';
 
 export const DashboardView: React.FC = () => {
@@ -45,8 +46,9 @@ export const DashboardView: React.FC = () => {
 
   const isDark = uiTheme === 'obsidian_dark';
 
+  const activeSalesInvoices = salesInvoices.filter((inv) => !isInvoiceVoidOrReturned(inv));
   const totalStockValue = products.reduce((acc, p) => acc + p.stockQty * p.costPrice, 0);
-  const totalSalesRevenue = salesInvoices.reduce((acc, inv) => acc + inv.grandTotal, 0);
+  const totalSalesRevenue = activeSalesInvoices.reduce((acc, inv) => acc + inv.grandTotal, 0);
   const lowStockProducts = products.filter((p) => p.stockQty <= p.reorderPoint);
 
   const dynamicStatements = calculateDynamicFinancialStatements(
@@ -298,7 +300,7 @@ export const DashboardView: React.FC = () => {
                 : 'Flexible • No Shift'}
             </span>
             <span>
-              {salesInvoices.length} {language === 'ar' ? 'فاتورة ضريبية' : 'Tax Invoices'}
+              {activeSalesInvoices.length} {language === 'ar' ? 'فاتورة ضريبية' : 'Tax Invoices'}
             </span>
           </div>
         </div>

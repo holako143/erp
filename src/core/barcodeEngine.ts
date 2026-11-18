@@ -366,6 +366,7 @@ export function encodeZatcaPhase2TLVBase64(params: {
   timestamp: string;
   invoiceTotal: string;
   vatTotal: string;
+  invoiceNumber?: string;
 }): string {
   const fields = [
     params.sellerName || 'Commercial Entity',
@@ -374,6 +375,9 @@ export function encodeZatcaPhase2TLVBase64(params: {
     params.invoiceTotal || '0',
     params.vatTotal || '0',
   ];
+  if (params.invoiceNumber && params.invoiceNumber.trim()) {
+    fields.push(params.invoiceNumber.trim());
+  }
   const raw = fields.map((v, idx) => `${idx + 1}:${v}`).join('|');
   try {
     if (typeof Buffer !== 'undefined') {
@@ -382,6 +386,57 @@ export function encodeZatcaPhase2TLVBase64(params: {
     return btoa(unescape(encodeURIComponent(raw)));
   } catch {
     return raw;
+  }
+}
+
+export interface DecodedZatcaPhase2TLV {
+  sellerName?: string;
+  vatRegistrationNumber?: string;
+  timestamp?: string;
+  invoiceTotal?: string;
+  vatTotal?: string;
+  invoiceNumber?: string;
+  rawDecoded: string;
+}
+
+export function decodeZatcaPhase2TLVBase64(input: string): DecodedZatcaPhase2TLV | null {
+  const cleaned = String(input || '').trim();
+  if (!cleaned) return null;
+
+  const tryParseStructured = (text: string): DecodedZatcaPhase2TLV | null => {
+    if (!text.includes('1:') || !text.includes('|')) return null;
+    const map: Record<string, string> = {};
+    for (const segment of text.split('|')) {
+      const idx = segment.indexOf(':');
+      if (idx > 0) {
+        map[segment.slice(0, idx).trim()] = segment.slice(idx + 1).trim();
+      }
+    }
+    if (!map['1'] && !map['4'] && !map['6']) return null;
+    return {
+      sellerName: map['1'],
+      vatRegistrationNumber: map['2'],
+      timestamp: map['3'],
+      invoiceTotal: map['4'],
+      vatTotal: map['5'],
+      invoiceNumber: map['6'],
+      rawDecoded: text,
+    };
+  };
+
+  const direct = tryParseStructured(cleaned);
+  if (direct) return direct;
+
+  try {
+    let decoded = '';
+    if (typeof Buffer !== 'undefined') {
+      decoded = Buffer.from(cleaned, 'base64').toString('utf-8');
+    } else if (typeof atob === 'function') {
+      decoded = decodeURIComponent(escape(atob(cleaned)));
+    }
+    return tryParseStructured(decoded);
+  } catch {
+    return null;
   }
 }
 

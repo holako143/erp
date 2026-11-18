@@ -123,6 +123,16 @@ const MobileLanPortalModal = lazy(() =>
 const ShiftControlModal = lazy(() =>
   import('./components/common/ShiftControlModal').then((m) => ({ default: m.ShiftControlModal }))
 );
+const F1InvoiceReturnModal = lazy(() =>
+  import('./components/sales/F1InvoiceReturnModal').then((m) => ({
+    default: m.F1InvoiceReturnModal,
+  }))
+);
+const UniversalAiConfigModal = lazy(() =>
+  import('./components/common/UniversalAiConfigModal').then((m) => ({
+    default: m.UniversalAiConfigModal,
+  }))
+);
 
 const ViewLoadingFallback: React.FC<{
   language: 'ar' | 'en';
@@ -210,6 +220,19 @@ const MainLayout: React.FC = () => {
   } = useERP();
 
   const isOnline = useOnlineStatus();
+  const [isF1ReturnModalOpen, setIsF1ReturnModalOpen] = useState(false);
+  const [isAiConfigModalOpen, setIsAiConfigModalOpen] = useState(false);
+
+  useEffect(() => {
+    const onOpenF1Return = () => setIsF1ReturnModalOpen(true);
+    const onOpenAiConfig = () => setIsAiConfigModalOpen(true);
+    window.addEventListener('haseb-open-f1-return', onOpenF1Return);
+    window.addEventListener('haseb-open-ai-config', onOpenAiConfig);
+    return () => {
+      window.removeEventListener('haseb-open-f1-return', onOpenF1Return);
+      window.removeEventListener('haseb-open-ai-config', onOpenAiConfig);
+    };
+  }, []);
 
   // Play subtle, theme-appropriate audio cues when toast notifications or security alerts appear
   useAlertSound({
@@ -370,11 +393,11 @@ const MainLayout: React.FC = () => {
         return;
       }
 
-      // Fast Function Key Shortcuts (F1 - F7)
+      // Fast Function Key Shortcuts (F1 - F8)
       if (isAuthenticated && !e.ctrlKey && !e.altKey && !e.metaKey) {
         if (e.key === 'F1') {
           e.preventDefault();
-          setActiveTab('dashboard');
+          setIsF1ReturnModalOpen(true);
           return;
         }
         if (e.key === 'F2' && hasModuleAccess('pos')) {
@@ -783,13 +806,21 @@ const MainLayout: React.FC = () => {
               <div className="flex items-center gap-3.5 text-slate-500 overflow-x-auto no-scrollbar">
                 <button
                   type="button"
-                  onClick={() => setActiveTab('pos')}
-                  className="flex items-center gap-1.5 hover:text-slate-900 dark:hover:text-white transition cursor-pointer shrink-0"
+                  data-testid="footer-f1-invoice-return-btn"
+                  onClick={() => setIsF1ReturnModalOpen(true)}
+                  className="flex items-center gap-1.5 hover:text-rose-700 dark:hover:text-rose-300 transition cursor-pointer shrink-0"
+                  title={
+                    language === 'ar'
+                      ? 'استرجاع الفواتير بمسح الباركود أو رمز QR (F1)'
+                      : 'F1 Invoice Return via Barcode/QR Scan'
+                  }
                 >
-                  <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-[10px] font-mono font-semibold text-slate-600 dark:text-slate-300">
+                  <kbd className="px-1.5 py-0.5 bg-rose-50 dark:bg-rose-950 border border-rose-200 dark:border-rose-800 rounded text-[10px] font-mono font-semibold text-rose-700 dark:text-rose-300">
                     F1
                   </kbd>
-                  <span>{language === 'ar' ? 'مسح الباركود' : 'Scan Barcode'}</span>
+                  <span className="font-semibold text-slate-700 dark:text-slate-200">
+                    {language === 'ar' ? 'إرجاع الفواتير / باركود' : 'Invoice Return'}
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -1012,6 +1043,18 @@ const MainLayout: React.FC = () => {
             <ShiftControlModal />
             {isOnboardingOpen && (
               <OnboardingWizardModal isOpen={isOnboardingOpen} onClose={closeOnboarding} />
+            )}
+            {isF1ReturnModalOpen && (
+              <F1InvoiceReturnModal
+                isOpen={isF1ReturnModalOpen}
+                onClose={() => setIsF1ReturnModalOpen(false)}
+              />
+            )}
+            {isAiConfigModalOpen && (
+              <UniversalAiConfigModal
+                isOpen={isAiConfigModalOpen}
+                onClose={() => setIsAiConfigModalOpen(false)}
+              />
             )}
           </Suspense>
           <OfflineIndicator />
