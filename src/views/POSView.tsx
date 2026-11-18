@@ -90,6 +90,7 @@ import {
   MobileQuickActionTarget,
   MobileQuickActionDescriptor,
 } from '../core/mobileTouchEngine';
+import { useModalLayer, renderModalPortal } from '../core/modalLayerEngine';
 
 const CameraBarcodeScannerModal = lazy(() =>
   import('../components/common/CameraBarcodeScannerModal').then((m) => ({
@@ -104,19 +105,20 @@ const InvoiceRenderer = lazy(() =>
 const POSCustomerPickerModal = lazy(() => import('../components/pos/POSCustomerPickerModal'));
 const POSSolarCalculatorModal = lazy(() => import('../components/pos/POSSolarCalculatorModal'));
 
-const POSModalLoadingFallback: React.FC = () => (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs">
-    <div className="bg-white rounded-2xl px-6 py-4 shadow-xl border border-slate-200 flex items-center gap-3 text-xs font-bold text-slate-800">
-      <HasebBrandLogo size="sm" />
-      <div className="space-y-1">
-        <div>جاري تجهيز النافذة...</div>
-        <div className="w-24 h-1 rounded-full bg-slate-200 overflow-hidden">
-          <div className="w-12 h-full rounded-full haseb-shimmer-bar" />
+const POSModalLoadingFallback: React.FC = () =>
+  renderModalPortal(
+    <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-900/40 backdrop-blur-xs">
+      <div className="bg-white rounded-2xl px-6 py-4 shadow-xl border border-slate-200 flex items-center gap-3 text-xs font-bold text-slate-800">
+        <HasebBrandLogo size="sm" />
+        <div className="space-y-1">
+          <div>جاري تجهيز النافذة...</div>
+          <div className="w-24 h-1 rounded-full bg-slate-200 overflow-hidden">
+            <div className="w-12 h-full rounded-full haseb-shimmer-bar" />
+          </div>
         </div>
       </div>
     </div>
-  </div>
-);
+  );
 
 export const POSView: React.FC = React.memo(() => {
   const {
@@ -234,6 +236,36 @@ export const POSView: React.FC = React.memo(() => {
 
   const [isBulkAdjustModalOpen, setIsBulkAdjustModalOpen] = useState(false);
   const [isSignaturePadOpen, setIsSignaturePadOpen] = useState(false);
+
+  const checkoutModalLayer = useModalLayer(isCheckoutModalOpen, 60);
+  const receiptModalLayer = useModalLayer(Boolean(isReceiptModalOpen && completedInvoice), 60);
+  const kdsModalLayer = useModalLayer(isKDSModalOpen, 60);
+
+  useEffect(() => {
+    if (!isCheckoutModalOpen && !isReceiptModalOpen && !isKDSModalOpen) return;
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (isCheckoutModalOpen && checkoutModalLayer.isTopLayer) {
+        e.preventDefault();
+        setIsCheckoutModalOpen(false);
+      } else if (isReceiptModalOpen && receiptModalLayer.isTopLayer) {
+        e.preventDefault();
+        setIsReceiptModalOpen(false);
+      } else if (isKDSModalOpen && kdsModalLayer.isTopLayer) {
+        e.preventDefault();
+        setIsKDSModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [
+    isCheckoutModalOpen,
+    checkoutModalLayer.isTopLayer,
+    isReceiptModalOpen,
+    receiptModalLayer.isTopLayer,
+    isKDSModalOpen,
+    kdsModalLayer.isTopLayer,
+  ]);
 
   const handleSaveCustomerSignature = useCallback(
     (base64Png: string) => {
@@ -411,7 +443,7 @@ export const POSView: React.FC = React.memo(() => {
 
   const handleQuickCreateAndSelectCustomer = useCallback(
     (cleanName: string, cleanPhone: string) => {
-      addCustomer({
+      const createdCustomer = addCustomer({
         code: `CUST-${Math.floor(1000 + Math.random() * 9000)}`,
         name: cleanName,
         nameAr: cleanName,
@@ -422,6 +454,7 @@ export const POSView: React.FC = React.memo(() => {
         balance: 0,
         loyaltyPoints: 0,
       });
+      setSelectedCustomerId(createdCustomer.id);
       setWarrantyCustomerName(cleanName);
       setWarrantyCustomerPhone(cleanPhone);
       setIsCustomerPickerOpen(false);
@@ -1025,21 +1058,24 @@ export const POSView: React.FC = React.memo(() => {
 
   const [isPosFilterDrawerOpen, setIsPosFilterDrawerOpen] = useState<boolean>(false);
 
+  const openCheckoutModal = useCallback(() => {
+    if (posCart.length === 0) return;
+    const half = Math.round((grandTotal / 2) * 100) / 100;
+    setPaymentMethod('CASH');
+    setCashTendered(grandTotal);
+    setCardPaidAmount(grandTotal);
+    setSplitCashAmount(half);
+    setSplitCardAmount(Math.max(0, Math.round((grandTotal - half) * 100) / 100));
+    setCreditDownPayment(0);
+    setCardReference(`RRN-${Math.floor(100000 + Math.random() * 900000)}`);
+    setIsQuickNumpadOpen(false);
+    setIsCheckoutModalOpen(true);
+  }, [posCart.length, grandTotal]);
+
   // Listen for Footer F9 Checkout, & F8 Beneficiary Customer Picker triggers
   useEffect(() => {
     const handleTriggerCheckout = () => {
-      if (posCart.length > 0) {
-        const half = Math.round((grandTotal / 2) * 100) / 100;
-        setPaymentMethod('CASH');
-        setCashTendered(grandTotal);
-        setCardPaidAmount(grandTotal);
-        setSplitCashAmount(half);
-        setSplitCardAmount(Math.max(0, Math.round((grandTotal - half) * 100) / 100));
-        setCreditDownPayment(0);
-        setCardReference(`RRN-${Math.floor(100000 + Math.random() * 900000)}`);
-        setIsQuickNumpadOpen(false);
-        setIsCheckoutModalOpen(true);
-      }
+      openCheckoutModal();
     };
     const handleOpenCustomerPicker = () => {
       setIsCustomerPickerOpen(true);
@@ -1050,7 +1086,7 @@ export const POSView: React.FC = React.memo(() => {
       window.removeEventListener('haseb-trigger-pos-checkout', handleTriggerCheckout);
       window.removeEventListener('haseb-open-pos-customer-picker', handleOpenCustomerPicker);
     };
-  }, [posCart.length, grandTotal]);
+  }, [openCheckoutModal]);
 
   const electronicsSubCategories = useMemo(() => {
     let allCount = 0;
@@ -1138,26 +1174,27 @@ export const POSView: React.FC = React.memo(() => {
         !isCheckoutModalOpen
       ) {
         e.preventDefault();
-        const half = Math.round((grandTotal / 2) * 100) / 100;
-        setPaymentMethod('CASH');
-        setCashTendered(grandTotal);
-        setCardPaidAmount(grandTotal);
-        setSplitCashAmount(half);
-        setSplitCardAmount(Math.max(0, Math.round((grandTotal - half) * 100) / 100));
-        setCreditDownPayment(0);
-        setCardReference(`RRN-${Math.floor(100000 + Math.random() * 900000)}`);
-        setIsCheckoutModalOpen(true);
+        openCheckoutModal();
         return;
       }
 
       if (e.key !== 'Tab') return;
 
-      // 1. If a POS modal is open, cycle cleanly through that modal's fields
+      // Do not hijack Tab when an elevated portal modal (Customer Picker, Signature Pad, Bulk Adjust, Camera) is open
+      if (
+        isCustomerPickerOpen ||
+        isSignaturePadOpen ||
+        isBulkAdjustModalOpen ||
+        isCameraScannerOpen ||
+        isReceiptModalOpen
+      ) {
+        return;
+      }
+
+      // 1. If Checkout or Solar Calculator modal is active on top, cycle cleanly through that modal's fields
       if (isCheckoutModalOpen || isSolarCalcOpen) {
-        const root = posContainerRef.current;
-        if (!root) return;
         const modalFields = Array.from(
-          root.querySelectorAll<HTMLElement>('[data-pos-modal-field]:not(:disabled)')
+          document.querySelectorAll<HTMLElement>('[data-pos-modal-field]:not(:disabled)')
         ).filter((el) => el.offsetParent !== null);
         if (modalFields.length > 0) {
           e.preventDefault();
@@ -1202,7 +1239,12 @@ export const POSView: React.FC = React.memo(() => {
     [
       posCart.length,
       isCheckoutModalOpen,
-      grandTotal,
+      openCheckoutModal,
+      isCustomerPickerOpen,
+      isSignaturePadOpen,
+      isBulkAdjustModalOpen,
+      isCameraScannerOpen,
+      isReceiptModalOpen,
       isSolarCalcOpen,
       activePosFieldId,
       orderedPosFieldIds,
@@ -2175,14 +2217,7 @@ export const POSView: React.FC = React.memo(() => {
               data-pos-field-id="pos-checkout-btn"
               disabled={posCart.length === 0}
               onFocus={() => setActivePosFieldId('pos-checkout-btn')}
-              onClick={() => {
-                setPaymentMethod('CASH');
-                setCashTendered(grandTotal);
-                setSplitCashAmount(Math.round((grandTotal / 2) * 100) / 100);
-                setCardReference(`RRN-${Math.floor(100000 + Math.random() * 900000)}`);
-                setIsQuickNumpadOpen(false);
-                setIsCheckoutModalOpen(true);
-              }}
+              onClick={openCheckoutModal}
               className="w-full haseb-btn-primary font-semibold py-2.5 sm:py-3 px-4 rounded-xl transition-all flex items-center justify-center gap-2 text-sm cursor-pointer disabled:opacity-40"
             >
               <CreditCard className="w-4 h-4" />
@@ -2254,39 +2289,24 @@ export const POSView: React.FC = React.memo(() => {
       )}
 
       {/* ====================================================================
-          FAST & LIGHTWEIGHT BENEFICIARY CUSTOMER PICKER MODAL (Click Tab or F8, LAZY)
-      ==================================================================== */}
-      {isCustomerPickerOpen && (
-        <Suspense fallback={<POSModalLoadingFallback />}>
-          <POSCustomerPickerModal
-            customers={customers}
-            selectedCustomerId={selectedCustomerId}
-            warrantyCustomerName={warrantyCustomerName}
-            language={language}
-            currency={currency}
-            onSelectCustomer={handleSelectBeneficiaryCustomer}
-            onQuickCreateCustomer={handleQuickCreateAndSelectCustomer}
-            onClose={() => setIsCustomerPickerOpen(false)}
-          />
-        </Suspense>
-      )}
-
-      {/* ====================================================================
           MOBILE & DESKTOP ERGONOMIC CHECKOUT & PAYMENT SETTLEMENT MODAL
           (Responsive Bottom-Sheet on Mobile + Sticky Action Footer)
       ==================================================================== */}
-      {isCheckoutModalOpen && (
-        <div
-          data-testid="pos-checkout-modal-backdrop"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setIsCheckoutModalOpen(false);
-          }}
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/65 backdrop-blur-xs p-0 sm:p-4"
-        >
+      {isCheckoutModalOpen &&
+        renderModalPortal(
           <div
-            data-testid="pos-checkout-modal-card"
-            className="bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-lg max-h-[92dvh] flex flex-col overflow-hidden"
+            data-testid="pos-checkout-modal-backdrop"
+            data-modal-top={checkoutModalLayer.isTopLayer ? 'true' : 'false'}
+            style={{ zIndex: checkoutModalLayer.zIndex }}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setIsCheckoutModalOpen(false);
+            }}
+            className="fixed inset-0 flex items-end sm:items-center justify-center bg-slate-900/65 backdrop-blur-xs p-0 sm:p-4"
           >
+            <div
+              data-testid="pos-checkout-modal-card"
+              className="bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-lg max-h-[92dvh] flex flex-col overflow-hidden"
+            >
             {/* Sticky Header */}
             <div className="px-4 sm:px-5 py-3.5 bg-slate-50/95 border-b border-slate-200/80 text-slate-900 flex items-center justify-between gap-2 shrink-0">
               <div className="flex items-center gap-2.5 min-w-0">
@@ -2414,13 +2434,13 @@ export const POSView: React.FC = React.memo(() => {
                         }`}
                       >
                         <div className="flex items-center justify-between gap-1 mb-0.5">
-                          <span className="font-bold text-[11px] sm:text-xs truncate">{m.titleAr}</span>
+                          <span className="font-bold text-[11px] sm:text-xs leading-tight">{m.titleAr}</span>
                           {isSelected && (
                             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                           )}
                         </div>
                         <span
-                          className={`text-[9px] sm:text-[10px] truncate ${
+                          className={`text-[9px] sm:text-[10px] leading-tight ${
                             isSelected ? 'text-slate-300' : 'text-slate-500'
                           }`}
                         >
@@ -2444,12 +2464,12 @@ export const POSView: React.FC = React.memo(() => {
                       onClick={() => setCashTendered(grandTotal)}
                       className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 underline cursor-pointer shrink-0"
                     >
-                      مطابقة تامّة ({formatCleanNumber(grandTotal)})
+                      مطابقة تامة ({formatCleanNumber(grandTotal)})
                     </button>
                   </div>
 
                   {/* Quick Cash Denomination Chips for Mobile & Touch Speed */}
-                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+                  <div className="flex flex-wrap items-center gap-1.5 pb-0.5">
                     <button
                       type="button"
                       onClick={() => setCashTendered(grandTotal)}
@@ -2489,11 +2509,11 @@ export const POSView: React.FC = React.memo(() => {
                       onFocus={(e) => e.currentTarget.select()}
                       onChange={(e) => setCashTendered(Math.max(0, Number(e.target.value) || 0))}
                       placeholder="0"
-                      className="w-full px-3.5 py-2.5 bg-white border-2 border-slate-300 focus:border-slate-900 rounded-xl font-mono tabular-nums font-black text-lg sm:text-xl text-slate-900 outline-hidden transition"
+                      className="w-full pl-3.5 pr-14 py-2.5 bg-white border-2 border-slate-300 focus:border-slate-900 rounded-xl font-mono tabular-nums font-black text-lg sm:text-xl text-slate-900 outline-hidden transition"
                       dir="ltr"
                     />
                     <span
-                      className="absolute end-4 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-slate-400"
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-xs font-mono font-bold text-slate-400"
                       dir="ltr"
                     >
                       {currency}
@@ -2628,10 +2648,10 @@ export const POSView: React.FC = React.memo(() => {
                       onChange={(e) =>
                         setCardPaidAmount(Math.min(grandTotal, Math.max(0, Number(e.target.value) || 0)))
                       }
-                      className="w-full px-3.5 py-2 bg-white border-2 border-slate-300 focus:border-slate-900 rounded-xl font-mono tabular-nums font-black text-base text-slate-900 outline-hidden"
+                      className="w-full pl-3.5 pr-14 py-2 bg-white border-2 border-slate-300 focus:border-slate-900 rounded-xl font-mono tabular-nums font-black text-base text-slate-900 outline-hidden"
                       dir="ltr"
                     />
-                    <span className="absolute end-3.5 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-slate-400">
+                    <span className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-xs font-mono font-bold text-slate-400" dir="ltr">
                       {currency}
                     </span>
                   </div>
@@ -2761,10 +2781,10 @@ export const POSView: React.FC = React.memo(() => {
                         setCreditDownPayment(Math.min(grandTotal, Math.max(0, Number(e.target.value) || 0)))
                       }
                       placeholder="0"
-                      className="w-full px-3.5 py-2 bg-white border-2 border-amber-300 focus:border-slate-900 rounded-xl font-mono tabular-nums font-black text-base text-slate-900 outline-hidden"
+                      className="w-full pl-3.5 pr-14 py-2 bg-white border-2 border-amber-300 focus:border-slate-900 rounded-xl font-mono tabular-nums font-black text-base text-slate-900 outline-hidden"
                       dir="ltr"
                     />
-                    <span className="absolute end-3.5 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-slate-400">
+                    <span className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-xs font-mono font-bold text-slate-400" dir="ltr">
                       {currency}
                     </span>
                   </div>
@@ -2859,7 +2879,7 @@ export const POSView: React.FC = React.memo(() => {
                   type="button"
                   data-pos-modal-field="checkout-confirm-a4"
                   onClick={() => handlePerformCheckout(true)}
-                  className="px-3.5 py-2.5 haseb-btn-primary font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="px-3.5 py-2.5 haseb-btn-primary font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
                 >
                   <ShieldCheck className="w-4 h-4 shrink-0" />
                   <span>إصدار مع شهادة ضمان A4</span>
@@ -2869,7 +2889,7 @@ export const POSView: React.FC = React.memo(() => {
                   data-pos-modal-field="checkout-confirm-standard"
                   data-testid="pos-confirm-checkout-btn"
                   onClick={() => handlePerformCheckout(false)}
-                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
                 >
                   <CheckCircle2 className="w-4 h-4 shrink-0" />
                   <span>تأكيد الدفع وإصدار الفاتورة</span>
@@ -2878,19 +2898,43 @@ export const POSView: React.FC = React.memo(() => {
             </div>
           </div>
         </div>
+        )}
+
+      {/* ====================================================================
+          FAST & LIGHTWEIGHT BENEFICIARY CUSTOMER PICKER MODAL (Click Tab or F8, LAZY)
+          Rendered after Checkout and portaled via useModalLayer(70) so it ALWAYS appears on top
+      ==================================================================== */}
+      {isCustomerPickerOpen && (
+        <Suspense fallback={<POSModalLoadingFallback />}>
+          <POSCustomerPickerModal
+            customers={customers}
+            selectedCustomerId={selectedCustomerId}
+            warrantyCustomerName={warrantyCustomerName}
+            language={language}
+            currency={currency}
+            onSelectCustomer={handleSelectBeneficiaryCustomer}
+            onQuickCreateCustomer={handleQuickCreateAndSelectCustomer}
+            onClose={() => setIsCustomerPickerOpen(false)}
+          />
+        </Suspense>
       )}
 
       {/* ====================================================================
           MULTI-TEMPLATE RECEIPT & A4 INVOICE PREVIEW MODAL
       ==================================================================== */}
-      {isReceiptModalOpen && completedInvoice && (
-        <div
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setIsReceiptModalOpen(false);
-          }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-2 sm:p-4"
-        >
-          <div className="bg-slate-50 rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-4xl max-h-[92vh] overflow-hidden flex flex-col">
+      {isReceiptModalOpen &&
+        completedInvoice &&
+        renderModalPortal(
+          <div
+            data-testid="pos-receipt-modal-backdrop"
+            data-modal-top={receiptModalLayer.isTopLayer ? 'true' : 'false'}
+            style={{ zIndex: receiptModalLayer.zIndex }}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setIsReceiptModalOpen(false);
+            }}
+            className="fixed inset-0 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-2 sm:p-4"
+          >
+            <div className="bg-slate-50 rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-4xl max-h-[92vh] overflow-hidden flex flex-col">
             {/* Top Template Switcher Toolbar */}
             <div className="px-4 sm:px-6 py-4 bg-white border-b border-slate-200/80 text-slate-900 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
@@ -3086,19 +3130,22 @@ export const POSView: React.FC = React.memo(() => {
             </div>
           </div>
         </div>
-      )}
+        )}
 
       {/* ====================================================================
           KITCHEN DISPLAY SCREEN (KDS) MODAL FOR RESTAURANTS
       ==================================================================== */}
-      {isKDSModalOpen && (
-        <div
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setIsKDSModalOpen(false);
-          }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-4"
-        >
-          <div className="bg-white text-slate-900 rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-4xl overflow-hidden">
+      {isKDSModalOpen &&
+        renderModalPortal(
+          <div
+            data-modal-top={kdsModalLayer.isTopLayer ? 'true' : 'false'}
+            style={{ zIndex: kdsModalLayer.zIndex }}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setIsKDSModalOpen(false);
+            }}
+            className="fixed inset-0 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-4"
+          >
+            <div className="bg-white text-slate-900 rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-4xl overflow-hidden">
             <div className="px-6 py-4 bg-slate-50/90 border-b border-slate-200/80 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl haseb-card-gradient text-white flex items-center justify-center shrink-0">
@@ -3184,7 +3231,7 @@ export const POSView: React.FC = React.memo(() => {
             </div>
           </div>
         </div>
-      )}
+        )}
 
 
 
@@ -3258,15 +3305,7 @@ export const POSView: React.FC = React.memo(() => {
           type="button"
           data-testid="pos-mobile-dock-checkout-btn"
           disabled={posCart.length === 0}
-          onClick={() => {
-            if (posCart.length === 0) return;
-            setPaymentMethod('CASH');
-            setCashTendered(grandTotal);
-            setSplitCashAmount(Math.round((grandTotal / 2) * 100) / 100);
-            setCardReference(`RRN-${Math.floor(100000 + Math.random() * 900000)}`);
-            setIsQuickNumpadOpen(false);
-            setIsCheckoutModalOpen(true);
-          }}
+          onClick={openCheckoutModal}
           className="min-h-[34px] px-2.5 py-1 rounded-xl haseb-btn-primary font-bold text-[11px] flex items-center gap-1 shrink-0 cursor-pointer disabled:opacity-45"
         >
           <CreditCard className="w-3.5 h-3.5 shrink-0" />

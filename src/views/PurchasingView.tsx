@@ -21,6 +21,7 @@ import {
   getAllProductUnitChoices,
   resolveProductUnitOption,
 } from '../core/multiUnitAndProcurementEngine';
+import { useModalLayer, renderModalPortal } from '../core/modalLayerEngine';
 
 export const PurchasingView: React.FC = () => {
   const {
@@ -62,6 +63,22 @@ export const PurchasingView: React.FC = () => {
   const [grnModalPoId, setGrnModalPoId] = useState<string | null>(null);
   const [grnQuantities, setGrnQuantities] = useState<Record<string, number>>({});
   const [grnNotes, setGrnNotes] = useState('');
+
+  const newPOModalLayer = useModalLayer(isNewPOModalOpen, 60);
+  const grnModalLayer = useModalLayer(Boolean(grnModalPoId), 60);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (newPOModalLayer.isTopLayer) {
+        setIsNewPOModalOpen(false);
+      } else if (grnModalLayer.isTopLayer) {
+        setGrnModalPoId(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [newPOModalLayer.isTopLayer, grnModalLayer.isTopLayer]);
 
   // Purchase Return Form State
   const [prSupplierId, setPrSupplierId] = useState<string>(suppliers[0]?.id || '');
@@ -950,14 +967,17 @@ export const PurchasingView: React.FC = () => {
       )}
 
       {/* New Purchase Order Modal */}
-      {isNewPOModalOpen && (
-        <div
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setIsNewPOModalOpen(false);
-          }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4"
-        >
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-lg overflow-hidden animate-in fade-in duration-150">
+      {isNewPOModalOpen &&
+        renderModalPortal(
+          <div
+            style={{ zIndex: newPOModalLayer.zIndex }}
+            data-modal-top={newPOModalLayer.isTopLayer ? 'true' : undefined}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setIsNewPOModalOpen(false);
+            }}
+            className="fixed inset-0 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4"
+          >
+            <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-lg overflow-hidden animate-in fade-in duration-150">
             <div className="px-6 py-4 bg-slate-50/90 border-b border-slate-200/80 flex items-center justify-between">
               <h3 className="font-bold text-base text-slate-900">
                 {language === 'ar' ? 'إصدار أمر شراء رسمي جديد (PO)' : 'Issue New Purchase Order'}
@@ -1107,7 +1127,7 @@ export const PurchasingView: React.FC = () => {
             </form>
           </div>
         </div>
-      )}
+        )}
 
       {/* Live Camera Barcode & QR Scanner Modal */}
       {isCameraScannerOpen && (
@@ -1121,14 +1141,17 @@ export const PurchasingView: React.FC = () => {
       )}
 
       {/* Partial Goods Receipt Note (GRN) Modal */}
-      {activeGrnPO && (
-        <div
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setGrnModalPoId(null);
-          }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4"
-        >
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden">
+      {activeGrnPO &&
+        renderModalPortal(
+          <div
+            style={{ zIndex: grnModalLayer.zIndex }}
+            data-modal-top={grnModalLayer.isTopLayer ? 'true' : undefined}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setGrnModalPoId(null);
+            }}
+            className="fixed inset-0 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4"
+          >
+            <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden">
             <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <h3 className="font-bold text-sm text-slate-900">
@@ -1210,7 +1233,7 @@ export const PurchasingView: React.FC = () => {
             </form>
           </div>
         </div>
-      )}
+        )}
     </div>
   );
 };

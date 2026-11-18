@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Upload, Download } from 'lucide-react';
 import { parseBulkProductsCSV } from '../../core/inventoryEngine';
+import { useModalLayer, renderModalPortal } from '../../core/modalLayerEngine';
 
 export const SAMPLE_BULK_CSV = `SKU,Barcode,NameAr,NameEn,CostPrice,SalePrice,StockQty,UOM,ReorderPoint,Sector
 SOL-600W-TOPCON,6281042009103,لوح طاقة شمسية N-Type بايفيشال 600W,N-Type Bifacial Solar Panel 600W,390,510,80,PCS,15,electronics
@@ -28,6 +29,7 @@ const InventoryBulkImportModal: React.FC<InventoryBulkImportModalProps> = React.
   }) => {
     const [bulkCsvText, setBulkCsvText] = useState<string>(SAMPLE_BULK_CSV);
     const [postOpeningJournal, setPostOpeningJournal] = useState<boolean>(true);
+    const { zIndex, isTopLayer } = useModalLayer(true, 70);
 
     const liveBulkPreview = useMemo(
       () =>
@@ -54,12 +56,14 @@ const InventoryBulkImportModal: React.FC<InventoryBulkImportModalProps> = React.
       reader.readAsText(file);
     };
 
-    return (
+    return renderModalPortal(
       <div
+        data-modal-top={isTopLayer ? 'true' : 'false'}
+        style={{ zIndex }}
         onMouseDown={(e) => {
           if (e.target === e.currentTarget) onClose();
         }}
-        className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4"
+        className="fixed inset-0 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4"
       >
         <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[90vh] overflow-y-auto p-6 space-y-4 text-xs">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">

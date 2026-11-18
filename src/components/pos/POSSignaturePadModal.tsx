@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { PenTool, CheckCircle2, RotateCcw, X } from 'lucide-react';
+import { useModalLayer, renderModalPortal } from '../../core/modalLayerEngine';
 
 export interface POSSignaturePadModalProps {
   isOpen: boolean;
@@ -21,6 +22,20 @@ export const POSSignaturePadModal: React.FC<POSSignaturePadModalProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [hasDrawn, setHasDrawn] = useState(false);
+  const { zIndex, isTopLayer } = useModalLayer(isOpen, 70);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isTopLayer) {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, isTopLayer, onClose]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -114,10 +129,15 @@ export const POSSignaturePadModal: React.FC<POSSignaturePadModalProps> = ({
     onClose();
   };
 
-  return (
+  return renderModalPortal(
     <div
       data-testid="pos-signature-pad-modal"
-      className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+      data-modal-top={isTopLayer ? 'true' : 'false'}
+      style={{ zIndex }}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
       dir={language === 'ar' ? 'rtl' : 'ltr'}
     >
       <div className="bg-white w-full max-w-lg rounded-3xl border border-slate-200 shadow-2xl overflow-hidden flex flex-col">

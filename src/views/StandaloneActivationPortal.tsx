@@ -118,7 +118,7 @@ export const StandaloneActivationPortal: React.FC = () => {
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) handleClose();
       }}
-      className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-4 bg-slate-900/45 backdrop-blur-[2px] overflow-y-auto"
+      className="fixed inset-0 z-[400] flex items-center justify-center p-3 sm:p-4 bg-slate-900/45 backdrop-blur-[2px] overflow-y-auto"
     >
       <div className="relative w-full max-w-4xl bg-white border border-slate-200/90 rounded-3xl shadow-2xl overflow-hidden text-slate-900 flex flex-col my-auto max-h-[95vh]">
         {/* Top Developer Header */}

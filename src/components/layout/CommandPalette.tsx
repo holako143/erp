@@ -22,6 +22,7 @@ import {
   GlobalSearchResultItem,
   searchGlobalEntities,
 } from '../../core/globalSearchEngine';
+import { useModalLayer, renderModalPortal } from '../../core/modalLayerEngine';
 
 export const CommandPalette: React.FC = () => {
   const {
@@ -48,6 +49,7 @@ export const CommandPalette: React.FC = () => {
   const deferredQuery = useDeferredValue(query);
   const [selectedCategory, setSelectedCategory] = useState<GlobalSearchCategory>('ALL');
   const [highlightedIndex, setHighlightedIndex] = useState<number>(0);
+  const { zIndex, isTopLayer } = useModalLayer(isCommandPaletteOpen, 85);
 
   // Keyboard shortcut listener for Ctrl+K and Esc
   useEffect(() => {
@@ -56,13 +58,13 @@ export const CommandPalette: React.FC = () => {
         e.preventDefault();
         setIsCommandPaletteOpen(true);
       }
-      if (e.key === 'Escape' && isCommandPaletteOpen) {
+      if (e.key === 'Escape' && isCommandPaletteOpen && isTopLayer) {
         setIsCommandPaletteOpen(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isCommandPaletteOpen, setIsCommandPaletteOpen]);
+  }, [isCommandPaletteOpen, isTopLayer, setIsCommandPaletteOpen]);
 
   const searchOutput = useMemo(
     () =>
@@ -220,15 +222,17 @@ export const CommandPalette: React.FC = () => {
     );
   };
 
-  return (
+  return renderModalPortal(
     <div
       data-testid="command-palette-backdrop"
+      data-modal-top={isTopLayer ? 'true' : 'false'}
+      style={{ zIndex }}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) {
           setIsCommandPaletteOpen(false);
         }
       }}
-      className="fixed inset-0 z-50 flex items-start justify-center pt-16 bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+      className="fixed inset-0 flex items-start justify-center pt-16 bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
     >
       <div
         role="dialog"

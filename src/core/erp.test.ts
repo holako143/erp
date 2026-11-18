@@ -6727,3 +6727,64 @@ test('Theme Contrast & AI Palette Engine: computes WCAG 2.1 contrast ratios and 
   assert.equal(warmVariants.length, 3);
   assert.equal(warmVariants[0].polarity, 'warm');
 });
+
+test('Track 105 Global Modal Layer Stack Engine: newly opened modals strictly sit above existing modals and clean up on close', async () => {
+  const { createModalStackController } = await import('./modalLayerEngine');
+
+  const stack = createModalStackController(60);
+  assert.equal(stack.getTopId(), null);
+
+  // 1. Open Checkout Modal (base 60)
+  const checkoutZ = stack.push('pos-checkout', 60);
+  assert.ok(checkoutZ >= 61);
+  assert.equal(stack.isTop('pos-checkout'), true);
+
+  // 2. Open Customer Picker Modal from inside Checkout -> must strictly exceed Checkout z-index
+  const customerPickerZ = stack.push('pos-customer-picker', 70);
+  assert.ok(customerPickerZ > checkoutZ);
+  assert.equal(stack.isTop('pos-customer-picker'), true);
+  assert.equal(stack.isTop('pos-checkout'), false);
+
+  // 3. Open QuickSend or Scanner above Customer Picker -> must strictly exceed Customer Picker z-index
+  const scannerZ = stack.push('camera-scanner', 75);
+  assert.ok(scannerZ > customerPickerZ);
+  assert.equal(stack.getTopId(), 'camera-scanner');
+
+  // 4. Re-promoting an existing lower modal places it strictly on top of all current layers
+  const promotedCheckoutZ = stack.push('pos-checkout', 60);
+  assert.ok(promotedCheckoutZ > scannerZ);
+  assert.equal(stack.isTop('pos-checkout'), true);
+
+  // 5. Popping top layer restores top status to previous active layer
+  stack.pop('pos-checkout');
+  assert.equal(stack.isTop('camera-scanner'), true);
+
+  stack.pop('camera-scanner');
+  assert.equal(stack.isTop('pos-customer-picker'), true);
+
+  // 6. Emptying stack resets stack cleanly
+  stack.pop('pos-customer-picker');
+  assert.equal(stack.getTopId(), null);
+  assert.equal(stack.getStack().length, 0);
+
+  // 7. Re-opening after empty stack resets peak cleanly near baseZ
+  const freshZ = stack.push('sales-template-manager', 60);
+  assert.equal(freshZ, 61);
+
+  // 8. Silent render-phase push followed by effect-phase push flushes pending notifications
+  let notifyCount = 0;
+  const unsub = stack.subscribe(() => {
+    notifyCount += 1;
+  });
+  stack.push('nested-picker', 70, true);
+  assert.equal(notifyCount, 0);
+  stack.push('nested-picker', 70, false);
+  assert.equal(notifyCount, 1);
+  assert.equal(stack.isTop('sales-template-manager'), false);
+  assert.equal(stack.isTop('nested-picker'), true);
+  unsub();
+  stack.pop('nested-picker');
+  stack.pop('sales-template-manager');
+});
+
+

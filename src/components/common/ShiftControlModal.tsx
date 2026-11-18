@@ -3,6 +3,7 @@ import { Clock, Lock, Play, ShieldCheck, X } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { formatCleanNumber } from '../../core/systemConfigEngine';
 import { isShiftActive } from '../../core/posShiftEngine';
+import { useModalLayer, renderModalPortal } from '../../core/modalLayerEngine';
 
 export const ShiftControlModal: React.FC = () => {
   const {
@@ -25,6 +26,7 @@ export const ShiftControlModal: React.FC = () => {
   const [autoOpenNewShift, setAutoOpenNewShift] = useState<boolean>(false);
   const [newShiftStartingFloat, setNewShiftStartingFloat] = useState<number>(0);
   const [feedbackNotice, setFeedbackNotice] = useState<string | null>(null);
+  const { zIndex, isTopLayer } = useModalLayer(isShiftModalOpen, 75);
 
   // Sync expected drawer cash whenever modal opens or shift changes
   useEffect(() => {
@@ -37,18 +39,18 @@ export const ShiftControlModal: React.FC = () => {
     }
   }, [isShiftModalOpen, currentShift.expectedCash]);
 
-  // Close with Escape key
+  // Close with Escape key only when top modal layer
   useEffect(() => {
     if (!isShiftModalOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && isTopLayer) {
         e.preventDefault();
         closeShiftModal();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isShiftModalOpen, closeShiftModal]);
+  }, [isShiftModalOpen, isTopLayer, closeShiftModal]);
 
   if (!isShiftModalOpen) return null;
 
@@ -90,14 +92,16 @@ export const ShiftControlModal: React.FC = () => {
 
   const diff = Math.round(((Number(actualCashCount) || 0) - currentShift.expectedCash) * 100) / 100;
 
-  return (
+  return renderModalPortal(
     <div
       data-testid="shift-control-modal-backdrop"
+      data-modal-top={isTopLayer ? 'true' : 'false'}
+      style={{ zIndex }}
       dir={isAr ? 'rtl' : 'ltr'}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) closeShiftModal();
       }}
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4"
+      className="fixed inset-0 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4"
     >
       <div
         data-testid="shift-control-modal-card"

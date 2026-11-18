@@ -71,6 +71,7 @@ import {
   MobileQuickActionTarget,
   MobileQuickActionDescriptor,
 } from '../core/mobileTouchEngine';
+import { useModalLayer, renderModalPortal } from '../core/modalLayerEngine';
 
 const CameraBarcodeScannerModal = lazy(() =>
   import('../components/common/CameraBarcodeScannerModal').then((m) => ({
@@ -88,19 +89,20 @@ const InventoryAdvancedSuitePanel = lazy(
   () => import('../components/inventory/InventoryAdvancedSuitePanel')
 );
 
-const InventoryModalLoadingFallback: React.FC = () => (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs">
-    <div className="bg-white rounded-2xl px-6 py-4 shadow-xl border border-slate-200 flex items-center gap-3 text-xs font-bold text-slate-800">
-      <HasebBrandLogo size="sm" />
-      <div className="space-y-1">
-        <div>جاري تجهيز المكون...</div>
-        <div className="w-24 h-1 rounded-full bg-slate-200 overflow-hidden">
-          <div className="w-12 h-full rounded-full haseb-shimmer-bar" />
+const InventoryModalLoadingFallback: React.FC = () =>
+  renderModalPortal(
+    <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-900/40 backdrop-blur-xs">
+      <div className="bg-white rounded-2xl px-6 py-4 shadow-xl border border-slate-200 flex items-center gap-3 text-xs font-bold text-slate-800">
+        <HasebBrandLogo size="sm" />
+        <div className="space-y-1">
+          <div>جاري تجهيز المكون...</div>
+          <div className="w-24 h-1 rounded-full bg-slate-200 overflow-hidden">
+            <div className="w-12 h-full rounded-full haseb-shimmer-bar" />
+          </div>
         </div>
       </div>
     </div>
-  </div>
-);
+  );
 
 export const InventoryView: React.FC = React.memo(() => {
   const {
@@ -279,11 +281,22 @@ export const InventoryView: React.FC = React.memo(() => {
   }, []);
   const [selectedSubCatFilter, setSelectedSubCatFilter] = useState<string>('ALL');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const addProductModalLayer = useModalLayer(isAddModalOpen, 60);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [importBanner, setImportBanner] = useState<string | null>(null);
   const [productModalError, setProductModalError] = useState<string | null>(null);
   const [productModalNotice, setProductModalNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && addProductModalLayer.isTopLayer) {
+        setIsAddModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [addProductModalLayer.isTopLayer]);
 
   // Specific Electronics & Solar Categories (Memoized)
   const electronicsCategories = useMemo(
@@ -2327,18 +2340,21 @@ export const InventoryView: React.FC = React.memo(() => {
       )}
 
       {/* Add / Edit Product Modal (إضافة صنف طاقة شمسية / إلكترونيات / شاشات جديد) */}
-      {isAddModalOpen && (
-        <div
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) {
-              stopCartonWebcam();
-              setCartonCaptureTarget(null);
-              setIsAddModalOpen(false);
-            }
-          }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/65 backdrop-blur-xs p-4 overflow-y-auto"
-        >
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-2xl overflow-hidden my-auto">
+      {isAddModalOpen &&
+        renderModalPortal(
+          <div
+            style={{ zIndex: addProductModalLayer.zIndex }}
+            data-modal-top={addProductModalLayer.isTopLayer ? 'true' : undefined}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) {
+                stopCartonWebcam();
+                setCartonCaptureTarget(null);
+                setIsAddModalOpen(false);
+              }
+            }}
+            className="fixed inset-0 flex items-center justify-center bg-slate-900/65 backdrop-blur-xs p-4 overflow-y-auto"
+          >
+            <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-2xl overflow-hidden my-auto">
             {/* Modal Header with Trash Icon to Clear All Form Data (Lumina POS Theme) */}
             <div className="px-6 py-4 bg-slate-50/90 text-slate-900 border-b border-slate-200/80 flex items-center justify-between gap-2">
               <h3 className="font-bold text-sm sm:text-base flex items-center gap-2.5 text-slate-900">
@@ -3117,7 +3133,7 @@ export const InventoryView: React.FC = React.memo(() => {
             </form>
           </div>
         </div>
-      )}
+        )}
 
       {/* Bulk CSV / Excel Import Wizard Modal (Lazy-loaded) */}
       {isBulkModalOpen && (

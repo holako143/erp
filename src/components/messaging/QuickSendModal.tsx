@@ -31,6 +31,7 @@ import {
 } from '../../core/messagingEngine';
 import { calculateSmsParts } from '../../core/communicationsEngine';
 import { calculateDynamicFinancialStatements } from '../../core/accountingEngine';
+import { useModalLayer, renderModalPortal } from '../../core/modalLayerEngine';
 
 export const QuickSendModal: React.FC = () => {
   const {
@@ -77,6 +78,7 @@ export const QuickSendModal: React.FC = () => {
     receiptId?: string;
   } | null>(null);
   const [copiedFlag, setCopiedFlag] = useState(false);
+  const { zIndex, isTopLayer } = useModalLayer(quickSendModalState.isOpen, 75);
 
   // Sync preset when modal opens
   useEffect(() => {
@@ -385,9 +387,11 @@ export const QuickSendModal: React.FC = () => {
     INVALID: 'غير مكتمل',
   };
 
-  return (
+  return renderModalPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-3 sm:p-4"
+      data-modal-top={isTopLayer ? 'true' : 'false'}
+      style={{ zIndex }}
+      className="fixed inset-0 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-3 sm:p-4"
       data-testid="quick-send-modal"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) {

@@ -39,6 +39,7 @@ import {
 } from '../core/messagingEngine';
 import { WorkspaceTabResizerBar } from '../components/common/WorkspaceTabResizerBar';
 import { SplitPaneRatioMode, resolveSplitPaneLayout } from '../core/workspaceLayoutEngine';
+import { useModalLayer, renderModalPortal } from '../core/modalLayerEngine';
 
 export const SalesView: React.FC = () => {
   const {
@@ -133,6 +134,37 @@ export const SalesView: React.FC = () => {
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState<'ALL' | 'PAID' | 'DEBT' | 'CREDIT'>('ALL');
   const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState(false);
   const [isInlineTemplateEditOpen, setIsInlineTemplateEditOpen] = useState(false);
+
+  const templateManagerLayer = useModalLayer(isTemplateManagerOpen, 60);
+  const settleInvoiceLayer = useModalLayer(Boolean(settlingInvoice), 60);
+  const newInvoiceLayer = useModalLayer(isNewInvoiceOpen, 60);
+  const newCustomerLayer = useModalLayer(isNewCustomerOpen, 60);
+  const newQuoteLayer = useModalLayer(isNewQuoteOpen, 60);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (templateManagerLayer.isTopLayer) {
+        setIsTemplateManagerOpen(false);
+      } else if (settleInvoiceLayer.isTopLayer) {
+        setSettlingInvoice(null);
+      } else if (newInvoiceLayer.isTopLayer) {
+        setIsNewInvoiceOpen(false);
+      } else if (newCustomerLayer.isTopLayer) {
+        setIsNewCustomerOpen(false);
+      } else if (newQuoteLayer.isTopLayer) {
+        setIsNewQuoteOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [
+    templateManagerLayer.isTopLayer,
+    settleInvoiceLayer.isTopLayer,
+    newInvoiceLayer.isTopLayer,
+    newCustomerLayer.isTopLayer,
+    newQuoteLayer.isTopLayer,
+  ]);
 
   // Keep selectedInvoice synced with latest salesInvoices state (e.g. after partial payment settlement)
   useEffect(() => {
@@ -1134,29 +1166,35 @@ export const SalesView: React.FC = () => {
           </div>
 
           {/* Full Drag-and-Drop Invoice Template Manager Modal */}
-          {isTemplateManagerOpen && (
-            <div
-              data-testid="sales-template-manager-modal"
-              className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5"
-            >
-              <div className="w-full max-w-[1380px]">
-                <InvoiceTemplateManager
-                  isModal
-                  sampleInvoice={selectedInvoice}
-                  onClose={() => setIsTemplateManagerOpen(false)}
-                  onApplied={(tpl) => {
-                    setPreviewMode(tpl.format === 'a4' ? 'a4' : 'thermal');
-                    if (tpl.format === 'a4') {
-                      setTemplateOverrideA4(tpl.baseTemplateId as StandardInvoiceTemplateType);
-                    } else {
-                      setTemplateOverrideThermal(tpl.baseTemplateId as ThermalTemplateType);
-                    }
-                    setIsTemplateManagerOpen(false);
-                  }}
-                />
+          {isTemplateManagerOpen &&
+            renderModalPortal(
+              <div
+                data-testid="sales-template-manager-modal"
+                data-modal-top={templateManagerLayer.isTopLayer ? 'true' : undefined}
+                style={{ zIndex: templateManagerLayer.zIndex }}
+                onMouseDown={(e) => {
+                  if (e.target === e.currentTarget) setIsTemplateManagerOpen(false);
+                }}
+                className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5"
+              >
+                <div className="w-full max-w-[1380px]">
+                  <InvoiceTemplateManager
+                    isModal
+                    sampleInvoice={selectedInvoice}
+                    onClose={() => setIsTemplateManagerOpen(false)}
+                    onApplied={(tpl) => {
+                      setPreviewMode(tpl.format === 'a4' ? 'a4' : 'thermal');
+                      if (tpl.format === 'a4') {
+                        setTemplateOverrideA4(tpl.baseTemplateId as StandardInvoiceTemplateType);
+                      } else {
+                        setTemplateOverrideThermal(tpl.baseTemplateId as ThermalTemplateType);
+                      }
+                      setIsTemplateManagerOpen(false);
+                    }}
+                  />
+                </div>
               </div>
-            </div>
-          )}
+            )}
         </div>
       )}
 
@@ -1699,8 +1737,15 @@ export const SalesView: React.FC = () => {
         );
         const owedNow = Math.max(0, Math.round((settlingInvoice.grandTotal - paidSoFar) * 100) / 100);
         const afterSettleRem = Math.max(0, Math.round((owedNow - (Number(settleAmount) || 0)) * 100) / 100);
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4">
+        return renderModalPortal(
+          <div
+            style={{ zIndex: settleInvoiceLayer.zIndex }}
+            data-modal-top={settleInvoiceLayer.isTopLayer ? 'true' : undefined}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setSettlingInvoice(null);
+            }}
+            className="fixed inset-0 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4"
+          >
             <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden">
               <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between">
                 <h3 className="font-bold text-sm text-slate-900">
@@ -1836,8 +1881,15 @@ export const SalesView: React.FC = () => {
             : previewNet;
         const previewRemainingDebt = Math.max(0, Math.round((previewNet - effectivePaidVal) * 100) / 100);
 
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4">
+        return renderModalPortal(
+          <div
+            style={{ zIndex: newInvoiceLayer.zIndex }}
+            data-modal-top={newInvoiceLayer.isTopLayer ? 'true' : undefined}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setIsNewInvoiceOpen(false);
+            }}
+            className="fixed inset-0 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4"
+          >
             <div className="bg-white rounded-lg shadow-xl border border-slate-200 w-full max-w-md max-h-[92vh] overflow-y-auto">
               <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
                 <h3 className="font-bold text-sm text-slate-900">إصدار فاتورة مبيعات جديدة</h3>
@@ -2145,9 +2197,17 @@ export const SalesView: React.FC = () => {
       })()}
 
       {/* Modal: New Customer */}
-      {isNewCustomerOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-lg shadow-xl border border-slate-200 w-full max-w-md overflow-hidden">
+      {isNewCustomerOpen &&
+        renderModalPortal(
+          <div
+            style={{ zIndex: newCustomerLayer.zIndex }}
+            data-modal-top={newCustomerLayer.isTopLayer ? 'true' : undefined}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setIsNewCustomerOpen(false);
+            }}
+            className="fixed inset-0 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4"
+          >
+            <div className="bg-white rounded-lg shadow-xl border border-slate-200 w-full max-w-md overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
               <h3 className="font-bold text-sm text-slate-900">إضافة عميل جديد لدليل المبيعات</h3>
               <button
@@ -2217,12 +2277,20 @@ export const SalesView: React.FC = () => {
             </form>
           </div>
         </div>
-      )}
+        )}
 
       {/* Modal: New Commercial Quotation */}
-      {isNewQuoteOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-lg shadow-xl border border-slate-200 w-full max-w-md overflow-hidden">
+      {isNewQuoteOpen &&
+        renderModalPortal(
+          <div
+            style={{ zIndex: newQuoteLayer.zIndex }}
+            data-modal-top={newQuoteLayer.isTopLayer ? 'true' : undefined}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setIsNewQuoteOpen(false);
+            }}
+            className="fixed inset-0 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4"
+          >
+            <div className="bg-white rounded-lg shadow-xl border border-slate-200 w-full max-w-md overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
               <h3 className="font-bold text-sm text-slate-900">
                 إنشاء عرض سعر تجاري جديد (Quotation)
@@ -2316,7 +2384,7 @@ export const SalesView: React.FC = () => {
             </form>
           </div>
         </div>
-      )}
+        )}
 
       {/* TAB: Sales Returns, Exchanges & Credit Notes (Section 9) */}
       {activeTab === 'returns' && (

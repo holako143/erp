@@ -13,6 +13,7 @@ import {
   Send,
   Zap,
 } from 'lucide-react';
+import { useModalLayer, renderModalPortal } from '../../core/modalLayerEngine';
 
 export const CrossBranchStockModal: React.FC = () => {
   const {
@@ -31,6 +32,10 @@ export const CrossBranchStockModal: React.FC = () => {
   const [urgency, setUrgency] = useState<'NORMAL' | 'URGENT' | 'EMERGENCY'>('NORMAL');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const { zIndex, isTopLayer } = useModalLayer(
+    Boolean(isCrossBranchModalOpen && crossBranchModalSku),
+    75
+  );
 
   if (!isCrossBranchModalOpen || !crossBranchModalSku) return null;
 
@@ -62,15 +67,17 @@ export const CrossBranchStockModal: React.FC = () => {
     }
   };
 
-  return (
+  return renderModalPortal(
     <div
       data-testid="cross-branch-stock-modal"
+      data-modal-top={isTopLayer ? 'true' : 'false'}
+      style={{ zIndex }}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) {
           closeCrossBranchModal();
         }
       }}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-fadeIn"
+      className="fixed inset-0 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-fadeIn"
     >
       <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-200/90 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh] text-slate-800 dark:text-slate-100">
         {/* Lumina POS-Style Modal Header */}

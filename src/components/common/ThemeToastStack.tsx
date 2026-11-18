@@ -14,6 +14,7 @@ import {
   RemoteSyncToastSpec,
   getThemeToastAppearance,
 } from '../../core/notificationsEngine';
+import { renderModalPortal } from '../../core/modalLayerEngine';
 
 interface ThemeToastStackProps {
   uiTheme: string;
@@ -50,10 +51,10 @@ export const ThemeToastStack: React.FC<ThemeToastStackProps> = ({
 }) => {
   const securityAppearance = getThemeToastAppearance(uiTheme, 'critical');
 
-  return (
+  return renderModalPortal(
     <div
       data-testid="realtime-toast-stack"
-      className="fixed bottom-16 sm:bottom-12 end-3 start-3 sm:start-auto sm:w-[375px] z-50 flex flex-col-reverse gap-2 pointer-events-none"
+      className="fixed top-16 sm:top-16 end-3 start-3 sm:start-auto sm:w-[375px] z-[500] flex flex-col gap-2 pointer-events-none"
     >
       {lastSecurityAlert && (
         <div

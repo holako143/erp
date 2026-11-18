@@ -15,6 +15,7 @@ import {
   applyPosBulkStockAdjustments,
   BulkStockAdjustmentBatchResult,
 } from '../../core/posStrictStockValidationService';
+import { useModalLayer, renderModalPortal } from '../../core/modalLayerEngine';
 
 export interface POSBulkStockAdjustModalProps {
   isOpen: boolean;
@@ -39,6 +40,7 @@ export const POSBulkStockAdjustModal: React.FC<POSBulkStockAdjustModalProps> = (
     'مطابقة الجرد الفعلي السريع أثناء البيع في نقطة البيع (POS Discrepancy Check)'
   );
   const [physicalQtyMap, setPhysicalQtyMap] = useState<Record<string, number>>({});
+  const { zIndex, isTopLayer } = useModalLayer(isOpen, 70);
 
   const previewResult = useMemo(() => {
     const adjustments = Object.entries(physicalQtyMap).map(([productId, newPhysicalQty]) => ({
@@ -95,10 +97,15 @@ export const POSBulkStockAdjustModal: React.FC<POSBulkStockAdjustModalProps> = (
     onClose();
   };
 
-  return (
+  return renderModalPortal(
     <div
       data-testid="pos-bulk-stock-adjust-modal"
-      className="fixed inset-0 z-50 bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4"
+      data-modal-top={isTopLayer ? 'true' : 'false'}
+      style={{ zIndex }}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4"
       dir={language === 'ar' ? 'rtl' : 'ltr'}
     >
       <div className="bg-white w-full max-w-4xl rounded-2xl border border-slate-200 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">

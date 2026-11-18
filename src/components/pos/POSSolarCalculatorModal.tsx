@@ -4,6 +4,7 @@ import {
   calculateSolarAndBatterySystemSizing,
   SolarSystemSizingOutput,
 } from '../../core/inventoryEngine';
+import { useModalLayer, renderModalPortal } from '../../core/modalLayerEngine';
 
 export interface POSSolarCalculatorModalProps {
   onApplyKit: (result: SolarSystemSizingOutput) => void;
@@ -18,6 +19,7 @@ const POSSolarCalculatorModal: React.FC<POSSolarCalculatorModalProps> = React.me
     const [batteryChemistry, setBatteryChemistry] = useState<'LIFEPO4' | 'TUBULAR_GEL'>('LIFEPO4');
     const [panelRatingWatts, setPanelRatingWatts] = useState<number>(585);
     const [peakSunHours, setPeakSunHours] = useState<number>(5.5);
+    const { zIndex, isTopLayer } = useModalLayer(true, 70);
 
     const solarSizingResult = useMemo(
       () =>
@@ -39,12 +41,14 @@ const POSSolarCalculatorModal: React.FC<POSSolarCalculatorModalProps> = React.me
       ]
     );
 
-    return (
+    return renderModalPortal(
       <div
+        data-modal-top={isTopLayer ? 'true' : 'false'}
+        style={{ zIndex }}
         onMouseDown={(e) => {
           if (e.target === e.currentTarget) onClose();
         }}
-        className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4"
+        className="fixed inset-0 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4"
       >
         <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-3xl overflow-hidden">
           <div className="px-6 py-4 bg-slate-50/90 border-b border-slate-200/80 text-slate-900 flex items-center justify-between">

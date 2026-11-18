@@ -1,4 +1,4 @@
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useCallback, useEffect } from 'react';
 import {
   Zap,
   X,
@@ -18,6 +18,7 @@ import {
   MobileQuickActionTarget,
   MobileQuickActionDescriptor,
 } from '../../core/mobileTouchEngine';
+import { useModalLayer, renderModalPortal } from '../../core/modalLayerEngine';
 
 export interface UseDoubleTapOptions<T> {
   itemId: string;
@@ -79,6 +80,19 @@ export const MobileQuickActionsSheet: React.FC<MobileQuickActionsSheetProps> = (
   onSelectAction,
   language = 'ar',
 }) => {
+  const sheetLayer = useModalLayer(Boolean(target), 85);
+
+  useEffect(() => {
+    if (!target) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && sheetLayer.isTopLayer) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [target, sheetLayer.isTopLayer, onClose]);
+
   if (!target) return null;
 
   const isAr = language === 'ar';
@@ -144,16 +158,18 @@ export const MobileQuickActionsSheet: React.FC<MobileQuickActionsSheetProps> = (
     return <Sparkles className="w-4 h-4" />;
   };
 
-  return (
+  return renderModalPortal(
     <div
       dir={isAr ? 'rtl' : 'ltr'}
       data-testid="mobile-quick-actions-sheet"
       data-context-type={target.contextType}
       data-target-id={target.itemId}
+      data-modal-top={sheetLayer.isTopLayer ? 'true' : undefined}
+      style={{ zIndex: sheetLayer.zIndex }}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
-      className="fixed inset-0 z-[115] bg-slate-950/55 backdrop-blur-[2px] flex items-end sm:items-center justify-center p-0 sm:p-4 select-none touch-manipulation"
+      className="fixed inset-0 bg-slate-950/55 backdrop-blur-[2px] flex items-end sm:items-center justify-center p-0 sm:p-4 select-none touch-manipulation"
     >
       <div className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl border-t sm:border border-slate-200/90 dark:border-slate-800 shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 duration-150">
         {/* Top Grab Handle for Mobile Touch Ergonomics */}

@@ -51,6 +51,7 @@ import { Zap } from 'lucide-react';
 import { evaluateUserModuleAccess } from '../../core/securityEngine';
 import { computeInventoryReorderAlertSummary } from '../../core/warehouseAdvancedEngine';
 import { UserAccount } from '../../types/erp';
+import { useModalLayer, renderModalPortal } from '../../core/modalLayerEngine';
 
 export interface SidebarMenuItem {
   id: string;
@@ -156,6 +157,7 @@ export function Sidebar() {
     requestBrowserNotificationPermission,
   } = useERP();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const mobileDrawerLayer = useModalLayer(isMobileMenuOpen, 60);
   const [navQuickActionTarget, setNavQuickActionTarget] = useState<MobileQuickActionTarget | null>(
     null
   );
@@ -723,13 +725,16 @@ export function Sidebar() {
       </nav>
 
       {/* Mobile Drawer Overlay */}
-      {isMobileMenuOpen && (
-        <div
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setIsMobileMenuOpen(false);
-          }}
-          className="lg:hidden fixed inset-0 z-50 bg-slate-950/65 backdrop-blur-xs flex justify-end"
-        >
+      {isMobileMenuOpen &&
+        renderModalPortal(
+          <div
+            style={{ zIndex: mobileDrawerLayer.zIndex }}
+            data-modal-top={mobileDrawerLayer.isTopLayer ? 'true' : undefined}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setIsMobileMenuOpen(false);
+            }}
+            className="lg:hidden fixed inset-0 bg-slate-950/65 backdrop-blur-xs flex justify-end"
+          >
           <div
             className={`w-76 max-w-[88vw] h-full p-4 overflow-y-auto flex flex-col justify-between border-s shadow-2xl ${
               isDarkRail
@@ -895,7 +900,7 @@ export function Sidebar() {
             </div>
           </div>
         </div>
-      )}
+        )}
 
       {/* Mobile Double-Tap Quick Actions Sheet for Navigation Items */}
       <MobileQuickActionsSheet

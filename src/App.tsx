@@ -479,7 +479,25 @@ const MainLayout: React.FC = () => {
       }
     };
 
+    const getBackdropZIndex = (el: HTMLElement): number => {
+      const z = Number.parseInt(window.getComputedStyle(el).zIndex || '0', 10);
+      return Number.isFinite(z) ? z : 0;
+    };
+
+    const getTopmostModalBackdrop = (): HTMLElement | null => {
+      const topMarked = document.querySelector<HTMLElement>('div.fixed.inset-0[data-modal-top="true"]');
+      if (topMarked) return topMarked;
+      const openBackdrops = Array.from(
+        document.querySelectorAll<HTMLElement>('div.fixed.inset-0')
+      ).filter((el) => el.offsetParent !== null || window.getComputedStyle(el).display !== 'none');
+      if (openBackdrops.length === 0) return null;
+      return openBackdrops.reduce((best, curr) =>
+        getBackdropZIndex(curr) >= getBackdropZIndex(best) ? curr : best
+      );
+    };
+
     const handleGlobalModalBackdropPointerDown = (e: MouseEvent) => {
+      if (e.defaultPrevented) return;
       const target = e.target as HTMLElement | null;
       if (!target) return;
       if (
@@ -487,6 +505,10 @@ const MainLayout: React.FC = () => {
         target.classList.contains('fixed') &&
         target.classList.contains('inset-0')
       ) {
+        // Modals wired with useModalLayer handle backdrop clicks directly
+        if (target.hasAttribute('data-modal-top')) return;
+        const topmost = getTopmostModalBackdrop();
+        if (topmost && topmost !== target) return;
         // Defer slightly so explicit React onMouseDown handlers run first without double-firing
         setTimeout(() => {
           if (document.body.contains(target)) {
@@ -497,18 +519,16 @@ const MainLayout: React.FC = () => {
     };
 
     const handleGlobalEscapeDismiss = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      const openBackdrops = Array.from(
-        document.querySelectorAll<HTMLElement>('div.fixed.inset-0')
-      );
-      if (openBackdrops.length > 0) {
-        const topmostBackdrop = openBackdrops[openBackdrops.length - 1];
-        setTimeout(() => {
-          if (document.body.contains(topmostBackdrop)) {
-            triggerModalDismissButton(topmostBackdrop);
-          }
-        }, 10);
-      }
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      const topmostBackdrop = getTopmostModalBackdrop();
+      if (!topmostBackdrop) return;
+      // Modals wired with useModalLayer handle Escape directly; skip duplicate dismissal
+      if (topmostBackdrop.hasAttribute('data-modal-top')) return;
+      setTimeout(() => {
+        if (document.body.contains(topmostBackdrop)) {
+          triggerModalDismissButton(topmostBackdrop);
+        }
+      }, 10);
     };
 
     window.addEventListener('contextmenu', handleContextMenu);

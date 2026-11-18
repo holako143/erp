@@ -30,6 +30,7 @@ import {
   mapCameraErrorToArabicMessage,
   resolvePreferredLanCameraUrl,
 } from '../../core/cameraScannerEngine';
+import { useModalLayer, renderModalPortal } from '../../core/modalLayerEngine';
 
 export interface ScannedBatchItem {
   barcode: string;
@@ -70,6 +71,7 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
   initialScanMode = 'SINGLE',
 }) => {
   const { products, currency, language, networkInfo, refreshNetworkInfo } = useERP();
+  const { zIndex, isTopLayer } = useModalLayer(isOpen, 75);
 
   const [scanMode, setScanMode] = useState<'SINGLE' | 'CONTINUOUS'>(initialScanMode);
   const [cameraActive, setCameraActive] = useState(false);
@@ -548,10 +550,15 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
   const totalBatchQuantity = batchItems.reduce((sum, i) => sum + i.quantity, 0);
   const totalBatchAmount = batchItems.reduce((sum, i) => sum + i.quantity * i.price, 0);
 
-  return (
+  return renderModalPortal(
     <div
       data-testid="camera-barcode-scanner-modal"
-      className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-5 bg-slate-950/80 backdrop-blur-sm animate-fade-in"
+      data-modal-top={isTopLayer ? 'true' : 'false'}
+      style={{ zIndex }}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 flex items-center justify-center p-2.5 sm:p-5 bg-slate-950/80 backdrop-blur-sm animate-fade-in"
     >
       {/* Guarantee html5-qrcode inner video fills viewport cleanly */}
       <style>{`

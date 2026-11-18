@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Download, Wifi, WifiOff, Smartphone, CheckCircle2 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
+import { useModalLayer, renderModalPortal } from '../../core/modalLayerEngine';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -95,6 +96,18 @@ export const PWAInstallButton: React.FC<{
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
   const isOnline = useOnlineStatus();
   const [showModal, setShowModal] = useState(false);
+  const pwaModalLayer = useModalLayer(showModal, 75);
+
+  useEffect(() => {
+    if (!showModal) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && pwaModalLayer.isTopLayer) {
+        setShowModal(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [showModal, pwaModalLayer.isTopLayer]);
 
   if (isInstalled) {
     return (
@@ -155,9 +168,17 @@ export const PWAInstallButton: React.FC<{
         <span className="truncate">{language === 'ar' ? 'تثبيت كتطبيق مستقل (PWA)' : 'Install App'}</span>
       </button>
 
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white border border-slate-200 p-5 shadow-xl space-y-4 text-xs">
+      {showModal &&
+        renderModalPortal(
+          <div
+            style={{ zIndex: pwaModalLayer.zIndex }}
+            data-modal-top={pwaModalLayer.isTopLayer ? 'true' : undefined}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setShowModal(false);
+            }}
+            className="fixed inset-0 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4"
+          >
+            <div className="w-full max-w-md rounded-2xl bg-white border border-slate-200 p-5 shadow-xl space-y-4 text-xs">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div className="flex items-center gap-2 font-bold text-sm text-slate-900">
                 <Smartphone className="w-4 h-4 text-blue-600" />
@@ -227,7 +248,7 @@ export const PWAInstallButton: React.FC<{
             </button>
           </div>
         </div>
-      )}
+        )}
     </>
   );
 };

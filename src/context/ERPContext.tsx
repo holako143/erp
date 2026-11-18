@@ -688,7 +688,7 @@ interface ERPContextType {
 
   // Sales, Returns, Warranty & POS
   customers: Customer[];
-  addCustomer: (c: Omit<Customer, 'id' | 'tenantId'>) => void;
+  addCustomer: (c: Omit<Customer, 'id' | 'tenantId'>) => Customer;
   batchUpdateCustomers: (
     nextCustomers: Customer[],
     summary: { updatedCount: number; skippedCount: number; totalFieldChanges: number }
@@ -5434,13 +5434,14 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Customers, Direct B2B Sales Invoices, Returns & Warranty RMA
-  const addCustomer = (c: Omit<Customer, 'id' | 'tenantId'>) => {
+  const addCustomer = (c: Omit<Customer, 'id' | 'tenantId'>): Customer => {
     const newCustomer: Customer = {
       ...c,
       id: `cust-${Date.now()}`,
       tenantId: currentTenant.id,
     };
     setCustomers((prev) => [newCustomer, ...prev]);
+    return newCustomer;
   };
 
   const batchUpdateCustomers = (

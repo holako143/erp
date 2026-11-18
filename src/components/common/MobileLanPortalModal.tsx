@@ -22,6 +22,7 @@ import {
   Globe,
 } from 'lucide-react';
 import { PWAInstallButton } from '../layout/PWAInstallBanner';
+import { useModalLayer, renderModalPortal } from '../../core/modalLayerEngine';
 
 export const MobileLanPortalModal: React.FC = () => {
   const {
@@ -46,6 +47,7 @@ export const MobileLanPortalModal: React.FC = () => {
     typeof window !== 'undefined' && window.location.protocol === 'https:'
   );
   const [syncPulse, setSyncPulse] = useState<boolean>(false);
+  const { zIndex, isTopLayer } = useModalLayer(isLanPortalOpen, 75);
 
   // Build all candidate URLs (Live browser origin + detected physical Wi-Fi/LAN HTTP & HTTPS IPs)
   const candidateEndpoints = useMemo(() => {
@@ -216,13 +218,15 @@ export const MobileLanPortalModal: React.FC = () => {
     setTimeout(() => setSyncPulse(false), 800);
   };
 
-  return (
+  return renderModalPortal(
     <div
       data-testid="mobile-lan-portal-modal"
+      data-modal-top={isTopLayer ? 'true' : 'false'}
+      style={{ zIndex }}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) closeLanPortal();
       }}
-      className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+      className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
     >
       <div className="bg-white rounded-t-3xl sm:rounded-2xl border border-slate-200/80 max-w-4xl w-full max-h-[92dvh] flex flex-col overflow-hidden shadow-2xl">
         {/* Sticky Top Header */}

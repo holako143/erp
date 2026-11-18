@@ -102,7 +102,7 @@ export const HardwareLockModal: React.FC = () => {
       dir={language === 'ar' ? 'rtl' : 'ltr'}
       data-testid="hardware-lock-modal"
       data-mandatory-lock="true"
-      className="fixed inset-0 z-[90] bg-slate-900/50 backdrop-blur-[2px] text-slate-900 overflow-y-auto flex items-center justify-center p-4 sm:p-6 select-none"
+      className="fixed inset-0 z-[300] bg-slate-900/50 backdrop-blur-[2px] text-slate-900 overflow-y-auto flex items-center justify-center p-4 sm:p-6 select-none"
     >
       <div className="w-full max-w-2xl bg-white border border-slate-200/90 rounded-3xl shadow-2xl overflow-hidden">
         {/* Top Executive Header */}

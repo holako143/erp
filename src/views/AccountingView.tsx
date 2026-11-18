@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useERP } from '../context/ERPContext';
 import {
   Calculator,
@@ -37,6 +37,7 @@ import {
 import { AccountType, Currency } from '../types/erp';
 import { WorkspaceTabResizerBar } from '../components/common/WorkspaceTabResizerBar';
 import { AccountingPdfAndVersioningStudio } from '../components/accounting/AccountingPdfAndVersioningStudio';
+import { useModalLayer, renderModalPortal } from '../core/modalLayerEngine';
 
 export const AccountingView: React.FC = () => {
   const {
@@ -140,6 +141,22 @@ export const AccountingView: React.FC = () => {
     'Error in cost allocation; adjusting via reversing entry'
   );
   const [reversalError, setReversalError] = useState<string | null>(null);
+
+  const manualModalLayer = useModalLayer(isManualModalOpen, 60);
+  const reversalModalLayer = useModalLayer(Boolean(reversalTargetId), 60);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (manualModalLayer.isTopLayer) {
+        setIsManualModalOpen(false);
+      } else if (reversalModalLayer.isTopLayer) {
+        setReversalTargetId(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [manualModalLayer.isTopLayer, reversalModalLayer.isTopLayer]);
 
   // Calculate Trial Balance & Dynamic Statements
   const trialBalance = generateTrialBalance(chartAccounts, journalEntries);
@@ -2238,9 +2255,17 @@ export const AccountingView: React.FC = () => {
       )}
 
       {/* New Manual Journal Modal */}
-      {isManualModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden animate-in fade-in duration-150">
+      {isManualModalOpen &&
+        renderModalPortal(
+          <div
+            style={{ zIndex: manualModalLayer.zIndex }}
+            data-modal-top={manualModalLayer.isTopLayer ? 'true' : undefined}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setIsManualModalOpen(false);
+            }}
+            className="fixed inset-0 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4"
+          >
+            <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden animate-in fade-in duration-150">
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
               <h3 className="font-bold text-base text-slate-900">
                 {language === 'ar'
@@ -2381,12 +2406,20 @@ export const AccountingView: React.FC = () => {
             </form>
           </div>
         </div>
-      )}
+        )}
 
       {/* Reversal Entry Confirmation Modal */}
-      {reversalTargetId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden p-6 space-y-4 text-xs animate-in fade-in duration-150">
+      {reversalTargetId &&
+        renderModalPortal(
+          <div
+            style={{ zIndex: reversalModalLayer.zIndex }}
+            data-modal-top={reversalModalLayer.isTopLayer ? 'true' : undefined}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setReversalTargetId(null);
+            }}
+            className="fixed inset-0 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4"
+          >
+            <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden p-6 space-y-4 text-xs animate-in fade-in duration-150">
             <div className="flex items-center gap-2 text-rose-600 font-bold text-base">
               <RotateCcw className="w-5 h-5" />
               <span>
@@ -2432,7 +2465,7 @@ export const AccountingView: React.FC = () => {
             </div>
           </div>
         </div>
-      )}
+        )}
       {activeTab === 'pdfStudio' && <AccountingPdfAndVersioningStudio />}
     </div>
   );

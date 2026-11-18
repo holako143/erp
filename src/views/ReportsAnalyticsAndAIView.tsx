@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useDeferredValue } from 'react';
+import React, { useState, useMemo, useDeferredValue, useEffect } from 'react';
 import { useERP } from '../context/ERPContext';
 import {
   TrendingUp,
@@ -44,6 +44,7 @@ import { WorkspaceTabResizerBar } from '../components/common/WorkspaceTabResizer
 import { SalesInvoice, Customer } from '../types/erp';
 import { buildPerformanceDashboardMetrics } from '../core/performanceDashboardEngine';
 import { PerformanceDashboardWidget } from '../components/reports/PerformanceDashboardWidget';
+import { useModalLayer, renderModalPortal } from '../core/modalLayerEngine';
 
 export interface AIMessageItem {
   id: string;
@@ -98,6 +99,19 @@ export const ReportsAnalyticsAndAIView: React.FC = () => {
   const [selectedPaymentChannel, setSelectedPaymentChannel] = useState<'CASH' | 'CARD' | 'SPLIT' | 'CREDIT'>('CASH');
   const [modalSearch, setModalSearch] = useState('');
   const [selectedInvoicePreview, setSelectedInvoicePreview] = useState<SalesInvoice | null>(null);
+
+  const detailModalLayer = useModalLayer(Boolean(detailModal), 60);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && detailModalLayer.isTopLayer) {
+        setDetailModal(null);
+        setSelectedInvoicePreview(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [detailModalLayer.isTopLayer]);
 
   // Local AI Interactive Query State
   const [aiQuestion, setAiQuestion] = useState('');
@@ -2071,9 +2085,20 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
       {/* ========================================================================= */}
       {/* INTERACTIVE DRILL-DOWN MODALS (OPENED UPON CLICKING CARDS)                */}
       {/* ========================================================================= */}
-      {detailModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
-          <div className="w-full max-w-4xl bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+      {detailModal &&
+        renderModalPortal(
+          <div
+            style={{ zIndex: detailModalLayer.zIndex }}
+            data-modal-top={detailModalLayer.isTopLayer ? 'true' : undefined}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) {
+                setDetailModal(null);
+                setSelectedInvoicePreview(null);
+              }
+            }}
+            className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto"
+          >
+            <div className="w-full max-w-4xl bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
             {/* Modal Header */}
             <div className="shrink-0 p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
@@ -2638,7 +2663,7 @@ ${slowProducts.slice(0, 3).map((p) => `• **${p.nameAr}**: متوفر ${p.stock
             </div>
           </div>
         </div>
-      )}
+        )}
     </div>
   );
 };

@@ -64,6 +64,7 @@ import type { SystemReadinessReport } from '../core/installerEngine';
 import { computeNextDailyBackupIso } from '../core/backupSchedulerEngine';
 import { AiThemeAndPreviewStudio } from '../components/settings/AiThemeAndPreviewStudio';
 import { InvoiceTemplateManager } from '../components/invoices/InvoiceTemplateManager';
+import { useModalLayer, renderModalPortal } from '../core/modalLayerEngine';
 
 export const SettingsView: React.FC = () => {
   const {
@@ -159,6 +160,33 @@ export const SettingsView: React.FC = () => {
     branchId: currentBranch?.id || branches[0]?.id || '',
     isDefault: false,
   });
+
+  const addBranchLayer = useModalLayer(isAddBranchModalOpen, 60);
+  const editBranchLayer = useModalLayer(Boolean(editingBranch), 60);
+  const addWarehouseLayer = useModalLayer(isAddWarehouseModalOpen, 60);
+  const editWarehouseLayer = useModalLayer(Boolean(editingWarehouse), 60);
+
+  React.useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (addBranchLayer.isTopLayer) {
+        setIsAddBranchModalOpen(false);
+      } else if (editBranchLayer.isTopLayer) {
+        setEditingBranch(null);
+      } else if (addWarehouseLayer.isTopLayer) {
+        setIsAddWarehouseModalOpen(false);
+      } else if (editWarehouseLayer.isTopLayer) {
+        setEditingWarehouse(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [
+    addBranchLayer.isTopLayer,
+    editBranchLayer.isTopLayer,
+    addWarehouseLayer.isTopLayer,
+    editWarehouseLayer.isTopLayer,
+  ]);
 
   // Global Notification / CRUD Feedback
   const [crudBanner, setCrudBanner] = useState<{
@@ -3259,9 +3287,17 @@ export const SettingsView: React.FC = () => {
       {/* ====================================================================
           MODAL: ADD NEW BRANCH
       ==================================================================== */}
-      {isAddBranchModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-6 shadow-xl space-y-4">
+      {isAddBranchModalOpen &&
+        renderModalPortal(
+          <div
+            style={{ zIndex: addBranchLayer.zIndex }}
+            data-modal-top={addBranchLayer.isTopLayer ? 'true' : undefined}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setIsAddBranchModalOpen(false);
+            }}
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
+          >
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-6 shadow-xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <GitBranch className="w-4 h-4 text-emerald-600" />
@@ -3362,14 +3398,22 @@ export const SettingsView: React.FC = () => {
             </form>
           </div>
         </div>
-      )}
+        )}
 
       {/* ====================================================================
           MODAL: EDIT BRANCH
       ==================================================================== */}
-      {editingBranch && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-6 shadow-xl space-y-4">
+      {editingBranch &&
+        renderModalPortal(
+          <div
+            style={{ zIndex: editBranchLayer.zIndex }}
+            data-modal-top={editBranchLayer.isTopLayer ? 'true' : undefined}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setEditingBranch(null);
+            }}
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
+          >
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-6 shadow-xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <Edit3 className="w-4 h-4 text-indigo-600" />
@@ -3468,14 +3512,22 @@ export const SettingsView: React.FC = () => {
             </form>
           </div>
         </div>
-      )}
+        )}
 
       {/* ====================================================================
           MODAL: ADD NEW WAREHOUSE
       ==================================================================== */}
-      {isAddWarehouseModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-6 shadow-xl space-y-4">
+      {isAddWarehouseModalOpen &&
+        renderModalPortal(
+          <div
+            style={{ zIndex: addWarehouseLayer.zIndex }}
+            data-modal-top={addWarehouseLayer.isTopLayer ? 'true' : undefined}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setIsAddWarehouseModalOpen(false);
+            }}
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
+          >
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-6 shadow-xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <WarehouseIcon className="w-4 h-4 text-amber-600" />
@@ -3566,14 +3618,22 @@ export const SettingsView: React.FC = () => {
             </form>
           </div>
         </div>
-      )}
+        )}
 
       {/* ====================================================================
           MODAL: EDIT WAREHOUSE
       ==================================================================== */}
-      {editingWarehouse && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-6 shadow-xl space-y-4">
+      {editingWarehouse &&
+        renderModalPortal(
+          <div
+            style={{ zIndex: editWarehouseLayer.zIndex }}
+            data-modal-top={editWarehouseLayer.isTopLayer ? 'true' : undefined}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setEditingWarehouse(null);
+            }}
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
+          >
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-6 shadow-xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <Edit3 className="w-4 h-4 text-amber-600" />
@@ -3662,7 +3722,7 @@ export const SettingsView: React.FC = () => {
             </form>
           </div>
         </div>
-      )}
+        )}
     </div>
   );
 };

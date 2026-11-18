@@ -26,6 +26,7 @@ import {
   UserCheck,
 } from 'lucide-react';
 import { HasebBrandLogo } from './HasebBrandLogo';
+import { useModalLayer, renderModalPortal } from '../../core/modalLayerEngine';
 
 interface OnboardingWizardModalProps {
   isOpen: boolean;
@@ -96,6 +97,7 @@ export const OnboardingWizardModal: React.FC<OnboardingWizardModalProps> = ({
   const [showPwd, setShowPwd] = useState(false);
   const [selectedIdleTimeout, setSelectedIdleTimeout] = useState<number>(idleTimeoutMinutes || 15);
   const [formError, setFormError] = useState<string | null>(null);
+  const { zIndex, isTopLayer } = useModalLayer(isOpen, 80);
 
   useEffect(() => {
     if (isOpen && !isMandatoryFirstRun) {
@@ -273,15 +275,17 @@ export const OnboardingWizardModal: React.FC<OnboardingWizardModalProps> = ({
     onClose();
   };
 
-  return (
+  return renderModalPortal(
     <div
       dir="rtl"
       data-testid="onboarding-wizard-modal"
+      data-modal-top={isTopLayer ? 'true' : 'false'}
+      style={{ zIndex }}
       data-mandatory-lock={isMandatoryFirstRun ? 'true' : undefined}
       onMouseDown={(e) => {
         if (!isMandatoryFirstRun && e.target === e.currentTarget) onClose();
       }}
-      className="fixed inset-0 bg-slate-900/75 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+      className="fixed inset-0 bg-slate-900/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
     >
       <div className="bg-white rounded-t-3xl sm:rounded-2xl border border-slate-200/80 max-w-3xl w-full max-h-[94dvh] flex flex-col overflow-hidden shadow-2xl">
         {/* Top Welcome Banner */}

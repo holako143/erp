@@ -6,6 +6,7 @@ import {
   filterPosCustomersForQuickPicker,
   DEFAULT_WALKIN_CUSTOMER_LABEL_AR,
 } from '../../core/posKeyboardNavigation';
+import { useModalLayer, renderModalPortal } from '../../core/modalLayerEngine';
 
 export interface POSCustomerPickerModalProps {
   customers: Customer[];
@@ -39,14 +40,16 @@ const POSCustomerPickerModal: React.FC<POSCustomerPickerModalProps> = React.memo
     const [quickNewCustomerName, setQuickNewCustomerName] = useState<string>('');
     const [quickNewCustomerPhone, setQuickNewCustomerPhone] = useState<string>('');
     const customerSearchInputRef = useRef<HTMLInputElement | null>(null);
+    const { zIndex, isTopLayer } = useModalLayer(true, 70);
 
     useEffect(() => {
       const timer = setTimeout(() => {
         customerSearchInputRef.current?.focus();
       }, 30);
       const handleKeyDown = (e: KeyboardEvent) => {
-        if (e.key === 'Escape') {
+        if (e.key === 'Escape' && isTopLayer) {
           e.preventDefault();
+          e.stopPropagation();
           onClose();
         }
       };
@@ -55,7 +58,7 @@ const POSCustomerPickerModal: React.FC<POSCustomerPickerModalProps> = React.memo
         clearTimeout(timer);
         window.removeEventListener('keydown', handleKeyDown);
       };
-    }, [onClose]);
+    }, [onClose, isTopLayer]);
 
     const filteredPickerCustomers = useMemo(
       () => filterPosCustomersForQuickPicker(customers, customerSearchQuery),
@@ -73,13 +76,15 @@ const POSCustomerPickerModal: React.FC<POSCustomerPickerModalProps> = React.memo
       setIsQuickAddCustomerOpen(false);
     };
 
-    return (
+    return renderModalPortal(
       <div
         data-testid="pos-customer-picker-modal"
+        data-modal-top={isTopLayer ? 'true' : 'false'}
+        style={{ zIndex }}
         onMouseDown={(e) => {
           if (e.target === e.currentTarget) onClose();
         }}
-        className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/65 backdrop-blur-xs p-0 sm:p-4"
+        className="fixed inset-0 flex items-end sm:items-center justify-center bg-slate-900/65 backdrop-blur-xs p-0 sm:p-4"
       >
         <div className="bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-lg max-h-[88dvh] flex flex-col overflow-hidden">
           {/* Header */}
