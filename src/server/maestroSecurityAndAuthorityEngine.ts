@@ -49,6 +49,86 @@ export function resolveSafeApplicationDataDir(rootDir: string, envDataDir?: stri
 }
 
 // ============================================================================
+// 0.1 Password Hashing (scrypt-sha256) & Route Security Classification (Phase 0.1 & 0.2)
+// ============================================================================
+
+export function hashPasswordScrypt(password: string): string {
+  const salt = crypto.randomBytes(16);
+  const derived = crypto.scryptSync(String(password), salt, 32, { N: 16384, r: 8, p: 1 });
+  return `scrypt$${salt.toString('hex')}$${derived.toString('hex')}`;
+}
+
+export function verifyPasswordOrPlaintext(inputPassword: string, storedValue: string): boolean {
+  if (!inputPassword || !storedValue) return false;
+  if (storedValue.startsWith('scrypt$')) {
+    const parts = storedValue.split('$');
+    if (parts.length !== 3) return false;
+    try {
+      const salt = Buffer.from(parts[1], 'hex');
+      const expected = Buffer.from(parts[2], 'hex');
+      const actual = crypto.scryptSync(String(inputPassword), salt, expected.length, {
+        N: 16384,
+        r: 8,
+        p: 1,
+      });
+      return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+    } catch {
+      return false;
+    }
+  }
+  const a = Buffer.from(String(inputPassword), 'utf-8');
+  const b = Buffer.from(String(storedValue), 'utf-8');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+export type ApiRouteSecurityTier =
+  | 'PUBLIC_BOOTSTRAP'
+  | 'AUTH_ROUTE'
+  | 'COMMERCIAL_WRITE'
+  | 'ADMIN_SENSITIVE'
+  | 'STANDARD_API';
+
+export function classifyApiRouteSecurityTier(
+  method: string,
+  pathname: string
+): ApiRouteSecurityTier {
+  const m = String(method || 'GET').toUpperCase();
+  const p = String(pathname || '').split('?')[0];
+
+  if (p.startsWith('/api/v1/auth/')) {
+    return 'AUTH_ROUTE';
+  }
+  if (
+    p === '/api/v1/health' ||
+    p === '/api/v1/erp/revision' ||
+    p === '/api/v1/erp/events' ||
+    p === '/api/v1/erp/catchup' ||
+    p === '/api/v1/security/drm-status' ||
+    p === '/api/v1/system/lan-info'
+  ) {
+    return 'PUBLIC_BOOTSTRAP';
+  }
+  if (
+    m === 'POST' &&
+    (p === '/api/v1/erp/command' || p === '/api/v1/erp/state' || p === '/api/v1/erp/patch')
+  ) {
+    return 'COMMERCIAL_WRITE';
+  }
+  if (
+    p === '/api/v1/erp/reset' ||
+    p === '/api/v1/erp/reset-blank' ||
+    p === '/api/v1/backups/restore' ||
+    p === '/api/v1/backups/create-encrypted' ||
+    p === '/api/v1/system/apply-permissions' ||
+    p === '/api/v1/licensing/issue' ||
+    p === '/api/v1/licensing/re-attest'
+  ) {
+    return 'ADMIN_SENSITIVE';
+  }
+  return 'STANDARD_API';
+}
+
+// ============================================================================
 // 1. Session Authentication & Brute-Force Protection (Phase 0.2)
 // ============================================================================
 

@@ -37,6 +37,9 @@ import {
   decryptAndVerifyBackupEnvelopeV2,
   appendChainedAuditEntry,
   verifyChainedAuditLogIntegrity,
+  hashPasswordScrypt,
+  verifyPasswordOrPlaintext,
+  classifyApiRouteSecurityTier,
   ChainedAuditEntry,
 } from '../../server/maestroSecurityAndAuthorityEngine';
 
@@ -623,5 +626,80 @@ test('Maestro Phase 4 Invariant 14: AES-256-GCM Encrypted Backups V2 & SHA-256 T
   assert.equal(tamperedChainCheck.valid, false);
   assert.equal(tamperedChainCheck.brokenAtSequence, 1);
 });
+
+test('Maestro Phase 0 & Section 7 Invariant 15: Scrypt password hashing, Route Security Tier classification & Measured Performance Benchmarks (p95 < 15ms, Domain Event < 5KB)', () => {
+  // 1. Scrypt password hashing & timing-safe verification
+  const hashed = hashPasswordScrypt('EnterpriseAdmin#2026');
+  assert.ok(hashed.startsWith('scrypt$'));
+  assert.equal(verifyPasswordOrPlaintext('EnterpriseAdmin#2026', hashed), true);
+  assert.equal(verifyPasswordOrPlaintext('WrongPass', hashed), false);
+  assert.equal(verifyPasswordOrPlaintext('1234', '1234'), true);
+
+  // 2. Route Security Tier Classification
+  assert.equal(classifyApiRouteSecurityTier('GET', '/api/v1/erp/revision'), 'PUBLIC_BOOTSTRAP');
+  assert.equal(classifyApiRouteSecurityTier('POST', '/api/v1/auth/login'), 'AUTH_ROUTE');
+  assert.equal(classifyApiRouteSecurityTier('POST', '/api/v1/erp/command'), 'COMMERCIAL_WRITE');
+  assert.equal(classifyApiRouteSecurityTier('POST', '/api/v1/erp/reset'), 'ADMIN_SENSITIVE');
+  assert.equal(classifyApiRouteSecurityTier('POST', '/api/v1/backups/restore'), 'ADMIN_SENSITIVE');
+  assert.equal(classifyApiRouteSecurityTier('POST', '/api/v1/licensing/issue'), 'ADMIN_SENSITIVE');
+
+  // 3. Section 7 Measured Performance Benchmark: 50 consecutive authoritative SALE_CREATE commands
+  const idempotencyMap = new Map();
+  let state: Record<string, any> = {
+    products: [
+      {
+        id: 'prod-bench-1',
+        name: 'Solar Inverter 5KW',
+        sku: 'SLR-INV-5K',
+        stockQty: 500,
+        salePrice: 1200,
+        costPrice: 900,
+      },
+    ],
+    salesInvoices: [],
+    customers: [{ id: 'cust-1', name: 'عميل جملة', balance: 0 }],
+    journalEntries: [],
+  };
+
+  const latenciesMs: number[] = [];
+  let maxEventBytes = 0;
+
+  for (let i = 1; i <= 50; i++) {
+    const t0 = performance.now();
+    const out = executeAuthoritativeBusinessCommand(
+      state,
+      {
+        commandId: `cmd-bench-${i}`,
+        commandType: 'SALE_CREATE',
+        clientId: 'pos-bench-1',
+        payload: {
+          invoiceNumber: `INV-BENCH-${1000 + i}`,
+          customerId: 'cust-1',
+          customerName: 'عميل جملة',
+          paymentMethod: 'CASH',
+          items: [{ productId: 'prod-bench-1', quantity: 1, taxRate: 15 }],
+        },
+      },
+      idempotencyMap,
+      i + 1
+    );
+    const elapsed = performance.now() - t0;
+    latenciesMs.push(elapsed);
+    assert.equal(out.result.success, true);
+    state = { ...state, ...out.statePatch };
+
+    const eventPayloadBytes = Buffer.byteLength(JSON.stringify(out.result.events), 'utf-8');
+    if (eventPayloadBytes > maxEventBytes) maxEventBytes = eventPayloadBytes;
+  }
+
+  latenciesMs.sort((a, b) => a - b);
+  const p95LatencyMs = latenciesMs[Math.floor(latenciesMs.length * 0.95)];
+
+  // Section 7 Targets: p95 < 15 ms, Domain Event payload < 5 KB (5120 bytes)
+  assert.ok(p95LatencyMs < 15, `Expected p95 < 15ms, measured ${p95LatencyMs.toFixed(2)}ms`);
+  assert.ok(maxEventBytes < 5120, `Expected domain event < 5KB, measured ${maxEventBytes} bytes`);
+  assert.equal(state.products[0].stockQty, 450);
+});
+
 
 

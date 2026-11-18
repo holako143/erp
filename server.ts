@@ -82,6 +82,9 @@ import {
   appendChainedAuditEntry,
   verifyChainedAuditLogIntegrity,
   verifyLicenseHeaderAndEntitlement,
+  resolveSafeApplicationDataDir,
+  classifyApiRouteSecurityTier,
+  verifyPasswordOrPlaintext,
   ChainedAuditEntry,
   EncryptedBackupEnvelopeV2,
 } from './src/server/maestroSecurityAndAuthorityEngine';
@@ -100,7 +103,7 @@ const HTTPS_PORT = Number(process.env.HTTPS_PORT) || 3443;
 
 // Persistent Storage File Path & High-Concurrency In-Memory Write-Through Engine
 const ROOT_DIR = process.env.HASEB_ROOT_DIR || process.cwd();
-const DATA_DIR = process.env.HASEB_DATA_DIR || path.resolve(ROOT_DIR, '.data');
+const DATA_DIR = resolveSafeApplicationDataDir(ROOT_DIR, process.env.HASEB_DATA_DIR);
 const DB_FILE = path.join(DATA_DIR, 'erp_store.json');
 const TMP_DB_FILE = path.join(DATA_DIR, 'erp_store.json.tmp');
 const AI_SECRETS_FILE = path.join(DATA_DIR, 'ai_secrets.json');
@@ -159,7 +162,7 @@ app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'Content-Type, Authorization, x-asf-license-token, x-asf-trial-device, x-erp-client-id, x-haseb-session-token, x-asf-issuer-admin-key'
+    'Content-Type, Authorization, x-asf-license-token, x-asf-trial-device, x-erp-client-id, x-haseb-session-token, x-asf-issuer-admin-key, x-haseb-enforce-strict-auth'
   );
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -169,6 +172,55 @@ app.use((req, res, next) => {
     res.status(204).end();
     return;
   }
+
+  // Central Route Classification & Policy Guard (Phase 0.1)
+  if (req.path.startsWith('/api/v1/')) {
+    const tier = classifyApiRouteSecurityTier(req.method, req.path);
+    res.setHeader('X-Haseb-Security-Tier', tier);
+    const enforceStrictSession =
+      process.env.HASEB_STRICT_ROUTE_AUTH === '1' ||
+      req.headers['x-haseb-enforce-strict-auth'] === '1';
+
+    if (enforceStrictSession && tier === 'ADMIN_SENSITIVE') {
+      const token = sessionAuthManager.extractTokenFromHeaders(
+        req.headers as Record<string, string | string[] | undefined>
+      );
+      const verified = sessionAuthManager.verifySessionToken(token);
+      if (!verified.valid) {
+        recordServerAudit('unauthenticated-caller', 'ADMIN_SECURITY', 'SENSITIVE_ROUTE_BLOCKED', {
+          path: req.path,
+          method: req.method,
+          reason: verified.reason,
+        });
+        res.status(401).json({
+          success: false,
+          errorCode: 'AUTHENTICATION_REQUIRED',
+          securityTier: tier,
+          messageAr: 'يتطلب تنفيذ هذه العملية الحساسة جلسة مسؤول موثقة وصالحة.',
+        });
+        return;
+      }
+      if (
+        verified.claims &&
+        verified.claims.role !== 'SUPER_ADMIN' &&
+        verified.claims.role !== 'ADMIN' &&
+        verified.claims.role !== 'MANAGER'
+      ) {
+        recordServerAudit(verified.claims.username, 'ADMIN_SECURITY', 'INSUFFICIENT_ROLE_BLOCKED', {
+          path: req.path,
+          role: verified.claims.role,
+        });
+        res.status(403).json({
+          success: false,
+          errorCode: 'INSUFFICIENT_ROLE',
+          securityTier: tier,
+          messageAr: 'صلاحيات الحساب الحالي لا تسمح بتنفيذ هذه العملية الحساسة.',
+        });
+        return;
+      }
+    }
+  }
+
   next();
 });
 
@@ -1307,9 +1359,12 @@ app.post('/api/v1/auth/login', (req, res) => {
   if (accounts.length > 0) {
     matchedUser = accounts.find(
       (u) =>
-        (username && (u.username === username || u.name === username || u.email === username)) &&
-        ((password && (u.password === password || u.pinCode === password)) ||
-          (pinCode && u.pinCode === pinCode))
+        username &&
+        (u.username === username || u.name === username || u.email === username) &&
+        ((password &&
+          (verifyPasswordOrPlaintext(String(password), String(u.password || '')) ||
+            verifyPasswordOrPlaintext(String(password), String(u.pinCode || '')))) ||
+          (pinCode && verifyPasswordOrPlaintext(String(pinCode), String(u.pinCode || ''))))
     );
   } else if (
     (username === 'admin' || username === 'مدير النظام') &&
@@ -2854,13 +2909,7 @@ function getBaileysGateway() {
   return baileysGatewayPromise;
 }
 
-// Pre-warm primary account socket on server start so live QR is ready immediately
-setTimeout(async () => {
-  const gw = await getBaileysGateway();
-  if (gw && typeof gw.ensureRealWhatsAppSocket === 'function') {
-    gw.ensureRealWhatsAppSocket(activeWhatsAppAccountIdStore).catch(() => {});
-  }
-}, 500);
+// Baileys Gateway is loaded lazily on first WhatsApp API request to keep server boot instantaneous
 
 function syncWhatsAppStoresToPersistence() {
   if (memoryStore && typeof memoryStore === 'object') {
@@ -4477,21 +4526,6 @@ export async function startServer(options: StartServerOptions = {}) {
 
   if (!isProd) {
     process.env.DISABLE_HMR = 'true';
-    const vitePkgName = 'vite';
-    const { createServer: createViteServer } = await import(/* @vite-ignore */ vitePkgName);
-    const vite = await createViteServer({
-      server: {
-        middlewareMode: true,
-        host: true,
-        allowedHosts: true,
-        cors: true,
-        hmr: false,
-        ws: false,
-        watch: null,
-      },
-      appType: 'spa',
-    });
-
     // Prevent @vite/client from throwing unhandled WebSocket connection errors in Cloud Run proxy when HMR is disabled
     app.use('/@vite/client', (_req, res, next) => {
       const origEnd = res.end.bind(res);
@@ -4515,7 +4549,39 @@ export async function startServer(options: StartServerOptions = {}) {
       next();
     });
 
-    app.use(vite.middlewares);
+    const vitePkgName = 'vite';
+    const viteReadyPromise = import(/* @vite-ignore */ vitePkgName)
+      .then(({ createServer: createViteServer }) =>
+        createViteServer({
+          server: {
+            middlewareMode: true,
+            host: true,
+            allowedHosts: true,
+            cors: true,
+            hmr: false,
+            ws: false,
+            watch: null,
+          },
+          appType: 'spa',
+        })
+      )
+      .catch((err) => {
+        console.error('[Haseb ERP Vite Init Error]', err);
+        return null;
+      });
+
+    app.use(async (req, res, next) => {
+      if (req.path.startsWith('/api/') || req.path.startsWith('/ws/')) {
+        next();
+        return;
+      }
+      const vite = await viteReadyPromise;
+      if (vite) {
+        vite.middlewares(req, res, next);
+      } else {
+        next();
+      }
+    });
   } else {
     const distPath = process.env.HASEB_DIST_DIR || path.resolve(ROOT_DIR, 'dist');
     const embeddedCache = new Map<string, { mime: string; buf: Buffer }>();
@@ -4724,110 +4790,112 @@ export async function startServer(options: StartServerOptions = {}) {
       httpsPort: HTTPS_PORT,
       httpsEnabled: isHttpsActive,
     });
-  });
 
-  // Start Live Plug-and-Play Non-Blocking USB Cable Watcher & broadcast instant updates
-  startUsbCableHotplugWatcher({
-    rootDir: ROOT_DIR,
-    getSentCounter: () => usbBridgeSentCounter,
-    getClientRegisteredDevice: () => clientRegisteredUsbDevice,
-    onDeviceChange: (device) => {
-      broadcastWsMessage({
-        type: 'erp:usb_device_update',
-        device,
-        serverTimestampMs: Date.now(),
+    // Defer USB hotplug watcher & companion HTTPS server so HTTP port 3000 responds immediately
+    setTimeout(() => {
+      startUsbCableHotplugWatcher({
+        rootDir: ROOT_DIR,
+        getSentCounter: () => usbBridgeSentCounter,
+        getClientRegisteredDevice: () => clientRegisteredUsbDevice,
+        onDeviceChange: (device) => {
+          broadcastWsMessage({
+            type: 'erp:usb_device_update',
+            device,
+            serverTimestampMs: Date.now(),
+          });
+        },
+        intervalMs: 3500,
       });
-    },
-    intervalMs: 3500,
-  });
 
-  // Companion Self-Signed HTTPS Server for Mobile LAN Camera & OS Notifications (Secure Context)
-  try {
-    const certDir = path.join(DATA_DIR, 'lan-cert');
-    if (!fs.existsSync(certDir)) fs.mkdirSync(certDir, { recursive: true });
-    const keyPath = path.join(certDir, 'key.pem');
-    const certPath = path.join(certDir, 'cert.pem');
-    const pfxPath = path.join(certDir, 'lan-cert.pfx');
-    const pfxPass = 'HasebLanCert2026';
-    const sanMetaPath = path.join(certDir, 'san-ips.json');
-
-    const nets = os.networkInterfaces();
-    const detectedIps: string[] = [];
-    for (const name of Object.keys(nets)) {
-      for (const net of nets[name] || []) {
-        if (net.family === 'IPv4' && !net.internal && net.address && !net.address.startsWith('169.254.')) {
-          detectedIps.push(net.address);
-        }
-      }
-    }
-    const uniqueIps = Array.from(new Set(['127.0.0.1', ...detectedIps])).sort();
-    const sanEntries = ['DNS:localhost', ...uniqueIps.map((ip) => `IP:${ip}`)].join(',');
-    const prevSan = fs.existsSync(sanMetaPath) ? fs.readFileSync(sanMetaPath, 'utf-8') : '';
-
-    if ((!fs.existsSync(keyPath) || !fs.existsSync(certPath)) && !fs.existsSync(pfxPath) || prevSan !== sanEntries) {
-      let generated = false;
+      // Companion Self-Signed HTTPS Server for Mobile LAN Camera & OS Notifications (Secure Context)
       try {
-        const opensslCmd = `openssl req -x509 -newkey rsa:2048 -nodes -keyout "${keyPath}" -out "${certPath}" -days 825 -subj "/CN=Haseb-ERP-LAN" -addext "subjectAltName=${sanEntries}"`;
-        execSync(opensslCmd, { stdio: 'ignore', timeout: 8000 });
-        generated = fs.existsSync(keyPath) && fs.existsSync(certPath);
-      } catch {
-        generated = false;
-      }
+        const certDir = path.join(DATA_DIR, 'lan-cert');
+        if (!fs.existsSync(certDir)) fs.mkdirSync(certDir, { recursive: true });
+        const keyPath = path.join(certDir, 'key.pem');
+        const certPath = path.join(certDir, 'cert.pem');
+        const pfxPath = path.join(certDir, 'lan-cert.pfx');
+        const pfxPass = 'HasebLanCert2026';
+        const sanMetaPath = path.join(certDir, 'san-ips.json');
 
-      if (!generated && process.platform === 'win32') {
-        try {
-          const dnsList = ['localhost', ...uniqueIps].map((d) => `'${d}'`).join(',');
-          const psCmd = [
-            `$c = New-SelfSignedCertificate -DnsName ${dnsList} -CertStoreLocation 'Cert:\\CurrentUser\\My' -FriendlyName 'Haseb ERP LAN' -NotAfter (Get-Date).AddYears(3);`,
-            `$pw = ConvertTo-SecureString -String '${pfxPass}' -Force -AsPlainText;`,
-            `Export-PfxCertificate -Cert $c -FilePath '${pfxPath.replace(/'/g, "''")}' -Password $pw | Out-Null;`,
-            `Remove-Item -Path ('Cert:\\CurrentUser\\My\\' + $c.Thumbprint) -Force -ErrorAction SilentlyContinue`,
-          ].join(' ');
-          execFileSync(
-            'powershell',
-            ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psCmd],
-            { stdio: 'ignore', timeout: 10000 }
-          );
-          generated = fs.existsSync(pfxPath);
-        } catch {
-          generated = false;
+        const nets = os.networkInterfaces();
+        const detectedIps: string[] = [];
+        for (const name of Object.keys(nets)) {
+          for (const net of nets[name] || []) {
+            if (net.family === 'IPv4' && !net.internal && net.address && !net.address.startsWith('169.254.')) {
+              detectedIps.push(net.address);
+            }
+          }
         }
-      }
+        const uniqueIps = Array.from(new Set(['127.0.0.1', ...detectedIps])).sort();
+        const sanEntries = ['DNS:localhost', ...uniqueIps.map((ip) => `IP:${ip}`)].join(',');
+        const prevSan = fs.existsSync(sanMetaPath) ? fs.readFileSync(sanMetaPath, 'utf-8') : '';
 
-      if (generated) {
-        fs.writeFileSync(sanMetaPath, sanEntries, 'utf-8');
-      }
-    }
+        if (((!fs.existsSync(keyPath) || !fs.existsSync(certPath)) && !fs.existsSync(pfxPath)) || prevSan !== sanEntries) {
+          let generated = false;
+          try {
+            const opensslCmd = `openssl req -x509 -newkey rsa:2048 -nodes -keyout "${keyPath}" -out "${certPath}" -days 825 -subj "/CN=Haseb-ERP-LAN" -addext "subjectAltName=${sanEntries}"`;
+            execSync(opensslCmd, { stdio: 'ignore', timeout: 8000 });
+            generated = fs.existsSync(keyPath) && fs.existsSync(certPath);
+          } catch {
+            generated = false;
+          }
 
-    let tlsOptions: https.ServerOptions | null = null;
-    if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
-      tlsOptions = {
-        key: fs.readFileSync(keyPath),
-        cert: fs.readFileSync(certPath),
-      };
-    } else if (fs.existsSync(pfxPath)) {
-      tlsOptions = {
-        pfx: fs.readFileSync(pfxPath),
-        passphrase: pfxPass,
-      };
-    }
+          if (!generated && process.platform === 'win32') {
+            try {
+              const dnsList = ['localhost', ...uniqueIps].map((d) => `'${d}'`).join(',');
+              const psCmd = [
+                `$c = New-SelfSignedCertificate -DnsName ${dnsList} -CertStoreLocation 'Cert:\\CurrentUser\\My' -FriendlyName 'Haseb ERP LAN' -NotAfter (Get-Date).AddYears(3);`,
+                `$pw = ConvertTo-SecureString -String '${pfxPass}' -Force -AsPlainText;`,
+                `Export-PfxCertificate -Cert $c -FilePath '${pfxPath.replace(/'/g, "''")}' -Password $pw | Out-Null;`,
+                `Remove-Item -Path ('Cert:\\CurrentUser\\My\\' + $c.Thumbprint) -Force -ErrorAction SilentlyContinue`,
+              ].join(' ');
+              execFileSync(
+                'powershell',
+                ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psCmd],
+                { stdio: 'ignore', timeout: 10000 }
+              );
+              generated = fs.existsSync(pfxPath);
+            } catch {
+              generated = false;
+            }
+          }
 
-    if (tlsOptions) {
-      const httpsServer = https.createServer(tlsOptions, app);
-      httpsServer.on('upgrade', handleWsUpgrade);
-      httpsServer.listen(HTTPS_PORT, '0.0.0.0', () => {
-        isHttpsActive = true;
-        console.log(`[Haseb ERP HTTPS LAN] Running on https://0.0.0.0:${HTTPS_PORT} (Camera & Push Ready)`);
-      });
-      httpsServer.on('error', (err) => {
+          if (generated) {
+            fs.writeFileSync(sanMetaPath, sanEntries, 'utf-8');
+          }
+        }
+
+        let tlsOptions: https.ServerOptions | null = null;
+        if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
+          tlsOptions = {
+            key: fs.readFileSync(keyPath),
+            cert: fs.readFileSync(certPath),
+          };
+        } else if (fs.existsSync(pfxPath)) {
+          tlsOptions = {
+            pfx: fs.readFileSync(pfxPath),
+            passphrase: pfxPass,
+          };
+        }
+
+        if (tlsOptions) {
+          const httpsServer = https.createServer(tlsOptions, app);
+          httpsServer.on('upgrade', handleWsUpgrade);
+          httpsServer.listen(HTTPS_PORT, '0.0.0.0', () => {
+            isHttpsActive = true;
+            console.log(`[Haseb ERP HTTPS LAN] Running on https://0.0.0.0:${HTTPS_PORT} (Camera & Push Ready)`);
+          });
+          httpsServer.on('error', (err) => {
+            isHttpsActive = false;
+            console.warn('[Haseb ERP HTTPS LAN] Disabled:', (err as any)?.message || err);
+          });
+        }
+      } catch (err) {
         isHttpsActive = false;
-        console.warn('[Haseb ERP HTTPS LAN] Disabled:', (err as any)?.message || err);
-      });
-    }
-  } catch (err) {
-    isHttpsActive = false;
-    console.warn('[Haseb ERP HTTPS LAN] Cert generation skipped:', (err as any)?.message || err);
-  }
+        console.warn('[Haseb ERP HTTPS LAN] Cert generation skipped:', (err as any)?.message || err);
+      }
+    }, 1500);
+  });
 }
 
 if (process.env.HASEB_DEFER_AUTOSTART !== '1') {

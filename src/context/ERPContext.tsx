@@ -5870,6 +5870,36 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       actionLabelEn: 'View Returned Invoice ↗',
     });
 
+    if (typeof window !== 'undefined') {
+      const cmdHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-erp-client-id': syncClientIdRef.current,
+      };
+      const v2Tok = localStorage.getItem('asf_v2_signed_token');
+      if (v2Tok) {
+        cmdHeaders['x-asf-license-token'] = v2Tok;
+      } else {
+        cmdHeaders['x-asf-trial-device'] = activeLicenseSerialRef.current || 'LOCAL-TRIAL-CLIENT';
+      }
+      fetch('/api/v1/erp/command', {
+        method: 'POST',
+        headers: cmdHeaders,
+        body: JSON.stringify({
+          commandId: `cmd-return-${targetInv.id}`,
+          commandType: 'RETURN_CREATE',
+          clientId: syncClientIdRef.current,
+          actorName: currentUser.name,
+          payload: {
+            invoiceId: targetInv.id,
+            invoiceNumber: targetInv.invoiceNumber,
+            condition: params.condition || 'HEALTHY_RESTOCK',
+            refundMethod: defaultRefundMethod,
+            reason: params.reason || 'إلغاء الفاتورة واسترجاع المبلغ بالكامل',
+          },
+        }),
+      }).catch(() => {});
+    }
+
     return {
       success: true,
       updatedInvoice: res.updatedInvoice,
@@ -6295,6 +6325,29 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     setSalesInvoices((prev) => [newInv, ...prev]);
+    if (typeof window !== 'undefined') {
+      const cmdHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-erp-client-id': syncClientIdRef.current,
+      };
+      const v2Tok = localStorage.getItem('asf_v2_signed_token');
+      if (v2Tok) {
+        cmdHeaders['x-asf-license-token'] = v2Tok;
+      } else {
+        cmdHeaders['x-asf-trial-device'] = activeLicenseSerialRef.current || 'LOCAL-TRIAL-CLIENT';
+      }
+      fetch('/api/v1/erp/command', {
+        method: 'POST',
+        headers: cmdHeaders,
+        body: JSON.stringify({
+          commandId: `cmd-sale-${newInv.id}`,
+          commandType: 'SALE_CREATE',
+          clientId: syncClientIdRef.current,
+          actorName: currentUser.name,
+          payload: newInv,
+        }),
+      }).catch(() => {});
+    }
     return newInv;
   };
 
@@ -7185,6 +7238,30 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       actionLabelAr: remainingDebt > 0 ? 'عرض المديونيات والفواتير ↗' : 'عرض الفاتورة بالمبيعات ↗',
       actionLabelEn: remainingDebt > 0 ? 'View Debt Ledger ↗' : 'View in Sales ↗',
     });
+
+    if (typeof window !== 'undefined') {
+      const cmdHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-erp-client-id': syncClientIdRef.current,
+      };
+      const v2Tok = localStorage.getItem('asf_v2_signed_token');
+      if (v2Tok) {
+        cmdHeaders['x-asf-license-token'] = v2Tok;
+      } else {
+        cmdHeaders['x-asf-trial-device'] = activeLicenseSerialRef.current || 'LOCAL-TRIAL-CLIENT';
+      }
+      fetch('/api/v1/erp/command', {
+        method: 'POST',
+        headers: cmdHeaders,
+        body: JSON.stringify({
+          commandId: `cmd-pos-${invoice.id}`,
+          commandType: 'SALE_CREATE',
+          clientId: syncClientIdRef.current,
+          actorName: currentUser.name,
+          payload: invoice,
+        }),
+      }).catch(() => {});
+    }
 
     clearPOSCart();
     return invoice;
