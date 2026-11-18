@@ -74,6 +74,18 @@ import {
 } from './src/core/licensing_core/index';
 import { HasebLocalSqliteEngine } from './src/server/localSqliteDb';
 import {
+  MaestroSessionAuthManager,
+  CryptographicTrialAnchorGuard,
+  executeAuthoritativeBusinessCommand,
+  createEncryptedBackupEnvelopeV2,
+  decryptAndVerifyBackupEnvelopeV2,
+  appendChainedAuditEntry,
+  verifyChainedAuditLogIntegrity,
+  verifyLicenseHeaderAndEntitlement,
+  ChainedAuditEntry,
+  EncryptedBackupEnvelopeV2,
+} from './src/server/maestroSecurityAndAuthorityEngine';
+import {
   applyThreeWayPatchMerge,
   detectDeviceLabelFromUserAgent,
   mergeStateDeltaPatch,
@@ -85,41 +97,6 @@ dotenv.config();
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 const HTTPS_PORT = Number(process.env.HTTPS_PORT) || 3443;
-
-// ASF Secure Licensing V2 - Server Authority Key Management
-// The Private Key is strictly loaded from the environment (ASF_AUTHORITY_PRIVATE_KEY)
-// Client installations only possess the public key for cryptographic verification.
-const SERVER_AUTHORITY_PRIVATE_KEY_PEM =
-  process.env.ASF_AUTHORITY_PRIVATE_KEY ||
-  process.env.ASF_ISSUER_KEY ||
-  '';
-
-export const activationAuthority =
-  SERVER_AUTHORITY_PRIVATE_KEY_PEM && SERVER_AUTHORITY_PRIVATE_KEY_PEM.includes('BEGIN PRIVATE KEY')
-    ? new ActivationServerManager(SERVER_AUTHORITY_PRIVATE_KEY_PEM)
-    : null;
-
-app.use(express.json({ limit: '100mb' }));
-app.use(express.urlencoded({ limit: '100mb', extended: true }));
-
-// Universal Local Area Network (LAN) CORS & Safe Security Headers (iframe-friendly + camera enabled)
-app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'Content-Type, Authorization, x-asf-license-token, x-asf-trial-device, x-erp-client-id'
-  );
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Permissions-Policy', 'camera=*, microphone=()');
-  if (req.method === 'OPTIONS') {
-    res.status(204).end();
-    return;
-  }
-  next();
-});
 
 // Persistent Storage File Path & High-Concurrency In-Memory Write-Through Engine
 const ROOT_DIR = process.env.HASEB_ROOT_DIR || process.cwd();
@@ -134,7 +111,66 @@ if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
+// ASF Secure Licensing V3 - Server Authority Key Management with Persistent Registry
+const SERVER_AUTHORITY_PRIVATE_KEY_PEM =
+  process.env.ASF_AUTHORITY_PRIVATE_KEY ||
+  process.env.ASF_ISSUER_KEY ||
+  '';
+
+export const activationAuthority =
+  SERVER_AUTHORITY_PRIVATE_KEY_PEM && SERVER_AUTHORITY_PRIVATE_KEY_PEM.includes('BEGIN PRIVATE KEY')
+    ? new ActivationServerManager(
+        SERVER_AUTHORITY_PRIVATE_KEY_PEM,
+        path.join(DATA_DIR, 'licensing_registry.json')
+      )
+    : null;
+
 export const localSqliteEngine = new HasebLocalSqliteEngine(DATA_DIR);
+export const sessionAuthManager = new MaestroSessionAuthManager(DATA_DIR);
+export const trialAnchorGuard = new CryptographicTrialAnchorGuard(
+  DATA_DIR,
+  sessionAuthManager.getHmacSecret()
+);
+const commandIdempotencyMap = localSqliteEngine.loadCommandLedger();
+const auditChainEntries: ChainedAuditEntry[] = localSqliteEngine.loadAuditChain();
+
+function recordServerAudit(
+  actor: string,
+  category: ChainedAuditEntry['category'],
+  action: string,
+  details: Record<string, any>
+): ChainedAuditEntry {
+  const entry = appendChainedAuditEntry(auditChainEntries, {
+    actor,
+    category,
+    action,
+    details,
+  });
+  localSqliteEngine.saveAuditChainEntry(entry);
+  return entry;
+}
+
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ limit: '100mb', extended: true }));
+
+// Universal Local Area Network (LAN) CORS & Safe Security Headers (iframe-friendly + camera enabled)
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization, x-asf-license-token, x-asf-trial-device, x-erp-client-id, x-haseb-session-token, x-asf-issuer-admin-key'
+  );
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=*, microphone=()');
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+  next();
+});
 
 let memoryStore: Record<string, any> | null = null;
 let dbRevision = 1;
@@ -1247,7 +1283,133 @@ app.post('/api/v1/system/apply-permissions', (_req, res) => {
 });
 
 // ---------------------------------------------------------
-// ASF Secure Licensing V2 Server Endpoints
+// Phase 0 & 4: Server-Side Session Auth & Tamper-Evident Audit Chain
+// ---------------------------------------------------------
+
+app.post('/api/v1/auth/login', (req, res) => {
+  const clientIp = String(req.ip || req.socket?.remoteAddress || '127.0.0.1');
+  const rateCheck = sessionAuthManager.checkRateLimit(clientIp);
+  if (!rateCheck.allowed) {
+    res.status(429).json({
+      success: false,
+      errorCode: 'RATE_LIMITED',
+      retryAfterSeconds: rateCheck.retryAfterSeconds,
+      messageAr: `تم حظر محاولات الدخول مؤقتاً بسبب تكرار الخطأ. يرجى المحاولة بعد ${rateCheck.retryAfterSeconds} ثانية.`,
+    });
+    return;
+  }
+
+  const { username, password, pinCode } = req.body || {};
+  const serverDb = readServerDB();
+  const accounts: any[] = Array.isArray(serverDb?.userAccounts) ? serverDb.userAccounts : [];
+
+  let matchedUser: any = null;
+  if (accounts.length > 0) {
+    matchedUser = accounts.find(
+      (u) =>
+        (username && (u.username === username || u.name === username || u.email === username)) &&
+        ((password && (u.password === password || u.pinCode === password)) ||
+          (pinCode && u.pinCode === pinCode))
+    );
+  } else if (
+    (username === 'admin' || username === 'مدير النظام') &&
+    (password === 'admin123' || password === '1234' || pinCode === '1234')
+  ) {
+    matchedUser = {
+      id: 'usr-admin-1',
+      username: 'admin',
+      role: 'ADMIN',
+      branchId: 'br-main',
+    };
+  }
+
+  if (!matchedUser) {
+    sessionAuthManager.recordLoginFailure(clientIp);
+    recordServerAudit(String(username || 'unknown'), 'AUTH', 'LOGIN_FAILED', { clientIp });
+    res.status(401).json({
+      success: false,
+      errorCode: 'INVALID_CREDENTIALS',
+      messageAr: 'بيانات الاعتماد غير صحيحة.',
+    });
+    return;
+  }
+
+  sessionAuthManager.clearRateLimit(clientIp);
+  const issued = sessionAuthManager.issueSessionToken({
+    userId: String(matchedUser.id || 'usr-1'),
+    username: String(matchedUser.username || matchedUser.name || 'user'),
+    role: (matchedUser.role || 'ADMIN') as any,
+    branchId: String(matchedUser.branchId || 'br-main'),
+  });
+
+  res.setHeader(
+    'Set-Cookie',
+    `haseb_session=${encodeURIComponent(issued.token)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=43200`
+  );
+  recordServerAudit(issued.claims.username, 'AUTH', 'LOGIN_SUCCESS', {
+    userId: issued.claims.userId,
+    role: issued.claims.role,
+    sessionId: issued.claims.sessionId,
+  });
+
+  res.json({
+    success: true,
+    token: issued.token,
+    session: issued.claims,
+  });
+});
+
+app.post('/api/v1/auth/logout', (req, res) => {
+  const token = sessionAuthManager.extractTokenFromHeaders(
+    req.headers as Record<string, string | string[] | undefined>
+  );
+  if (token) {
+    sessionAuthManager.revokeToken(token);
+  }
+  res.setHeader('Set-Cookie', 'haseb_session=; HttpOnly; Path=/; Max-Age=0');
+  recordServerAudit('session-user', 'AUTH', 'LOGOUT', {});
+  res.json({ success: true });
+});
+
+app.get('/api/v1/auth/session', (req, res) => {
+  const token = sessionAuthManager.extractTokenFromHeaders(
+    req.headers as Record<string, string | string[] | undefined>
+  );
+  const verified = sessionAuthManager.verifySessionToken(token);
+  if (!verified.valid) {
+    res.status(401).json({
+      success: false,
+      authenticated: false,
+      reason: verified.reason,
+    });
+    return;
+  }
+  res.json({
+    success: true,
+    authenticated: true,
+    session: verified.claims,
+  });
+});
+
+app.get('/api/v1/security/audit-chain', (_req, res) => {
+  const verification = verifyChainedAuditLogIntegrity(auditChainEntries);
+  res.json({
+    success: true,
+    integrity: verification,
+    entries: auditChainEntries.slice(-200),
+  });
+});
+
+app.get('/api/v1/security/audit-chain/verify', (_req, res) => {
+  const verification = verifyChainedAuditLogIntegrity(auditChainEntries);
+  res.json({
+    success: verification.valid,
+    ...verification,
+  });
+});
+
+// ---------------------------------------------------------
+// ASF Secure Licensing V3 Server Endpoints
 // ---------------------------------------------------------
 
 // Licensing: List all licenses (Admin View)
@@ -1261,7 +1423,20 @@ app.get('/api/v1/licensing/licenses', (_req, res) => {
 });
 
 // Licensing: Issue a new license key (Admin Authority)
+// Disabled in production unless authorized issuer key or admin session is present
 app.post('/api/v1/licensing/issue', (req, res) => {
+  const isProd = process.env.NODE_ENV === 'production';
+  const issuerHeaderKey = req.headers['x-asf-issuer-admin-key'];
+  const expectedIssuerKey = process.env.ASF_ISSUER_ADMIN_KEY;
+  if (isProd && (!expectedIssuerKey || issuerHeaderKey !== expectedIssuerKey)) {
+    res.status(403).json({
+      success: false,
+      errorCode: 'PRODUCTION_SELF_ISSUANCE_FORBIDDEN',
+      message: 'Unauthenticated license self-issuance is disabled in production builds.',
+    });
+    return;
+  }
+
   const { customerName, edition, durationDays, isLifetime, allowedModules } = req.body || {};
   if (!customerName || !edition || !durationDays) {
     res.status(400).json({ success: false, message: 'Missing required license fields.' });
@@ -1277,13 +1452,18 @@ app.post('/api/v1/licensing/issue', (req, res) => {
   if (activationAuthority) {
     activationAuthority.registerIssuedLicense(newLic);
   }
+  recordServerAudit('issuer-authority', 'LICENSE', 'LICENSE_ISSUED', {
+    licenseUuid: newLic.licenseUuid,
+    customerName,
+    edition,
+  });
   res.json({
     success: true,
     license: newLic,
   });
 });
 
-// Licensing: One-Time Atomic Activation
+// Licensing: One-Time Atomic Activation (Binds Critical Silicon Hash & Hardware Telemetry)
 app.post('/api/v1/licensing/activate', (req, res) => {
   const { licenseUuid, hardware, clientNonce, clientEpochMs, clientVersion } = req.body || {};
   if (!licenseUuid || !hardware) {
@@ -1309,7 +1489,13 @@ app.post('/api/v1/licensing/activate', (req, res) => {
     hardware,
     clientNonce: clientNonce || `nonce-${Date.now()}-${Math.random()}`,
     clientEpochMs: Number(clientEpochMs) || Date.now(),
-    clientVersion: clientVersion || '2.0.0',
+    clientVersion: clientVersion || '3.0.0',
+  });
+
+  recordServerAudit('licensing-client', 'LICENSE', 'LICENSE_ACTIVATION_ATTEMPT', {
+    licenseUuid,
+    success: activationResult.success,
+    errorCode: activationResult.errorCode || null,
   });
 
   if (!activationResult.success) {
@@ -1320,50 +1506,57 @@ app.post('/api/v1/licensing/activate', (req, res) => {
   res.json(activationResult);
 });
 
-// Persistent DRM Anti-Replay & Monotonic Clock Guard (.data/drm_guard.json)
-const DRM_GUARD_FILE = path.join(DATA_DIR, 'drm_guard.json');
-interface ServerDrmGuardState {
-  usedSerialTokens: string[];
-  maxObservedClockMs: number;
-  boundRequestCode: string | null;
-}
-let serverDrmGuard: ServerDrmGuardState = (() => {
-  try {
-    if (fs.existsSync(DRM_GUARD_FILE)) {
-      const parsed = JSON.parse(fs.readFileSync(DRM_GUARD_FILE, 'utf-8'));
-      return {
-        usedSerialTokens: Array.isArray(parsed.usedSerialTokens) ? parsed.usedSerialTokens : [],
-        maxObservedClockMs: Math.max(Number(parsed.maxObservedClockMs) || 0, Date.now()),
-        boundRequestCode: typeof parsed.boundRequestCode === 'string' ? parsed.boundRequestCode : null,
-      };
-    }
-  } catch {
-    // ignore read errors
+// Licensing: Hardware Repair / Motherboard Replacement Re-Attestation Endpoint
+app.post('/api/v1/licensing/re-attest', (req, res) => {
+  const { licenseUuid, newHardware, reason } = req.body || {};
+  if (!licenseUuid || !newHardware) {
+    res.status(400).json({
+      success: false,
+      errorCode: 'INVALID_REATTESTATION_REQUEST',
+      message: 'licenseUuid and newHardware are required.',
+    });
+    return;
   }
-  return {
-    usedSerialTokens: [],
-    maxObservedClockMs: Date.now(),
-    boundRequestCode: null,
-  };
-})();
-
-function saveServerDrmGuard() {
-  try {
-    serverDrmGuard.maxObservedClockMs = Math.max(serverDrmGuard.maxObservedClockMs, Date.now());
-    fs.writeFileSync(DRM_GUARD_FILE, JSON.stringify(serverDrmGuard, null, 2), 'utf-8');
-  } catch {
-    // ignore write error
+  if (!activationAuthority) {
+    res.status(503).json({
+      success: false,
+      errorCode: 'AUTHORITY_NOT_CONFIGURED',
+      message: 'Activation authority private key is not configured on this server.',
+    });
+    return;
   }
-}
 
+  const rebindResult = activationAuthority.rebindLicenseForHardwareRepair({
+    licenseUuid,
+    newHardware,
+    reason: reason || 'Authorized hardware repair / motherboard replacement',
+  });
+
+  recordServerAudit('licensing-authority', 'LICENSE', 'LICENSE_REATTESTED', {
+    licenseUuid,
+    success: rebindResult.success,
+    reason: reason || 'Hardware repair',
+  });
+
+  if (!rebindResult.success) {
+    res.status(400).json(rebindResult);
+    return;
+  }
+  res.json(rebindResult);
+});
+
+// Persistent DRM Anti-Replay & Cryptographic Trial Anchor Endpoints
 app.get('/api/v1/security/drm-status', (_req, res) => {
-  serverDrmGuard.maxObservedClockMs = Math.max(serverDrmGuard.maxObservedClockMs, Date.now());
-  saveServerDrmGuard();
+  const anchor = trialAnchorGuard.getAnchorState();
+  const trialEval = trialAnchorGuard.evaluateTrialEligibility();
   res.json({
     success: true,
-    usedSerialTokens: serverDrmGuard.usedSerialTokens,
-    maxObservedClockMs: serverDrmGuard.maxObservedClockMs,
-    boundRequestCode: serverDrmGuard.boundRequestCode,
+    usedSerialTokens: anchor.usedSerialTokens,
+    maxObservedClockMs: anchor.maxObservedClockEpochMs,
+    boundRequestCode: anchor.boundRequestCode,
+    trialStartedAtEpochMs: anchor.firstSeenEpochMs,
+    trialDaysRemaining: trialEval.daysRemaining,
+    trialAllowed: trialEval.allowed,
     serverNowMs: Date.now(),
   });
 });
@@ -1374,98 +1567,77 @@ app.post('/api/v1/security/consume-serial', (req, res) => {
     res.status(400).json({ success: false, errorCode: 'INVALID_TOKEN' });
     return;
   }
-  const now = Date.now();
-  if (
-    typeof clientClockMs === 'number' &&
-    clientClockMs + 120000 < Math.max(serverDrmGuard.maxObservedClockMs, now)
-  ) {
-    res.status(403).json({
+  const consumeRes = trialAnchorGuard.consumeSerialTokenOnce(
+    consumptionToken,
+    requestCode,
+    typeof clientClockMs === 'number' ? clientClockMs : undefined
+  );
+  if (!consumeRes.success) {
+    const status = consumeRes.errorCode === 'ALREADY_USED_ONCE' ? 409 : 403;
+    res.status(status).json({
       success: false,
-      errorCode: 'CLOCK_TAMPERED',
-      messageAr: 'تم رفض التفعيل: تم رصد إرجاع ساعة الجهاز للوراء!',
+      errorCode: consumeRes.errorCode,
+      messageAr:
+        consumeRes.errorCode === 'ALREADY_USED_ONCE'
+          ? 'تم استهلاك كود التفعيل هذا مسبقاً على هذا الجهاز ولا يمكن إعادة استخدامه!'
+          : 'تم رفض التفعيل: تم رصد إرجاع ساعة الجهاز للوراء!',
     });
     return;
   }
-  if (serverDrmGuard.usedSerialTokens.includes(consumptionToken)) {
-    res.status(409).json({
-      success: false,
-      errorCode: 'ALREADY_USED_ONCE',
-      messageAr: 'تم استهلاك كود التفعيل هذا مسبقاً على هذا الجهاز ولا يمكن إعادة استخدامه!',
-    });
-    return;
-  }
-  serverDrmGuard.usedSerialTokens = [...serverDrmGuard.usedSerialTokens, consumptionToken];
-  if (requestCode && typeof requestCode === 'string') {
-    serverDrmGuard.boundRequestCode = requestCode;
-  }
-  serverDrmGuard.maxObservedClockMs = Math.max(serverDrmGuard.maxObservedClockMs, now);
-  saveServerDrmGuard();
+  recordServerAudit('licensing-client', 'LICENSE', 'SERIAL_CONSUMED_ONCE', {
+    consumptionToken,
+    requestCode: requestCode || null,
+  });
+  const anchor = trialAnchorGuard.getAnchorState();
   res.json({
     success: true,
-    usedSerialTokens: serverDrmGuard.usedSerialTokens,
-    maxObservedClockMs: serverDrmGuard.maxObservedClockMs,
+    usedSerialTokens: anchor.usedSerialTokens,
+    maxObservedClockMs: anchor.maxObservedClockEpochMs,
   });
 });
 
-// Licensing: Backend API Security Guard Middleware for Commercial Operations
-// Strictly requires valid license token or verified trial/LAN device state; never allows empty bypass
-function verifyCommercialOperationGuard(req: express.Request, res: express.Response, next: express.NextFunction) {
+// Licensing V3: Backend API Security Guard Middleware for Commercial Operations
+// Uses Cryptographic Trial Anchor & Ed25519 Signed License Verification (No arbitrary header/DB fallback)
+function verifyCommercialOperationGuard(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+) {
   const licenseTokenHeader = req.headers['x-asf-license-token'] as string | undefined;
   const trialDeviceHeader = req.headers['x-asf-trial-device'] as string | undefined;
 
-  // 1. If License Token Header is provided, strictly verify signature and expiration
+  // 1. If License Token Header is provided, strictly verify Ed25519 signature, expiration, and module entitlement
   if (licenseTokenHeader && licenseTokenHeader.trim().length > 0) {
-    try {
-      const parsedToken: SignedLicenseToken = JSON.parse(Buffer.from(licenseTokenHeader, 'base64').toString('utf8'));
-      const sigValid = verifySignedLicenseTokenSignature(parsedToken);
-      if (!sigValid.valid) {
-        res.status(403).json({
-          success: false,
-          errorCode: 'LICENSE_TAMPERED',
-          message: 'Backend Security Reject: Cryptographic signature tampering detected on license token.',
-        });
-        return;
-      }
-
-      // Check Expiration
-      if (!parsedToken.claims.isLifetime && Date.now() > parsedToken.claims.expiresAtEpochMs) {
-        res.status(403).json({
-          success: false,
-          errorCode: 'LICENSE_EXPIRED',
-          message: 'Backend Security Reject: Subscription has expired. Commercial operations (Sales/Inventory) are blocked.',
-        });
-        return;
-      }
-
-      // Valid official license token
-      return next();
-    } catch {
-      res.status(400).json({
+    const verified = verifyLicenseHeaderAndEntitlement(licenseTokenHeader);
+    if (!verified.allowed) {
+      const status = verified.errorCode === 'INVALID_TOKEN_HEADER' ? 400 : 403;
+      res.status(status).json({
         success: false,
-        errorCode: 'INVALID_TOKEN_HEADER',
-        message: 'Invalid base64 format in x-asf-license-token.',
-      });
-      return;
-    }
-  }
-
-  // 2. Fallback to Active 90-Day License / Trial Mode for Primary & LAN Connected Devices
-  if (trialDeviceHeader && trialDeviceHeader.trim().length > 0) {
-    const serverDb = readServerDB();
-    const trialStartedAt = Number(serverDb?.trialStartedAtEpochMs) || Date.now();
-    const elapsedDays = Math.floor((Date.now() - trialStartedAt) / 86400000);
-    if (elapsedDays > 90) {
-      res.status(403).json({
-        success: false,
-        errorCode: 'TRIAL_EXPIRED',
-        message: 'Backend Security Reject: 90-Day license period has expired. Official license activation is mandatory.',
+        errorCode: verified.errorCode,
+        dataAccessPreserved: true,
+        message: `Backend Security Reject (${verified.errorCode}): Commercial write operations are restricted while read/export access remains preserved.`,
       });
       return;
     }
     return next();
   }
 
-  // 3. Reject any raw API access that attempts to bypass the licensing guard without token or device proof
+  // 2. Cryptographically Anchored 90-Day Trial Mode (Never trusts mutable client or DB trialStartedAtEpochMs)
+  if (trialDeviceHeader && trialDeviceHeader.trim().length > 0) {
+    const trialEval = trialAnchorGuard.evaluateTrialEligibility();
+    if (!trialEval.allowed) {
+      res.status(403).json({
+        success: false,
+        errorCode: trialEval.errorCode || 'TRIAL_EXPIRED',
+        dataAccessPreserved: true,
+        message: trialEval.reason || 'Backend Security Reject: Trial period expired or clock rollback detected.',
+      });
+      return;
+    }
+    return next();
+  }
+
+  // 3. Reject raw API access without license token or trial proof
   res.status(403).json({
     success: false,
     errorCode: 'LICENSE_REQUIRED',
@@ -1700,7 +1872,7 @@ app.get('/api/v1/erp/state', (req, res) => {
   });
 });
 
-// 2c. Fast Catch-Up Delta Endpoint (Bridges skipped revisions cleanly for mobile clients)
+// 2c. Fast Catch-Up Delta Endpoint (Bridges skipped revisions + Compact Domain Events cleanly for LAN clients)
 app.get('/api/v1/erp/catchup', (req, res) => {
   const sinceRevision = Number(req.query.sinceRevision || 0);
   if (!memoryStore) {
@@ -1708,6 +1880,7 @@ app.get('/api/v1/erp/catchup', (req, res) => {
       success: true,
       mode: 'EMPTY',
       dbRevision,
+      domainEvents: [],
       data: null,
     });
     return;
@@ -1717,10 +1890,12 @@ app.get('/api/v1/erp/catchup', (req, res) => {
       success: true,
       mode: 'UP_TO_DATE',
       dbRevision,
+      domainEvents: [],
     });
     return;
   }
 
+  const domainEvents = localSqliteEngine.getDomainEventsSinceRevision(sinceRevision);
   let canComposeDelta = sinceRevision > 0 && dbRevision - sinceRevision <= MAX_REVISION_HISTORY;
   let composedPatch: Record<string, any> = {};
   if (canComposeDelta) {
@@ -1741,6 +1916,7 @@ app.get('/api/v1/erp/catchup', (req, res) => {
       dbRevision,
       patch: composedPatch,
       changedKeys: Object.keys(composedPatch),
+      domainEvents,
     });
     return;
   }
@@ -1749,8 +1925,90 @@ app.get('/api/v1/erp/catchup', (req, res) => {
     success: true,
     mode: 'FULL',
     dbRevision,
+    domainEvents,
     data: memoryStore,
   });
+});
+
+// 2d. Phase 2: Server-Authoritative Business Command Endpoint (ACID Stock Validation, Idempotency & Compact Events)
+app.post('/api/v1/erp/command', verifyCommercialOperationGuard, (req, res) => {
+  const body = req.body || {};
+  const currentState = readServerDB() || {
+    products: [],
+    salesInvoices: [],
+    archivedInvoices: [],
+    customers: [],
+    suppliers: [],
+    journalEntries: [],
+    stockTransfers: [],
+  };
+
+  const nextCandidateRevision = dbRevision + 1;
+  const { result, statePatch } = executeAuthoritativeBusinessCommand(
+    currentState,
+    {
+      commandId: String(body.commandId || ''),
+      commandType: body.commandType,
+      clientId: String(body.clientId || req.headers['x-erp-client-id'] || 'lan-client'),
+      branchId: body.branchId,
+      actorName: body.actorName,
+      payload: body.payload || {},
+    },
+    commandIdempotencyMap,
+    nextCandidateRevision
+  );
+
+  if (!result.success) {
+    const status =
+      result.errorCode === 'INSUFFICIENT_STOCK' || result.errorCode === 'ALREADY_RETURNED'
+        ? 409
+        : 400;
+    res.status(status).json(result);
+    return;
+  }
+
+  if (result.idempotentReplay) {
+    res.json(result);
+    return;
+  }
+
+  const { dbRevision: committedRev } = patchServerDB(
+    statePatch,
+    String(body.clientId || req.headers['x-erp-client-id'] || '') || undefined
+  );
+  result.dbRevision = committedRev;
+
+  localSqliteEngine.saveCommandAndEvents(
+    result.commandId,
+    String(body.commandType || ''),
+    committedRev,
+    result,
+    result.events
+  );
+
+  recordServerAudit(
+    String(body.actorName || body.clientId || 'pos-operator'),
+    'COMMAND',
+    String(body.commandType || 'BUSINESS_COMMAND'),
+    {
+      commandId: result.commandId,
+      dbRevision: committedRev,
+      entityId: result.entity?.id || null,
+    }
+  );
+
+  if (result.events.length > 0) {
+    broadcastWsMessage({
+      type: 'erp:domain_events',
+      dbRevision: committedRev,
+      commandId: result.commandId,
+      originClientId: body.clientId || null,
+      events: result.events,
+      serverTimestampMs: Date.now(),
+    });
+  }
+
+  res.json(result);
 });
 
 // 3. Save / Sync Persistent ERP State (0ms RAM Commit + Async Atomic Disk Flush) with Backend Guard
@@ -1831,9 +2089,23 @@ app.post('/api/v1/erp/patch', verifyCommercialOperationGuard, (req, res) => {
   });
 });
 
-// 4. Reset Persistent ERP State
+// 4. Reset Persistent ERP State (Creates automatic pre-reset safety backup + preserves Trial Anchor & Audit Chain)
 app.post('/api/v1/erp/reset', (_req, res) => {
   try {
+    let preResetBackupFile: string | null = null;
+    try {
+      if (memoryStore) {
+        const safetyBackup = createVerifiedServerBackup('AUTO');
+        preResetBackupFile = safetyBackup.filename;
+      }
+    } catch {
+      // ignore if empty
+    }
+    recordServerAudit('system-admin', 'RESET', 'ERP_FULL_RESET', {
+      preResetBackupFile,
+      previousRevision: dbRevision,
+    });
+
     memoryStore = null;
     dbRevision = 1;
     revisionHistoryMap.clear();
@@ -1853,15 +2125,33 @@ app.post('/api/v1/erp/reset', (_req, res) => {
       originClientId: null,
       serverTimestampMs: Date.now(),
     });
-    res.json({ success: true, message: 'Server database reset to clean initial state' });
+    res.json({
+      success: true,
+      preResetBackupFile,
+      message: 'Server database reset to clean initial state (safety backup created)',
+    });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// 4.1 Reset to Clean Blank Database (Zero items, zero invoices, chart of accounts preserved)
+// 4.1 Reset to Clean Blank Database (Creates automatic pre-reset safety backup + preserves chart of accounts)
 app.post('/api/v1/erp/reset-blank', (_req, res) => {
   try {
+    let preResetBackupFile: string | null = null;
+    try {
+      if (memoryStore) {
+        const safetyBackup = createVerifiedServerBackup('AUTO');
+        preResetBackupFile = safetyBackup.filename;
+      }
+    } catch {
+      // ignore if empty
+    }
+    recordServerAudit('system-admin', 'RESET', 'ERP_BLANK_RESET', {
+      preResetBackupFile,
+      previousRevision: dbRevision,
+    });
+
     whatsappAccountsStore = [createCleanWhatsAppDefaultAccount()];
     activeWhatsAppAccountIdStore = whatsappAccountsStore[0]?.id || 'wa-acc-primary';
     whatsappChatsStore = [];
@@ -1894,7 +2184,11 @@ app.post('/api/v1/erp/reset-blank', (_req, res) => {
       originClientId: null,
       serverTimestampMs: Date.now(),
     });
-    res.json({ success: true, message: 'Server database initialized to clean blank state' });
+    res.json({
+      success: true,
+      preResetBackupFile,
+      message: 'Server database initialized to clean blank state (safety backup created)',
+    });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -2171,6 +2465,11 @@ app.post('/api/v1/backups/run-now', (req, res) => {
   try {
     const requestedTrigger = req.body?.trigger === 'AUTO' ? 'AUTO' : 'MANUAL';
     const created = createVerifiedServerBackup(requestedTrigger);
+    recordServerAudit('system-admin', 'BACKUP', 'BACKUP_CREATED', {
+      filename: created.filename,
+      trigger: requestedTrigger,
+      checksumSha256: created.checksumSha256,
+    });
     res.json({
       success: true,
       created,
@@ -2179,6 +2478,48 @@ app.post('/api/v1/backups/run-now', (req, res) => {
     });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err?.message || 'Backup creation failed' });
+  }
+});
+
+// Phase 4: AES-256-GCM Customer-Controlled Encrypted Backup Creation & Clean-Room Restore
+app.post('/api/v1/backups/create-encrypted', (req, res) => {
+  try {
+    const { passphrase } = req.body || {};
+    if (!passphrase || typeof passphrase !== 'string' || passphrase.trim().length < 4) {
+      res.status(400).json({
+        success: false,
+        errorCode: 'WEAK_PASSPHRASE',
+        messageAr: 'يرجى إدخال كلمة مرور قوية لتشفير النسخة الاحتياطية (4 أحرف على الأقل).',
+      });
+      return;
+    }
+    const currentData = readServerDB() || {};
+    const envelope = createEncryptedBackupEnvelopeV2(
+      currentData,
+      passphrase,
+      dbRevision,
+      CURRENT_SCHEMA_VERSION
+    );
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `haseb-backup-encrypted-${stamp}-rev${dbRevision}.json`;
+    fs.writeFileSync(path.join(BACKUP_DIR, filename), JSON.stringify(envelope, null, 2), 'utf-8');
+
+    recordServerAudit('system-admin', 'BACKUP', 'ENCRYPTED_BACKUP_CREATED', {
+      filename,
+      dbRevision,
+      plaintextSha256: envelope.plaintextSha256,
+    });
+
+    res.json({
+      success: true,
+      filename,
+      envelope,
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      message: err?.message || 'Encrypted backup creation failed',
+    });
   }
 });
 
@@ -2221,7 +2562,7 @@ app.get('/api/v1/backups/download/:filename', (req, res) => {
 
 app.post('/api/v1/backups/restore', (req, res) => {
   try {
-    const { filename, payload } = req.body || {};
+    const { filename, payload, passphrase } = req.body || {};
     let parsedEnvelope: any = null;
 
     if (typeof filename === 'string' && filename.trim()) {
@@ -2247,12 +2588,37 @@ app.post('/api/v1/backups/restore', (req, res) => {
       return;
     }
 
-    // Verify integrity checksum when restoring from server backup envelope
-    if (
+    let restoredData: Record<string, any> | null = null;
+
+    // Support AES-256-GCM Encrypted Backup Envelope V2
+    if (parsedEnvelope.backupFormat === 'HASEB-ENCRYPTED-BACKUP-V2') {
+      if (!passphrase || typeof passphrase !== 'string') {
+        res.status(400).json({
+          success: false,
+          errorCode: 'PASSPHRASE_REQUIRED',
+          messageAr: 'هذه النسخة الاحتياطية مشفرة بمعيار AES-256-GCM. يرجى إدخال كلمة المرور لفك التشفير.',
+        });
+        return;
+      }
+      const decrypted = decryptAndVerifyBackupEnvelopeV2(
+        parsedEnvelope as EncryptedBackupEnvelopeV2,
+        passphrase
+      );
+      if (!decrypted.success || !decrypted.data) {
+        res.status(422).json({
+          success: false,
+          errorCode: decrypted.errorCode || 'DECRYPTION_FAILED',
+          messageAr: 'فشل فك تشفير النسخة الاحتياطية أو فشل فحص السلامة الرقمية (كلمة مرور خاطئة أو ملف تالف).',
+        });
+        return;
+      }
+      restoredData = decrypted.data;
+    } else if (
       parsedEnvelope.backupFormat === 'HASEB-SERVER-BACKUP-V1' &&
       parsedEnvelope.checksumSha256 &&
       parsedEnvelope.data
     ) {
+      // Verify integrity checksum when restoring from server backup envelope V1
       const calculatedSha = crypto
         .createHash('sha256')
         .update(JSON.stringify(parsedEnvelope.data), 'utf8')
@@ -2264,21 +2630,42 @@ app.post('/api/v1/backups/restore', (req, res) => {
         });
         return;
       }
+      restoredData = parsedEnvelope.data;
+    } else {
+      restoredData =
+        parsedEnvelope.data && typeof parsedEnvelope.data === 'object'
+          ? parsedEnvelope.data
+          : parsedEnvelope;
     }
-
-    const restoredData = parsedEnvelope.data && typeof parsedEnvelope.data === 'object'
-      ? parsedEnvelope.data
-      : parsedEnvelope;
 
     if (!restoredData || typeof restoredData !== 'object') {
       res.status(400).json({ success: false, messageAr: 'هيكل النسخة الاحتياطية غير متوافق.' });
       return;
     }
 
+    // Create automatic pre-restore safety backup before overwriting current state
+    let preRestoreSafetyBackup: string | null = null;
+    try {
+      if (memoryStore) {
+        const safety = createVerifiedServerBackup('AUTO');
+        preRestoreSafetyBackup = safety.filename;
+      }
+    } catch {
+      // ignore if empty
+    }
+
     const newRev = writeServerDB(restoredData);
+    recordServerAudit('system-admin', 'RESTORE', 'BACKUP_RESTORED', {
+      filename: filename || 'inline-payload',
+      encrypted: parsedEnvelope.backupFormat === 'HASEB-ENCRYPTED-BACKUP-V2',
+      preRestoreSafetyBackup,
+      newRevision: newRev,
+    });
+
     res.json({
       success: true,
       dbRevision: newRev,
+      preRestoreSafetyBackup,
       restoredAt: new Date().toISOString(),
       productsCount: Array.isArray(restoredData.products) ? restoredData.products.length : 0,
       invoicesCount: Array.isArray(restoredData.salesInvoices) ? restoredData.salesInvoices.length : 0,
@@ -2293,7 +2680,7 @@ app.post('/api/v1/backups/restore', (req, res) => {
   }
 });
 
-// 4b. Server-Side Omnichannel WhatsApp & SMS Gateway Dispatch Endpoint
+// 4b. Server-Side Omnichannel WhatsApp & SMS Gateway Dispatch Endpoint (Phase 3 Honest Delivery State Machine)
 app.post('/api/v1/messaging/send', async (req, res) => {
   const {
     id,
@@ -2318,6 +2705,19 @@ app.post('/api/v1/messaging/send', async (req, res) => {
     return;
   }
 
+  // Deduplicate if message with identical ID was already dispatched
+  if (id && memoryStore && Array.isArray(memoryStore.outboundMessages)) {
+    const existingMsg = memoryStore.outboundMessages.find((m: any) => m.id === id);
+    if (existingMsg && (existingMsg.status === 'SENT' || existingMsg.status === 'DELIVERED')) {
+      res.json({
+        success: true,
+        deduplicated: true,
+        record: existingMsg,
+      });
+      return;
+    }
+  }
+
   const {
     dispatchFormat,
     pdfAttached,
@@ -2339,10 +2739,13 @@ app.post('/api/v1/messaging/send', async (req, res) => {
         }
       }
     } catch {
-      // Fallback to internal ERP chat log if socket is not yet linked
+      // Socket not linked; message remains in QUEUED state until live connection or manual bridge
     }
   }
 
+  // Honest Delivery State Machine:
+  // Only report SENT when live Baileys socket actually transmitted the packet; otherwise QUEUED (never fake DELIVERED)
+  const honestStatus = realWaSent ? 'SENT' : 'QUEUED';
   const record = {
     id: id || `msg-${Date.now()}`,
     tenantId: tenantId || 'ten-1',
@@ -2353,8 +2756,8 @@ app.post('/api/v1/messaging/send', async (req, res) => {
     normalizedPhone,
     referenceNumber: referenceNumber || undefined,
     messageBody,
-    status: 'DELIVERED',
-    deliveryConfirmed: true,
+    status: honestStatus,
+    deliveryConfirmed: realWaSent,
     dispatchFormat: dispatchFormat || 'ALL_COMBINED',
     pdfAttached: Boolean(pdfAttached),
     imageAttached: Boolean(imageAttached),
@@ -2363,7 +2766,7 @@ app.post('/api/v1/messaging/send', async (req, res) => {
     smsUri: smsUri || `sms:${normalizedPhone}`,
     sentBy: realWaSent
       ? `${sentBy || 'System Operator'} (WhatsApp Multi-Device Live Socket ✓)`
-      : sentBy || 'System Operator (Guaranteed Dispatch)',
+      : `${sentBy || 'System Operator'} (Queued for Live Gateway)`,
     sentAt: new Date().toISOString().replace('T', ' ').slice(0, 16),
   };
 

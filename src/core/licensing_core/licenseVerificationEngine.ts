@@ -25,6 +25,10 @@ export interface LicenseVerificationReport {
   reasons: string[];
   hardwareStatus: 'MATCH' | 'MINOR_CHANGE_ALLOWED' | 'HARDWARE_MISMATCH';
   timeStatus: 'TIME_OK' | 'TIME_TAMPERING_DETECTED' | 'EXPIRED' | 'OFFLINE_GRACE_EXCEEDED';
+  reAttestationRequired: boolean;
+  machineRequestCode: string;
+  changedComponents: string[];
+  dataAccessPreserved: true; // Never-Hostage Guarantee: Read/Export/Backup always accessible
 }
 
 export function verifyClientLicenseToken(
@@ -35,6 +39,7 @@ export function verifyClientLicenseToken(
   publicKeyPem: string = ASF_OFFICIAL_PUBLIC_KEY_PEM
 ): LicenseVerificationReport {
   const reasons: string[] = [];
+  const currentFp = generateHardwareFingerprint(currentHardware);
 
   if (!token) {
     return {
@@ -44,6 +49,10 @@ export function verifyClientLicenseToken(
       reasons: ['No license token found. System activation is required.'],
       hardwareStatus: 'HARDWARE_MISMATCH',
       timeStatus: 'TIME_OK',
+      reAttestationRequired: false,
+      machineRequestCode: currentFp.machineRequestCode,
+      changedComponents: [],
+      dataAccessPreserved: true,
     };
   }
 
@@ -57,23 +66,48 @@ export function verifyClientLicenseToken(
       reasons: [`Cryptographic signature tampering detected: ${sigCheck.reason}`],
       hardwareStatus: 'HARDWARE_MISMATCH',
       timeStatus: 'TIME_OK',
+      reAttestationRequired: true,
+      machineRequestCode: currentFp.machineRequestCode,
+      changedComponents: ['SIGNATURE_TAMPERED'],
+      dataAccessPreserved: true,
     };
   }
 
-  // 2. Hardware Fingerprint Binding Check
-  const currentFp = generateHardwareFingerprint(currentHardware);
-  const hardwareBound = token.boundDeviceFingerprintHash === currentFp.compositeHash;
+  // 2. Genuine Hardware Fingerprint Binding Check (Never self-compare currentHardware against currentHardware!)
+  const exactCompositeMatch = token.boundDeviceFingerprintHash === currentFp.compositeHash;
 
   let hardwareStatus: 'MATCH' | 'MINOR_CHANGE_ALLOWED' | 'HARDWARE_MISMATCH' = 'HARDWARE_MISMATCH';
-  if (hardwareBound) {
+  let changedComponents: string[] = [];
+
+  if (exactCompositeMatch) {
     hardwareStatus = 'MATCH';
-  } else {
-    // Check if it's a minor change
-    const comp = compareHardwareFingerprints(currentHardware, currentHardware);
+  } else if (token.boundHardwareTelemetry) {
+    // Compare bound original hardware telemetry against current machine telemetry
+    const comp = compareHardwareFingerprints(token.boundHardwareTelemetry, currentHardware);
     hardwareStatus = comp.status;
+    changedComponents = comp.changedComponents;
     if (hardwareStatus === 'HARDWARE_MISMATCH') {
-      reasons.push('Current hardware does not match the hardware bound to this license key.');
+      reasons.push(
+        `Current hardware does not match bound license hardware (changed: ${changedComponents.join(', ') || 'CRITICAL_SILICON'}). Re-attestation required.`
+      );
     }
+  } else if (token.boundCriticalSiliconHash) {
+    // Compare signed critical silicon hash (Motherboard + System UUID)
+    if (token.boundCriticalSiliconHash === currentFp.criticalSiliconHash) {
+      hardwareStatus = 'MINOR_CHANGE_ALLOWED';
+      changedComponents = ['SECONDARY_COMPONENT_UPGRADE'];
+    } else {
+      hardwareStatus = 'HARDWARE_MISMATCH';
+      changedComponents = ['MOTHERBOARD', 'SYSTEM_MACHINE_ID'];
+      reasons.push(
+        'Critical hardware identity (Motherboard / System UUID) changed. Offline re-attestation required.'
+      );
+    }
+  } else {
+    // Legacy token with only boundDeviceFingerprintHash and it did not match currentFp.compositeHash
+    hardwareStatus = 'HARDWARE_MISMATCH';
+    changedComponents = ['COMPOSITE_FINGERPRINT'];
+    reasons.push('Current hardware does not match the hardware bound to this license key.');
   }
 
   // 3. Time Integrity & Expiration Check
@@ -118,5 +152,9 @@ export function verifyClientLicenseToken(
     reasons,
     hardwareStatus,
     timeStatus: timeEval.status,
+    reAttestationRequired: hardwareStatus === 'HARDWARE_MISMATCH',
+    machineRequestCode: currentFp.machineRequestCode,
+    changedComponents,
+    dataAccessPreserved: true,
   };
 }

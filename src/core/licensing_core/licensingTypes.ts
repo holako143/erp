@@ -11,6 +11,7 @@ export type LicenseStatus =
   | 'SUSPENDED'
   | 'REVOKED'
   | 'TRANSFER_PENDING'
+  | 'REATTESTATION_REQUIRED'
   | 'HARDWARE_MISMATCH'
   | 'TIME_TAMPERING_DETECTED';
 
@@ -41,9 +42,13 @@ export interface LicenseClaims {
 }
 
 export interface SignedLicenseToken {
-  version: '2.0';
+  version: '2.0' | '3.0';
   claims: LicenseClaims;
   boundDeviceFingerprintHash: string; // SHA-256 of hardware composite
+  boundCriticalSiliconHash?: string; // SHA-256 of motherboard + system UUID (70% critical anchor)
+  boundSecondarySiliconHash?: string; // SHA-256 of CPU + disk + platform (30% secondary anchor)
+  boundMachineRequestCode?: string;
+  boundHardwareTelemetry?: HardwareTelemetry;
   activatedAtEpochMs: number;
   tokenNonce: string;
   signature: string; // Ed25519 hex signature over serialized claims + boundDevice

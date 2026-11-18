@@ -15,6 +15,9 @@
 
 import test from 'node:test';
 import assert from 'node:assert';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   ActivationServerManager,
   createOfficialLicenseRecord,
@@ -26,6 +29,16 @@ import {
   HardwareTelemetry,
   TimeIntegrityState,
 } from './index';
+import {
+  MaestroSessionAuthManager,
+  CryptographicTrialAnchorGuard,
+  executeAuthoritativeBusinessCommand,
+  createEncryptedBackupEnvelopeV2,
+  decryptAndVerifyBackupEnvelopeV2,
+  appendChainedAuditEntry,
+  verifyChainedAuditLogIntegrity,
+  ChainedAuditEntry,
+} from '../../server/maestroSecurityAndAuthorityEngine';
 
 const MOCK_ISSUER_PRIVATE_KEY_PEM = `-----BEGIN PRIVATE KEY-----
 MC4CAQAwBQYDK2VwBCIEIL1VGu6F1aJB33DSYYXgt/n8U0lN391M17c7iqhbx7A/
@@ -272,3 +285,343 @@ test('ASF V2 Invariant 9: Entitlement Manager protects individual modules', () =
   assert.equal(aiAccess.entitled, false);
   assert.ok(aiAccess.reason?.includes('not entitled'));
 });
+
+test('ASF V3 Invariant 10: verifyClientLicenseToken blocks stolen token on foreign hardware (no self-comparison bypass) while allowing minor disk upgrade and preserving Never-Hostage data access', () => {
+  const manager = new ActivationServerManager(MOCK_ISSUER_PRIVATE_KEY_PEM);
+  const license = createOfficialLicenseRecord({
+    customerName: 'شركة الآفاق للإلكترونيات',
+    edition: 'ENTERPRISE',
+    durationDays: 365,
+  });
+  manager.registerIssuedLicense(license);
+
+  const originalHw: HardwareTelemetry = {
+    motherboardUuid: 'MB-ORIG-9988',
+    cpuModel: 'Intel Core i7-13700',
+    cpuCores: 16,
+    primaryDiskSerial: 'NVME-ORIG-001',
+    systemMachineId: 'SYS-ORIG-9988',
+    platform: 'win32',
+  };
+
+  const act = manager.activateLicenseAtomically({
+    licenseUuid: license.licenseUuid,
+    hardware: originalHw,
+    clientNonce: 'nonce-v3-hw-bind',
+    clientEpochMs: Date.now(),
+    clientVersion: '3.0.0',
+  });
+  assert.ok(act.licenseToken);
+
+  const timeState: TimeIntegrityState = {
+    lastTrustedEpochMs: Date.now(),
+    maxRecordedEpochMs: Date.now(),
+    isTampered: false,
+  };
+
+  // 1. Exact same hardware -> MATCH
+  const sameCheck = verifyClientLicenseToken(act.licenseToken, originalHw, timeState);
+  assert.equal(sameCheck.isValid, true);
+  assert.equal(sameCheck.hardwareStatus, 'MATCH');
+  assert.equal(sameCheck.reAttestationRequired, false);
+
+  // 2. Upgraded NVMe disk on same motherboard -> MINOR_CHANGE_ALLOWED
+  const upgradedDiskHw: HardwareTelemetry = {
+    ...originalHw,
+    primaryDiskSerial: 'NVME-NEW-4TB-999',
+  };
+  const minorCheck = verifyClientLicenseToken(act.licenseToken, upgradedDiskHw, timeState);
+  assert.equal(minorCheck.isValid, true);
+  assert.equal(minorCheck.hardwareStatus, 'MINOR_CHANGE_ALLOWED');
+  assert.equal(minorCheck.reAttestationRequired, false);
+
+  // 3. Token copied to foreign machine -> strictly rejected with HARDWARE_MISMATCH + reAttestationRequired + dataAccessPreserved
+  const foreignHw: HardwareTelemetry = {
+    motherboardUuid: 'MB-ATTACKER-CLONE',
+    cpuModel: 'AMD Ryzen 5',
+    cpuCores: 6,
+    primaryDiskSerial: 'DISK-ATTACKER',
+    systemMachineId: 'SYS-ATTACKER-000',
+    platform: 'win32',
+  };
+  const foreignCheck = verifyClientLicenseToken(act.licenseToken, foreignHw, timeState);
+  assert.equal(foreignCheck.isValid, false);
+  assert.equal(foreignCheck.status, 'HARDWARE_MISMATCH');
+  assert.equal(foreignCheck.hardwareStatus, 'HARDWARE_MISMATCH');
+  assert.equal(foreignCheck.reAttestationRequired, true);
+  assert.equal(foreignCheck.dataAccessPreserved, true);
+
+  // 4. Legitimate motherboard repair re-attestation rebinds cleanly
+  const rebindRes = manager.rebindLicenseForHardwareRepair({
+    licenseUuid: license.licenseUuid,
+    newHardware: foreignHw,
+    reason: 'استبدال اللوحة الأم بعد عطل كهربائي',
+  });
+  assert.equal(rebindRes.success, true);
+  assert.ok(rebindRes.licenseToken);
+  const afterRebindCheck = verifyClientLicenseToken(rebindRes.licenseToken, foreignHw, timeState);
+  assert.equal(afterRebindCheck.isValid, true);
+  assert.equal(afterRebindCheck.hardwareStatus, 'MATCH');
+});
+
+test('ASF V3 Invariant 11: Accidental huge forward clock jump does not permanently trap customer HWM when clock is corrected', () => {
+  const nowMs = Date.now();
+  const initialState: TimeIntegrityState = {
+    lastTrustedEpochMs: nowMs,
+    maxRecordedEpochMs: nowMs,
+    isTampered: false,
+  };
+
+  // Accidental jump 2 years into the future (without server proof)
+  const accidentalFutureMs = nowMs + 730 * 86400000;
+  const jumpEval = evaluateTimeIntegrity(accidentalFutureMs, initialState);
+  assert.equal(jumpEval.forwardJumpClamped, true);
+  assert.equal(jumpEval.updatedState.maxRecordedEpochMs, nowMs);
+
+  // Customer corrects clock back to real time (+5 mins) -> not falsely locked out!
+  const correctedEval = evaluateTimeIntegrity(nowMs + 300000, jumpEval.updatedState);
+  assert.equal(correctedEval.intact, true);
+  assert.equal(correctedEval.status, 'TIME_OK');
+});
+
+test('Maestro Phase 0 Invariant 12: Session Auth HMAC tokens, revocation, brute-force rate limit & Cryptographic Trial Anchor', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'haseb-maestro-p0-'));
+  try {
+    const auth = new MaestroSessionAuthManager(tmpDir);
+    const issued = auth.issueSessionToken({
+      userId: 'u-1',
+      username: 'admin',
+      role: 'ADMIN',
+      branchId: 'br-main',
+    });
+
+    // Valid token verifies cleanly
+    const v1 = auth.verifySessionToken(issued.token);
+    assert.equal(v1.valid, true);
+    assert.equal(v1.claims?.username, 'admin');
+
+    // Forged/tampered token payload rejected
+    const [b64, sig] = issued.token.split('.');
+    const forgedB64 = Buffer.from(
+      JSON.stringify({ ...issued.claims, role: 'SUPER_HACKER' }),
+      'utf8'
+    ).toString('base64url');
+    assert.equal(auth.verifySessionToken(`${forgedB64}.${sig}`).valid, false);
+
+    // Revoked token rejected
+    auth.revokeToken(issued.token);
+    assert.equal(auth.verifySessionToken(issued.token).valid, false);
+
+    // Brute-force lockout after 8 failed attempts
+    for (let i = 0; i < 8; i++) {
+      auth.recordLoginFailure('192.168.1.99');
+    }
+    const rate = auth.checkRateLimit('192.168.1.99');
+    assert.equal(rate.allowed, false);
+    assert.ok(rate.retryAfterSeconds > 0);
+
+    // Cryptographic Trial Anchor prevents rollback and tracks 90-day window immutably
+    const trialGuard = new CryptographicTrialAnchorGuard(tmpDir, auth.getHmacSecret());
+    const initEval = trialGuard.evaluateTrialEligibility();
+    assert.equal(initEval.allowed, true);
+    assert.equal(initEval.daysRemaining, 90);
+
+    // Simulate clock rollback of 2 hours -> rejected with TRIAL_CLOCK_ROLLBACK
+    const rollbackEval = trialGuard.evaluateTrialEligibility(Date.now() - 7200 * 1000);
+    assert.equal(rollbackEval.allowed, false);
+    assert.equal(rollbackEval.errorCode, 'TRIAL_CLOCK_ROLLBACK');
+
+    // Simulate 95 days elapsed -> rejected with TRIAL_EXPIRED
+    const expiredEval = trialGuard.evaluateTrialEligibility(Date.now() + 95 * 86400000);
+    assert.equal(expiredEval.allowed, false);
+    assert.equal(expiredEval.errorCode, 'TRIAL_EXPIRED');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Maestro Phase 2 Invariant 13: Server-Authoritative SALE_CREATE prevents double-selling, enforces commandId idempotency, and prevents double-return', () => {
+  const idempotencyMap = new Map();
+  let state: Record<string, any> = {
+    products: [
+      {
+        id: 'prod-1',
+        name: 'MacBook Pro M3',
+        sku: 'MBP-M3',
+        stock: 1, // Only 1 unit in stock!
+        sellingPrice: 1000,
+        purchasePrice: 800,
+      },
+    ],
+    salesInvoices: [],
+    archivedInvoices: [],
+    customers: [{ id: 'cust-1', name: 'عميل تجريبي', balance: 0 }],
+    journalEntries: [],
+  };
+
+  // Terminal A submits SALE_CREATE for the last unit (also attempts to send forged client total = 10)
+  const sale1 = executeAuthoritativeBusinessCommand(
+    state,
+    {
+      commandId: 'cmd-sale-terminal-A',
+      commandType: 'SALE_CREATE',
+      clientId: 'pos-terminal-A',
+      payload: {
+        invoiceNumber: 'INV-9001',
+        customerId: 'cust-1',
+        customerName: 'عميل تجريبي',
+        paymentMethod: 'CASH',
+        totalAmount: 10, // Forged low total from client — server must recalculate to 1150 (1000 + 15% tax)
+        items: [{ productId: 'prod-1', quantity: 1, taxRate: 15 }],
+      },
+    },
+    idempotencyMap,
+    2
+  );
+
+  assert.equal(sale1.result.success, true);
+  assert.equal(sale1.result.entity?.totalAmount, 1150); // Server recalculated authoritative total!
+  state = { ...state, ...sale1.statePatch };
+  assert.equal(state.products[0].stock, 0);
+
+  // Network retry of Terminal A's exact commandId -> returns idempotent replay without deducting stock again
+  const retrySale1 = executeAuthoritativeBusinessCommand(
+    state,
+    {
+      commandId: 'cmd-sale-terminal-A',
+      commandType: 'SALE_CREATE',
+      clientId: 'pos-terminal-A',
+      payload: {
+        invoiceNumber: 'INV-9001',
+        items: [{ productId: 'prod-1', quantity: 1, taxRate: 15 }],
+      },
+    },
+    idempotencyMap,
+    3
+  );
+  assert.equal(retrySale1.result.success, true);
+  assert.equal(retrySale1.result.idempotentReplay, true);
+  assert.equal(state.products[0].stock, 0);
+
+  // Terminal B concurrently tries to sell the same product when stock is now 0 -> strictly rejected with INSUFFICIENT_STOCK
+  const sale2 = executeAuthoritativeBusinessCommand(
+    state,
+    {
+      commandId: 'cmd-sale-terminal-B',
+      commandType: 'SALE_CREATE',
+      clientId: 'pos-terminal-B',
+      payload: {
+        invoiceNumber: 'INV-9002',
+        items: [{ productId: 'prod-1', quantity: 1 }],
+      },
+    },
+    idempotencyMap,
+    3
+  );
+  assert.equal(sale2.result.success, false);
+  assert.equal(sale2.result.errorCode, 'INSUFFICIENT_STOCK');
+  assert.equal(state.products[0].stock, 0);
+
+  // Return the invoice via RETURN_CREATE -> restores stock to 1 and archives with 'مسترجع' stamp
+  const ret1 = executeAuthoritativeBusinessCommand(
+    state,
+    {
+      commandId: 'cmd-return-1',
+      commandType: 'RETURN_CREATE',
+      clientId: 'pos-terminal-A',
+      payload: {
+        invoiceNumber: 'INV-9001',
+        returnReason: 'استرجاع فوري عبر F1',
+      },
+    },
+    idempotencyMap,
+    4
+  );
+  assert.equal(ret1.result.success, true);
+  state = { ...state, ...ret1.statePatch };
+  assert.equal(state.products[0].stock, 1);
+  assert.equal(state.salesInvoices[0].status, 'RETURNED');
+  assert.equal(state.archivedInvoices[0].archiveStamp, 'مسترجع');
+
+  // Attempting to return the same invoice a second time with a new commandId -> rejected with ALREADY_RETURNED
+  const ret2 = executeAuthoritativeBusinessCommand(
+    state,
+    {
+      commandId: 'cmd-return-duplicate',
+      commandType: 'RETURN_CREATE',
+      clientId: 'pos-terminal-B',
+      payload: {
+        invoiceNumber: 'INV-9001',
+      },
+    },
+    idempotencyMap,
+    5
+  );
+  assert.equal(ret2.result.success, false);
+  assert.equal(ret2.result.errorCode, 'ALREADY_RETURNED');
+  assert.equal(state.products[0].stock, 1);
+});
+
+test('Maestro Phase 4 Invariant 14: AES-256-GCM Encrypted Backups V2 & SHA-256 Tamper-Evident Audit Chain', () => {
+  const sampleErpState = {
+    products: [{ id: 'p-100', name: 'خاتم ذهب عيار 21', stock: 12 }],
+    salesInvoices: [{ id: 'inv-500', invoiceNumber: 'INV-500', totalAmount: 4500 }],
+  };
+
+  // 1. Create AES-256-GCM encrypted backup
+  const envelope = createEncryptedBackupEnvelopeV2(
+    sampleErpState,
+    'StrongCustomerSecret#2026',
+    15,
+    '8.0-haseb-clean-production'
+  );
+  assert.equal(envelope.backupFormat, 'HASEB-ENCRYPTED-BACKUP-V2');
+  assert.equal(envelope.cipher, 'aes-256-gcm');
+
+  // 2. Clean-room restore with correct passphrase succeeds and matches exact state
+  const restoredOk = decryptAndVerifyBackupEnvelopeV2(envelope, 'StrongCustomerSecret#2026');
+  assert.equal(restoredOk.success, true);
+  assert.deepEqual(restoredOk.data, sampleErpState);
+
+  // 3. Wrong passphrase fails with DECRYPTION_OR_AUTH_TAG_FAILED
+  const wrongPass = decryptAndVerifyBackupEnvelopeV2(envelope, 'WrongPassword123');
+  assert.equal(wrongPass.success, false);
+  assert.equal(wrongPass.errorCode, 'DECRYPTION_OR_AUTH_TAG_FAILED');
+
+  // 4. 1-byte tampered ciphertext fails GCM authentication tag verification
+  const tamperedCipher = Buffer.from(envelope.ciphertextBase64, 'base64');
+  tamperedCipher[0] ^= 0xff;
+  const tamperedEnv = {
+    ...envelope,
+    ciphertextBase64: tamperedCipher.toString('base64'),
+  };
+  const tamperedRes = decryptAndVerifyBackupEnvelopeV2(tamperedEnv, 'StrongCustomerSecret#2026');
+  assert.equal(tamperedRes.success, false);
+
+  // 5. Chained SHA-256 Audit Log detects any historical mutation
+  const chain: ChainedAuditEntry[] = [];
+  appendChainedAuditEntry(chain, {
+    actor: 'admin',
+    category: 'AUTH',
+    action: 'LOGIN_SUCCESS',
+    details: { ip: '127.0.0.1' },
+  });
+  appendChainedAuditEntry(chain, {
+    actor: 'cashier-1',
+    category: 'COMMAND',
+    action: 'SALE_CREATE',
+    details: { invoiceNumber: 'INV-500', total: 4500 },
+  });
+
+  const validChainCheck = verifyChainedAuditLogIntegrity(chain);
+  assert.equal(validChainCheck.valid, true);
+  assert.equal(validChainCheck.totalEntries, 2);
+
+  // Tamper with first entry details without updating hash chain -> detected immediately
+  chain[0].details = { ip: '10.0.0.99' };
+  const tamperedChainCheck = verifyChainedAuditLogIntegrity(chain);
+  assert.equal(tamperedChainCheck.valid, false);
+  assert.equal(tamperedChainCheck.brokenAtSequence, 1);
+});
+
+

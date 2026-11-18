@@ -189,6 +189,38 @@ export class HasebLocalSqliteEngine {
           last_seen_at TEXT NOT NULL,
           request_count INTEGER NOT NULL DEFAULT 1
         );
+
+        CREATE TABLE IF NOT EXISTS erp_command_ledger (
+          command_id TEXT PRIMARY KEY,
+          command_type TEXT NOT NULL,
+          revision INTEGER NOT NULL,
+          result_json TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS erp_domain_events (
+          event_id TEXT PRIMARY KEY,
+          revision INTEGER NOT NULL,
+          event_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          command_id TEXT NOT NULL,
+          origin_client_id TEXT,
+          timestamp_ms INTEGER NOT NULL,
+          payload_json TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_erp_domain_events_rev ON erp_domain_events(revision);
+
+        CREATE TABLE IF NOT EXISTS erp_audit_chain (
+          seq INTEGER PRIMARY KEY,
+          id TEXT NOT NULL,
+          timestamp_iso TEXT NOT NULL,
+          actor TEXT NOT NULL,
+          category TEXT NOT NULL,
+          action TEXT NOT NULL,
+          details_json TEXT NOT NULL,
+          prev_hash TEXT NOT NULL,
+          entry_hash TEXT NOT NULL
+        );
       `);
     } catch (err) {
       console.error('[Haseb Local SQLite] Initialization notice:', err);
@@ -664,5 +696,195 @@ export class HasebLocalSqliteEngine {
       tableStats,
       connectedLanDevices,
     };
+  }
+
+  /**
+   * Loads all persisted idempotent command results from SQLite into memory on server boot.
+   */
+  public loadCommandLedger(): Map<string, any> {
+    const map = new Map<string, any>();
+    if (!this.db) return map;
+    try {
+      const rows = this.db
+        .prepare(
+          `SELECT command_id, result_json FROM erp_command_ledger ORDER BY revision DESC LIMIT 2000`
+        )
+        .all() as Array<{ command_id: string; result_json: string }>;
+      for (const r of rows) {
+        try {
+          map.set(String(r.command_id), JSON.parse(r.result_json));
+        } catch {}
+      }
+    } catch {}
+    return map;
+  }
+
+  /**
+   * Persists a committed business command result and its domain events atomically into SQLite.
+   */
+  public saveCommandAndEvents(
+    commandId: string,
+    commandType: string,
+    revision: number,
+    resultObj: any,
+    domainEvents: Array<{
+      eventId: string;
+      revision: number;
+      eventType: string;
+      entityId: string;
+      commandId: string;
+      originClientId?: string;
+      timestampMs: number;
+      payload: Record<string, any>;
+    }>
+  ): void {
+    if (!this.db) return;
+    try {
+      const insertCmd = this.db.prepare(`
+        INSERT OR REPLACE INTO erp_command_ledger (command_id, command_type, revision, result_json, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+      insertCmd.run(
+        commandId,
+        commandType,
+        revision,
+        JSON.stringify(resultObj),
+        new Date().toISOString()
+      );
+
+      if (Array.isArray(domainEvents) && domainEvents.length > 0) {
+        const insertEvt = this.db.prepare(`
+          INSERT OR REPLACE INTO erp_domain_events (
+            event_id, revision, event_type, entity_id, command_id, origin_client_id, timestamp_ms, payload_json
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const ev of domainEvents) {
+          insertEvt.run(
+            ev.eventId,
+            ev.revision,
+            ev.eventType,
+            ev.entityId,
+            ev.commandId,
+            ev.originClientId || null,
+            ev.timestampMs,
+            JSON.stringify(ev.payload || {})
+          );
+        }
+      }
+    } catch (err) {
+      console.error('[Haseb Local SQLite] saveCommandAndEvents error:', err);
+    }
+  }
+
+  /**
+   * Fetches ordered typed domain events since a given revision for fast reconnect catch-up.
+   */
+  public getDomainEventsSinceRevision(sinceRevision: number, limit = 200): any[] {
+    if (!this.db) return [];
+    try {
+      const rows = this.db
+        .prepare(
+          `SELECT event_id, revision, event_type, entity_id, command_id, origin_client_id, timestamp_ms, payload_json
+           FROM erp_domain_events
+           WHERE revision > ?
+           ORDER BY revision ASC, timestamp_ms ASC
+           LIMIT ?`
+        )
+        .all(sinceRevision, limit) as any[];
+      return rows.map((r) => ({
+        eventId: String(r.event_id),
+        revision: Number(r.revision),
+        eventType: String(r.event_type),
+        entityId: String(r.entity_id),
+        commandId: String(r.command_id),
+        originClientId: r.origin_client_id ? String(r.origin_client_id) : undefined,
+        timestampMs: Number(r.timestamp_ms),
+        payload: (() => {
+          try {
+            return JSON.parse(r.payload_json);
+          } catch {
+            return {};
+          }
+        })(),
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Loads the tamper-evident chained SHA-256 audit log from SQLite.
+   */
+  public loadAuditChain(): Array<{
+    seq: number;
+    id: string;
+    timestampIso: string;
+    actor: string;
+    category: any;
+    action: string;
+    detailsJson: string;
+    prevHash: string;
+    entryHash: string;
+  }> {
+    if (!this.db) return [];
+    try {
+      const rows = this.db
+        .prepare(
+          `SELECT seq, id, timestamp_iso, actor, category, action, details_json, prev_hash, entry_hash
+           FROM erp_audit_chain
+           ORDER BY seq ASC`
+        )
+        .all() as any[];
+      return rows.map((r) => ({
+        seq: Number(r.seq),
+        id: String(r.id),
+        timestampIso: String(r.timestamp_iso),
+        actor: String(r.actor),
+        category: r.category,
+        action: String(r.action),
+        detailsJson: String(r.details_json),
+        prevHash: String(r.prev_hash),
+        entryHash: String(r.entry_hash),
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Appends a single chained SHA-256 audit entry to SQLite.
+   */
+  public saveAuditChainEntry(entry: {
+    seq: number;
+    id: string;
+    timestampIso: string;
+    actor: string;
+    category: string;
+    action: string;
+    detailsJson: string;
+    prevHash: string;
+    entryHash: string;
+  }): void {
+    if (!this.db) return;
+    try {
+      const stmt = this.db.prepare(`
+        INSERT OR REPLACE INTO erp_audit_chain (
+          seq, id, timestamp_iso, actor, category, action, details_json, prev_hash, entry_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      stmt.run(
+        entry.seq,
+        entry.id,
+        entry.timestampIso,
+        entry.actor,
+        entry.category,
+        entry.action,
+        entry.detailsJson,
+        entry.prevHash,
+        entry.entryHash
+      );
+    } catch (err) {
+      console.error('[Haseb Local SQLite] saveAuditChainEntry error:', err);
+    }
   }
 }

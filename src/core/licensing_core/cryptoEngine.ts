@@ -14,10 +14,14 @@ MCowBQYDK2VwAyEARgYNHeV6qRp1KJVsxa6xdSLRYi3WAAwOmf4vbcOv+4U=
 
 export const ASF_KEY_ID = 'asf-v2-ed25519-2025';
 
-export function canonicalizeClaimsPayload(claims: LicenseClaims, boundDeviceFingerprintHash: string): string {
+export function canonicalizeClaimsPayload(
+  claims: LicenseClaims,
+  boundDeviceFingerprintHash: string,
+  boundCriticalSiliconHash?: string
+): string {
   // Sort keys deterministically
   const sortedModules = [...claims.allowedModules].sort();
-  const obj = {
+  const obj: Record<string, unknown> = {
     licenseUuid: claims.licenseUuid,
     customerId: claims.customerId,
     customerName: claims.customerName,
@@ -30,7 +34,17 @@ export function canonicalizeClaimsPayload(claims: LicenseClaims, boundDeviceFing
     isLifetime: claims.isLifetime,
     boundDeviceFingerprintHash,
   };
+  if (boundCriticalSiliconHash) {
+    obj.boundCriticalSiliconHash = boundCriticalSiliconHash;
+  }
   return JSON.stringify(obj);
+}
+
+export interface SignLicenseTokenBindingMeta {
+  boundCriticalSiliconHash?: string;
+  boundSecondarySiliconHash?: string;
+  boundMachineRequestCode?: string;
+  boundHardwareTelemetry?: SignedLicenseToken['boundHardwareTelemetry'];
 }
 
 /**
@@ -40,9 +54,14 @@ export function signLicenseClaimsWithEd25519(
   claims: LicenseClaims,
   boundDeviceFingerprintHash: string,
   privateKeyPem: string,
-  keyId: string = ASF_KEY_ID
+  keyId: string = ASF_KEY_ID,
+  bindingMeta?: SignLicenseTokenBindingMeta
 ): SignedLicenseToken {
-  const payload = canonicalizeClaimsPayload(claims, boundDeviceFingerprintHash);
+  const payload = canonicalizeClaimsPayload(
+    claims,
+    boundDeviceFingerprintHash,
+    bindingMeta?.boundCriticalSiliconHash
+  );
   const signatureBuffer = crypto.sign(null, Buffer.from(payload, 'utf8'), privateKeyPem);
   const signatureHex = signatureBuffer.toString('hex');
 
@@ -50,6 +69,18 @@ export function signLicenseClaimsWithEd25519(
     version: '2.0',
     claims,
     boundDeviceFingerprintHash,
+    ...(bindingMeta?.boundCriticalSiliconHash
+      ? { boundCriticalSiliconHash: bindingMeta.boundCriticalSiliconHash }
+      : {}),
+    ...(bindingMeta?.boundSecondarySiliconHash
+      ? { boundSecondarySiliconHash: bindingMeta.boundSecondarySiliconHash }
+      : {}),
+    ...(bindingMeta?.boundMachineRequestCode
+      ? { boundMachineRequestCode: bindingMeta.boundMachineRequestCode }
+      : {}),
+    ...(bindingMeta?.boundHardwareTelemetry
+      ? { boundHardwareTelemetry: bindingMeta.boundHardwareTelemetry }
+      : {}),
     activatedAtEpochMs: Date.now(),
     tokenNonce: crypto.randomBytes(16).toString('hex'),
     signature: signatureHex,
@@ -65,11 +96,20 @@ export function verifySignedLicenseTokenSignature(
   publicKeyPem: string = ASF_OFFICIAL_PUBLIC_KEY_PEM
 ): { valid: boolean; reason?: string } {
   try {
-    if (!token || token.version !== '2.0' || !token.signature || !token.claims) {
+    if (
+      !token ||
+      (token.version !== '2.0' && token.version !== '3.0') ||
+      !token.signature ||
+      !token.claims
+    ) {
       return { valid: false, reason: 'MALFORMED_TOKEN_STRUCTURE' };
     }
 
-    const payload = canonicalizeClaimsPayload(token.claims, token.boundDeviceFingerprintHash);
+    const payload = canonicalizeClaimsPayload(
+      token.claims,
+      token.boundDeviceFingerprintHash,
+      token.boundCriticalSiliconHash
+    );
     const signatureBuffer = Buffer.from(token.signature, 'hex');
 
     const isValid = crypto.verify(
