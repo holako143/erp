@@ -94,6 +94,21 @@ import {
   mergeStateDeltaPatch,
   ConnectedLanDevice,
 } from './src/core/realtimeSyncEngine';
+import {
+  DEFAULT_RECURRING_BACKUP_CONFIG,
+  computeNextScheduledBackupIso,
+  resolveEffectiveCloudSchedule,
+  validateRecurringBackupConfig,
+} from './src/core/backupSchedulerEngine';
+import type {
+  AutoBackupConfig,
+  AutoBackupSchedule,
+  BackupDestinationMode,
+} from './src/types/erp';
+import {
+  buildPrinterTestTicketSummary,
+  validatePrinterProfileInput,
+} from './src/core/printerProfileEngine';
 
 dotenv.config();
 
@@ -2145,12 +2160,12 @@ app.post('/api/v1/erp/patch', verifyCommercialOperationGuard, (req, res) => {
 });
 
 // 4. Reset Persistent ERP State (Creates automatic pre-reset safety backup + preserves Trial Anchor & Audit Chain)
-app.post('/api/v1/erp/reset', (_req, res) => {
+app.post('/api/v1/erp/reset', async (_req, res) => {
   try {
     let preResetBackupFile: string | null = null;
     try {
       if (memoryStore) {
-        const safetyBackup = createVerifiedServerBackup('AUTO');
+        const safetyBackup = await createVerifiedServerBackup('AUTO', 'LOCAL');
         preResetBackupFile = safetyBackup.filename;
       }
     } catch {
@@ -2191,12 +2206,12 @@ app.post('/api/v1/erp/reset', (_req, res) => {
 });
 
 // 4.1 Reset to Clean Blank Database (Creates automatic pre-reset safety backup + preserves chart of accounts)
-app.post('/api/v1/erp/reset-blank', (_req, res) => {
+app.post('/api/v1/erp/reset-blank', async (_req, res) => {
   try {
     let preResetBackupFile: string | null = null;
     try {
       if (memoryStore) {
-        const safetyBackup = createVerifiedServerBackup('AUTO');
+        const safetyBackup = await createVerifiedServerBackup('AUTO', 'LOCAL');
         preResetBackupFile = safetyBackup.filename;
       }
     } catch {
@@ -2250,72 +2265,106 @@ app.post('/api/v1/erp/reset-blank', (_req, res) => {
 });
 
 // ============================================================================
-// 4a. Scheduled Auto-Backup Manager & One-Click Restore Engine
+// 4a. Scheduled Auto-Backup Manager (Local & Cloud Frequencies) & Restore Engine
 // ============================================================================
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const BACKUP_CONFIG_FILE = path.join(DATA_DIR, 'backup-config.json');
+const BACKUP_CLOUD_SECRET_FILE = path.join(DATA_DIR, 'backup-cloud-secret.json');
 
 if (!fs.existsSync(BACKUP_DIR)) {
   fs.mkdirSync(BACKUP_DIR, { recursive: true });
 }
 
-type BackupScheduleMode = 'OFF' | 'HOURLY' | 'EVERY_6_HOURS' | 'DAILY';
+type ServerBackupConfigState = AutoBackupConfig;
 
-interface ServerBackupConfigState {
-  schedule: BackupScheduleMode;
-  maxRetentionCount: number;
-  includeSqliteCopy: boolean;
-  lastBackupAt?: string;
-  nextBackupAt?: string;
+function readBackupCloudToken(): string {
+  try {
+    if (fs.existsSync(BACKUP_CLOUD_SECRET_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(BACKUP_CLOUD_SECRET_FILE, 'utf-8'));
+      return typeof parsed?.authToken === 'string' ? parsed.authToken.trim() : '';
+    }
+  } catch {
+    // ignore read failure
+  }
+  return '';
 }
 
-function getScheduleIntervalMs(schedule: BackupScheduleMode): number {
-  switch (schedule) {
-    case 'HOURLY':
-      return 3600 * 1000;
-    case 'EVERY_6_HOURS':
-      return 6 * 3600 * 1000;
-    case 'DAILY':
-      return 24 * 3600 * 1000;
-    case 'OFF':
-    default:
-      return 0;
+function writeBackupCloudToken(token: string): void {
+  try {
+    const clean = String(token || '').trim();
+    if (!clean) {
+      if (fs.existsSync(BACKUP_CLOUD_SECRET_FILE)) fs.unlinkSync(BACKUP_CLOUD_SECRET_FILE);
+      return;
+    }
+    fs.writeFileSync(
+      BACKUP_CLOUD_SECRET_FILE,
+      JSON.stringify({ authToken: clean, updatedAt: new Date().toISOString() }, null, 2),
+      { encoding: 'utf-8', mode: 0o600 }
+    );
+  } catch {
+    // ignore write failure
   }
 }
 
-function computeNextBackupIso(schedule: BackupScheduleMode, fromMs = Date.now()): string | undefined {
-  const intervalMs = getScheduleIntervalMs(schedule);
-  if (intervalMs <= 0) return undefined;
-  return new Date(fromMs + intervalMs).toISOString();
+function maskBackupToken(token: string): string | undefined {
+  if (!token) return undefined;
+  if (token.length <= 8) return '••••••••';
+  return `${token.slice(0, 4)}••••${token.slice(-4)}`;
+}
+
+function computeNextBackupIso(
+  configOrSchedule: ServerBackupConfigState | AutoBackupSchedule,
+  fromMs = Date.now()
+): string | undefined {
+  if (typeof configOrSchedule === 'string') {
+    return computeNextScheduledBackupIso({ schedule: configOrSchedule }, fromMs);
+  }
+  return computeNextScheduledBackupIso(configOrSchedule, fromMs);
 }
 
 function loadBackupConfig(): ServerBackupConfigState {
+  const token = readBackupCloudToken();
   const fallback: ServerBackupConfigState = {
-    schedule: 'EVERY_6_HOURS',
-    maxRetentionCount: 15,
-    includeSqliteCopy: true,
-    nextBackupAt: computeNextBackupIso('EVERY_6_HOURS'),
+    ...DEFAULT_RECURRING_BACKUP_CONFIG,
+    hasCloudAuthToken: Boolean(token),
+    cloudAuthTokenMasked: maskBackupToken(token),
+    nextBackupAt: computeNextScheduledBackupIso(DEFAULT_RECURRING_BACKUP_CONFIG),
   };
   try {
     if (fs.existsSync(BACKUP_CONFIG_FILE)) {
       const parsed = JSON.parse(fs.readFileSync(BACKUP_CONFIG_FILE, 'utf-8'));
-      const schedule: BackupScheduleMode = ['OFF', 'HOURLY', 'EVERY_6_HOURS', 'DAILY'].includes(
-        parsed?.schedule
-      )
-        ? parsed.schedule
-        : 'EVERY_6_HOURS';
+      const validated = validateRecurringBackupConfig(parsed || {}, DEFAULT_RECURRING_BACKUP_CONFIG);
+      const merged = validated.normalized;
+      const effectiveCloudSchedule = resolveEffectiveCloudSchedule(merged);
       return {
-        schedule,
-        maxRetentionCount: Math.max(3, Math.min(100, Number(parsed?.maxRetentionCount) || 15)),
-        includeSqliteCopy:
-          typeof parsed?.includeSqliteCopy === 'boolean' ? parsed.includeSqliteCopy : true,
+        ...merged,
+        hasCloudAuthToken: Boolean(token),
+        cloudAuthTokenMasked: maskBackupToken(token),
         lastBackupAt: typeof parsed?.lastBackupAt === 'string' ? parsed.lastBackupAt : undefined,
         nextBackupAt:
-          schedule === 'OFF'
+          merged.schedule === 'OFF'
             ? undefined
             : typeof parsed?.nextBackupAt === 'string'
             ? parsed.nextBackupAt
-            : computeNextBackupIso(schedule),
+            : computeNextScheduledBackupIso(merged),
+        lastCloudSyncAt:
+          typeof parsed?.lastCloudSyncAt === 'string' ? parsed.lastCloudSyncAt : undefined,
+        nextCloudBackupAt:
+          effectiveCloudSchedule === 'OFF'
+            ? undefined
+            : typeof parsed?.nextCloudBackupAt === 'string'
+            ? parsed.nextCloudBackupAt
+            : computeNextScheduledBackupIso({
+                schedule: effectiveCloudSchedule,
+                preferredTimeHHMM: merged.preferredTimeHHMM,
+                dayOfWeek: merged.dayOfWeek,
+                dayOfMonth: merged.dayOfMonth,
+              }),
+        lastCloudSyncStatus: parsed?.lastCloudSyncStatus || (merged.destination === 'LOCAL' ? 'NOT_CONFIGURED' : 'QUEUED_LOCAL_MIRROR'),
+        lastCloudSyncMessage:
+          typeof parsed?.lastCloudSyncMessage === 'string'
+            ? parsed.lastCloudSyncMessage
+            : undefined,
       };
     }
   } catch {
@@ -2349,6 +2398,8 @@ function listServerBackupsMetadata() {
       sizeBytes: number;
       checksumSha256: string;
       trigger: 'AUTO' | 'MANUAL';
+      destination: BackupDestinationMode;
+      cloudSyncStatus: 'SYNCED' | 'QUEUED_LOCAL_MIRROR' | 'FAILED' | 'LOCAL_ONLY';
       dbRevision: number;
       productsCount: number;
       invoicesCount: number;
@@ -2365,8 +2416,10 @@ function listServerBackupsMetadata() {
           filename,
           createdAt: parsed?.createdAt || stat.mtime.toISOString(),
           sizeBytes: stat.size,
-          checksumSha256: parsed?.checksumSha256 || '',
+          checksumSha256: parsed?.checksumSha256 || parsed?.plaintextSha256 || '',
           trigger: parsed?.trigger === 'AUTO' ? 'AUTO' : 'MANUAL',
+          destination: parsed?.destination || 'LOCAL',
+          cloudSyncStatus: parsed?.cloudSyncStatus || 'LOCAL_ONLY',
           dbRevision: Number(parsed?.dbRevision) || Number(data?.dbRevision) || 1,
           productsCount: Array.isArray(data.products) ? data.products.length : 0,
           invoicesCount: Array.isArray(data.salesInvoices) ? data.salesInvoices.length : 0,
@@ -2401,7 +2454,64 @@ function pruneOldBackups(maxKeep: number) {
   }
 }
 
-function createVerifiedServerBackup(trigger: 'AUTO' | 'MANUAL') {
+async function attemptCloudBackupUpload(
+  filename: string,
+  envelopeJson: string,
+  config: ServerBackupConfigState
+): Promise<{
+  status: 'SYNCED' | 'QUEUED_LOCAL_MIRROR' | 'FAILED';
+  message: string;
+}> {
+  const endpoint = String(config.cloudEndpointUrl || '').trim();
+  if (!endpoint || !/^https?:\/\//i.test(endpoint)) {
+    return {
+      status: 'QUEUED_LOCAL_MIRROR',
+      message: 'تم حفظ النسخة محلياً بانتظار ضبط رابط السحابة الصحيح.',
+    };
+  }
+  const token = readBackupCloudToken();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 4500);
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-Haseb-Backup-Filename': filename,
+      'X-Haseb-Cloud-Provider': config.cloudProvider || 'S3_COMPATIBLE',
+      'X-Haseb-Cloud-Bucket': config.cloudBucketOrFolder || 'haseb-erp-backups',
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: envelopeJson,
+      signal: controller.signal,
+    });
+    if (resp.ok) {
+      return {
+        status: 'SYNCED',
+        message: `تم رفع النسخة إلى السحابة (${config.cloudProvider || 'CLOUD'}) بنجاح (HTTP ${resp.status}).`,
+      };
+    }
+    return {
+      status: 'QUEUED_LOCAL_MIRROR',
+      message: `تم حفظ النسخة محلياً وتعذر الرفع السحابي (HTTP ${resp.status}) — مجدول لإعادة المحاولة.`,
+    };
+  } catch (err: any) {
+    return {
+      status: 'QUEUED_LOCAL_MIRROR',
+      message: `تم حفظ النسخة محلياً بأمان (السحابة غير متاحة حالياً: ${err?.name === 'AbortError' ? 'انتهت المهلة' : 'تعذر الاتصال'}).`,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function createVerifiedServerBackup(
+  trigger: 'AUTO' | 'MANUAL',
+  overrideDestination?: BackupDestinationMode
+) {
   const snapshotData = readServerDB() || {
     products: [],
     salesInvoices: [],
@@ -2412,21 +2522,43 @@ function createVerifiedServerBackup(trigger: 'AUTO' | 'MANUAL') {
   };
   const nowIso = new Date().toISOString();
   const safeStamp = nowIso.replace(/[:.]/g, '-');
+  const destination: BackupDestinationMode =
+    overrideDestination || backupConfigState.destination || 'LOCAL';
   const filename = `haseb-backup-${safeStamp}-${trigger.toLowerCase()}.json`;
   const dataJson = JSON.stringify(snapshotData);
   const checksumSha256 = crypto.createHash('sha256').update(dataJson, 'utf8').digest('hex');
 
-  const envelope = {
+  let cloudSyncStatus: 'SYNCED' | 'QUEUED_LOCAL_MIRROR' | 'FAILED' | 'LOCAL_ONLY' = 'LOCAL_ONLY';
+  let cloudSyncMessage: string | undefined;
+
+  const baseEnvelope: Record<string, any> = {
     backupFormat: 'HASEB-SERVER-BACKUP-V1',
     createdAt: nowIso,
     trigger,
+    destination,
+    cloudProvider: destination === 'LOCAL' ? undefined : backupConfigState.cloudProvider,
+    cloudBucketOrFolder:
+      destination === 'LOCAL' ? undefined : backupConfigState.cloudBucketOrFolder,
+    cloudSyncStatus,
     dbRevision,
     checksumSha256,
     data: snapshotData,
   };
 
+  if (destination === 'CLOUD' || destination === 'LOCAL_AND_CLOUD') {
+    const cloudOutcome = await attemptCloudBackupUpload(
+      filename,
+      JSON.stringify(baseEnvelope),
+      backupConfigState
+    );
+    cloudSyncStatus = cloudOutcome.status;
+    cloudSyncMessage = cloudOutcome.message;
+    baseEnvelope.cloudSyncStatus = cloudSyncStatus;
+    baseEnvelope.cloudSyncMessage = cloudSyncMessage;
+  }
+
   const fullPath = path.join(BACKUP_DIR, filename);
-  fs.writeFileSync(fullPath, JSON.stringify(envelope, null, 2), 'utf-8');
+  fs.writeFileSync(fullPath, JSON.stringify(baseEnvelope, null, 2), 'utf-8');
 
   if (backupConfigState.includeSqliteCopy) {
     try {
@@ -2440,10 +2572,30 @@ function createVerifiedServerBackup(trigger: 'AUTO' | 'MANUAL') {
     }
   }
 
+  const effectiveCloudSchedule = resolveEffectiveCloudSchedule(backupConfigState);
   backupConfigState = {
     ...backupConfigState,
     lastBackupAt: nowIso,
-    nextBackupAt: computeNextBackupIso(backupConfigState.schedule, Date.now()),
+    nextBackupAt: computeNextScheduledBackupIso(backupConfigState, Date.now()),
+    ...(destination !== 'LOCAL'
+      ? {
+          lastCloudSyncAt: nowIso,
+          lastCloudSyncStatus: cloudSyncStatus === 'LOCAL_ONLY' ? 'NOT_CONFIGURED' : cloudSyncStatus,
+          lastCloudSyncMessage: cloudSyncMessage,
+          nextCloudBackupAt:
+            effectiveCloudSchedule === 'OFF'
+              ? undefined
+              : computeNextScheduledBackupIso(
+                  {
+                    schedule: effectiveCloudSchedule,
+                    preferredTimeHHMM: backupConfigState.preferredTimeHHMM,
+                    dayOfWeek: backupConfigState.dayOfWeek,
+                    dayOfMonth: backupConfigState.dayOfMonth,
+                  },
+                  Date.now()
+                ),
+        }
+      : {}),
   };
   saveBackupConfig();
   pruneOldBackups(backupConfigState.maxRetentionCount);
@@ -2453,20 +2605,42 @@ function createVerifiedServerBackup(trigger: 'AUTO' | 'MANUAL') {
     createdAt: nowIso,
     checksumSha256,
     trigger,
+    destination,
+    cloudSyncStatus,
+    cloudSyncMessage,
     dbRevision,
   };
 }
 
-// Background Auto-Backup Scheduler Tick (checks every 60s)
-setInterval(() => {
+// Background Auto-Backup Scheduler Tick (checks every 60s for local & cloud recurring schedules)
+setInterval(async () => {
   try {
-    if (backupConfigState.schedule === 'OFF') return;
     if (!memoryStore) return;
-    const dueMs = backupConfigState.nextBackupAt
+    const nowMs = Date.now();
+    const localDueMs = backupConfigState.nextBackupAt
       ? Date.parse(backupConfigState.nextBackupAt)
       : 0;
-    if (!dueMs || Date.now() >= dueMs) {
-      const created = createVerifiedServerBackup('AUTO');
+    const cloudSchedule = resolveEffectiveCloudSchedule(backupConfigState);
+    const cloudDueMs = backupConfigState.nextCloudBackupAt
+      ? Date.parse(backupConfigState.nextCloudBackupAt)
+      : 0;
+
+    if (backupConfigState.schedule !== 'OFF' && (!localDueMs || nowMs >= localDueMs)) {
+      const created = await createVerifiedServerBackup('AUTO');
+      broadcastWsMessage({
+        type: 'erp:daily_backup_completed',
+        backup: created,
+      });
+      return;
+    }
+
+    if (
+      backupConfigState.destination !== 'LOCAL' &&
+      cloudSchedule !== 'OFF' &&
+      cloudDueMs > 0 &&
+      nowMs >= cloudDueMs
+    ) {
+      const created = await createVerifiedServerBackup('AUTO', 'CLOUD');
       broadcastWsMessage({
         type: 'erp:daily_backup_completed',
         backup: created,
@@ -2486,28 +2660,61 @@ app.get('/api/v1/backups/status', (_req, res) => {
 });
 
 app.post('/api/v1/backups/config', (req, res) => {
-  const { schedule, maxRetentionCount, includeSqliteCopy } = req.body || {};
-  const validSchedule: BackupScheduleMode = ['OFF', 'HOURLY', 'EVERY_6_HOURS', 'DAILY'].includes(
-    schedule
-  )
-    ? schedule
-    : backupConfigState.schedule;
+  const body = req.body || {};
+  const validation = validateRecurringBackupConfig(body, backupConfigState);
+  if (!validation.valid) {
+    res.status(400).json({
+      success: false,
+      errors: validation.errors,
+      messageAr: validation.errors[0] || 'بيانات جدولة النسخ الاحتياطي غير صالحة.',
+    });
+    return;
+  }
+
+  if (typeof body.cloudAuthToken === 'string') {
+    if (body.cloudAuthToken === '__CLEAR__') {
+      writeBackupCloudToken('');
+    } else if (body.cloudAuthToken.trim().length > 0 && body.cloudAuthToken !== '__KEEP__') {
+      writeBackupCloudToken(body.cloudAuthToken.trim());
+    }
+  }
+
+  const currentToken = readBackupCloudToken();
+  const normalized = validation.normalized;
+  const effectiveCloudSchedule = resolveEffectiveCloudSchedule(normalized);
 
   backupConfigState = {
-    ...backupConfigState,
-    schedule: validSchedule,
-    maxRetentionCount:
-      typeof maxRetentionCount === 'number'
-        ? Math.max(3, Math.min(100, Math.round(maxRetentionCount)))
-        : backupConfigState.maxRetentionCount,
-    includeSqliteCopy:
-      typeof includeSqliteCopy === 'boolean'
-        ? includeSqliteCopy
-        : backupConfigState.includeSqliteCopy,
-    nextBackupAt: computeNextBackupIso(validSchedule, Date.now()),
+    ...normalized,
+    hasCloudAuthToken: Boolean(currentToken),
+    cloudAuthTokenMasked: maskBackupToken(currentToken),
+    nextBackupAt: computeNextScheduledBackupIso(normalized, Date.now()),
+    nextCloudBackupAt:
+      effectiveCloudSchedule === 'OFF'
+        ? undefined
+        : computeNextScheduledBackupIso(
+            {
+              schedule: effectiveCloudSchedule,
+              preferredTimeHHMM: normalized.preferredTimeHHMM,
+              dayOfWeek: normalized.dayOfWeek,
+              dayOfMonth: normalized.dayOfMonth,
+            },
+            Date.now()
+          ),
+    lastCloudSyncStatus:
+      normalized.destination === 'LOCAL'
+        ? 'NOT_CONFIGURED'
+        : backupConfigState.lastCloudSyncStatus || 'QUEUED_LOCAL_MIRROR',
   };
   saveBackupConfig();
   pruneOldBackups(backupConfigState.maxRetentionCount);
+
+  recordServerAudit('system-admin', 'BACKUP', 'BACKUP_SCHEDULE_UPDATED', {
+    schedule: backupConfigState.schedule,
+    destination: backupConfigState.destination,
+    cloudProvider: backupConfigState.cloudProvider,
+    cloudSyncFrequency: backupConfigState.cloudSyncFrequency,
+    maxRetentionCount: backupConfigState.maxRetentionCount,
+  });
 
   res.json({
     success: true,
@@ -2516,13 +2723,70 @@ app.post('/api/v1/backups/config', (req, res) => {
   });
 });
 
-app.post('/api/v1/backups/run-now', (req, res) => {
+app.post('/api/v1/backups/test-cloud', async (req, res) => {
+  const endpoint = String(req.body?.cloudEndpointUrl || backupConfigState.cloudEndpointUrl || '').trim();
+  const provider = String(req.body?.cloudProvider || backupConfigState.cloudProvider || 'S3_COMPATIBLE');
+  if (!endpoint || !/^https?:\/\/[^\s/$.?#].[^\s]*$/i.test(endpoint)) {
+    res.status(400).json({
+      success: false,
+      reachable: false,
+      messageAr: 'يرجى إدخال رابط نقطة سحابية صالح يبدأ بـ https:// أو http://.',
+    });
+    return;
+  }
+
+  const token =
+    typeof req.body?.cloudAuthToken === 'string' &&
+    req.body.cloudAuthToken.trim() &&
+    req.body.cloudAuthToken !== '__KEEP__'
+      ? req.body.cloudAuthToken.trim()
+      : readBackupCloudToken();
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 4500);
+  const startedAt = Date.now();
+  try {
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const resp = await fetch(endpoint, { method: 'HEAD', headers, signal: controller.signal });
+    const latencyMs = Date.now() - startedAt;
+    const reachable = resp.status < 500;
+    res.json({
+      success: true,
+      reachable,
+      statusCode: resp.status,
+      latencyMs,
+      provider,
+      messageAr: reachable
+        ? `تم التحقق من استجابة نقطة السحابة (${provider}) بنجاح (${latencyMs}ms · HTTP ${resp.status}).`
+        : `استجاب الخادم السحابي برمز خطأ (HTTP ${resp.status}). تحقق من الصلاحيات أو الرابط.`,
+    });
+  } catch (err: any) {
+    const latencyMs = Date.now() - startedAt;
+    res.json({
+      success: true,
+      reachable: false,
+      latencyMs,
+      provider,
+      messageAr: `تعذر الوصول المباشر لنقطة السحابة (${err?.name === 'AbortError' ? 'انتهت مهلة الاتصال' : 'الشبكة أو الرابط غير متاح'}) — عند الجدولة سيتم حفظ النسخة محلياً بأمان وإعادة المحاولة.`,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
+app.post('/api/v1/backups/run-now', async (req, res) => {
   try {
     const requestedTrigger = req.body?.trigger === 'AUTO' ? 'AUTO' : 'MANUAL';
-    const created = createVerifiedServerBackup(requestedTrigger);
+    const overrideDest = ['LOCAL', 'CLOUD', 'LOCAL_AND_CLOUD'].includes(req.body?.destination)
+      ? (req.body.destination as BackupDestinationMode)
+      : undefined;
+    const created = await createVerifiedServerBackup(requestedTrigger, overrideDest);
     recordServerAudit('system-admin', 'BACKUP', 'BACKUP_CREATED', {
       filename: created.filename,
       trigger: requestedTrigger,
+      destination: created.destination,
+      cloudSyncStatus: created.cloudSyncStatus,
       checksumSha256: created.checksumSha256,
     });
     res.json({
@@ -2534,6 +2798,45 @@ app.post('/api/v1/backups/run-now', (req, res) => {
   } catch (err: any) {
     res.status(500).json({ success: false, message: err?.message || 'Backup creation failed' });
   }
+});
+
+app.post('/api/v1/printers/test-print', (req, res) => {
+  const { profile, companyName } = req.body || {};
+  if (!profile || typeof profile !== 'object') {
+    res.status(400).json({
+      success: false,
+      messageAr: 'بيانات ملف الطابعة غير مكتملة.',
+    });
+    return;
+  }
+  const validation = validatePrinterProfileInput(profile);
+  if (!validation.valid) {
+    res.status(400).json({
+      success: false,
+      errors: validation.errors,
+      messageAr: validation.errors[0] || 'إعدادات الطابعة غير صالحة.',
+    });
+    return;
+  }
+  const testedAt = new Date().toISOString();
+  const ticket = buildPrinterTestTicketSummary(
+    profile,
+    String(companyName || memoryStore?.company?.nameAr || 'Haseb Enterprise ERP'),
+    testedAt
+  );
+  recordServerAudit('pos-operator', 'COMMAND', 'PRINTER_PROFILE_TESTED', {
+    printerId: profile.id,
+    printerName: profile.name,
+    category: profile.category,
+    paperSize: profile.paperSize,
+    connectionType: profile.connectionType,
+    addressOrPort: profile.addressOrPort,
+  });
+  res.json({
+    success: true,
+    testedAt,
+    ticket,
+  });
 });
 
 // Phase 4: AES-256-GCM Customer-Controlled Encrypted Backup Creation & Clean-Room Restore
@@ -2578,12 +2881,12 @@ app.post('/api/v1/backups/create-encrypted', (req, res) => {
   }
 });
 
-app.get('/api/v1/backups/download-latest', (_req, res) => {
+app.get('/api/v1/backups/download-latest', async (_req, res) => {
   try {
     let backups = listServerBackupsMetadata();
     let targetName = backups[0]?.filename;
     if (!targetName) {
-      const created = createVerifiedServerBackup('MANUAL');
+      const created = await createVerifiedServerBackup('MANUAL', 'LOCAL');
       targetName = created.filename;
     }
     const targetPath = path.join(BACKUP_DIR, path.basename(targetName));
@@ -2615,7 +2918,7 @@ app.get('/api/v1/backups/download/:filename', (req, res) => {
   fs.createReadStream(targetPath).pipe(res);
 });
 
-app.post('/api/v1/backups/restore', (req, res) => {
+app.post('/api/v1/backups/restore', async (req, res) => {
   try {
     const { filename, payload, passphrase } = req.body || {};
     let parsedEnvelope: any = null;
@@ -2702,7 +3005,7 @@ app.post('/api/v1/backups/restore', (req, res) => {
     let preRestoreSafetyBackup: string | null = null;
     try {
       if (memoryStore) {
-        const safety = createVerifiedServerBackup('AUTO');
+        const safety = await createVerifiedServerBackup('AUTO', 'LOCAL');
         preRestoreSafetyBackup = safety.filename;
       }
     } catch {

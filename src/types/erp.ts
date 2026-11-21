@@ -481,14 +481,46 @@ export interface PurchaseReturn {
   createdAt: string;
 }
 
-export type AutoBackupSchedule = 'OFF' | 'HOURLY' | 'EVERY_6_HOURS' | 'DAILY';
+export type AutoBackupSchedule =
+  | 'OFF'
+  | 'HOURLY'
+  | 'EVERY_6_HOURS'
+  | 'DAILY'
+  | 'WEEKLY'
+  | 'MONTHLY';
+
+export type BackupDestinationMode = 'LOCAL' | 'CLOUD' | 'LOCAL_AND_CLOUD';
+
+export type CloudBackupProvider =
+  | 'S3_COMPATIBLE'
+  | 'GOOGLE_DRIVE'
+  | 'WEBDAV'
+  | 'CUSTOM_WEBHOOK';
+
+export type CloudSyncFrequency = 'SAME_AS_LOCAL' | AutoBackupSchedule;
 
 export interface AutoBackupConfig {
   schedule: AutoBackupSchedule;
+  destination: BackupDestinationMode;
   maxRetentionCount: number;
   includeSqliteCopy: boolean;
+  encryptBackup?: boolean;
+  preferredTimeHHMM?: string; // e.g. '02:00'
+  dayOfWeek?: number; // 0 (Sunday) - 6 (Saturday) for WEEKLY
+  dayOfMonth?: number; // 1 - 28 for MONTHLY
+  localDirectoryLabel?: string;
+  cloudProvider?: CloudBackupProvider;
+  cloudEndpointUrl?: string;
+  cloudBucketOrFolder?: string;
+  cloudSyncFrequency?: CloudSyncFrequency;
+  hasCloudAuthToken?: boolean;
+  cloudAuthTokenMasked?: string;
   lastBackupAt?: string;
   nextBackupAt?: string;
+  lastCloudSyncAt?: string;
+  nextCloudBackupAt?: string;
+  lastCloudSyncStatus?: 'SYNCED' | 'QUEUED_LOCAL_MIRROR' | 'FAILED' | 'NOT_CONFIGURED';
+  lastCloudSyncMessage?: string;
 }
 
 export interface ServerBackupMetadata {
@@ -497,10 +529,43 @@ export interface ServerBackupMetadata {
   sizeBytes: number;
   checksumSha256: string;
   trigger: 'AUTO' | 'MANUAL';
+  destination?: BackupDestinationMode;
+  cloudSyncStatus?: 'SYNCED' | 'QUEUED_LOCAL_MIRROR' | 'FAILED' | 'LOCAL_ONLY';
   dbRevision: number;
   productsCount: number;
   invoicesCount: number;
   journalsCount: number;
+}
+
+// -------------------------------------------------------------
+// POS Printer Profile Configuration Models (Receipt / A4)
+// -------------------------------------------------------------
+export type PrinterProfileCategory = 'RECEIPT' | 'A4';
+
+export type PrinterPaperSize = '58mm' | '80mm' | 'A4' | 'A5' | 'LETTER';
+
+export type PrinterConnectionType = 'USB' | 'NETWORK_IP' | 'BLUETOOTH' | 'SYSTEM_DRIVER';
+
+export interface PosPrinterProfile {
+  id: string;
+  name: string;
+  category: PrinterProfileCategory;
+  paperSize: PrinterPaperSize;
+  connectionType: PrinterConnectionType;
+  addressOrPort: string;
+  templateId: ThermalTemplateType | StandardInvoiceTemplateType;
+  copies: number;
+  autoCut: boolean;
+  openCashDrawer: boolean;
+  autoPrintOnSale: boolean;
+  branchId: string; // 'ALL' or specific Branch.id
+  isDefaultForCategory: boolean;
+  isGlobalDefault: boolean;
+  isActive: boolean;
+  notes?: string;
+  lastTestedAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface LandedCost {

@@ -158,6 +158,9 @@ export const POSView: React.FC = React.memo(() => {
     activeIndustry,
     setActiveIndustry,
     invoiceTemplateSettings,
+    printerProfiles,
+    defaultGlobalPrinter,
+    getDefaultPrinterForMode,
     kitchenTickets,
     sendCartToKitchen,
     advanceKitchenTicket,
@@ -169,6 +172,7 @@ export const POSView: React.FC = React.memo(() => {
     customers,
     addCustomer,
     setActiveTab,
+    setRequestedSettingsTab,
   } = useERP();
 
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -207,6 +211,7 @@ export const POSView: React.FC = React.memo(() => {
   const [completedInvoice, setCompletedInvoice] = useState<SalesInvoice | null>(null);
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const [receiptViewMode, setReceiptViewMode] = useState<'thermal' | 'a4'>('thermal');
+  const [selectedPrinterProfileId, setSelectedPrinterProfileId] = useState<string>('');
   const [selectedThermalOverride, setSelectedThermalOverride] = useState<ThermalTemplateType | undefined>(
     undefined
   );
@@ -948,8 +953,22 @@ export const POSView: React.FC = React.memo(() => {
         setCheckoutNotes('');
         setIsCheckoutModalOpen(false);
         if (preferA4Warranty) {
+          const a4Printer = getDefaultPrinterForMode('a4', currentBranch?.id);
+          setSelectedPrinterProfileId(a4Printer?.id || '');
           setReceiptViewMode('a4');
           setSelectedA4Override('a4_warranty_electronics');
+        } else if (defaultGlobalPrinter) {
+          setSelectedPrinterProfileId(defaultGlobalPrinter.id);
+          if (defaultGlobalPrinter.category === 'A4') {
+            setReceiptViewMode('a4');
+            setSelectedA4Override(defaultGlobalPrinter.templateId as StandardInvoiceTemplateType);
+          } else {
+            setReceiptViewMode('thermal');
+            setSelectedThermalOverride(
+              (defaultGlobalPrinter.templateId as ThermalTemplateType) ||
+                (activeIndustry === 'electronics' ? 'thermal_80mm_warranty' : undefined)
+            );
+          }
         } else {
           setReceiptViewMode('thermal');
           setSelectedThermalOverride(
@@ -3003,9 +3022,54 @@ export const POSView: React.FC = React.memo(() => {
                       : `معاينة وطباعة الفاتورة (${completedInvoice.invoiceNumber})`}
                   </span>
                   <p className="text-[11px] text-slate-500">
-                    تظهر الفاتورة بشعار وهوية منشأتك الخاصة — اختر القالب المناسب للطباعة
+                    تظهر الفاتورة بشعار وهوية منشأتك الخاصة — اختر الطابعة أو القالب المناسب للطباعة
                   </p>
                 </div>
+              </div>
+
+              {/* Active POS Printer Profile Selector */}
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <label htmlFor="pos-active-printer-select" className="text-[11px] font-semibold text-slate-600">
+                  الطابعة:
+                </label>
+                <select
+                  id="pos-active-printer-select"
+                  data-testid="pos-active-printer-select"
+                  value={selectedPrinterProfileId || defaultGlobalPrinter?.id || ''}
+                  onChange={(e) => {
+                    const nextId = e.target.value;
+                    setSelectedPrinterProfileId(nextId);
+                    const matched = printerProfiles.find((p) => p.id === nextId);
+                    if (matched) {
+                      if (matched.category === 'A4') {
+                        setReceiptViewMode('a4');
+                        setSelectedA4Override(matched.templateId as StandardInvoiceTemplateType);
+                      } else {
+                        setReceiptViewMode('thermal');
+                        setSelectedThermalOverride(matched.templateId as ThermalTemplateType);
+                      }
+                    }
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-800 font-semibold text-xs"
+                >
+                  {printerProfiles.map((prn) => (
+                    <option key={prn.id} value={prn.id}>
+                      {prn.name} ({prn.paperSize}){prn.isGlobalDefault ? ' ★' : ''}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsReceiptModalOpen(false);
+                    setRequestedSettingsTab('printers');
+                    setActiveTab('settings');
+                    setTimeout(() => window.dispatchEvent(new CustomEvent('haseb-open-printers-tab')), 40);
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold cursor-pointer whitespace-nowrap"
+                >
+                  إدارة الطابعات
+                </button>
               </div>
 
               <div className="flex flex-wrap items-center gap-1.5 text-xs">

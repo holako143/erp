@@ -75,7 +75,19 @@ import {
   BranchNodeInfo,
   CrossBranchStockItem,
   InterBranchTransferRequest,
+  PosPrinterProfile,
 } from '../types/erp';
+import {
+  PrinterProfileInput,
+  createDefaultPrinterProfiles,
+  upsertPrinterProfile as upsertPrinterProfilePure,
+  setDefaultPrinterProfile as setDefaultPrinterProfilePure,
+  deletePrinterProfile as deletePrinterProfilePure,
+  markPrinterTested as markPrinterTestedPure,
+  resolveDefaultPrinterForMode,
+  resolveGlobalDefaultPrinter,
+  normalizePrinterProfileDefaults,
+} from '../core/printerProfileEngine';
 import {
   UniversalAiConfigPublic,
   UniversalAiConfigInput,
@@ -488,6 +500,7 @@ interface ERPContextType {
   requestedSettingsTab:
     | 'central_hub'
     | 'templates'
+    | 'printers'
     | 'company'
     | 'sound_alerts'
     | 'backup'
@@ -497,6 +510,7 @@ interface ERPContextType {
     tab:
       | 'central_hub'
       | 'templates'
+      | 'printers'
       | 'company'
       | 'sound_alerts'
       | 'backup'
@@ -510,6 +524,13 @@ interface ERPContextType {
   invoiceTemplateSettings: InvoiceTemplateSettings;
   updateInvoiceTemplateSettings: (patch: Partial<InvoiceTemplateSettings>) => void;
   resetInvoiceTemplateSettings: () => void;
+  printerProfiles: PosPrinterProfile[];
+  defaultGlobalPrinter: PosPrinterProfile | null;
+  savePrinterProfile: (input: PrinterProfileInput) => PosPrinterProfile;
+  setDefaultPrinter: (profileId: string, scope: 'GLOBAL' | 'CATEGORY') => void;
+  removePrinterProfile: (profileId: string) => { success: boolean; errorAr?: string };
+  markPrinterProfileTested: (profileId: string, testedAtIso?: string) => void;
+  getDefaultPrinterForMode: (mode: 'thermal' | 'a4', branchId?: string) => PosPrinterProfile | null;
   isCommandPaletteOpen: boolean;
   setIsCommandPaletteOpen: (open: boolean) => void;
   backendConnected: boolean;
@@ -1117,7 +1138,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
   const [activeTab, setActiveTab] = useState<string>('pos');
   const [requestedSettingsTab, setRequestedSettingsTab] = useState<
-    'central_hub' | 'templates' | 'company' | 'sound_alerts' | 'backup' | 'system_setup' | null
+    'central_hub' | 'templates' | 'printers' | 'company' | 'sound_alerts' | 'backup' | 'system_setup' | null
   >(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [activeIndustryState, setActiveIndustryState] = useState<IndustryType>('electronics');
@@ -1126,6 +1147,71 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     masterSystemConfig
   );
   const [invoiceTemplateSettings, setInvoiceTemplateSettings] = useState<InvoiceTemplateSettings>(DEFAULT_TEMPLATE_SETTINGS);
+  const [printerProfiles, setPrinterProfiles] = useState<PosPrinterProfile[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = window.localStorage.getItem('haseb_printer_profiles_v1');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return normalizePrinterProfileDefaults(parsed);
+          }
+        }
+      } catch {
+        // ignore storage parse error
+      }
+    }
+    return createDefaultPrinterProfiles();
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem('haseb_printer_profiles_v1', JSON.stringify(printerProfiles));
+    } catch {
+      // ignore quota error
+    }
+  }, [printerProfiles]);
+
+  const defaultGlobalPrinter = useMemo(
+    () => resolveGlobalDefaultPrinter(printerProfiles),
+    [printerProfiles]
+  );
+
+  const savePrinterProfile = useCallback((input: PrinterProfileInput): PosPrinterProfile => {
+    let savedProfile: PosPrinterProfile | null = null;
+    setPrinterProfiles((prev) => {
+      const res = upsertPrinterProfilePure(prev, input);
+      savedProfile = res.saved;
+      return res.profiles;
+    });
+    return savedProfile || upsertPrinterProfilePure(printerProfiles, input).saved;
+  }, [printerProfiles]);
+
+  const setDefaultPrinter = useCallback((profileId: string, scope: 'GLOBAL' | 'CATEGORY') => {
+    setPrinterProfiles((prev) => setDefaultPrinterProfilePure(prev, profileId, scope));
+  }, []);
+
+  const removePrinterProfile = useCallback(
+    (profileId: string): { success: boolean; errorAr?: string } => {
+      const check = deletePrinterProfilePure(printerProfiles, profileId);
+      if (check.success) {
+        setPrinterProfiles(check.profiles);
+      }
+      return { success: check.success, errorAr: check.errorAr };
+    },
+    [printerProfiles]
+  );
+
+  const markPrinterProfileTested = useCallback((profileId: string, testedAtIso?: string) => {
+    setPrinterProfiles((prev) => markPrinterTestedPure(prev, profileId, testedAtIso));
+  }, []);
+
+  const getDefaultPrinterForMode = useCallback(
+    (mode: 'thermal' | 'a4', branchId?: string) =>
+      resolveDefaultPrinterForMode(printerProfiles, mode, branchId),
+    [printerProfiles]
+  );
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isStandaloneKeygenOpen, setIsStandaloneKeygenOpen] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
@@ -3567,6 +3653,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (d.invoiceTemplateSettings) {
       setInvoiceTemplateSettings({ ...DEFAULT_TEMPLATE_SETTINGS, ...d.invoiceTemplateSettings });
     }
+    if (Array.isArray(d.printerProfiles) && d.printerProfiles.length > 0) {
+      setPrinterProfiles(normalizePrinterProfileDefaults(d.printerProfiles));
+    }
     if (Array.isArray(d.outboundMessages)) {
       setOutboundMessages(d.outboundMessages);
     }
@@ -4391,6 +4480,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       isSimulatedClockTampered,
       simulatedTamperedComponent,
       invoiceTemplateSettings,
+      printerProfiles,
       outboundMessages,
       messagingGatewayConfig,
       whatsappAccounts,
@@ -4545,6 +4635,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     isSimulatedClockTampered,
     simulatedTamperedComponent,
     invoiceTemplateSettings,
+    printerProfiles,
     outboundMessages,
     messagingGatewayConfig,
     whatsappAccounts,
@@ -8630,6 +8721,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       company,
       activeIndustry,
       invoiceTemplateSettings,
+      printerProfiles,
       branches,
       warehouses,
       productsCount: products.length,
@@ -8725,6 +8817,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (parsed.activeIndustry) setActiveIndustryState(parsed.activeIndustry);
       if (parsed.invoiceTemplateSettings) {
         setInvoiceTemplateSettings((prev) => ({ ...prev, ...parsed.invoiceTemplateSettings }));
+      }
+      if (Array.isArray(parsed.printerProfiles) && parsed.printerProfiles.length > 0) {
+        setPrinterProfiles(normalizePrinterProfileDefaults(parsed.printerProfiles));
       }
       setAuditLogs((prev) => [
         {
@@ -10125,6 +10220,13 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         invoiceTemplateSettings,
         updateInvoiceTemplateSettings,
         resetInvoiceTemplateSettings,
+        printerProfiles,
+        defaultGlobalPrinter,
+        savePrinterProfile,
+        setDefaultPrinter,
+        removePrinterProfile,
+        markPrinterProfileTested,
+        getDefaultPrinterForMode,
         isCommandPaletteOpen,
         setIsCommandPaletteOpen,
         backendConnected,

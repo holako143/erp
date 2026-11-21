@@ -61,8 +61,13 @@ import {
 import { useAlertSound } from '../hooks/useAlertSound';
 import { PWAInstallButton } from '../components/layout/PWAInstallBanner';
 import type { SystemReadinessReport } from '../core/installerEngine';
-import { computeNextDailyBackupIso } from '../core/backupSchedulerEngine';
+import {
+  computeNextDailyBackupIso,
+  DEFAULT_RECURRING_BACKUP_CONFIG,
+} from '../core/backupSchedulerEngine';
 import { AiThemeAndPreviewStudio } from '../components/settings/AiThemeAndPreviewStudio';
+import { RecurringBackupSchedulerCard } from '../components/settings/RecurringBackupSchedulerCard';
+import { PrinterConfigurationManager } from '../components/settings/PrinterConfigurationManager';
 import { InvoiceTemplateManager } from '../components/invoices/InvoiceTemplateManager';
 import { useModalLayer, renderModalPortal } from '../core/modalLayerEngine';
 
@@ -116,6 +121,11 @@ export const SettingsView: React.FC = () => {
     downloadLatestDailyBackup,
     requestedSettingsTab,
     setRequestedSettingsTab,
+    printerProfiles,
+    savePrinterProfile,
+    setDefaultPrinter,
+    removePrinterProfile,
+    markPrinterProfileTested,
   } = useERP();
 
   const { playAlertSound, activeSoundProfile } = useAlertSound({
@@ -123,9 +133,9 @@ export const SettingsView: React.FC = () => {
     preferences: soundAlertPrefs,
   });
 
-  // Top-level tabs: central hub, templates, company profile, sound alerts, backup, system_setup
+  // Top-level tabs: central hub, templates, printers, company profile, sound alerts, backup, system_setup
   const [activeSettingsTab, setActiveSettingsTab] = useState<
-    'central_hub' | 'templates' | 'company' | 'sound_alerts' | 'backup' | 'system_setup'
+    'central_hub' | 'templates' | 'printers' | 'company' | 'sound_alerts' | 'backup' | 'system_setup'
   >(() => requestedSettingsTab || 'central_hub');
 
   // Sub-segmented view inside the Central Branches & Warehouses Hub
@@ -232,24 +242,26 @@ export const SettingsView: React.FC = () => {
     const openBackup = () => {
       setActiveSettingsTab('backup');
     };
+    const openPrinters = () => {
+      setActiveSettingsTab('printers');
+    };
     window.addEventListener('haseb-open-invoice-studio', openStudio);
     window.addEventListener('haseb-open-backup-tab', openBackup);
+    window.addEventListener('haseb-open-printers-tab', openPrinters);
     return () => {
       window.removeEventListener('haseb-open-invoice-studio', openStudio);
       window.removeEventListener('haseb-open-backup-tab', openBackup);
+      window.removeEventListener('haseb-open-printers-tab', openPrinters);
     };
   }, []);
 
   // Disaster recovery & server scheduled auto-backup state
   const [snapshotPassphrase, setSnapshotPassphrase] = useState('RLM-DEFAULT-RECOVERY-KEY-2026');
-  const [serverBackupConfig, setServerBackupConfig] = useState<AutoBackupConfig>({
-    schedule: 'EVERY_6_HOURS',
-    maxRetentionCount: 15,
-    includeSqliteCopy: true,
-  });
+  const [serverBackupConfig, setServerBackupConfig] = useState<AutoBackupConfig>(
+    DEFAULT_RECURRING_BACKUP_CONFIG
+  );
   const [serverBackupsList, setServerBackupsList] = useState<ServerBackupMetadata[]>([]);
   const [isBackupBusy, setIsBackupBusy] = useState(false);
-  const [confirmRestoreFilename, setConfirmRestoreFilename] = useState<string | null>(null);
   const [auditChainStatus, setAuditChainStatus] = useState<{
     valid: boolean;
     totalEntries: number;
@@ -891,6 +903,12 @@ export const SettingsView: React.FC = () => {
             icon: Receipt,
           },
           {
+            id: 'printers',
+            label: language === 'ar' ? 'إدارة الطابعات (حراري / A4)' : 'POS Printers (Receipt / A4)',
+            count: printerProfiles.length,
+            icon: Printer,
+          },
+          {
             id: 'company',
             label: 'بيانات المنشأة والضرائب ووضع القطاع',
             icon: Building2,
@@ -902,7 +920,7 @@ export const SettingsView: React.FC = () => {
           },
           {
             id: 'backup',
-            label: 'النسخ الاحتياطي والأمان المحلي',
+            label: 'النسخ الاحتياطي والجدولة السحابية',
             icon: Download,
           },
           {
@@ -2143,6 +2161,20 @@ export const SettingsView: React.FC = () => {
       {/* ====================================================================
           TAB 3: COMPANY PROFILE, CUSTOM LOGO & SECTOR PRESET
       ==================================================================== */}
+      {activeSettingsTab === 'printers' && (
+        <PrinterConfigurationManager
+          language={language}
+          companyName={company.nameAr || currentTenant.legalName}
+          branches={branches}
+          profiles={printerProfiles}
+          onSaveProfile={savePrinterProfile}
+          onSetDefault={setDefaultPrinter}
+          onDeleteProfile={removePrinterProfile}
+          onMarkTested={markPrinterProfileTested}
+          onFeedback={showBanner}
+        />
+      )}
+
       {activeSettingsTab === 'company' && (
         <div className="max-w-4xl space-y-4">
           <form
@@ -2593,7 +2625,7 @@ export const SettingsView: React.FC = () => {
           TAB 4: DISASTER RECOVERY & BACKUP
       ==================================================================== */}
       {activeSettingsTab === 'backup' && (
-        <div className="max-w-3xl bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-4">
+        <div className="max-w-5xl bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-5">
           <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
             <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <ShieldCheck className="w-4 h-4 text-emerald-600" />
@@ -2904,211 +2936,18 @@ export const SettingsView: React.FC = () => {
               </div>
             )}
 
-            {/* Scheduled Server Auto-Backup & One-Click Restore */}
-            <div
-              data-testid="scheduled-auto-backup-panel"
-              className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 space-y-3"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5">
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-emerald-600" />
-                  <div>
-                    <div className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                      النسخ الاحتياطي التلقائي المجدول والاستعادة بضغطة زر
-                    </div>
-                    <div className="text-[10.5px] text-slate-500">
-                      يحفظ نسخاً محققة ببصمة SHA-256 على الخادم المحلي (.data/backups) مع استعادة فورية لجميع الأجهزة
-                    </div>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  data-testid="btn-run-backup-now"
-                  disabled={isBackupBusy}
-                  onClick={async () => {
-                    setIsBackupBusy(true);
-                    try {
-                      const res = await fetch('/api/v1/backups/run-now', { method: 'POST' });
-                      const json = await res.json();
-                      if (json?.success) {
-                        if (json.config) setServerBackupConfig(json.config);
-                        if (Array.isArray(json.backups)) setServerBackupsList(json.backups);
-                        setRestoreFeedback(
-                          `✓ تم إنشاء نسخة احتياطية محققة على الخادم (${json.created?.filename}) بنجاح.`
-                        );
-                      }
-                    } finally {
-                      setIsBackupBusy(false);
-                    }
-                  }}
-                  className="px-3 py-1.5 rounded-lg haseb-btn-primary text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                >
-                  <Database className="w-3.5 h-3.5" />
-                  <span>نسخ احتياطي فوري</span>
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs items-end">
-                <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    تكرار النسخ التلقائي
-                  </label>
-                  <select
-                    data-testid="backup-schedule-select"
-                    value={serverBackupConfig.schedule}
-                    onChange={(e) =>
-                      setServerBackupConfig((prev) => ({
-                        ...prev,
-                        schedule: e.target.value as AutoBackupSchedule,
-                      }))
-                    }
-                    className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold"
-                  >
-                    <option value="HOURLY">كل ساعة (Hourly)</option>
-                    <option value="EVERY_6_HOURS">كل 6 ساعات (موصى به)</option>
-                    <option value="DAILY">يومياً (Daily)</option>
-                    <option value="OFF">إيقاف الجدولة التلقائية</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    الحد الأقصى للنسخ المحفوظة
-                  </label>
-                  <input
-                    type="number"
-                    min={3}
-                    max={100}
-                    value={serverBackupConfig.maxRetentionCount}
-                    onChange={(e) =>
-                      setServerBackupConfig((prev) => ({
-                        ...prev,
-                        maxRetentionCount: Number(e.target.value) || 15,
-                      }))
-                    }
-                    className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-mono font-bold"
-                  />
-                </div>
-                <button
-                  type="button"
-                  data-testid="btn-save-backup-config"
-                  disabled={isBackupBusy}
-                  onClick={async () => {
-                    setIsBackupBusy(true);
-                    try {
-                      const res = await fetch('/api/v1/backups/config', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(serverBackupConfig),
-                      });
-                      const json = await res.json();
-                      if (json?.success) {
-                        setServerBackupConfig(json.config);
-                        setRestoreFeedback('✓ تم حفظ إعدادات الجدولة والاحتفاظ بالنسخ التلقائية.');
-                      }
-                    } finally {
-                      setIsBackupBusy(false);
-                    }
-                  }}
-                  className="py-2 px-3 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-bold cursor-pointer"
-                >
-                  حفظ إعدادات الجدولة
-                </button>
-              </div>
-
-              {serverBackupsList.length > 0 && (
-                <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-lg">
-                  <table className="w-full text-[11px] text-start">
-                    <thead className="bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
-                      <tr>
-                        <th className="py-2 px-2.5 text-start">الملف / التوقيت</th>
-                        <th className="py-2 px-2.5 text-center">النوع</th>
-                        <th className="py-2 px-2.5 text-center">الأصناف / الفواتير</th>
-                        <th className="py-2 px-2.5 text-end">الحجم</th>
-                        <th className="py-2 px-2.5 text-center">الاستعادة</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {serverBackupsList.slice(0, 8).map((bkp) => (
-                        <tr key={bkp.filename}>
-                          <td className="py-2 px-2.5">
-                            <div className="font-mono font-bold text-slate-800 dark:text-slate-200 truncate max-w-[200px]" dir="ltr">
-                              {bkp.filename}
-                            </div>
-                            <div className="text-[10px] text-slate-400">
-                              SHA256: {bkp.checksumSha256.slice(0, 12)}...
-                            </div>
-                          </td>
-                          <td className="py-2 px-2.5 text-center">
-                            <span
-                              className={`px-2 py-0.5 rounded font-bold text-[10px] ${
-                                bkp.trigger === 'AUTO'
-                                  ? 'bg-blue-50 text-blue-700'
-                                  : 'bg-emerald-50 text-emerald-700'
-                              }`}
-                            >
-                              {bkp.trigger === 'AUTO' ? 'تلقائي' : 'يدوي'}
-                            </span>
-                          </td>
-                          <td className="py-2 px-2.5 text-center font-mono">
-                            {bkp.productsCount} / {bkp.invoicesCount}
-                          </td>
-                          <td className="py-2 px-2.5 text-end font-mono">
-                            {(bkp.sizeBytes / 1024).toFixed(1)} KB
-                          </td>
-                          <td className="py-2 px-2.5 text-center">
-                            <div className="flex items-center justify-center gap-1.5">
-                              <a
-                                href={`/api/v1/backups/download/${encodeURIComponent(bkp.filename)}`}
-                                download={bkp.filename}
-                                className="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold"
-                              >
-                                تنزيل
-                              </a>
-                              {confirmRestoreFilename === bkp.filename ? (
-                                <button
-                                  type="button"
-                                  disabled={isBackupBusy}
-                                  onClick={async () => {
-                                    setIsBackupBusy(true);
-                                    try {
-                                      const res = await fetch('/api/v1/backups/restore', {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ filename: bkp.filename }),
-                                      });
-                                      const json = await res.json();
-                                      if (json?.success) {
-                                        await reloadStateFromServer();
-                                      }
-                                      setConfirmRestoreFilename(null);
-                                      setRestoreFeedback(json?.messageAr || 'تمت الاستعادة بنجاح');
-                                    } finally {
-                                      setIsBackupBusy(false);
-                                    }
-                                  }}
-                                  className="px-2 py-1 rounded bg-rose-600 hover:bg-rose-700 text-white font-bold cursor-pointer"
-                                >
-                                  تأكيد الاستعادة
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  data-testid={`btn-restore-${bkp.filename}`}
-                                  onClick={() => setConfirmRestoreFilename(bkp.filename)}
-                                  className="px-2 py-1 rounded bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-bold cursor-pointer"
-                                >
-                                  استعادة
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
+            {/* Recurring Backup Scheduler (Local & Cloud Frequencies) & Archive History */}
+            <RecurringBackupSchedulerCard
+              language={language}
+              config={serverBackupConfig}
+              setConfig={setServerBackupConfig}
+              backupsList={serverBackupsList}
+              setBackupsList={setServerBackupsList}
+              isBusy={isBackupBusy}
+              setIsBusy={setIsBackupBusy}
+              onFeedback={(msg) => setRestoreFeedback(msg)}
+              onReloadServerState={reloadStateFromServer}
+            />
 
             {/* IndexedDB Offline POS Queue & Resilient Snapshot Cache */}
             <div
